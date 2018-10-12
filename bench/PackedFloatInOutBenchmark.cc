@@ -1,0 +1,269 @@
+/*
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ * All rights reserved.
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+#ifdef USE_MKL
+#include <mkl.h>
+#endif
+
+#include "fbgemm/Fbgemm.h"
+#include "src/RefImplementations.h"
+#include "test/QuantizationHelpers.h"
+#include "BenchUtils.h"
+
+using namespace std;
+using namespace fbgemm2;
+
+void performance_test() {
+  vector<vector<int>> shapes = {
+      {1, 128, 512},
+      {1, 1024, 256},
+      {1, 2048, 512},
+      {1, 4096, 1024},
+
+      {6, 256, 1024},
+      {6, 256, 2048},
+      {6, 512, 512},
+      {6, 1024, 256},
+      {6, 2048, 256},
+      {6, 2048, 512},
+      {6, 4096, 256},
+      {6, 4096, 1024},
+      {6, 4096, 2048},
+
+      {10, 2048, 256},
+      {10, 4096, 1024},
+
+      {20, 2048, 256},
+      {20, 4096, 1024},
+
+      {102, 1024, 512},
+      {102, 2323, 256},
+      {102, 512, 256},
+
+      {1, 800, 3200},
+      {1, 800, 8000},
+
+      {16, 256, 1500},
+      {16, 256, 1567},
+      {1, 128, 2876},
+      {16, 128, 1567},
+      {1, 128, 2722},
+      {16, 256, 512},
+  };
+  bool flush = true;
+  std::vector<char> llc;
+
+  if (flush) {
+    llc.resize(128 * 1024 * 1024, 1.0);
+  }
+
+  constexpr int NWARMUP = 4;
+  constexpr int NITER = 10;
+
+  cout << setw(7) << "M, " << setw(7) << "N, " << setw(7) << "K, " << setw(18)
+       << "Type, " << setw(5) << "GOPS" << endl;
+
+  chrono::time_point<chrono::high_resolution_clock> start, end;
+  for (auto shape : shapes) {
+    int m = shape[0];
+    int n = shape[1];
+    int k = shape[2];
+
+    float alpha = 1.f, beta = 0.f;
+    aligned_vector<float> Afp32(m * k, 0.0f);
+    aligned_vector<uint8_t> Aint8(m * k, 0);
+
+    aligned_vector<float> Bfp32(k * n, 0.0f);
+    aligned_vector<int8_t> Bint8(k * n, 0);
+
+    aligned_vector<float> Cfp32_mkl(m * n, 0.0f);
+    aligned_vector<float> Cfp32_fb(m * n, 0.0f);
+
+    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
+    aligned_vector<int32_t> Cint32_buffer(m * n, 0);
+
+    // A matrix
+    randFill(Aint8, 0, 255);
+    float Aint8_scale = 0.11;
+    int32_t Aint8_zero_point = 43;
+    for (auto i = 0; i < Afp32.size(); ++i) {
+      Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
+    }
+
+    randFill(Bint8, -128, 127);
+    avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
+
+    float Bint8_scale = 0.49;
+    int32_t Bint8_zero_point = -30;
+    for (auto i = 0; i < Bfp32.size(); ++i) {
+      Bfp32[i] = Bint8_scale * (Bint8[i] - Bint8_zero_point);
+    }
+
+    // computing column offset
+    vector<int32_t> col_offsets;
+    col_offsets.resize(n);
+    col_offsets_with_zero_pt_s8acc32_ref(
+        k, n, n, Bint8.data(), Bint8_zero_point, col_offsets.data());
+
+    double ttot = 0;
+    std::string type;
+    double nops = 2.0 * (double)m * (double)n * (double)k * (double)NITER;
+#ifdef USE_MKL
+    type = "MKL_FP32";
+    for (auto i = 0; i < NWARMUP + NITER; ++i) {
+      llc_flush(llc);
+      start = chrono::high_resolution_clock::now();
+      cblas_sgemm(
+          CblasRowMajor,
+          CblasNoTrans,
+          CblasNoTrans,
+          m,
+          n,
+          k,
+          alpha,
+          Afp32.data(),
+          k,
+          Bfp32.data(),
+          n,
+          beta,
+          Cfp32_mkl.data(),
+          n);
+      end = chrono::high_resolution_clock::now();
+
+      if (i >= NWARMUP) {
+        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
+        ttot += dur.count();
+      }
+    }
+    ((volatile char*)(llc.data()));
+    cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
+         << setw(16) << type << ", " << setw(5) << fixed << setw(5)
+         << setprecision(1) << nops / ttot << endl;
+#endif
+
+    int32_t C_multiplier = 16544;
+    int32_t C_right_shift = 35;
+    int32_t C_zero_pt = 5;
+
+    // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
+    // unpacked");
+    // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
+    // "A unpacked");
+    // printMatrix(matrix_op_t::NoTranspose, Cfp32_mkl.data(),
+    // m, n, n, "C mkl fp32");
+    // printMatrix(matrix_op_t::NoTranspose,
+    // Cint8_local.data(), m, n, n, "C requantized");
+    // printMatrix(matrix_op_t::NoTranspose, col_offsets.data(), 1, n, n, "col
+    // offsets before");
+
+    vector<int32_t> row_offset_buf;
+    row_offset_buf.resize(
+        PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
+
+    PackAWithQuantRowOffset<uint8_t> packAN(
+        matrix_op_t::NoTranspose,
+        m,
+        k,
+        Afp32.data(),
+        k,
+        nullptr, /*buffer for packed matrix*/
+        Aint8_scale,
+        Aint8_zero_point,
+        1, /*groups*/
+        row_offset_buf.data());
+
+    PackBMatrix<int8_t> packedBN(
+        matrix_op_t::NoTranspose,
+        k,
+        n,
+        Bint8.data(),
+        n,
+        nullptr,
+        1,
+        Bint8_zero_point);
+
+    DoNothing<float, float> doNothingObj{};
+    ReQuantizeForFloat<false> outputProcObj(
+        doNothingObj,
+        Aint8_scale,
+        Bint8_scale,
+        Aint8_zero_point,
+        Bint8_zero_point,
+        packAN.getRowOffsetBuffer(),
+        col_offsets.data(),
+        nullptr);
+
+    ttot = 0;
+    type = "FBGEMM_i8_acc32";
+    for (auto i = 0; i < NWARMUP + NITER; ++i) {
+      llc_flush(llc);
+      start = chrono::high_resolution_clock::now();
+      fbgemmPacked(
+          packAN,
+          packedBN,
+          Cfp32_fb.data(),
+          (int32_t*)Cfp32_fb.data(),
+          n,
+          outputProcObj,
+          0,
+          1);
+      end = chrono::high_resolution_clock::now();
+
+      if (i >= NWARMUP) {
+        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
+        ttot += dur.count();
+      }
+    }
+    ((volatile char*)(llc.data()));
+    // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
+    // unpacked");
+    // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
+    // "A unpacked");
+    // printMatrix(matrix_op_t::NoTranspose, Cint8_local.data(),
+    // m, n, n, "C requantized after");
+    // printMatrix(matrix_op_t::NoTranspose,
+    // Cint8_fb.data(), m, n, n, "C fb");
+    // printMatrix(matrix_op_t::NoTranspose,
+    // col_offsets.data(), 1, n, n, "col offsets after");
+    // compare_buffers(row_offsets.data(), row_offset_buf.data(),
+    // row_offsets.size(), 5);
+    // printMatrix(matrix_op_t::NoTranspose, Cfp32_fb.data(),
+    // m, n, n, "C fb fp32");
+    cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
+         << setw(16) << type << ", " << setw(5) << fixed << setw(5)
+         << setprecision(1) << nops / ttot << endl;
+    cout << endl;
+    // cout << "total time: " << ttot << " ns" << endl;
+
+    float maximum = *max_element(Cfp32_mkl.begin(), Cfp32_mkl.end());
+    float minimum = *min_element(Cfp32_mkl.begin(), Cfp32_mkl.end());
+    float atol = (maximum - minimum) / 255 / 1.9;
+
+#ifdef USE_MKL
+    // correctness check
+    compare_buffers(Cfp32_mkl.data(), Cfp32_fb.data(), m, n, n, 5, atol);
+#endif
+  }
+}
+
+int main(int /* unused */, char** /* unused */) {
+#ifdef _OPENMP
+  omp_set_num_threads(1);
+#endif
+  performance_test();
+  return 0;
+}
