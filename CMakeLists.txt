@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.7 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -96,17 +96,17 @@ if(NOT TARGET asmjit)
 endif()
 
 if(NOT TARGET cpuinfo)
-  #Download cpuinfo from github if CPUINFO_SRC_DIR is not specified.
-  if(NOT DEFINED CPUINFO_SRC_DIR)
+  #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
+  if(NOT DEFINED CPUINFO_SOURCE_DIR)
     message(STATUS "Downloading cpuinfo to ${FBGEMM_THIRDPARTY_DIR}/cpuinfo
-    (define CPUINFO_SRC_DIR to avoid it)")
+    (define CPUINFO_SOURCE_DIR to avoid it)")
     configure_file("${FBGEMM_SOURCE_DIR}/cmake/modules/DownloadCPUINFO.cmake"
       "${FBGEMM_BINARY_DIR}/cpuinfo-download/CMakeLists.txt")
     execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
       WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/cpuinfo-download")
     execute_process(COMMAND "${CMAKE_COMMAND}" --build .
       WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/cpuinfo-download")
-    set(CPUINFO_SRC_DIR "${FBGEMM_THIRDPARTY_DIR}/cpuinfo" CACHE STRING
+    set(CPUINFO_SOURCE_DIR "${FBGEMM_THIRDPARTY_DIR}/cpuinfo" CACHE STRING
       "cpuinfo source directory")
   endif()
 
@@ -115,7 +115,7 @@ if(NOT TARGET cpuinfo)
   set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Do not build cpuinfo mock tests")
   set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Do not build cpuinfo benchmarks")
   set(CPUINFO_LIBRARY_TYPE static)
-  add_subdirectory("${CPUINFO_SRC_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
+  add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
@@ -123,13 +123,13 @@ target_include_directories(fbgemm_avx2 BEFORE
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
       PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SRC_DIR}/include")
+      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
 target_include_directories(fbgemm_avx512 BEFORE
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
       PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SRC_DIR}/include")
+      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
   add_library(fbgemm $<TARGET_OBJECTS:fbgemm_avx2>

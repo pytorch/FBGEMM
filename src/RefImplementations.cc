@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 
 using namespace std;
 
@@ -226,6 +227,12 @@ int32_t clip_16bit(int32_t x) {
   }
 }
 
+/* Imitate the Im2Col<float, CPUContext, StorageOrder::NHWC> function
+ * from caffe2/utils/math_cpu.cc
+ * NHWC StorageOrder/Layout
+ * A:  NHWC: NH_0W_0 x C_0
+ * Ao: NHWC: NH_1W_1 x RSC_0
+ */
 void im2col_ref(
     const conv_param_t& conv_p,
     const std::uint8_t* A,
@@ -238,20 +245,27 @@ void im2col_ref(
           int h_in = -conv_p.pad_h + h * conv_p.stride_h + r;
           for (int s = 0; s < conv_p.KW; ++s) {
             int w_in = -conv_p.pad_w + w * conv_p.stride_w + s;
-            for (int c = 0; c < conv_p.IC; ++c) {
-              // Ai: NHWC: NH_0W_0 x C_0
-              std::uint8_t val =
-                  h_in < 0 || h_in >= conv_p.IH || w_in < 0 || w_in >= conv_p.IW
-                  ? A_zero_point
-                  : A[((n * conv_p.IH + h_in) * conv_p.IW + w_in) * conv_p.IC +
-                      c];
-              // Ao: NHWC: NH_1W_1 x RSC_0
-              Ao[((((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.KH + r) *
-                      conv_p.KW +
-                  s) *
-                     conv_p.IC +
-                 c] = val;
-            } // for each c
+            if (h_in < 0 || h_in >= conv_p.IH || w_in < 0 ||
+                w_in >= conv_p.IW) {
+              std::memset(
+                  &Ao[((((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.KH + r) *
+                           conv_p.KW +
+                       s) *
+                          conv_p.IC +
+                      0],
+                  A_zero_point,
+                  sizeof(uint8_t) * conv_p.IC);
+            } else {
+              std::memcpy(
+                  &Ao[((((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.KH + r) *
+                           conv_p.KW +
+                       s) *
+                          conv_p.IC +
+                      0],
+                  &A[((n * conv_p.IH + h_in) * conv_p.IW + w_in) * conv_p.IC +
+                     0],
+                  sizeof(uint8_t) * conv_p.IC);
+            }
           } // for each s
         } // for each r
       } // for each w

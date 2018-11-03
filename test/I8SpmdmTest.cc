@@ -124,7 +124,9 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
       }
     }
 
+#ifdef _OPENMP
 #pragma omp parallel
+#endif
     {
 #ifdef _OPENMP
       int num_threads = omp_get_num_threads();

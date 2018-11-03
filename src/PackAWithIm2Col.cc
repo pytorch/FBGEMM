@@ -10,6 +10,8 @@
 #include <iostream>
 #include "fbgemm/Fbgemm.h"
 
+#include <algorithm>
+
 namespace fbgemm2 {
 
 template <typename T, typename accT>
@@ -50,6 +52,7 @@ PackAWithIm2Col<T, accT>::PackAWithIm2Col(
         aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
   if (row_offset) {
+    rowOffsetAllocatedHere = false;
     row_offset_ = row_offset;
   } else {
     rowOffsetAllocatedHere = true;
@@ -65,39 +68,66 @@ void PackAWithIm2Col<T, accT>::pack(const block_type_t& block) {
                           block.col_start,
                           (block.col_size + row_interleave_B_ - 1) /
                               row_interleave_B_ * row_interleave_B_};
-
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
+
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     int n = i / (conv_p_.OH * conv_p_.OW);
     int hw = i % (conv_p_.OH * conv_p_.OW);
     int w = hw % conv_p_.OW;
     int h = hw / conv_p_.OW;
-    for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-      int c = j % conv_p_.IC;
+    for (int j = block.col_start;
+         j < block.col_start + block.col_size + conv_p_.IC - 1;
+         j += conv_p_.IC) {
+      int j_blk_id = j / conv_p_.IC;
+      // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+      int j_blk_start = std::max(j_blk_id * conv_p_.IC, block.col_start);
+      int j_blk_end = std::min(
+          (j_blk_id + 1) * conv_p_.IC, block.col_start + block.col_size);
+      if (j_blk_start >= j_blk_end) {
+        break;
+      }
+
       int rs = j / conv_p_.IC;
       int s = rs % conv_p_.KW;
       int r = rs / conv_p_.KW;
 
       int w_in = -conv_p_.pad_w + w * conv_p_.stride_w + s;
       int h_in = -conv_p_.pad_h + h * conv_p_.stride_h + r;
-      // Please note that padding for convolution should be filled with zero_pt
+
       if (h_in < 0 || h_in >= conv_p_.IH || w_in < 0 || w_in >= conv_p_.IW) {
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = BaseType::zeroPoint();
+        // Please note that padding for convolution should be filled with
+        // zero_pt
+        std::memset(
+            &out
+                [(i - block.row_start) * BaseType::blockColSize() +
+                 (j_blk_start - block.col_start)],
+            BaseType::zeroPoint(),
+            sizeof(T) * (j_blk_end - j_blk_start));
       } else {
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = sdata_
-            [((n * conv_p_.IH + h_in) * conv_p_.IW + w_in) * conv_p_.IC + c];
+        std::memcpy(
+            &out
+                [(i - block.row_start) * BaseType::blockColSize() +
+                 j_blk_start - block.col_start],
+            &sdata_
+                [((n * conv_p_.IH + h_in) * conv_p_.IW + w_in) * conv_p_.IC +
+                 (j_blk_start % conv_p_.IC)],
+            sizeof(T) * (j_blk_end - j_blk_start));
       }
     }
     // zero fill
     // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
-    for (int j = block.col_start + block.col_size;
-         j < block_p.col_start + block_p.col_size;
-         ++j) {
-      out[(i - block.row_start) * BaseType::blockColSize() +
-          (j - block.col_start)] = 0;
+    if ((block_p.col_start + block_p.col_size) -
+            (block.col_start + block.col_size) >
+        0) {
+      std::memset(
+          &out
+              [(i - block.row_start) * BaseType::blockColSize() +
+               (block.col_size)],
+          0,
+          sizeof(T) *
+              ((block_p.col_start + block_p.col_size) -
+               (block.col_start + block.col_size)));
     }
   }
 }
@@ -111,7 +141,7 @@ void PackAWithIm2Col<T, accT>::printPackedMatrix(std::string name) {
   T* out = BaseType::getBuf();
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
-      T val = out[ r * BaseType::blockColSize() + c ];
+      T val = out[r * BaseType::blockColSize() + c];
       if (std::is_integral<T>::value) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
