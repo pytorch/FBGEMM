@@ -236,7 +236,7 @@ class PackMatrix {
     return last_bcol_ != blockColSize();
   }
 
-  ~PackMatrix() {
+  virtual ~PackMatrix() {
     if (bufAllocatedHere_) {
       free(buf_);
     }
@@ -286,7 +286,7 @@ class PackMatrix {
  * accumulation type is int32.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAMatrix : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
+class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
  public:
   using This = PackAMatrix<T, accT>;
   using BaseType = PackMatrix<This, T, accT>;
@@ -306,7 +306,7 @@ class PackAMatrix : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
       std::int32_t ld,
       inpType* pmat = nullptr,
       std::int32_t groups = 1,
-      accT zero_pt = 0);
+      std::int32_t zero_pt = 0);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -361,7 +361,7 @@ class PackAMatrix : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
  *        type is int32.
  */
 template <typename T, typename accT = std::int32_t>
-class PackBMatrix : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
+class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
  public:
   using This = PackBMatrix<T, accT>;
   using BaseType = PackMatrix<This, T, accT>;
@@ -381,7 +381,7 @@ class PackBMatrix : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
       std::int32_t ld,
       inpType* pmat = nullptr,
       std::int32_t groups = 1,
-      accT zero_pt = 0);
+      std::int32_t zero_pt = 0);
 
   /**
    * Weight matrices are usually constant so worth pre-packing.
@@ -439,7 +439,8 @@ class PackBMatrix : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
  * quantized.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAWithIm2Col : public PackMatrix<PackAWithIm2Col<T, accT>, T, accT> {
+class PackAWithIm2Col final
+    : public PackMatrix<PackAWithIm2Col<T, accT>, T, accT> {
  public:
   using This = PackAWithIm2Col<T, accT>;
   using BaseType = PackMatrix<This, T, accT>;
@@ -499,7 +500,7 @@ class PackAWithIm2Col : public PackMatrix<PackAWithIm2Col<T, accT>, T, accT> {
  *        The source matrix is already quantized.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAWithRowOffset
+class PackAWithRowOffset final
     : public PackMatrix<PackAWithRowOffset<T, accT>, T, accT> {
  public:
   using This = PackAWithRowOffset<T, accT>;
@@ -572,7 +573,7 @@ class PackAWithRowOffset
  *        The source matrix is in fp32 and quantized during packing.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAWithQuantRowOffset
+class PackAWithQuantRowOffset final
     : public PackMatrix<PackAWithQuantRowOffset<T, accT>, T, accT> {
  public:
   using This = PackAWithQuantRowOffset<T, accT>;
@@ -935,7 +936,6 @@ void fbgemmPacked(
 /**
  * @brief Perform depthwise separable convolution
  */
-
 template <
     typename packingAMatrix,
     typename packingBMatrix,
@@ -948,5 +948,16 @@ void convDepthwiseSeparable(
     packingBMatrix& packed_1x1,
     outT* out,
     const processOutputType& output);
+
+/**
+ * @brief Allocate __size bytes of uninitialized storage whose alignment is
+ * specified by __align.
+ */
+static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
+  void* aligned_mem;
+  if (posix_memalign(&aligned_mem, __align, __size))
+    return 0;
+  return aligned_mem;
+}
 
 } // namespace fbgemm2

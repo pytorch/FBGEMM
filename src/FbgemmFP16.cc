@@ -7,6 +7,8 @@
 #include "fbgemm/FbgemmFP16.h"
 
 #include <cpuinfo.h>
+#include <array>
+#include <utility>
 
 #include "FbgemmFP16UKernels.h"
 
@@ -44,7 +46,7 @@ struct KernelInfo {
 
   // autotuned kernel splits for various cases m = 1:mb_max
   // may need re-autotuning for new uarch
-  static constexpr array<array<pair<int, int>, 2>, 121 > partition = {
+  static constexpr array<array<array<int, 2>, 2>, 121 > partition = {
     {
       {{ { 0, 0 }, { 0, 0 } } },
       {{ { 1, 1 }, { 0, 0 } } },
@@ -171,7 +173,7 @@ struct KernelInfo {
   };
 };
 constexpr array<KernelInfo::knl_ptr, 15> KernelInfo::kernel;
-constexpr array<array<pair<int, int>, 2>, 121 > KernelInfo::partition;
+constexpr array<array<array<int, 2>, 2>, 121 > KernelInfo::partition;
 
 // autotuned kernel splits for various cases m = 1:mb_max
 void
@@ -220,8 +222,8 @@ cblas_gemm_compute(const matrix_op_t transa, const int m, const float *A,
       auto m1 = 0;
       for (auto c = 0; c < 2; c++) {
 
-        auto kernel_nrows = KernelInfo::partition[mb][c].first;
-        auto nkernel_nrows = KernelInfo::partition[mb][c].second;
+        auto kernel_nrows = KernelInfo::partition[mb][c][0];
+        auto nkernel_nrows = KernelInfo::partition[mb][c][1];
 
         auto m_start = m1, m_end = m1 + kernel_nrows * nkernel_nrows;
         for (auto m2 = m_start; m2 < m_end; m2 += kernel_nrows) {

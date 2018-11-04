@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 
 using namespace std;
 
@@ -45,7 +46,7 @@ void requantize_u8acc32_ref(
 
       out[i * ld + j] = std::max(
           fuse_relu ? static_cast<int64_t>(C_zero_point) : 0l,
-          std::min(255l, rounded));
+          std::min(static_cast<int64_t>(255l), rounded));
     }
   }
 }

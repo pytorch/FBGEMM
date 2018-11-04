@@ -203,7 +203,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   // a->vpcmpeqw(oneReg, oneReg, oneReg);
   a->vpternlogd(oneReg, oneReg, oneReg, 0xff);
   a->vpsrlw(oneReg, oneReg, 15);
-  a->imul(ldcReg, ldcReg, sizeof(int32_t));
+  a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
   a->mov(C_Offset, 0);
 
   int colRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
@@ -228,19 +228,21 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     a->bind(Loopk);
 
     // k is incremented by row_interleave
-    a->add(kIdx, row_interleave);
+    a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
     genComputeBlock<inst_set_t::avx512>(
         a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock, colRegs);
 
     // update buffer_A address for next k iteration
-    a->add(buffer_A, row_interleave * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
 
     // update buffer_B address for next k iteration
-    a->add(buffer_B, VLEN_ * colRegs * sizeof(int8_t));
-    a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
+    a->add(
+        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
+    a->add(B_pf, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
 
-    // a->add(B_pf, 32*sizeof(float));
+    // a->add(B_pf, static_cast<asmjit::Imm>(32*sizeof(float)));
 
     a->cmp(kIdx, kSize);
     a->jl(Loopk);
@@ -251,10 +253,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
 
     // increment A for next block
     a->sub(buffer_A, kSize);
-    a->add(buffer_A, (rowRegs)*kBlock * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>((rowRegs)*kBlock * sizeof(uint8_t)));
 
     // increment C for next block
-    a->imul(C_Offset, ldcReg, rowRegs);
+    a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs));
     a->add(CBase, C_Offset);
     a->mov(C_Offset, 0);
 
@@ -277,17 +280,19 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     a->bind(LoopkRem);
 
     // k is incremented by row_interleave
-    a->add(kIdx, row_interleave);
+    a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
     genComputeBlock<inst_set_t::avx512>(
         a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock, colRegs);
 
     // update buffer_A address for next k iteration
-    a->add(buffer_A, row_interleave * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
 
     // update buffer_B address for next k iteration
-    a->add(buffer_B, VLEN_ * colRegs * sizeof(int8_t));
-    a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
+    a->add(
+        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
+    a->add(B_pf, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(LoopkRem);

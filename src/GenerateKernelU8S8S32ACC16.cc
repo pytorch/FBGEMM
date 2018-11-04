@@ -94,7 +94,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
   asmjit::X86Ymm extractDest256 = x86::ymm15;
 
   for (int i = 0; i < rowRegs; ++i) {
-    a->imul(C_Offset, ldcReg, i * sizeof(int32_t));
+    a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
         a->vextracti128(
@@ -214,17 +214,19 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     a->mov(kIdx, 0);
     a->bind(Loopk);
     // k is incremented by row_interleave
-    a->add(kIdx, row_interleave);
+    a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
     genComputeBlock<inst_set_t::avx2>(
         a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock);
 
     // update buffer_A address for next k iteration
-    a->add(buffer_A, row_interleave * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
 
     // update buffer_B address for next k iteration
-    a->add(buffer_B, VLEN_ * colRegs * sizeof(int8_t));
-    // a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
+    a->add(
+        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
+    // a->add(B_pf, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(Loopk);
@@ -234,9 +236,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     // increment A for next block
     a->sub(buffer_A, kSize);
-    a->add(buffer_A, (rowRegs)*kBlock * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>((rowRegs)*kBlock * sizeof(uint8_t)));
     // increment C for next block
-    a->imul(C_Offset, ldcReg, rowRegs * sizeof(int32_t));
+    a->imul(
+        C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs * sizeof(int32_t)));
     a->add(CBase, C_Offset);
     // reset B
     a->mov(buffer_B, buffer_B_saved);
@@ -258,16 +262,18 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     a->bind(LoopkRem);
 
     // k is incremented by row_interleave
-    a->add(kIdx, row_interleave);
+    a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
     genComputeBlock<inst_set_t::avx2>(
         a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock);
 
     // update buffer_A address for next k iteration
-    a->add(buffer_A, row_interleave * sizeof(uint8_t));
+    a->add(
+        buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
 
     // update buffer_B address for next k iteration
-    a->add(buffer_B, VLEN_ * colRegs * sizeof(int8_t));
+    a->add(
+        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
     // a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
 
     a->cmp(kIdx, kSize);

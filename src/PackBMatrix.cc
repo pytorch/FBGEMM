@@ -21,7 +21,7 @@ PackBMatrix<T, accT>::PackBMatrix(
     int32_t ld,
     inpType* pmat,
     int32_t groups,
-    accT zero_pt)
+    std::int32_t zero_pt)
     : PackMatrix<PackBMatrix<T, accT>, T, accT>(nRow, nCol, pmat, zero_pt),
       trans_(trans),
       smat_(smat),
@@ -46,7 +46,7 @@ PackBMatrix<T, accT>::PackBMatrix(
   BaseType::packedBlock(block);
   if (!pmat) {
     BaseType::bufAllocatedHere_ = true;
-    BaseType::buf_ = (T*)aligned_alloc(
+    BaseType::buf_ = (T*)fbgemmAlignedAlloc(
         64,
         BaseType::blockRows() * BaseType::brow_ * BaseType::blockCols() *
             BaseType::bcol_ * sizeof(T));

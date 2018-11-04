@@ -49,7 +49,8 @@ PackAWithIm2Col<T, accT>::PackAWithIm2Col(
   } else {
     BaseType::bufAllocatedHere_ = true;
     BaseType::buf_ = static_cast<T*>(
-        aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
+        fbgemmAlignedAlloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
+        //aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
   if (row_offset) {
     rowOffsetAllocatedHere = false;
@@ -57,7 +58,7 @@ PackAWithIm2Col<T, accT>::PackAWithIm2Col(
   } else {
     rowOffsetAllocatedHere = true;
     row_offset_ = static_cast<int32_t*>(
-        aligned_alloc(64, BaseType::brow_ * sizeof(int32_t)));
+        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(int32_t)));
   }
 }
 

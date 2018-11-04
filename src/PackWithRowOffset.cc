@@ -4,12 +4,12 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include <cpuinfo.h>
 #include <cassert>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-#include <cpuinfo.h>
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm2 {
@@ -50,20 +50,20 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
     row_interleave_B_ =
         PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
   } else {
-    //TODO: Have default slower path
+    // TODO: Have default slower path
     assert(0 && "unknown architecure");
   }
   if (pmat) {
     BaseType::buf_ = pmat;
   } else {
     BaseType::bufAllocatedHere_ = true;
-    BaseType::buf_ =
-        (T*)aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
+    BaseType::buf_ = (T*)fbgemmAlignedAlloc(
+        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
   }
   if (!row_offset_) {
     rowOffsetAllocatedHere = true;
-    row_offset_ = static_cast<int32_t*>(aligned_alloc(64,
-        BaseType::brow_ * sizeof(int32_t)));
+    row_offset_ = static_cast<int32_t*>(
+        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(int32_t)));
   }
 }
 
@@ -89,8 +89,8 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   int32_t* row_offset_buf = getRowOffsetBuffer();
   if (tr) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      int32_t row_sum = row_offset_acc ?
-          row_offset_buf[i - block.row_start] : 0;
+      int32_t row_sum =
+          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         T val = smat_[i + ld_ * j];
         row_sum += val;
@@ -101,7 +101,8 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       // zero fill
       // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
       for (int j = block.col_start + block.col_size;
-          j < block_p.col_start + block_p.col_size; ++j) {
+           j < block_p.col_start + block_p.col_size;
+           ++j) {
         out[(i - block.row_start) * BaseType::blockColSize() +
             (j - block.col_start)] = 0;
       }
@@ -117,8 +118,8 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       for (int j = block.col_size; j < block_p.col_size; ++j) {
         out[buf_idx * BaseType::blockColSize() + j] = 0;
       }
-      int32_t row_sum = row_offset_acc ?
-          row_offset_buf[i - block.row_start] : 0;
+      int32_t row_sum =
+          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
       __m256i sum_v = _mm256_setzero_si256();
       __m256i one_epi16_v = _mm256_set1_epi16(1);
       __m256i one_epi8_v = _mm256_set1_epi8(1);
@@ -137,8 +138,10 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
            ++j) {
         row_sum += smat_[i * ld_ + j];
       }
-      alignas(64) std::array<int32_t, 8> temp;
-      _mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
+      // alignas(64) std::array<int32_t, 8> temp;
+      alignas(64) std::int32_t temp[8];
+      //_mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
+      _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
       for (int k = 0; k < 8; ++k) {
         row_sum += temp[k];
       }
@@ -190,13 +193,13 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
 
 template <typename T, typename accT>
 int PackAWithRowOffset<T, accT>::rowOffsetBufferSize() {
-  if(cpuinfo_initialize()){
+  if (cpuinfo_initialize()) {
     if (cpuinfo_has_x86_avx512f()) {
       return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     } else if (cpuinfo_has_x86_avx2()) {
       return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     } else {
-      //TODO: Have default slower path
+      // TODO: Have default slower path
       assert(0 && "unsupported architecture");
       return -1;
     }

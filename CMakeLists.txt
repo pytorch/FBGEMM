@@ -93,6 +93,7 @@ if(NOT TARGET asmjit)
   #build asmjit
   set(ASMJIT_STATIC ON)
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
+  set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
 if(NOT TARGET cpuinfo)

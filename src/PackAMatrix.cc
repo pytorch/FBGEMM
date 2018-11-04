@@ -21,7 +21,7 @@ PackAMatrix<T, accT>::PackAMatrix(
     int32_t ld,
     inpType* pmat,
     int32_t groups,
-    accT zero_pt)
+    std::int32_t zero_pt)
     : PackMatrix<PackAMatrix<T, accT>, T, accT>(nRow, nCol, pmat, zero_pt),
       trans_(trans),
       smat_(smat),
@@ -44,8 +44,8 @@ PackAMatrix<T, accT>::PackAMatrix(
     assert(0 && "unsupported architecure");
   }
   if (!pmat) {
-    BaseType::buf_ =
-        (T*)aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
+    BaseType::buf_ = (T*)fbgemmAlignedAlloc(
+        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
   }
 }
 

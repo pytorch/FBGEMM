@@ -60,13 +60,13 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
     BaseType::buf_ = pmat;
   } else {
     BaseType::bufAllocatedHere_ = true;
-    BaseType::buf_ =
-        (T*)aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
+    BaseType::buf_ = (T*)fbgemmAlignedAlloc(
+        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
   }
   if (!row_offset_) {
     rowOffsetAllocatedHere = true;
     row_offset_ = reinterpret_cast<int32_t*>(
-        aligned_alloc(64, BaseType::brow_ * sizeof(accT)));
+        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(accT)));
   }
 }
 
@@ -109,12 +109,40 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   constexpr int VLEN = 8;
   __m256 inverse_scale_v = _mm256_set1_ps(1.0f / scale_);
   __m256i shuffle_mask_v = _mm256_set_epi8(
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0x0c, 0x08, 0x04, 0x00,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0x0c, 0x08, 0x04, 0x00);
-  __m256i permute_mask_v = _mm256_set_epi32(
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0x0c,
+      0x08,
+      0x04,
+      0x00,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0x0c,
+      0x08,
+      0x04,
+      0x00);
+  __m256i permute_mask_v =
+      _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
 #endif
 
   for (int i = 0; i < block.row_size; ++i) {
