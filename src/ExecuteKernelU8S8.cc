@@ -322,6 +322,12 @@ template class ExecuteKernel<
     memCopy<>>;
 
 template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int16_t, 3>,
+    PackBMatrix<int8_t, int16_t>,
+    int32_t,
+    memCopy<>>;
+
+template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int32_t>,
     PackBMatrix<int8_t, int32_t>,
     int32_t,
@@ -329,6 +335,12 @@ template class ExecuteKernel<
 
 template class ExecuteKernel<
     PackAWithIm2Col<uint8_t, int32_t>,
+    PackBMatrix<int8_t, int32_t>,
+    int32_t,
+    memCopy<>>;
+
+template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int32_t, 3>,
     PackBMatrix<int8_t, int32_t>,
     int32_t,
     memCopy<>>;

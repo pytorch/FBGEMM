@@ -236,6 +236,16 @@ template void fbgemmPacked(
     int num_threads);
 
 template void fbgemmPacked(
+    PackMatrix<PackAWithIm2Col<uint8_t, int32_t, 3>, uint8_t, int32_t>& packA,
+    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
+    int32_t* C,
+    int32_t* C_buffer,
+    uint32_t ldc,
+    const memCopy<>& outProcess,
+    int thread_id,
+    int num_threads);
+
+template void fbgemmPacked(
     PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
         packA,
     PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
@@ -332,6 +342,16 @@ template void fbgemmPacked(
 
 template void fbgemmPacked(
     PackMatrix<PackAWithIm2Col<uint8_t, int16_t>, uint8_t, int16_t>& packA,
+    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
+    int32_t* C,
+    int32_t* C_buffer,
+    uint32_t ldc,
+    const memCopy<>& outProcess,
+    int thread_id,
+    int num_threads);
+
+template void fbgemmPacked(
+    PackMatrix<PackAWithIm2Col<uint8_t, int16_t, 3>, uint8_t, int16_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
     int32_t* C,
     int32_t* C_buffer,

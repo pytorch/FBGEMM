@@ -438,11 +438,11 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
  *        Im2col is fused with packing here. The source matrix is already
  * quantized.
  */
-template <typename T, typename accT = std::int32_t>
-class PackAWithIm2Col final
-    : public PackMatrix<PackAWithIm2Col<T, accT>, T, accT> {
+template <typename T, typename accT = std::int32_t, int SPATIAL_DIM = 2>
+class PackAWithIm2Col
+    : public PackMatrix<PackAWithIm2Col<T, accT, SPATIAL_DIM>, T, accT> {
  public:
-  using This = PackAWithIm2Col<T, accT>;
+  using This = PackAWithIm2Col<T, accT, SPATIAL_DIM>;
   using BaseType = PackMatrix<This, T, accT>;
   using inpType = T;
   using accType = accT;
@@ -452,7 +452,7 @@ class PackAWithIm2Col final
    * TODO: Currently only groups == 1 supported
    */
   PackAWithIm2Col(
-      const conv_param_t& conv_param,
+      const conv_param_t<SPATIAL_DIM>& conv_param,
       const T* sdata,
       inpType* pmat = nullptr,
       std::int32_t zero_pt = 0,
@@ -487,7 +487,7 @@ class PackAWithIm2Col final
   }
 
  private:
-  const conv_param_t& conv_p_;
+  const conv_param_t<SPATIAL_DIM>& conv_p_;
   const T* sdata_;
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
@@ -942,8 +942,8 @@ template <
     typename outT,
     typename processOutputType>
 void convDepthwiseSeparable(
-    const conv_param_t& conv_param_dw,
-    const conv_param_t& conv_param_1x1,
+    const conv_param_t<>& conv_param_dw,
+    const conv_param_t<>& conv_param_1x1,
     packingAMatrix& packdw,
     packingBMatrix& packed_1x1,
     outT* out,

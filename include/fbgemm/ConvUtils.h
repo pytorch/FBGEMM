@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+
+#include <array>
 #include <string>
 
 namespace fbgemm2 {
@@ -12,27 +14,21 @@ namespace fbgemm2 {
 /**
  * @brief A struct to conveniently store all convolution parameters.
  */
+template <int SPATIAL_DIM = 2>
 struct conv_param_t {
   int MB; ///< Mini Batch size
   int IC; ///< Number of Input Channels
   int OC; ///< Number of Output Channels
-  int IH; ///< Input Image Height
-  int IW; ///< Input Image Width
+  std::array<int, SPATIAL_DIM> IN_DIM; ///< Input Image Dimension
   int G; ///< Number of Groups
-  int KH; ///< Filter (Kernel) Height
-  int KW; ///< Filter (Kernel) Width
-  int stride_h; ///< Stride in Height Dimension
-  int stride_w; ///< Stride in Width  Dimension
-  int pad_h; ///< Padding in Height Dimension (top and bottom)
-  int pad_w; ///< Padding in Width Dimension (left and right)
-  int dilation_h; ///< Kernel dilation in Height Dimension
-  int dilation_w; ///< Kernel dilation in Width Dimension
+  std::array<int, SPATIAL_DIM> K; ///< Filter (Kernel) dimensions
+  std::array<int, SPATIAL_DIM> stride; //< Strides
+  std::array<int, SPATIAL_DIM> pad; //< Padding (assume symmetric padding)
+  std::array<int, SPATIAL_DIM> dilation; //< Kernel dilation
 
   // The following are derived parameters
-  int OH; ///< Output Image Height
-  int OW; ///< Output Image Width
-  int IHP; ///< Input Height Padded
-  int IWP; ///< Input Width Padded
+  std::array<int, SPATIAL_DIM> OUT_DIM; //< Output Image Dimension
+  std::array<int, SPATIAL_DIM> IN_DIMP; //< Input Image Dimension Padded
 
   /**
    * @brief Constructor for initializing the convolution parameters.
@@ -42,52 +38,79 @@ struct conv_param_t {
       int mb,
       int ic,
       int oc,
-      int ih,
-      int iw,
-      int g = 1,
-      int kh = 3,
-      int kw = 3,
-      int strd_h = 1,
-      int strd_w = 1,
-      int pd_h = 1,
-      int pd_w = 1)
+      std::array<int, SPATIAL_DIM> in_dim,
+      int g,
+      std::array<int, SPATIAL_DIM> k,
+      std::array<int, SPATIAL_DIM> strd,
+      std::array<int, SPATIAL_DIM> pd)
       : MB(mb),
         IC(ic),
         OC(oc),
-        IH(ih),
-        IW(iw),
+        IN_DIM(in_dim),
         G(g),
-        KH(kh),
-        KW(kw),
-        stride_h(strd_h),
-        stride_w(strd_w),
-        pad_h(pd_h),
-        pad_w(pd_w),
-        dilation_h(1),
-        dilation_w(1) {
-    IHP = IH + 2 * pad_h;
-    IWP = IW + 2 * pad_w;
-    OH = (IHP - KH) / stride_h + 1;
-    OW = (IWP - KW) / stride_w + 1;
+        K(k),
+        stride(strd),
+        pad(pd) {
+    for (int d = 0; d < SPATIAL_DIM; ++d) {
+      dilation[d] = 1;
+      IN_DIMP[d] = IN_DIM[d] + 2 * pad[d];
+      OUT_DIM[d] = (IN_DIMP[d] - K[d]) / stride[d] + 1;
+    }
   }
 
   /**
    * @brief Helper function to get convolution parameters as string.
    */
   std::string toString() const {
+    std::string dim_string[3] = {"T", "H", "W"};
+
     std::string out = "";
     out += "MB:" + std::to_string(MB) + ", ";
     out += "IC:" + std::to_string(IC) + ", ";
     out += "OC:" + std::to_string(OC) + ", ";
-    out += "IH:" + std::to_string(IH) + ", ";
-    out += "IW:" + std::to_string(IW) + ", ";
+    if (SPATIAL_DIM <= 3) {
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "I" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(IN_DIM[d]) + ", ";
+      }
+    } else {
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "I" + std::to_string(d) + ":" +
+            std::to_string(IN_DIM[d]) + ", ";
+      }
+    }
     out += "G:" + std::to_string(G) + ", ";
-    out += "KH:" + std::to_string(KH) + ", ";
-    out += "KW:" + std::to_string(KW) + ", ";
-    out += "stride_h:" + std::to_string(stride_h) + ", ";
-    out += "stride_w:" + std::to_string(stride_w) + ", ";
-    out += "pad_h:" + std::to_string(pad_h) + ", ";
-    out += "pad_w:" + std::to_string(pad_w);
+    if (SPATIAL_DIM <= 3) {
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "K" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(K[d]) + ", ";
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "stride_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(stride[d]) + ", ";
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "pad_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(pad[d]);
+        if (d < SPATIAL_DIM - 1) {
+          out += ", ";
+        }
+      }
+    } else {
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "K" + std::to_string(d) + ":" + std::to_string(K[d]) + ", ";
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "stride_" + std::to_string(d) + ":" + std::to_string(stride[d]) +
+            ", ";
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "pad_" + std::to_string(d) + ":" + std::to_string(pad[d]);
+        if (d < SPATIAL_DIM - 1) {
+          out += ", ";
+        }
+      }
+    }
     return out;
   }
 };

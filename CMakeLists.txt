@@ -18,8 +18,8 @@ if(FBGEMM_BUILD_TESTS)
 endif()
 
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_SOURCE_DIR}/third-party)
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #All the source files that either use avx2 instructions statically or JIT

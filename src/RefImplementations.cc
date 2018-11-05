@@ -219,10 +219,10 @@ void spmdm_ref(
 }
 
 int32_t clip_16bit(int32_t x) {
-  if (x > std::numeric_limits<int16_t>::max()) {
-    return std::min<int>(std::numeric_limits<int16_t>::max(), x);
-  } else if (x < std::numeric_limits<int16_t>::min()) {
-    return std::max<int>(std::numeric_limits<int16_t>::min(), x);
+  if (x > numeric_limits<int16_t>::max()) {
+    return std::min<int>(numeric_limits<int16_t>::max(), x);
+  } else if (x < numeric_limits<int16_t>::min()) {
+    return std::max<int>(numeric_limits<int16_t>::min(), x);
   } else {
     return x;
   }
@@ -235,36 +235,38 @@ int32_t clip_16bit(int32_t x) {
  * Ao: NHWC: NH_1W_1 x RSC_0
  */
 void im2col_ref(
-    const conv_param_t& conv_p,
-    const std::uint8_t* A,
-    std::int32_t A_zero_point,
-    std::uint8_t* Ao) {
+    const conv_param_t<>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    uint8_t* Ao) {
   for (int n = 0; n < conv_p.MB; ++n) {
-    for (int h = 0; h < conv_p.OH; ++h) {
-      for (int w = 0; w < conv_p.OW; ++w) {
-        for (int r = 0; r < conv_p.KH; ++r) {
-          int h_in = -conv_p.pad_h + h * conv_p.stride_h + r;
-          for (int s = 0; s < conv_p.KW; ++s) {
-            int w_in = -conv_p.pad_w + w * conv_p.stride_w + s;
-            if (h_in < 0 || h_in >= conv_p.IH || w_in < 0 ||
-                w_in >= conv_p.IW) {
-              std::memset(
-                  &Ao[((((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.KH + r) *
-                           conv_p.KW +
+    for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
+      for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
+        for (int r = 0; r < conv_p.K[0]; ++r) {
+          int h_in = -conv_p.pad[0] + h * conv_p.stride[0] + r;
+          for (int s = 0; s < conv_p.K[1]; ++s) {
+            int w_in = -conv_p.pad[1] + w * conv_p.stride[1] + s;
+            if (h_in < 0 || h_in >= conv_p.IN_DIM[0] || w_in < 0 ||
+                w_in >= conv_p.IN_DIM[1]) {
+              memset(
+                  &Ao[((((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
+                            conv_p.K[0] +
+                        r) *
+                           conv_p.K[1] +
                        s) *
-                          conv_p.IC +
-                      0],
+                      conv_p.IC],
                   A_zero_point,
                   sizeof(uint8_t) * conv_p.IC);
             } else {
-              std::memcpy(
-                  &Ao[((((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.KH + r) *
-                           conv_p.KW +
+              memcpy(
+                  &Ao[((((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
+                            conv_p.K[0] +
+                        r) *
+                           conv_p.K[1] +
                        s) *
-                          conv_p.IC +
-                      0],
-                  &A[((n * conv_p.IH + h_in) * conv_p.IW + w_in) * conv_p.IC +
-                     0],
+                      conv_p.IC],
+                  &A[((n * conv_p.IN_DIM[0] + h_in) * conv_p.IN_DIM[1] + w_in) *
+                     conv_p.IC],
                   sizeof(uint8_t) * conv_p.IC);
             }
           } // for each s
@@ -274,41 +276,165 @@ void im2col_ref(
   } // for each n
 }
 
+/* Imitate the Im2Col<float, CPUContext, StorageOrder::NHWC> function
+ * from caffe2/utils/math_cpu.cc
+ * NHWC StorageOrder/Layout
+ * A:  NHWC: NT_0H_0W_0 x C_0
+ * Ao: NHWC: NT_1H_1W_1 x QRSC_0
+ */
+void im2col3d_ref(
+    const conv_param_t<3>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    uint8_t* Ao) {
+  for (int n = 0; n < conv_p.MB; ++n) {
+    for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
+      for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
+        for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
+          for (int q = 0; q < conv_p.K[0]; ++q) {
+            int t_in = -conv_p.pad[0] + t * conv_p.stride[0] + q;
+            for (int r = 0; r < conv_p.K[1]; ++r) {
+              int h_in = -conv_p.pad[1] + h * conv_p.stride[1] + r;
+              for (int s = 0; s < conv_p.K[2]; ++s) {
+                int w_in = -conv_p.pad[2] + w * conv_p.stride[2] + s;
+                if (t_in < 0 || t_in >= conv_p.IN_DIM[0] || h_in < 0 ||
+                    h_in >= conv_p.IN_DIM[1] || w_in < 0 ||
+                    w_in >= conv_p.IN_DIM[2]) {
+                  memset(
+                      &Ao[((((((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] +
+                               h) *
+                                  conv_p.OUT_DIM[2] +
+                              w) *
+                                 conv_p.K[0] +
+                             q) *
+                                conv_p.K[1] +
+                            r) *
+                               conv_p.K[2] +
+                           s) *
+                          conv_p.IC],
+                      A_zero_point,
+                      sizeof(uint8_t) * conv_p.IC);
+                } else {
+                  memcpy(
+                      &Ao[((((((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] +
+                               h) *
+                                  conv_p.OUT_DIM[2] +
+                              w) *
+                                 conv_p.K[0] +
+                             q) *
+                                conv_p.K[1] +
+                            r) *
+                               conv_p.K[2] +
+                           s) *
+                          conv_p.IC],
+                      &A[(((n * conv_p.IN_DIM[0] + t_in) * conv_p.IN_DIM[1] +
+                           h_in) *
+                              conv_p.IN_DIM[2] +
+                          w_in) *
+                         conv_p.IC],
+                      sizeof(uint8_t) * conv_p.IC);
+                }
+              } // for each s
+            } // for each r
+          } // for each q
+        } // for each w
+      } // for each h
+    } // for each t
+  } // for each n
+}
+
 void conv_ref(
-    const conv_param_t& conv_p,
-    const std::uint8_t* A,
-    std::int32_t A_zero_point,
-    const std::int8_t* B,
-    std::int32_t* C) {
+    const conv_param_t<>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    const int8_t* B,
+    int32_t* C) {
   // filters are assumed to be in RSCK format
   assert(conv_p.G == 1 && "Groups != 1 not supported yet");
 
   for (int n = 0; n < conv_p.MB; ++n) {
-    for (int h = 0; h < conv_p.OH; ++h) {
-      for (int w = 0; w < conv_p.OW; ++w) {
+    for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
+      for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
         for (int k = 0; k < conv_p.OC; ++k) {
           int sum = 0;
-          for (int r = 0; r < conv_p.KH; ++r) {
-            int h_in = -conv_p.pad_h + h * conv_p.stride_h + r;
-            for (int s = 0; s < conv_p.KW; ++s) {
-              int w_in = -conv_p.pad_w + w * conv_p.stride_w + s;
+          for (int r = 0; r < conv_p.K[0]; ++r) {
+            int h_in = -conv_p.pad[0] + h * conv_p.stride[0] + r;
+            for (int s = 0; s < conv_p.K[1]; ++s) {
+              int w_in = -conv_p.pad[1] + w * conv_p.stride[1] + s;
               for (int c = 0; c < conv_p.IC; ++c) {
-                int a = h_in < 0 || h_in >= conv_p.IH || w_in < 0 ||
-                        w_in >= conv_p.IW
+                int a = h_in < 0 || h_in >= conv_p.IN_DIM[0] || w_in < 0 ||
+                        w_in >= conv_p.IN_DIM[1]
                     ? A_zero_point
-                    : A[((n * conv_p.IH + h_in) * conv_p.IW + w_in) *
+                    : A[((n * conv_p.IN_DIM[0] + h_in) * conv_p.IN_DIM[1] +
+                         w_in) *
                             conv_p.IC +
                         c];
                 int b =
-                    B[((r * conv_p.KW + s) * conv_p.IC + c) * conv_p.OC + k];
+                    B[((r * conv_p.K[1] + s) * conv_p.IC + c) * conv_p.OC + k];
                 sum += a * b;
               } // for each c
             } // for each s
           } // for each r
-          C[((n * conv_p.OH + h) * conv_p.OW + w) * conv_p.OC + k] = sum;
+          C[((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) * conv_p.OC +
+            k] = sum;
         } // for each k
       } // for each w
     } // for each h
+  } // for each n
+}
+
+void conv3d_ref(
+    const conv_param_t<3>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    const int8_t* B,
+    int32_t* C) {
+  // filters are assumed to be in RSCK format
+  assert(conv_p.G == 1 && "Groups != 1 not supported yet");
+
+  for (int n = 0; n < conv_p.MB; ++n) {
+    for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
+      for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
+        for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
+          for (int k = 0; k < conv_p.OC; ++k) {
+            int sum = 0;
+            for (int q = 0; q < conv_p.K[0]; ++q) {
+              int t_in = -conv_p.pad[0] + t * conv_p.stride[0] + q;
+              for (int r = 0; r < conv_p.K[1]; ++r) {
+                int h_in = -conv_p.pad[1] + h * conv_p.stride[1] + r;
+                for (int s = 0; s < conv_p.K[2]; ++s) {
+                  int w_in = -conv_p.pad[2] + w * conv_p.stride[2] + s;
+                  for (int c = 0; c < conv_p.IC; ++c) {
+                    int a = t_in < 0 || t_in >= conv_p.IN_DIM[0] || h_in < 0 ||
+                            h_in >= conv_p.IN_DIM[1] || w_in < 0 ||
+                            w_in >= conv_p.IN_DIM[2]
+                        ? A_zero_point
+                        : A[(((n * conv_p.IN_DIM[0] + t_in) * conv_p.IN_DIM[1] +
+                              h_in) *
+                                 conv_p.IN_DIM[2] +
+                             w_in) *
+                                conv_p.IC +
+                            c];
+                    int b =
+                        B[(((q * conv_p.K[1] + r) * conv_p.K[2] + s) *
+                               conv_p.IC +
+                           c) *
+                              conv_p.OC +
+                          k];
+                    sum += a * b;
+                  } // for each c
+                } // for each s
+              } // for each r
+            } // for each q
+            C[(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
+                   conv_p.OUT_DIM[2] +
+               w) *
+                  conv_p.OC +
+              k] = sum;
+          } // for each k
+        } // for each w
+      } // for each h
+    } // for each t
   } // for each n
 }
 

@@ -24,50 +24,50 @@ using namespace std;
 using namespace fbgemm2;
 
 void performance_test() {
-  vector<conv_param_t> shapes = {
+  vector<conv_param_t<>> shapes = {
       // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w, pad_h, pad_w
-      conv_param_t(1, 32, 32, 14, 14, 1, 3, 3, 1, 1, 0, 0),
-      conv_param_t(1, 32, 32, 14, 14, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(2, 32, 32, 14, 14, 1, 3, 3, 1, 1, 0, 0),
-      conv_param_t(2, 32, 32, 14, 14, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 47, 125, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 64, 125, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 66, 125, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 67, 100, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 75, 75, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 75, 76, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 75, 100, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 94, 75, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 272, 272, 109, 75, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 24, 63, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 33, 63, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 34, 50, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 36, 63, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 38, 38, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 38, 40, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 544, 544, 47, 38, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 1088, 1088, 7, 7, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(51, 1088, 1088, 7, 7, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(100, 1088, 1088, 7, 7, 1, 3, 3, 1, 1, 1, 1),
-      conv_param_t(1, 248, 248, 93, 250, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 128, 250, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 133, 200, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 150, 150, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 150, 151, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 150, 158, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 188, 150, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 248, 248, 225, 150, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 47, 125, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 64, 125, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 66, 125, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 67, 100, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 75, 75, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 75, 76, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 272, 272, 94, 75, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 544, 544, 14, 14, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(51, 544, 544, 14, 14, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(100, 544, 544, 14, 14, 1, 3, 3, 2, 2, 1, 1),
-      conv_param_t(1, 8, 8, 4, 4, 1, 3, 3, 1, 1, 1, 1),
+      conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {2, 2}, {0, 0}),
+      conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {2, 2}, {0, 0}),
+      conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {47, 125}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {64, 125}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {66, 125}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {67, 100}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {75, 75}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {75, 76}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {75, 100}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {94, 75}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {109, 75}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {24, 63}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {33, 63}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {34, 50}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {36, 63}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {38, 38}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {38, 40}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {47, 38}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(51, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(100, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {93, 250}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {128, 250}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {133, 200}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {150, 150}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {150, 151}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {150, 158}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {188, 150}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 248, 248, {225, 150}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {47, 125}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {64, 125}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {66, 125}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {67, 100}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {75, 75}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {75, 76}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 272, 272, {94, 75}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(51, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(100, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1}),
+      conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1}),
   };
 
   bool flush = true;
@@ -126,27 +126,28 @@ void performance_test() {
   chrono::time_point<chrono::high_resolution_clock> begin, end;
   for (auto conv_p : shapes) {
     aligned_vector<float> Afp32(
-        conv_p.MB * conv_p.IH * conv_p.IW * conv_p.IC, 0.0f);
+        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0.0f);
     aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IH * conv_p.IW * conv_p.IC, 0);
+        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
 
     aligned_vector<uint8_t> Aint8_out(
-        conv_p.MB * conv_p.OH * conv_p.OW * conv_p.KH * conv_p.KW * conv_p.IC,
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.K[0] *
+            conv_p.K[1] * conv_p.IC,
         0);
 
     aligned_vector<float> Bfp32(
-        conv_p.KH * conv_p.KW * conv_p.IC * conv_p.OC, 0.0f);
+        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0.0f);
     aligned_vector<int8_t> Bint8(
-        conv_p.KH * conv_p.KW * conv_p.IC * conv_p.OC, 0);
+        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
 
     aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OH * conv_p.OW * conv_p.OC, 0);
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
 
     aligned_vector<int32_t> Cint32_fb(
-        conv_p.MB * conv_p.OH * conv_p.OW * conv_p.OC, 0);
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
 
     aligned_vector<int32_t> Cint32_fb2(
-        conv_p.MB * conv_p.OH * conv_p.OW * conv_p.OC, 0);
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
 
     // cout << conv_p.toString() << endl;
 
@@ -173,9 +174,9 @@ void performance_test() {
         Cint32_ref.data());
 
     // matrix dimensions after im2col
-    int MDim = conv_p.MB * conv_p.OH * conv_p.OW;
+    int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
     int NDim = conv_p.OC;
-    int KDim = conv_p.KH * conv_p.KW * conv_p.IC;
+    int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
 
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), KDim, NDim, NDim,
     // "B unpacked");
@@ -245,10 +246,10 @@ void performance_test() {
     }
 
     cout << setw(4) << conv_p.MB << ", " << conv_p.IC << ", " << conv_p.OC
-         << ", " << conv_p.IH << ", " << conv_p.IW << ", " << conv_p.G << ", "
-         << conv_p.KH << ", " << conv_p.KW << ", " << conv_p.stride_h << ", "
-         << conv_p.stride_w << ", " << conv_p.pad_h << ", " << conv_p.pad_w
-         << ", ";
+         << ", " << conv_p.IN_DIM[0] << ", " << conv_p.IN_DIM[1] << ", "
+         << conv_p.G << ", " << conv_p.K[0] << ", " << conv_p.K[1] << ", "
+         << conv_p.stride[0] << ", " << conv_p.stride[1] << ", "
+         << conv_p.pad[0] << ", " << conv_p.pad[1] << ", ";
 
     cout << setw(13) << runType << ", " << setw(5) << fixed << setw(5)
          << setw(6) << MDim << ", " << setw(6) << NDim << ", " << setw(6)
@@ -345,10 +346,10 @@ void performance_test() {
     // Cint32_ref.data(), MDim, NDim, NDim, "C ref fp32");
 
     cout << setw(4) << conv_p.MB << ", " << conv_p.IC << ", " << conv_p.OC
-         << ", " << conv_p.IH << ", " << conv_p.IW << ", " << conv_p.G << ", "
-         << conv_p.KH << ", " << conv_p.KW << ", " << conv_p.stride_h << ", "
-         << conv_p.stride_w << ", " << conv_p.pad_h << ", " << conv_p.pad_w
-         << ", ";
+         << ", " << conv_p.IN_DIM[0] << ", " << conv_p.IN_DIM[1] << ", "
+         << conv_p.G << ", " << conv_p.K[0] << ", " << conv_p.K[1] << ", "
+         << conv_p.stride[0] << ", " << conv_p.stride[1] << ", "
+         << conv_p.pad[0] << ", " << conv_p.pad[1] << ", ";
 
     cout << setw(13) << runType << ", " << setw(5) << fixed << setw(5)
          << setw(6) << MDim << ", " << setw(6) << NDim << ", " << setw(6)
