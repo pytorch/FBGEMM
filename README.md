@@ -90,4 +90,4 @@ FBGEMM is BSD licensed, as found in the [`LICENSE`](LICENSE) file.
 [1]:https://github.com/asmjit/asmjit
 [2]:https://github.com/pytorch/cpuinfo
 [3]:https://github.com/google/googletest
-[4]:https://code.fb.com/ai-research/
+[4]:https://code.fb.com/ml-applications/fbgemm
