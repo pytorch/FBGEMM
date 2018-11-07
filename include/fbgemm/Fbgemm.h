@@ -422,6 +422,15 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
    */
   void printPackedMatrix(std::string name);
 
+  /**
+   * @return true if meta information like matrix shape is the same.
+   */
+  bool metaEquals(const PackBMatrix<T, accT>& that) const;
+  /**
+   * @return true if matrices are the same.
+   */
+  bool equals(const PackBMatrix<T, accT>& that) const;
+
   ~PackBMatrix() {}
 
  private:

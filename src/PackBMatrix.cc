@@ -139,6 +139,37 @@ void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
   }
 }
 
+template <typename T, typename accT>
+bool PackBMatrix<T, accT>::metaEquals(const PackBMatrix<T, accT>& that) const {
+  if (BaseType::numRows() != that.numRows() ||
+      BaseType::numCols() != that.numCols() ||
+      BaseType::blockRowSize() != that.blockRowSize() ||
+      BaseType::blockColSize() != that.blockColSize() ||
+      BaseType::blockRows() != that.blockRows() ||
+      BaseType::blockCols() != that.blockCols() ||
+      BaseType::numPackedRows() != that.numPackedRows() ||
+      BaseType::numPackedCols() != that.numPackedCols() ||
+      BaseType::zeroPoint() != that.zeroPoint() || trans_ != that.trans_ ||
+      G_ != that.G_ || row_interleave_ != that.row_interleave_) {
+    return false;
+  }
+
+  return true;
+}
+
+template <typename T, typename accT>
+bool PackBMatrix<T, accT>::equals(const PackBMatrix<T, accT>& that) const {
+  if (!metaEquals(that)) {
+    return false;
+  }
+
+  return memcmp(
+      BaseType::buf_,
+      that.buf_,
+      BaseType::blockRows() * BaseType::brow_ * BaseType::blockCols() *
+          BaseType::bcol_ * sizeof(T)) == 0;
+}
+
 template class PackBMatrix<int8_t, int32_t>;
 template class PackBMatrix<int8_t, int16_t>;
 } // namespace fbgemm2
