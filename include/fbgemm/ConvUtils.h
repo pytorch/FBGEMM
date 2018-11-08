@@ -9,7 +9,7 @@
 #include <array>
 #include <string>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief A struct to conveniently store all convolution parameters.
@@ -23,7 +23,9 @@ struct conv_param_t {
   int G; ///< Number of Groups
   std::array<int, SPATIAL_DIM> K; ///< Filter (Kernel) dimensions
   std::array<int, SPATIAL_DIM> stride; //< Strides
-  std::array<int, SPATIAL_DIM> pad; //< Padding (assume symmetric padding)
+  std::array<int, SPATIAL_DIM * 2>
+      pad; //< Padding (first SPATIAL_DIM is for prev/top/left padding, second
+           //SPATIAL_DIM is for next/bottom/right padding)
   std::array<int, SPATIAL_DIM> dilation; //< Kernel dilation
 
   // The following are derived parameters
@@ -42,7 +44,7 @@ struct conv_param_t {
       int g,
       std::array<int, SPATIAL_DIM> k,
       std::array<int, SPATIAL_DIM> strd,
-      std::array<int, SPATIAL_DIM> pd)
+      std::array<int, SPATIAL_DIM * 2> pd)
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -53,7 +55,7 @@ struct conv_param_t {
         pad(pd) {
     for (int d = 0; d < SPATIAL_DIM; ++d) {
       dilation[d] = 1;
-      IN_DIMP[d] = IN_DIM[d] + 2 * pad[d];
+      IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
       OUT_DIM[d] = (IN_DIMP[d] - K[d]) / stride[d] + 1;
     }
   }
@@ -89,10 +91,10 @@ struct conv_param_t {
         out += "stride_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
             std::to_string(stride[d]) + ", ";
       }
-      for (int d = 0; d < SPATIAL_DIM; ++d) {
-        out += "pad_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+      for (int d = 0; d < SPATIAL_DIM * 2; ++d) {
+        out += "pad_" + dim_string[3 - (SPATIAL_DIM % 3) + d] + ":" +
             std::to_string(pad[d]);
-        if (d < SPATIAL_DIM - 1) {
+        if (d < SPATIAL_DIM * 2 - 1) {
           out += ", ";
         }
       }
@@ -106,7 +108,7 @@ struct conv_param_t {
       }
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "pad_" + std::to_string(d) + ":" + std::to_string(pad[d]);
-        if (d < SPATIAL_DIM - 1) {
+        if (d < SPATIAL_DIM * 2 - 1) {
           out += ", ";
         }
       }
@@ -115,4 +117,4 @@ struct conv_param_t {
   }
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

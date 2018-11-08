@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include "fbgemm/Fbgemm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename T, typename accT>
 PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
@@ -255,4 +255,4 @@ int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize() {
 
 template class PackAWithQuantRowOffset<uint8_t, int32_t>;
 
-} // namespace fbgemm2
+} // namespace fbgemm

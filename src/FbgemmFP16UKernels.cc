@@ -6,7 +6,7 @@
  */
 #include "FbgemmFP16UKernels.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 void __attribute__ ((noinline)) gemmkernel_1x1_AVX2_fA0fB0fC0(GemmParams *gp)
 {
@@ -2200,4 +2200,4 @@ asm volatile
 );
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

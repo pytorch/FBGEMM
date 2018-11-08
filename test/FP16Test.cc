@@ -18,7 +18,7 @@
 #endif
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 namespace {
   // The template parameter is transpose of A and B
@@ -75,7 +75,7 @@ TEST_P(FBGemmFP16Test, Test) {
 
     aligned_vector<float> A(m * k, 0.f);
     aligned_vector<float> B(k * n, 0.f);
-    aligned_vector<float> C(m * n, 0.f);
+    aligned_vector<float> C(m * n, NAN);
 
     // initialize with small numbers
     randFill(A, 0, 4);

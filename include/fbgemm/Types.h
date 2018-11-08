@@ -10,7 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 typedef struct __attribute__((aligned(2))) __f16 {
   uint16_t x;

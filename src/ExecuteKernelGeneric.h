@@ -9,7 +9,7 @@
 #include "fbgemm/Fbgemm.h"
 #include "GenerateKernel.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Execute Engine for the macro-kernel and output processing.
@@ -61,4 +61,4 @@ class ExecuteKernel : public CodeGenBase<
                                            ///< the C tile in the macro-kernel.
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

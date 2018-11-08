@@ -23,7 +23,7 @@ extern double spmdm_transpose_Nx32_time;
 extern double spmdm_run_time;
 #endif
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief A class to represent a matrix in Compressed Sparse Column (CSC)
@@ -98,4 +98,4 @@ class CompressedSparseColumn {
   mutable std::int32_t old_nnz_;
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

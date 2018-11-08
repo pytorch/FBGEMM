@@ -19,7 +19,7 @@
 
 using namespace std;
 
-namespace fbgemm2
+namespace fbgemm
 {
 
 // From Xray OCR
@@ -445,4 +445,4 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
   } // for each shape
 } // Test3x3PerChannelQuantization
 
-} // namespace fbgemm2
+} // namespace fbgemm

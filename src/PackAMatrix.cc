@@ -10,7 +10,7 @@
 #include <iostream>
 #include "fbgemm/Fbgemm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename T, typename accT>
 PackAMatrix<T, accT>::PackAMatrix(
@@ -162,4 +162,4 @@ void PackAMatrix<T, accT>::printPackedMatrix(std::string name) {
 
 template class PackAMatrix<uint8_t, int32_t>;
 template class PackAMatrix<uint8_t, int16_t>;
-} // namespace fbgemm2
+} // namespace fbgemm

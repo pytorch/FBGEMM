@@ -12,7 +12,7 @@
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Reference implementation of requantization step.
@@ -283,4 +283,4 @@ void depthwise_3x3x3_pad_1_ref(
     const std::int32_t* col_offsets,
     const std::int32_t* bias);
 
-} // namespace fbgemm2
+} // namespace fbgemm

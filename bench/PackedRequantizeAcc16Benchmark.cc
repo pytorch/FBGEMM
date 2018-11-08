@@ -25,7 +25,7 @@
 #include "BenchUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 enum class BenchmarkType {
   BARE_BONE, // no row-offset in input packing, and no output processing

@@ -15,7 +15,7 @@
 #include <limits>
 #include <stdexcept>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Compare the reference and test result matrix to check the correctness.
@@ -354,4 +354,4 @@ void transpose_simd(
   }
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

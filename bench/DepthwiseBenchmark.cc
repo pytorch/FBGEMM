@@ -22,7 +22,7 @@
 #include "BenchUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 int main() {
   // From Xray OCR

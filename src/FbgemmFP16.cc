@@ -14,7 +14,7 @@
 
 using namespace std;
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /// class that performs packing of matrix in
 /// row-major or col-major format into

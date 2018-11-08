@@ -24,7 +24,7 @@
 #include "BenchUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 int main() {
   // Depthwise is memory BW bound so we want to flush LLC.

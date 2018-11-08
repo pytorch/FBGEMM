@@ -7,7 +7,7 @@
 #pragma once
 #include <cinttypes>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /*
  * @brief Make sure we won't have overflows from vpmaddubsw instruction.
@@ -15,4 +15,4 @@ namespace fbgemm2 {
 template <typename T>
 void avoidOverflow(int m, int n, int k, const uint8_t* Aint8, T* B);
 
-} // namespace fbgemm2
+} // namespace fbgemm

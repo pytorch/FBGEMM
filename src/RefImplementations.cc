@@ -13,7 +13,7 @@
 
 using namespace std;
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 void requantize_u8acc32_ref(
     int M,
@@ -195,7 +195,7 @@ void spmdm_ref(
     int M,
     const uint8_t* A,
     int lda,
-    fbgemm2::CompressedSparseColumn& B,
+    fbgemm::CompressedSparseColumn& B,
     bool accumulation,
     int32_t* C,
     int ldc) {
@@ -746,4 +746,4 @@ void depthwise_3x3x3_pad_1_ref(
   }
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

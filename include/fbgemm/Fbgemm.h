@@ -32,7 +32,7 @@ extern double postprocessing_time;
 extern double run_time;
 #endif
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Templatized struct for packing parameters for A and B matrices.
@@ -969,4 +969,4 @@ static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
   return aligned_mem;
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

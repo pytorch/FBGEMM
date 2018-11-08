@@ -17,7 +17,7 @@
 #include "Types.h"
 #include "Utils.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /// class that performs packing of matrix in
 /// row-major format into

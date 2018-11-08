@@ -11,7 +11,7 @@
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename PT, typename inpType, typename accType>
 PackMatrix<PT, inpType, accType>::PackMatrix(
@@ -91,4 +91,4 @@ template class PackMatrix<
 template class PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>;
 
 template class PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>;
-} // namespace fbgemm2
+} // namespace fbgemm

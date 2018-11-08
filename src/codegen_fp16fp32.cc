@@ -79,7 +79,7 @@ int main() {
   hdrfile << "#include <tuple>\n";
   hdrfile << "#include <vector>\n";
   hdrfile << "#include \"fbgemm/Types.h\"\n";
-  hdrfile << "using fp16 = fbgemm2::float16;\n";
+  hdrfile << "using fp16 = fbgemm::float16;\n";
   hdrfile << "using fp32 = float;\n";
   hdrfile << "struct GemmParams {uint64_t k; float *A; const fp16 *B;\n"
              "float *beta; uint64_t accum; float *C;  uint64_t ldc;\n"

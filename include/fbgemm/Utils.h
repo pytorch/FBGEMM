@@ -8,7 +8,7 @@
 #include <string>
 #include <type_traits>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Helper struct to type specialize for uint8 and int8 together.
@@ -120,4 +120,4 @@ void transpose_16x16(
     float* dst,
     int ld_dst);
 
-} // namespace fbgemm2
+} // namespace fbgemm

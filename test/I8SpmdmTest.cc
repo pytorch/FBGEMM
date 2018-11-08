@@ -23,7 +23,7 @@
 #include "bench/BenchUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 std::vector<float> densities{0.0001f, 0.001f, 0.01f, 0.1f, 1.0f};
 

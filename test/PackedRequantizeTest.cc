@@ -24,7 +24,7 @@
 #include "TestUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 std::vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
                                        matrix_op_t::Transpose};

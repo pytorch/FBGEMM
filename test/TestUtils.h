@@ -8,7 +8,7 @@
 #include <cmath>
 #include <vector>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /*
  * @brief Check and validate the buffers for reference and FBGEMM result.
@@ -37,4 +37,4 @@ bool check_all_zero_entries(const T* test, int m, int n);
  */
 template <typename T>
 void transpose_matrix(T* ref, int n, int k);
-} // namespace fbgemm2
+} // namespace fbgemm

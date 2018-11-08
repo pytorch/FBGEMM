@@ -12,7 +12,7 @@
 
 using namespace std;
 
-namespace fbgemm2 {
+namespace fbgemm {
 /*
  * @brief Make sure we won't have overflows from vpmaddubsw instruction.
  */
@@ -54,4 +54,4 @@ template void
 avoidOverflow(int m, int n, int k, const uint8_t* Aint8, int8_t* B);
 template void
 avoidOverflow(int m, int n, int k, const uint8_t* Aint8, float* B);
-} // namespace fbgemm2
+} // namespace fbgemm
