@@ -7,7 +7,7 @@
 #pragma once
 #include "ExecuteKernel.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 /**
  * @brief Execute Engine of uint 8 and int8 matrix
@@ -70,4 +70,4 @@ class ExecuteKernel<
   int nbSize_; ///< block size in the n dimension.
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

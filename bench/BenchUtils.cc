@@ -7,7 +7,7 @@
 #include "BenchUtils.h"
 #include <random>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 std::default_random_engine eng;
 
@@ -41,4 +41,4 @@ void llc_flush(std::vector<char>& llc) {
   }
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

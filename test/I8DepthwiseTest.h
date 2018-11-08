@@ -8,7 +8,7 @@
 
 #include <vector>
 
-namespace fbgemm2
+namespace fbgemm
 {
 
 // From ResNeXt-3D-101
@@ -35,4 +35,4 @@ static std::vector<std::vector<int>> shapes_3d = {
   {   1,   8,    4,   4,  4, 1, },
 };
 
-} // namespace fbgemm2
+} // namespace fbgemm

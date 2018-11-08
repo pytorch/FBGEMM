@@ -14,7 +14,7 @@ double kernel_time = 0.0;
 double postprocessing_time = 0.0;
 #endif
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename packingAMatrix, typename cT, typename processOutputType>
 ExecuteKernel<
@@ -328,6 +328,18 @@ template class ExecuteKernel<
     memCopy<>>;
 
 template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int16_t>,
+    PackBMatrix<int8_t, int16_t>,
+    uint8_t,
+    ReQuantizeOutput<false>>;
+
+template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int16_t, 3>,
+    PackBMatrix<int8_t, int16_t>,
+    uint8_t,
+    ReQuantizeOutput<false>>;
+
+template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int32_t>,
     PackBMatrix<int8_t, int32_t>,
     int32_t,
@@ -344,6 +356,18 @@ template class ExecuteKernel<
     PackBMatrix<int8_t, int32_t>,
     int32_t,
     memCopy<>>;
+
+template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int32_t>,
+    PackBMatrix<int8_t, int32_t>,
+    uint8_t,
+    ReQuantizeOutput<false>>;
+
+template class ExecuteKernel<
+    PackAWithIm2Col<uint8_t, int32_t, 3>,
+    PackBMatrix<int8_t, int32_t>,
+    uint8_t,
+    ReQuantizeOutput<false>>;
 
 template class ExecuteKernel<
     PackAWithQuantRowOffset<uint8_t, int32_t>,
@@ -363,4 +387,4 @@ template class ExecuteKernel<
     int32_t,
     DoNothing<int32_t, int32_t>>;
 
-} // namespace fbgemm2
+} // namespace fbgemm

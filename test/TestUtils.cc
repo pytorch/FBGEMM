@@ -9,7 +9,7 @@
 #include "fbgemm/Fbgemm.h"
 #include "bench/AlignedVec.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename T>
 int compare_validate_buffers(
@@ -97,4 +97,4 @@ template void transpose_matrix<float>(float* ref, int n, int k);
 template void transpose_matrix<int32_t>(int32_t* ref, int n, int k);
 template void transpose_matrix<uint8_t>(uint8_t* ref, int n, int k);
 template void transpose_matrix<int8_t>(int8_t* ref, int n, int k);
-} // namespace fbgemm2
+} // namespace fbgemm

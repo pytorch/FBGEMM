@@ -21,7 +21,7 @@
 #include "AlignedVec.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 void performance_test() {
   // cache flush

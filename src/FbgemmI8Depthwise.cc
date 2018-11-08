@@ -18,7 +18,8 @@
 
 using namespace std;
 
-namespace fbgemm2 {
+namespace fbgemm
+{
 
 static array<array<int, 8>, 8> masks = {{
   {  0,  0,  0,  0,  0,  0,  0,  0,  },
@@ -2767,4 +2768,4 @@ void depthwise_3x3_per_channel_quantization_pad_1(
   }
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

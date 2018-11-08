@@ -25,7 +25,7 @@ double spmdm_run_time = 0.0;
 
 using namespace std;
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 CompressedSparseColumn::CompressedSparseColumn(int num_of_rows, int num_of_cols)
     : num_rows_(num_of_rows),
@@ -505,4 +505,4 @@ void CompressedSparseColumn::SpMDM(
 #endif
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

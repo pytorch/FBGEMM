@@ -10,7 +10,7 @@
 #include <iostream>
 #include "fbgemm/Fbgemm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename T, typename accT>
 PackBMatrix<T, accT>::PackBMatrix(
@@ -163,13 +163,17 @@ bool PackBMatrix<T, accT>::equals(const PackBMatrix<T, accT>& that) const {
     return false;
   }
 
-  return memcmp(
-      BaseType::buf_,
-      that.buf_,
-      BaseType::blockRows() * BaseType::brow_ * BaseType::blockCols() *
-          BaseType::bcol_ * sizeof(T)) == 0;
+  for (int i = 0; i < this->numRows(); ++i) {
+    for (int j = 0; j < this->numCols(); ++j) {
+      if (this->buf_[addr(i, j)] != that.buf_[that.addr(i, j)]) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 template class PackBMatrix<int8_t, int32_t>;
 template class PackBMatrix<int8_t, int16_t>;
-} // namespace fbgemm2
+} // namespace fbgemm

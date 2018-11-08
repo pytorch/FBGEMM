@@ -9,7 +9,7 @@
 
 #include <immintrin.h>
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 inline void transpose_kernel_16x16_avx512(
     const float* src,
@@ -240,4 +240,4 @@ void transpose_16x16(
   transpose_8x8(M - ib, N, &src[ib * ld_src], ld_src, &dst[ib], ld_dst);
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

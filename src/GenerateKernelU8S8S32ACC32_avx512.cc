@@ -7,7 +7,7 @@
 #include <iostream>
 #include "GenerateKernel.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 namespace x86 = asmjit::x86;
 
@@ -314,4 +314,4 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   return fn;
 }
 
-} // namespace fbgemm2
+} // namespace fbgemm

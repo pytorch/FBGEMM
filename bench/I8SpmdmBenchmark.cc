@@ -22,7 +22,7 @@
 #include "BenchUtils.h"
 
 using namespace std;
-using namespace fbgemm2;
+using namespace fbgemm;
 
 int main() {
   const vector<array<int, 3>> shapes = {
@@ -79,7 +79,7 @@ int main() {
         aligned_vector<uint8_t> A(M * K);
         randFill(A, 0, 255);
 
-        fbgemm2::CompressedSparseColumn B_csc(K, N);
+        fbgemm::CompressedSparseColumn B_csc(K, N);
         vector<int32_t> C(M * N);
         vector<int32_t> C_ref(C.size());
 

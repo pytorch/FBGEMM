@@ -9,4 +9,4 @@
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
 
-namespace fbgemm2 {} // namespace fbgemm2
+namespace fbgemm {} // namespace fbgemm

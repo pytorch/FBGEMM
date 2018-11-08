@@ -13,7 +13,7 @@
 
 #include "fbgemm/Fbgemm.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 template <typename T, typename accT, int SPATIAL_DIM>
 PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
@@ -82,9 +82,122 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                               row_interleave_B_ * row_interleave_B_};
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
+  // accumulate into row offset?
+  bool row_offset_acc = (block.col_start != 0);
+  int32_t* row_offset_buf = getRowOffsetBuffer();
 
-  if (SPATIAL_DIM == 3) { // static if
+  bool point_wise = true;
+  for (int d = 0; d < SPATIAL_DIM; ++d) {
+    if (conv_p_.K[d] != 1 || conv_p_.pad[d] != 0 || conv_p_.stride[d] != 1 ||
+        conv_p_.dilation[d] != 1) {
+      point_wise = false;
+      break;
+    }
+  }
+  for (int d = SPATIAL_DIM; d < SPATIAL_DIM * 2; ++d) {
+    if (conv_p_.pad[d] != 0) {
+      point_wise = false;
+      break;
+    }
+  }
+
+  if (point_wise) {
+    int32_t ld = this->numCols();
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      int buf_idx = i - block.row_start;
+      memcpy(
+          out + buf_idx * BaseType::blockColSize(),
+          sdata_ + i * ld + block.col_start,
+          block.col_size * sizeof(T));
+      // zero fill
+      for (int j = block.col_size; j < block_p.col_size; ++j) {
+        out[buf_idx * BaseType::blockColSize() + j] = 0;
+      }
+      int32_t row_sum =
+          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+      __m256i sum_v = _mm256_setzero_si256();
+      __m256i one_epi16_v = _mm256_set1_epi16(1);
+      __m256i one_epi8_v = _mm256_set1_epi8(1);
+      for (int j = block.col_start;
+           j < block.col_start + block.col_size / 32 * 32;
+           j += 32) {
+        __m256i src_v = _mm256_loadu_si256(
+            reinterpret_cast<__m256i const*>(sdata_ + i * ld + j));
+        sum_v = _mm256_add_epi32(
+            sum_v,
+            _mm256_madd_epi16(
+                _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
+      }
+      for (int j = block.col_start + block.col_size / 32 * 32;
+           j < block.col_start + block.col_size;
+           ++j) {
+        row_sum += sdata_[i * ld + j];
+      }
+      // alignas(64) std::array<int32_t, 8> temp;
+      alignas(64) std::int32_t temp[8];
+      //_mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
+      _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
+      for (int k = 0; k < 8; ++k) {
+        row_sum += temp[k];
+      }
+      row_offset_buf[i - block.row_start] = row_sum;
+    }
+
+    return;
+  }
+
+  if (SPATIAL_DIM != 2 && SPATIAL_DIM != 3) {
+    assert(false && "unsupported conv dimension");
+  }
+
+  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+    if (SPATIAL_DIM == 2) { // static if
+      int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+      int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+      int w = hw % conv_p_.OUT_DIM[1];
+      int h = hw / conv_p_.OUT_DIM[1];
+      for (int j = block.col_start;
+           j < block.col_start + block.col_size + conv_p_.IC - 1;
+           j += conv_p_.IC) {
+        int j_blk_id = j / conv_p_.IC;
+        // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+        int j_blk_start = std::max(j_blk_id * conv_p_.IC, block.col_start);
+        int j_blk_end = std::min(
+            (j_blk_id + 1) * conv_p_.IC, block.col_start + block.col_size);
+        if (j_blk_start >= j_blk_end) {
+          break;
+        }
+
+        int rs = j / conv_p_.IC;
+        int s = rs % conv_p_.K[1];
+        int r = rs / conv_p_.K[1];
+
+        int h_in = -conv_p_.pad[0] + h * conv_p_.stride[0] + r;
+        int w_in = -conv_p_.pad[1] + w * conv_p_.stride[1] + s;
+
+        if (h_in < 0 || h_in >= conv_p_.IN_DIM[0] || w_in < 0 ||
+            w_in >= conv_p_.IN_DIM[1]) {
+          // Please note that padding for convolution should be filled with
+          // zero_pt
+          std::memset(
+              &out
+                  [(i - block.row_start) * BaseType::blockColSize() +
+                   (j_blk_start - block.col_start)],
+              BaseType::zeroPoint(),
+              sizeof(T) * (j_blk_end - j_blk_start));
+        } else {
+          std::memcpy(
+              &out
+                  [(i - block.row_start) * BaseType::blockColSize() +
+                   j_blk_start - block.col_start],
+              &sdata_
+                  [((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
+                       conv_p_.IC +
+                   (j_blk_start % conv_p_.IC)],
+              sizeof(T) * (j_blk_end - j_blk_start));
+        }
+      }
+    } else if (SPATIAL_DIM == 3) { // static if
       int n =
           i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
       int thw =
@@ -139,72 +252,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               sizeof(T) * (j_blk_end - j_blk_start));
         }
       }
-      // zero fill
-      // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
-      if ((block_p.col_start + block_p.col_size) -
-              (block.col_start + block.col_size) >
-          0) {
-        std::memset(
-            &out
-                [(i - block.row_start) * BaseType::blockColSize() +
-                 (block.col_size)],
-            0,
-            sizeof(T) *
-                ((block_p.col_start + block_p.col_size) -
-                 (block.col_start + block.col_size)));
-      }
     }
-    return;
-  }
 
-  assert(SPATIAL_DIM == 2 && "unsupported conv dimension");
-
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
-    int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
-    int w = hw % conv_p_.OUT_DIM[1];
-    int h = hw / conv_p_.OUT_DIM[1];
-    for (int j = block.col_start;
-         j < block.col_start + block.col_size + conv_p_.IC - 1;
-         j += conv_p_.IC) {
-      int j_blk_id = j / conv_p_.IC;
-      // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-      int j_blk_start = std::max(j_blk_id * conv_p_.IC, block.col_start);
-      int j_blk_end = std::min(
-          (j_blk_id + 1) * conv_p_.IC, block.col_start + block.col_size);
-      if (j_blk_start >= j_blk_end) {
-        break;
-      }
-
-      int rs = j / conv_p_.IC;
-      int s = rs % conv_p_.K[1];
-      int r = rs / conv_p_.K[1];
-
-      int h_in = -conv_p_.pad[0] + h * conv_p_.stride[0] + r;
-      int w_in = -conv_p_.pad[1] + w * conv_p_.stride[1] + s;
-
-      if (h_in < 0 || h_in >= conv_p_.IN_DIM[0] || w_in < 0 ||
-          w_in >= conv_p_.IN_DIM[1]) {
-        // Please note that padding for convolution should be filled with
-        // zero_pt
-        std::memset(
-            &out
-                [(i - block.row_start) * BaseType::blockColSize() +
-                 (j_blk_start - block.col_start)],
-            BaseType::zeroPoint(),
-            sizeof(T) * (j_blk_end - j_blk_start));
-      } else {
-        std::memcpy(
-            &out
-                [(i - block.row_start) * BaseType::blockColSize() +
-                 j_blk_start - block.col_start],
-            &sdata_
-                [((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
-                     conv_p_.IC +
-                 (j_blk_start % conv_p_.IC)],
-            sizeof(T) * (j_blk_end - j_blk_start));
-      }
-    }
     // zero fill
     // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
     if ((block_p.col_start + block_p.col_size) -
@@ -219,7 +268,33 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               ((block_p.col_start + block_p.col_size) -
                (block.col_start + block.col_size)));
     }
-  }
+
+    // TODO: skip row_offset computation when B_zero_point is 0
+    int32_t row_sum =
+        row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+
+    __m256i sum_v = _mm256_setzero_si256();
+    __m256i one_epi16_v = _mm256_set1_epi16(1);
+    __m256i one_epi8_v = _mm256_set1_epi8(1);
+    for (int j = 0; j < block.col_size / 32 * 32; j += 32) {
+      __m256i src_v = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(
+          out + (i - block.row_start) * this->blockColSize() + j));
+      sum_v = _mm256_add_epi32(
+          sum_v,
+          _mm256_madd_epi16(
+              _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
+    }
+    for (int j = block.col_size / 32 * 32; j < block.col_size; ++j) {
+      row_sum += out[(i - block.row_start) * this->blockColSize() + j];
+    }
+    alignas(64) int32_t temp[8];
+    _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
+    for (int k = 0; k < 8; ++k) {
+      row_sum += temp[k];
+    }
+
+    row_offset_buf[i - block.row_start] = row_sum;
+  } // for each i
 }
 
 template <typename T, typename accT, int SPATIAL_DIM>
@@ -267,4 +342,4 @@ template class PackAWithIm2Col<uint8_t, int16_t>;
 template class PackAWithIm2Col<uint8_t, int32_t, 3>;
 template class PackAWithIm2Col<uint8_t, int16_t, 3>;
 
-} // namespace fbgemm2
+} // namespace fbgemm

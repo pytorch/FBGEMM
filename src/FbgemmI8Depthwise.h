@@ -8,7 +8,7 @@
 
 #include <cstdint>
 
-namespace fbgemm2
+namespace fbgemm
 {
 
 // KERNEL_PROD is the product of all kernels.
@@ -102,4 +102,4 @@ void depthwise_3x3x3_pad_1(
     const std::int32_t* col_offsets, const std::int32_t* bias,
     bool fuse_relu = false, int thread_id = 0, int num_threads = 1);
 
-} // namespace fbgemm2
+} // namespace fbgemm

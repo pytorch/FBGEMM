@@ -11,7 +11,7 @@
 #include <vector>
 #include "fbgemm/Types.h"
 
-namespace fbgemm2 {
+namespace fbgemm {
 
 using fp16 = float16;
 using fp32 = float;
@@ -35,6 +35,6 @@ void __attribute__ ((noinline)) gemmkernel_14x1_AVX2_fA0fB0fC0(GemmParams *gp);
 typedef void (* funcptr_fp16) (GemmParams *gp);
 ;
 
-} // namespace fbgemm2
+} // namespace fbgemm
 
 #endif
