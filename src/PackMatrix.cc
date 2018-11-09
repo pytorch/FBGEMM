@@ -29,7 +29,7 @@ PackMatrix<PT, inpType, accType>::PackMatrix(
 template <typename PT, typename inpType, typename accType>
 int PackMatrix<PT, inpType, accType>::packedBufferSize(int rows, int cols) {
   if (cpuinfo_has_x86_avx512f()) {
-    if (isA) {
+    if (isA()) {
       return PackingTraits<inpType, accType, inst_set_t::avx512>::MCB *
           PackingTraits<inpType, accType, inst_set_t::avx512>::KCB;
     } else {
@@ -39,7 +39,7 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(int rows, int cols) {
           (((cols + colBlock - 1) / colBlock) * colBlock);
     }
   } else if (cpuinfo_has_x86_avx2()) {
-    if (isA) {
+    if (isA()) {
       return PackingTraits<inpType, accType, inst_set_t::avx2>::MCB *
           PackingTraits<inpType, accType, inst_set_t::avx2>::KCB;
     } else {
