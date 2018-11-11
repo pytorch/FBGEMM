@@ -317,7 +317,7 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
   }
 
   /**
-   * @return True is this is used as A matrix.
+   * @return True if this is used as A matrix.
    */
   static constexpr bool isA() {
     return true;
@@ -468,6 +468,21 @@ class PackAWithIm2Col
       std::int32_t* row_offset = nullptr);
 
   /**
+   * Activation matrices are not constant so cannot amortize the cost of
+   * pre-packing.
+   */
+  bool isPrePacked() const {
+    return false;
+  }
+
+  /**
+   * @return True if this is used as A matrix.
+   */
+  static constexpr bool isA() {
+    return true;
+  }
+
+  /**
    * @brief Packs a block of source matrix into pmat buffer.
    */
   void pack(const block_type_t& block);
@@ -531,6 +546,21 @@ class PackAWithRowOffset final
       std::uint32_t groups = 1,
       std::int32_t zero_pt = 0,
       std::int32_t* row_offset = nullptr);
+
+  /**
+   * Activation matrices are not constant so cannot amortize the cost of
+   * pre-packing.
+   */
+  bool isPrePacked() const {
+    return false;
+  }
+
+  /**
+   * @return True if this is used as A matrix.
+   */
+  static constexpr bool isA() {
+    return true;
+  }
 
   /**
    * @return Offset of the element in the packed matrix that was at (i, j) in
@@ -605,6 +635,21 @@ class PackAWithQuantRowOffset final
       std::int32_t zero_pt = 0,
       std::int32_t groups = 1,
       std::int32_t* row_offset = nullptr);
+
+  /**
+   * Activation matrices are not constant so cannot amortize the cost of
+   * pre-packing.
+   */
+  bool isPrePacked() const {
+    return false;
+  }
+
+  /**
+   * @return True if this is used as A matrix.
+   */
+  static constexpr bool isA() {
+    return true;
+  }
 
   /**
    * @return offset of the element in the packed matrix that was at (i, j) in
