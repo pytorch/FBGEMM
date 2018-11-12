@@ -11,6 +11,8 @@
 
 namespace fbgemm {
 
+namespace internal {
+
 inline void transpose_kernel_16x16_avx512(
     const float* src,
     int ld_src,
@@ -239,5 +241,7 @@ void transpose_16x16(
   transpose_8x8(ib, N - jb, &src[jb], ld_src, &dst[jb * ld_dst], ld_dst);
   transpose_8x8(M - ib, N, &src[ib * ld_src], ld_src, &dst[ib], ld_dst);
 }
+
+} // namespace internal
 
 } // namespace fbgemm

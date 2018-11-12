@@ -174,11 +174,11 @@ inline void transpose_ref(
     int ld_src,
     float* dst,
     int ld_dst) {
-  for (int i = 0; i < M; i++) {
-    for (int j = 0; j < N; j++) {
+  for (int j = 0; j < N; j++) {
+    for (int i = 0; i < M; i++) {
       dst[i + j * ld_dst] = src[i * ld_src + j];
     }
-  }
+  } // for each output row
 }
 
 inline void
@@ -314,6 +314,8 @@ inline void transpose_kernel_8x8_avx2(
   _mm256_storeu_ps(&dst[7 * ld_dst], h);
 }
 
+namespace internal {
+
 void transpose_8x8(
     int M,
     int N,
@@ -332,6 +334,8 @@ void transpose_8x8(
   transpose_4x4(M - ib, N, &src[ib * ld_src], ld_src, &dst[ib], ld_dst);
 }
 
+} // namspace internal
+
 void transpose_simd(
     int M,
     int N,
@@ -342,9 +346,9 @@ void transpose_simd(
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (cpuinfo_has_x86_avx512f()) {
-      transpose_16x16(M, N, src, ld_src, dst, ld_dst);
+      internal::transpose_16x16(M, N, src, ld_src, dst, ld_dst);
     } else if (cpuinfo_has_x86_avx2()) {
-      transpose_8x8(M, N, src, ld_src, dst, ld_dst);
+      internal::transpose_8x8(M, N, src, ld_src, dst, ld_dst);
     } else {
       transpose_ref(M, N, src, ld_src, dst, ld_dst);
       return;
