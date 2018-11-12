@@ -82,9 +82,10 @@ void printMatrix(
     std::string name);
 
 /**
- * @brief Top-level routine to transpose a matrix.
+ * @brief Transpose a matrix.
  *
- * This calls transpose_8x8 or transpose_16x16 internally.
+ * @param M the number of rows of input matrix
+ * @param N the number of columns of input matrix
  */
 void transpose_simd(
     int M,
@@ -93,6 +94,8 @@ void transpose_simd(
     int ld_src,
     float* dst,
     int ld_dst);
+
+namespace internal {
 
 /**
  * @brief Transpose a matrix using Intel AVX2.
@@ -119,5 +122,7 @@ void transpose_16x16(
     int ld_src,
     float* dst,
     int ld_dst);
+
+} // namespace internal
 
 } // namespace fbgemm
