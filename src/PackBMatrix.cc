@@ -20,15 +20,17 @@ PackBMatrix<T, accT>::PackBMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int32_t groups,
+    int groups,
     std::int32_t zero_pt)
-    : PackMatrix<PackBMatrix<T, accT>, T, accT>(nRow, nCol, pmat, zero_pt),
+    : PackMatrix<PackBMatrix<T, accT>, T, accT>(
+          nRow,
+          nCol,
+          pmat,
+          groups,
+          zero_pt),
       trans_(trans),
       smat_(smat),
-      ld_(ld),
-      G_(groups) {
-  assert(G_ == 1 && "Groups != 1 not supported yet");
-
+      ld_(ld) {
   if (cpuinfo_has_x86_avx512f()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
@@ -42,14 +44,22 @@ PackBMatrix<T, accT>::PackBMatrix(
     // Error
     assert(0 && "unknown architecure");
   }
-  block_type_t block{0, BaseType::numRows(), 0, BaseType::numCols()};
+  if (BaseType::numRows() % groups != 0) {
+    throw std::runtime_error(
+        "groups = " + std::to_string(groups) +
+        " does not divide numRows = " + std::to_string(BaseType::numRows()));
+  }
+
+  // blocking for one group
+  block_type_t block{
+      0, BaseType::numRows() / BaseType::numGroups(), 0, BaseType::numCols()};
   BaseType::packedBlock(block);
   if (!pmat) {
     BaseType::bufAllocatedHere_ = true;
     BaseType::buf_ = (T*)fbgemmAlignedAlloc(
         64,
-        BaseType::blockRows() * BaseType::brow_ * BaseType::blockCols() *
-            BaseType::bcol_ * sizeof(T));
+        BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
+            BaseType::blockCols() * BaseType::bcol_ * sizeof(T));
   }
   pack(block);
 }
@@ -59,26 +69,28 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
   assert((BaseType::blockRowSize() % row_interleave_) == 0);
 
   BaseType::packedBlock(block);
-  T* out = BaseType::getBuf();
   bool tr = (trans_ == matrix_op_t::Transpose);
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-      T val = tr ? smat_[i + ld_ * j] : smat_[i * ld_ + j];
-      out[addr(i, j) - addr(block.row_start, block.col_start)] =
-          tconv(val, out[addr(i, j)]);
+  for (int g = 0; g < this->numGroups(); ++g) {
+    T* out = BaseType::getBuf() +
+        g * this->packedBufferSize(block.row_size, block.col_size);
+    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
+        T val = tr ? smat_[g * block.row_size + i + ld_ * j]
+                   : smat_[(g * block.row_size + i) * ld_ + j];
+        out[addr(i, j)] = tconv(val, out[addr(i, j)]);
+      }
     }
-  }
-  // fill the remaining with zero.
-  // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
-  for (int i = block.row_start + block.row_size;
-       i < (block.row_start + block.row_size + row_interleave_ - 1) /
-           row_interleave_ * row_interleave_;
-       ++i) {
-    for (int j = block.col_start; j < block.col_start + block.col_size; j++) {
-      out[addr(i, j) - addr(block.row_start, block.col_start)] =
-          tconv(0, out[addr(i, j)]);
+    // fill the remaining with zero.
+    // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
+    for (int i = block.row_start + block.row_size;
+         i < (block.row_start + block.row_size + row_interleave_ - 1) /
+             row_interleave_ * row_interleave_;
+         ++i) {
+      for (int j = block.col_start; j < block.col_start + block.col_size; j++) {
+        out[addr(i, j)] = tconv(0, out[addr(i, j)]);
+      }
     }
-  }
+  } // for each group
 }
 
 template <typename T, typename accT>
@@ -109,7 +121,8 @@ void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
             << "[" << BaseType::blockRowSize() << ", "
             << BaseType::blockColSize() << "]" << std::endl;
 
-  T* out = BaseType::getBuf();
+  T* out = BaseType::getBuf() +
+      this->packedBufferSize(this->numPackedRows(), this->numPackedCols());
   for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
     auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
                                                   : BaseType::blockRowSize();
@@ -150,7 +163,8 @@ bool PackBMatrix<T, accT>::metaEquals(const PackBMatrix<T, accT>& that) const {
       BaseType::numPackedRows() != that.numPackedRows() ||
       BaseType::numPackedCols() != that.numPackedCols() ||
       BaseType::zeroPoint() != that.zeroPoint() || trans_ != that.trans_ ||
-      G_ != that.G_ || row_interleave_ != that.row_interleave_) {
+      BaseType::numGroups() != that.numGroups() ||
+      row_interleave_ != that.row_interleave_) {
     return false;
   }
 
