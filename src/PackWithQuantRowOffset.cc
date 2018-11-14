@@ -181,7 +181,7 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
       float clipped = std::min<float>(
           std::max<float>(transformed, std::numeric_limits<uint8_t>::min()),
           std::numeric_limits<uint8_t>::max());
-      T res = round(clipped);
+      T res = nearbyint(clipped);
       row_sum += res;
       out[i * BaseType::blockColSize() + j] = res;
     }
