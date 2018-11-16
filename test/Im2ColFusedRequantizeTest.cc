@@ -67,250 +67,165 @@ static vector<conv_param_t<>> shapes = {
     conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
 };
 
-TEST(FBGemmIm2colTest, Acc32Test) {
+template <typename ACC_T>
+static void Im2colTest() {
   for (auto conv_p : shapes) {
-    aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
-    aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
-    aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-    aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-    aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
+    for (int groups : {1, 4}) {
+      if (conv_p.IC % groups != 0 || conv_p.OC % groups != 0) {
+        continue;
+      }
+      conv_p.G = groups;
+      aligned_vector<uint8_t> Aint8(
+          conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
+      aligned_vector<int8_t> Bint8(
+          conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
+      aligned_vector<int32_t> Cint32_ref(
+          conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
+      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
+      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
 
-    randFill(Aint8, 0, 80);
-    int32_t Aint8_zero_point = 43;
-    randFill(Bint8, -16, 16);
-    int32_t Bint8_zero_point = -30;
+      int32_t Aint8_zero_point, Bint8_zero_point;
+      if (is_same<ACC_T, int32_t>::value) {
+        randFill(Aint8, 0, 80);
+        Aint8_zero_point = 43;
+        randFill(Bint8, -16, 16);
+        Bint8_zero_point = -30;
+      } else {
+        randFill(Aint8, 0, 5);
+        Aint8_zero_point = 4;
+        randFill(Bint8, -4, 4);
+        Bint8_zero_point = -2;
+      }
 
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
+      float C_multiplier = 0.1234;
+      int32_t C_zero_pt = 5;
 
-    int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
-    int NDim = conv_p.OC;
-    int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
+      int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
+      int NDim = conv_p.OC / conv_p.G;
+      int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
+      int KDimPerGroup = KDim / conv_p.G;
 
-    // computing row offset
-    vector<int32_t> row_offsets(MDim);
-    vector<uint8_t> Aint8_im2col(MDim * KDim);
-    im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
-    row_offsets_u8acc32_ref(
-        MDim, KDim, KDim, Aint8_im2col.data(), row_offsets.data());
+      // computing row offset
+      vector<int32_t> row_offsets(MDim);
+      vector<uint8_t> Aint8_im2col(MDim * KDim);
+      im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
 
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(NDim);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        KDim,
-        NDim,
-        NDim,
-        Bint8.data(),
-        Bint8_zero_point,
-        col_offsets.data());
+      // computing column offset
+      vector<int32_t> col_offsets;
+      col_offsets.resize(groups * NDim);
+      for (int g = 0; g < groups; ++g) {
+        col_offsets_with_zero_pt_s8acc32_ref(
+            KDimPerGroup,
+            NDim,
+            NDim,
+            Bint8.data() + g * KDimPerGroup * NDim,
+            Bint8_zero_point,
+            col_offsets.data() + g * NDim);
+      }
 
-    conv_ref(
-        conv_p,
-        Aint8.data(),
-        Aint8_zero_point,
-        Bint8.data(),
-        Cint32_ref.data());
+      conv_ref(
+          conv_p,
+          Aint8.data(),
+          Aint8_zero_point,
+          Bint8.data(),
+          Cint32_ref.data());
 
-    requantize_u8acc32_ref(
-        MDim,
-        NDim,
-        NDim,
-        Cint32_ref.data(),
-        Cint8_ref.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        nullptr);
+      for (int g = 0; g < groups; ++g) {
+        row_offsets_u8acc32_ref(
+            MDim,
+            KDimPerGroup,
+            KDim,
+            Aint8_im2col.data() + g * KDimPerGroup,
+            row_offsets.data());
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithIm2Col<uint8_t, int32_t>::rowOffsetBufferSize());
+        requantize_u8acc32_ref(
+            MDim,
+            NDim,
+            conv_p.G * NDim,
+            Cint32_ref.data() + g * NDim,
+            Cint8_ref.data() + g * NDim,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            row_offsets.data(),
+            col_offsets.data() + g * NDim,
+            nullptr);
+      }
 
-    PackAWithIm2Col<uint8_t, int32_t> packA(
-        conv_p,
-        Aint8.data(),
-        nullptr,
-        Aint8_zero_point,
-        row_offset_buf.data());
+      vector<int32_t> row_offset_buf;
+      row_offset_buf.resize(
+          PackAWithIm2Col<uint8_t, ACC_T>::rowOffsetBufferSize());
 
-    PackBMatrix<int8_t, int32_t> packedB(
-        matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
+      PackAWithIm2Col<uint8_t, ACC_T> packA(
+          conv_p,
+          Aint8.data(),
+          nullptr,
+          Aint8_zero_point,
+          row_offset_buf.data());
 
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packA.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
+      PackBMatrix<int8_t, ACC_T> packedB(
+          matrix_op_t::NoTranspose,
+          KDim,
+          NDim,
+          Bint8.data(),
+          NDim,
+          nullptr,
+          conv_p.G);
 
-    fbgemmPacked(
-        packA,
-        packedB,
-        Cint8_fb.data(),
-        Cint32_fb.data(),
-        NDim,
-        outputProcObj,
-        0,
-        1);
+      DoNothing<> doNothingObj{};
+      ReQuantizeOutput<false> outputProcObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_pt,
+          Aint8_zero_point,
+          Bint8_zero_point,
+          packA.getRowOffsetBuffer(),
+          col_offsets.data(),
+          nullptr);
 
-    // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-        for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-          for (int k = 0; k < conv_p.OC; ++k) {
-            int32_t expected = Cint8_ref
-                [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
-                     conv_p.OC +
-                 k];
-            int32_t actual = Cint8_fb
-                [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
-                     conv_p.OC +
-                 k];
-            EXPECT_EQ(expected, actual)
-                << "Im2Col fused results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
+      fbgemmPacked(
+          packA,
+          packedB,
+          Cint8_fb.data(),
+          Cint32_fb.data(),
+          conv_p.G * NDim,
+          outputProcObj,
+          0,
+          1);
+
+      // correctness check
+      for (int n = 0; n < conv_p.MB; ++n) {
+        for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
+          for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
+            for (int k = 0; k < conv_p.OC; ++k) {
+              int32_t expected = Cint8_ref
+                  [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
+                       conv_p.OC +
+                   k];
+              int32_t actual = Cint8_fb
+                  [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
+                       conv_p.OC +
+                   k];
+              EXPECT_EQ(expected, actual)
+                  << "Im2Col fused results differ at (" << n << ", " << h
+                  << ", " << w << ", " << k << ").";
+            }
           }
         }
       }
-    }
-
+    } // for each groups
   } // for each shape
-} // Acc32Test
+}
 
+TEST(FBGemmIm2colTest, Acc32Test) {
+  Im2colTest<int32_t>();
+}
 
 TEST(FBGemmIm2colTest, Acc16Test) {
-  for (auto conv_p : shapes) {
-    aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
-    aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
-    aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-    aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-    aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
-
-    randFill(Aint8, 0, 5);
-    int32_t Aint8_zero_point = 4;
-    randFill(Bint8, -4, 4);
-    int32_t Bint8_zero_point = -2;
-
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
-
-    int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
-    int NDim = conv_p.OC;
-    int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
-
-    // computing row offset
-    vector<int32_t> row_offsets(MDim);
-    vector<uint8_t> Aint8_im2col(MDim * KDim);
-    im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
-    row_offsets_u8acc32_ref(
-        MDim, KDim, KDim, Aint8_im2col.data(), row_offsets.data());
-
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(NDim);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        KDim,
-        NDim,
-        NDim,
-        Bint8.data(),
-        Bint8_zero_point,
-        col_offsets.data());
-
-    conv_ref(
-        conv_p,
-        Aint8.data(),
-        Aint8_zero_point,
-        Bint8.data(),
-        Cint32_ref.data());
-
-    requantize_u8acc32_ref(
-        MDim,
-        NDim,
-        NDim,
-        Cint32_ref.data(),
-        Cint8_ref.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        nullptr);
-
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithIm2Col<uint8_t, int16_t>::rowOffsetBufferSize());
-
-    PackAWithIm2Col<uint8_t, int16_t> packA(
-        conv_p,
-        Aint8.data(),
-        nullptr,
-        Aint8_zero_point,
-        row_offset_buf.data());
-
-    PackBMatrix<int8_t, int16_t> packedB(
-        matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
-
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packA.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
-
-    fbgemmPacked(
-        packA,
-        packedB,
-        Cint8_fb.data(),
-        Cint32_fb.data(),
-        NDim,
-        outputProcObj,
-        0,
-        1);
-
-    // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-        for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-          for (int k = 0; k < conv_p.OC; ++k) {
-            int32_t expected = Cint8_ref
-                [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
-                     conv_p.OC +
-                 k];
-            int32_t actual = Cint8_fb
-                [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
-                     conv_p.OC +
-                 k];
-            EXPECT_EQ(expected, actual)
-                << "Im2Col fused results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
-          }
-        }
-      }
-    }
-
-  } // for each shape
-} // Acc16Test
+  Im2colTest<int16_t>();
+}
 
 static vector<conv_param_t<3>> shapes_3d = {
     // MB, IC, OC, IT, IH, IW, G, KT, KH, KW, stride_t, stride_h, stride_w,
@@ -387,276 +302,176 @@ static vector<conv_param_t<3>> shapes_3d = {
         3>(1, 8, 16, {8, 14, 14}, 1, {1, 1, 1}, {2, 2, 2}, {0, 0, 0, 0, 0, 0}),
 };
 
-TEST(FBGemmIm2colTest, 3DAcc32Test) {
+template <typename ACC_T>
+static void Im2col3DTest() {
   for (auto conv_p : shapes_3d) {
-    aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IN_DIM[2] *
-            conv_p.IC,
-        0);
-    aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC * conv_p.OC, 0);
-    aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OUT_DIM[2] *
-            conv_p.OC,
-        0);
-    aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-    aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
+    for (int groups : {1, 4}) {
+      if (conv_p.IC % groups != 0 || conv_p.OC % groups != 0) {
+        continue;
+      }
+      conv_p.G = groups;
+      aligned_vector<uint8_t> Aint8(
+          conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IN_DIM[2] *
+              conv_p.IC,
+          0);
+      aligned_vector<int8_t> Bint8(
+          conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC * conv_p.OC, 0);
+      aligned_vector<int32_t> Cint32_ref(
+          conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] *
+              conv_p.OUT_DIM[2] * conv_p.OC,
+          0);
+      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
+      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
 
-    randFill(Aint8, 0, 80);
-    int32_t Aint8_zero_point = 43;
-    randFill(Bint8, -16, 16);
-    int32_t Bint8_zero_point = -30;
+      int32_t Aint8_zero_point, Bint8_zero_point;
+      if (is_same<ACC_T, int32_t>::value) {
+        randFill(Aint8, 0, 80);
+        Aint8_zero_point = 43;
+        randFill(Bint8, -16, 16);
+        Bint8_zero_point = -30;
+      } else {
+        randFill(Aint8, 0, 5);
+        Aint8_zero_point = 4;
+        randFill(Bint8, -4, 4);
+        Bint8_zero_point = -2;
+      }
 
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
+      float C_multiplier = 0.1234;
+      int32_t C_zero_pt = 5;
 
-    int MDim =
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OUT_DIM[2];
-    int NDim = conv_p.OC;
-    int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC;
+      int MDim =
+          conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OUT_DIM[2];
+      int NDim = conv_p.OC / conv_p.G;
+      int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC;
+      int KDimPerGroup = KDim / conv_p.G;
 
-    // computing row offset
-    vector<int32_t> row_offsets(MDim);
-    vector<uint8_t> Aint8_im2col(MDim * KDim);
-    im2col3d_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
-    row_offsets_u8acc32_ref(
-        MDim, KDim, KDim, Aint8_im2col.data(), row_offsets.data());
+      // computing row offset
+      vector<int32_t> row_offsets(MDim);
+      vector<uint8_t> Aint8_im2col(MDim * KDim);
+      im2col3d_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
 
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(NDim);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        KDim,
-        NDim,
-        NDim,
-        Bint8.data(),
-        Bint8_zero_point,
-        col_offsets.data());
+      // computing column offset
+      vector<int32_t> col_offsets;
+      col_offsets.resize(groups * NDim);
+      for (int g = 0; g < groups; ++g) {
+        col_offsets_with_zero_pt_s8acc32_ref(
+            KDimPerGroup,
+            NDim,
+            NDim,
+            Bint8.data() + g * KDimPerGroup * NDim,
+            Bint8_zero_point,
+            col_offsets.data() + g * NDim);
+      }
 
-    conv3d_ref(
-        conv_p,
-        Aint8.data(),
-        Aint8_zero_point,
-        Bint8.data(),
-        Cint32_ref.data());
+      conv3d_ref(
+          conv_p,
+          Aint8.data(),
+          Aint8_zero_point,
+          Bint8.data(),
+          Cint32_ref.data());
 
-    requantize_u8acc32_ref(
-        MDim,
-        NDim,
-        NDim,
-        Cint32_ref.data(),
-        Cint8_ref.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        nullptr);
+      for (int g = 0; g < groups; ++g) {
+        row_offsets_u8acc32_ref(
+            MDim,
+            KDimPerGroup,
+            KDim,
+            Aint8_im2col.data() + g * KDimPerGroup,
+            row_offsets.data());
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithIm2Col<uint8_t, int32_t, 3>::rowOffsetBufferSize());
+        requantize_u8acc32_ref(
+            MDim,
+            NDim,
+            conv_p.G * NDim,
+            Cint32_ref.data() + g * NDim,
+            Cint8_ref.data() + g * NDim,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            row_offsets.data(),
+            col_offsets.data() + g * NDim,
+            nullptr);
+      }
 
-    PackAWithIm2Col<uint8_t, int32_t, 3> packA(
-        conv_p,
-        Aint8.data(),
-        nullptr,
-        Aint8_zero_point,
-        row_offset_buf.data());
+      vector<int32_t> row_offset_buf;
+      row_offset_buf.resize(
+          PackAWithIm2Col<uint8_t, ACC_T, 3>::rowOffsetBufferSize());
 
-    PackBMatrix<int8_t, int32_t> packedB(
-        matrix_op_t::NoTranspose,
-        KDim,
-        NDim,
-        Bint8.data(),
-        NDim,
-        nullptr,
-        1,
-        Bint8_zero_point);
+      PackAWithIm2Col<uint8_t, ACC_T, 3> packA(
+          conv_p,
+          Aint8.data(),
+          nullptr,
+          Aint8_zero_point,
+          row_offset_buf.data());
 
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packA.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
+      PackBMatrix<int8_t, ACC_T> packedB(
+          matrix_op_t::NoTranspose,
+          KDim,
+          NDim,
+          Bint8.data(),
+          NDim,
+          nullptr,
+          conv_p.G,
+          Bint8_zero_point);
 
-    fbgemmPacked(
-        packA,
-        packedB,
-        Cint8_fb.data(),
-        Cint32_fb.data(),
-        NDim,
-        outputProcObj,
-        0,
-        1);
+      DoNothing<> doNothingObj{};
+      ReQuantizeOutput<false> outputProcObj(
+          doNothingObj,
+          C_multiplier,
+          C_zero_pt,
+          Aint8_zero_point,
+          Bint8_zero_point,
+          packA.getRowOffsetBuffer(),
+          col_offsets.data(),
+          nullptr);
 
-    // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
-        for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
-          for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
-            for (int k = 0; k < conv_p.OC; ++k) {
-              int32_t expected = Cint8_ref
-                  [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
-                        conv_p.OUT_DIM[2] +
-                    w) *
-                       conv_p.OC +
-                   k];
-              int32_t actual = Cint8_fb
-                  [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
-                        conv_p.OUT_DIM[2] +
-                    w) *
-                       conv_p.OC +
-                   k];
-              EXPECT_EQ(expected, actual)
-                  << "Im2Col fused results differ at (" << n << ", " << t
-                  << ", " << h << ", " << w << ", " << k << ").";
+      fbgemmPacked(
+          packA,
+          packedB,
+          Cint8_fb.data(),
+          Cint32_fb.data(),
+          conv_p.G * NDim,
+          outputProcObj,
+          0,
+          1);
+
+      // correctness check
+      for (int n = 0; n < conv_p.MB; ++n) {
+        for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
+          for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
+            for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
+              for (int k = 0; k < conv_p.OC; ++k) {
+                int32_t expected = Cint8_ref
+                    [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
+                          conv_p.OUT_DIM[2] +
+                      w) *
+                         conv_p.OC +
+                     k];
+                int32_t actual = Cint8_fb
+                    [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
+                          conv_p.OUT_DIM[2] +
+                      w) *
+                         conv_p.OC +
+                     k];
+                EXPECT_EQ(expected, actual)
+                    << "Im2Col fused results differ at (" << n << ", " << t
+                    << ", " << h << ", " << w << ", " << k << ").";
+              }
             }
           }
         }
       }
-    }
+    } // for each groups
   } // for each shape
-} // Acc32Test
+}
 
+TEST(FBGemmIm2colTest, 3DAcc32Test) {
+  Im2col3DTest<int32_t>();
+}
 
 TEST(FBGemmIm2colTest, 3DAcc16Test) {
-  for (auto conv_p : shapes_3d) {
-    aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IN_DIM[2] *
-            conv_p.IC,
-        0);
-    aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC * conv_p.OC, 0);
-    aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OUT_DIM[2] *
-            conv_p.OC,
-        0.0f);
-    aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-    aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
-
-    randFill(Aint8, 0, 5);
-    int32_t Aint8_zero_point = 4;
-    randFill(Bint8, -4, 4);
-    int32_t Bint8_zero_point = -2;
-
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
-
-    int MDim =
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OUT_DIM[2];
-    int NDim = conv_p.OC;
-    int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC;
-
-    // computing row offset
-    vector<int32_t> row_offsets(MDim);
-    vector<uint8_t> Aint8_im2col(MDim * KDim);
-    im2col3d_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
-    row_offsets_u8acc32_ref(
-        MDim, KDim, KDim, Aint8_im2col.data(), row_offsets.data());
-
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(NDim);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        KDim,
-        NDim,
-        NDim,
-        Bint8.data(),
-        Bint8_zero_point,
-        col_offsets.data());
-
-    conv3d_ref(
-        conv_p,
-        Aint8.data(),
-        Aint8_zero_point,
-        Bint8.data(),
-        Cint32_ref.data());
-
-    requantize_u8acc32_ref(
-        MDim,
-        NDim,
-        NDim,
-        Cint32_ref.data(),
-        Cint8_ref.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        nullptr);
-
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithIm2Col<uint8_t, int16_t, 3>::rowOffsetBufferSize());
-
-    PackAWithIm2Col<uint8_t, int16_t, 3> packA(
-        conv_p,
-        Aint8.data(),
-        nullptr,
-        Aint8_zero_point,
-        row_offset_buf.data());
-
-    PackBMatrix<int8_t, int16_t> packedB(
-        matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
-
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packA.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
-
-    fbgemmPacked(
-        packA,
-        packedB,
-        Cint8_fb.data(),
-        Cint32_fb.data(),
-        NDim,
-        outputProcObj,
-        0,
-        1);
-
-    // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
-        for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
-          for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
-            for (int k = 0; k < conv_p.OC; ++k) {
-              int32_t expected = Cint8_ref
-                  [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
-                        conv_p.OUT_DIM[2] +
-                    w) *
-                       conv_p.OC +
-                   k];
-              int32_t actual = Cint8_fb
-                  [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
-                        conv_p.OUT_DIM[2] +
-                    w) *
-                       conv_p.OC +
-                   k];
-              EXPECT_EQ(expected, actual)
-                  << "Im2Col fused results differ at (" << n << ", " << t
-                  << ", " << h << ", " << w << ", " << k << ").";
-            }
-          }
-        }
-      }
-    }
-  } // for each shape
-} // Acc16Test
+  Im2col3DTest<int16_t>();
+}
 
 } // namespace fbgemm
