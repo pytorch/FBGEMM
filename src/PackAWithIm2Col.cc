@@ -40,8 +40,8 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
           zero_pt),
       conv_p_(conv_p),
       sdata_(sdata) {
-  assert(conv_p.G == 1 && "Groups != 1 not supported yet");
-
+  static_assert(
+      SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
   if (cpuinfo_has_x86_avx512f()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
@@ -89,7 +89,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
   // accumulate into row offset?
-  bool row_offset_acc = (block.col_start != 0);
+  bool row_offset_acc =
+      (block.col_start % (this->numCols() / this->numGroups())) != 0;
   int32_t* row_offset_buf = getRowOffsetBuffer();
 
   bool point_wise = true;
@@ -152,10 +153,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
     return;
   }
 
-  if (SPATIAL_DIM != 2 && SPATIAL_DIM != 3) {
-    assert(false && "unsupported conv dimension");
-  }
-
+  int ic_per_group = conv_p_.IC / conv_p_.G;
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     if (SPATIAL_DIM == 2) { // static if
       int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
@@ -163,20 +161,21 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       int w = hw % conv_p_.OUT_DIM[1];
       int h = hw / conv_p_.OUT_DIM[1];
       for (int j = block.col_start;
-           j < block.col_start + block.col_size + conv_p_.IC - 1;
-           j += conv_p_.IC) {
-        int j_blk_id = j / conv_p_.IC;
+           j < block.col_start + block.col_size + ic_per_group - 1;
+           j += ic_per_group) {
+        int j_blk_id = j / ic_per_group;
         // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-        int j_blk_start = std::max(j_blk_id * conv_p_.IC, block.col_start);
+        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
         int j_blk_end = std::min(
-            (j_blk_id + 1) * conv_p_.IC, block.col_start + block.col_size);
+            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
         if (j_blk_start >= j_blk_end) {
           break;
         }
 
-        int rs = j / conv_p_.IC;
-        int s = rs % conv_p_.K[1];
-        int r = rs / conv_p_.K[1];
+        int grs = j / ic_per_group;
+        int s = grs % conv_p_.K[1];
+        int r = grs / conv_p_.K[1] % conv_p_.K[0];
+        int g = grs / conv_p_.K[1] / conv_p_.K[0];
 
         int h_in = -conv_p_.pad[0] + h * conv_p_.stride[0] + r;
         int w_in = -conv_p_.pad[1] + w * conv_p_.stride[1] + s;
@@ -186,20 +185,18 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           // Please note that padding for convolution should be filled with
           // zero_pt
           std::memset(
-              &out
-                  [(i - block.row_start) * BaseType::blockColSize() +
-                   (j_blk_start - block.col_start)],
+              out + (i - block.row_start) * BaseType::blockColSize() +
+                  (j_blk_start - block.col_start),
               BaseType::zeroPoint(),
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
-              &out
-                  [(i - block.row_start) * BaseType::blockColSize() +
-                   j_blk_start - block.col_start],
-              &sdata_
-                  [((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
-                       conv_p_.IC +
-                   (j_blk_start % conv_p_.IC)],
+              out + (i - block.row_start) * BaseType::blockColSize() +
+                  j_blk_start - block.col_start,
+              sdata_ +
+                  ((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
+                      conv_p_.IC +
+                  g * ic_per_group + (j_blk_start % ic_per_group),
               sizeof(T) * (j_blk_end - j_blk_start));
         }
       }
@@ -212,21 +209,22 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       int h = thw / conv_p_.OUT_DIM[2] % conv_p_.OUT_DIM[1];
       int t = thw / conv_p_.OUT_DIM[2] / conv_p_.OUT_DIM[1];
       for (int j = block.col_start;
-           j < block.col_start + block.col_size + conv_p_.IC - 1;
-           j += conv_p_.IC) {
-        int j_blk_id = j / conv_p_.IC;
+           j < block.col_start + block.col_size + ic_per_group - 1;
+           j += ic_per_group) {
+        int j_blk_id = j / ic_per_group;
         // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-        int j_blk_start = std::max(j_blk_id * conv_p_.IC, block.col_start);
+        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
         int j_blk_end = std::min(
-            (j_blk_id + 1) * conv_p_.IC, block.col_start + block.col_size);
+            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
         if (j_blk_start >= j_blk_end) {
           break;
         }
 
-        int qrs = j / conv_p_.IC;
-        int s = qrs % conv_p_.K[2];
-        int r = qrs / conv_p_.K[2] % conv_p_.K[1];
-        int q = qrs / conv_p_.K[2] / conv_p_.K[1];
+        int gqrs = j / ic_per_group;
+        int s = gqrs % conv_p_.K[2];
+        int r = gqrs / conv_p_.K[2] % conv_p_.K[1];
+        int q = gqrs / conv_p_.K[2] / conv_p_.K[1] % conv_p_.K[0];
+        int g = gqrs / conv_p_.K[2] / conv_p_.K[1] / conv_p_.K[0];
 
         int t_in = -conv_p_.pad[0] + t * conv_p_.stride[0] + q;
         int h_in = -conv_p_.pad[1] + h * conv_p_.stride[1] + r;
@@ -245,16 +243,14 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
-              &out
-                  [(i - block.row_start) * BaseType::blockColSize() +
-                   j_blk_start - block.col_start],
-              &sdata_
-                  [(((n * conv_p_.IN_DIM[0] + t_in) * conv_p_.IN_DIM[1] +
-                     h_in) *
-                        conv_p_.IN_DIM[2] +
-                    w_in) *
-                       conv_p_.IC +
-                   (j_blk_start % conv_p_.IC)],
+              out + (i - block.row_start) * BaseType::blockColSize() +
+                  j_blk_start - block.col_start,
+              sdata_ +
+                  (((n * conv_p_.IN_DIM[0] + t_in) * conv_p_.IN_DIM[1] + h_in) *
+                       conv_p_.IN_DIM[2] +
+                   w_in) *
+                      conv_p_.IC +
+                  g * ic_per_group + (j_blk_start % ic_per_group),
               sizeof(T) * (j_blk_end - j_blk_start));
         }
       }
