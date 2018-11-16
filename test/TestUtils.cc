@@ -100,8 +100,38 @@ void transpose_matrix(T* ref, int n, int k) {
   memcpy(ref, local.data(), n * k * sizeof(T));
 }
 
+template void transpose_matrix<float>(
+    int M,
+    int N,
+    const float* src,
+    int ld_src,
+    float* dst,
+    int ld_dst);
+template void transpose_matrix<int32_t>(
+    int M,
+    int N,
+    const int32_t* src,
+    int ld_src,
+    int32_t* dst,
+    int ld_dst);
+template void transpose_matrix<uint8_t>(
+    int M,
+    int N,
+    const uint8_t* src,
+    int ld_src,
+    uint8_t* dst,
+    int ld_dst);
+template void transpose_matrix<int8_t>(
+    int M,
+    int N,
+    const int8_t* src,
+    int ld_src,
+    int8_t* dst,
+    int ld_dst);
+
 template void transpose_matrix<float>(float* ref, int n, int k);
 template void transpose_matrix<int32_t>(int32_t* ref, int n, int k);
 template void transpose_matrix<uint8_t>(uint8_t* ref, int n, int k);
 template void transpose_matrix<int8_t>(int8_t* ref, int n, int k);
+
 } // namespace fbgemm
