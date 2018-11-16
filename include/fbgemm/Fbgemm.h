@@ -20,6 +20,10 @@
 #include "Types.h"
 #include "Utils.h"
 
+// Turning on this option will print out time breakdown of each stage (e.g.,
+// input packing, the main GEMM kernel, each output processing pipeline).
+// Please note that currently this option won't report accurate timing if
+// multiple threads are used.
 // #define FBGEMM_MEASURE_TIME_BREAKDOWN
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -80,13 +84,22 @@ class PackMatrix {
    *             overhead of internal memory allocation everytime a PackMatrix
    *             is constructed. The client code can query how big patm should
    *             be with packedBufferSize function.
+   * @param groups when groups > 1, we compute groups number of GEMMs each
+   *               multiplies A.rows by A.cols/A.groups matrix with
+   *               B.rows/B.groups by B.cols matrix (in conventional BLAS
+   *               terminology, this is a batched GEMM but we use the name group
+   *               to follow deep learning terminology). The result matrix has
+   *               dimension A.rows by B.cols*B.groups .
+   *               A.groups must be same as B.groups, A.groups must divide
+   *               A.cols, and B.groups must divide B.rows and C.cols.
    * @param zero_pt the quantized value that maps to 0.0f floating-point number.
    */
   PackMatrix(
       std::int32_t rows,
       std::int32_t cols,
       inpType* pmat,
-      std::int32_t zero_pt);
+      int groups = 1,
+      std::int32_t zero_pt = 0);
 
   /**
    * @return true usually when the matrix is constant matrix (e.g., weight
@@ -228,6 +241,10 @@ class PackMatrix {
     return last_bcol_;
   }
 
+  int numGroups() const {
+    return G_;
+  }
+
   /**
    * @return True if the last column block has fewer columns than the block
    *         size.
@@ -275,6 +292,7 @@ class PackMatrix {
 
  private:
   std::int32_t nrows_, ncols_;
+  int G_;
   std::int32_t zero_pt_;
   block_type_t packedBlock_; ///< The block in the source matrix just packed
   std::int32_t last_brow_, last_bcol_;
@@ -295,9 +313,6 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
 
   PackAMatrix() = delete; // no default constructor
 
-  /**
-   * TODO: currently only groups == 1 supported
-   */
   PackAMatrix(
       matrix_op_t trans,
       std::int32_t nRow,
@@ -305,7 +320,7 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      std::int32_t groups = 1,
+      int groups = 1,
       std::int32_t zero_pt = 0);
 
   /**
@@ -351,7 +366,6 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
   matrix_op_t trans_;
   const T* smat_;
   std::int32_t ld_;
-  std::int32_t G_;
   std::int32_t row_interleave_B_;
 };
 
@@ -370,9 +384,6 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
 
   PackBMatrix() = delete; // no default constructor
 
-  /**
-   * TODO: Currently only groups == 1 supported.
-   */
   PackBMatrix(
       matrix_op_t trans,
       std::int32_t nRow,
@@ -380,7 +391,7 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      std::int32_t groups = 1,
+      int groups = 1,
       std::int32_t zero_pt = 0);
 
   /**
@@ -437,7 +448,6 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
   matrix_op_t trans_;
   const T* smat_;
   std::int32_t ld_;
-  std::int32_t G_;
   std::int32_t row_interleave_;
 };
 
@@ -533,9 +543,6 @@ class PackAWithRowOffset final
   using accType = accT;
 
   PackAWithRowOffset() = delete; // no default constructor
-  /**
-   * TODO: Currently only groups == 1 supported
-   */
   PackAWithRowOffset(
       matrix_op_t trans,
       std::uint32_t nRow,
@@ -543,7 +550,7 @@ class PackAWithRowOffset final
       const T* smat,
       std::uint32_t ld,
       inpType* pmat = nullptr,
-      std::uint32_t groups = 1,
+      int groups = 1,
       std::int32_t zero_pt = 0,
       std::int32_t* row_offset = nullptr);
 
@@ -600,7 +607,6 @@ class PackAWithRowOffset final
   matrix_op_t trans_;
   const T* smat_;
   std::uint32_t ld_;
-  std::uint32_t G_;
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
   std::int32_t row_interleave_B_;
@@ -621,9 +627,6 @@ class PackAWithQuantRowOffset final
   using accType = accT;
 
   PackAWithQuantRowOffset() = delete; // no default constructor
-  /**
-   * TODO: Currently only groups == 1 supported
-   */
   PackAWithQuantRowOffset(
       matrix_op_t trans,
       std::int32_t nRow,
@@ -633,7 +636,7 @@ class PackAWithQuantRowOffset final
       inpType* pmat = nullptr,
       float scale = 1.0f,
       std::int32_t zero_pt = 0,
-      std::int32_t groups = 1,
+      int groups = 1,
       std::int32_t* row_offset = nullptr);
 
   /**
@@ -690,7 +693,6 @@ class PackAWithQuantRowOffset final
   const float* smat_;
   std::int32_t ld_;
   float scale_;
-  std::int32_t G_;
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
   std::int32_t row_interleave_B_;
@@ -811,7 +813,8 @@ class ReluOutput {
  * processing pipeline.
  *
  * SPMDM (SParse Matrix times Dense Matrix) inplace on the 32-bit input buffer
- * (inp). After modifying the input buffer, pass it to the next op
+ * (inp). After modifying the input buffer, pass it to the next op.
+ * When groups > 1, each group is numRows() x (numCols()/groups) matrix.
  */
 template <
     typename outT = std::int32_t,
@@ -825,8 +828,9 @@ class DoSpmdmOnInpBuffer {
       nextOPType& nextop,
       const std::uint8_t* A,
       int lda,
-      const CompressedSparseColumn& B_csc)
-      : nextop_(nextop), A_(A), lda_(lda), B_csc_(B_csc) {}
+      const CompressedSparseColumn& B_csc,
+      int groups = 1)
+      : nextop_(nextop), A_(A), lda_(lda), B_csc_(B_csc), groups_(groups) {}
 
   template <inst_set_t instSet>
   inline int f(
@@ -841,6 +845,7 @@ class DoSpmdmOnInpBuffer {
   const std::uint8_t* A_;
   const int lda_;
   const CompressedSparseColumn& B_csc_;
+  const int groups_;
 };
 
 /**

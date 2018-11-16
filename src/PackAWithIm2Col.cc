@@ -36,6 +36,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
               std::multiplies<int>()) *
               conv_p.IC,
           pmat,
+          conv_p.G,
           zero_pt),
       conv_p_(conv_p),
       sdata_(sdata) {
@@ -54,6 +55,11 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
   } else {
     // TODO: Have default slower path
     assert(0 && "unsupported architecure");
+  }
+  if (BaseType::numCols() % conv_p.G != 0) {
+    throw std::runtime_error(
+        "groups = " + std::to_string(conv_p.G) +
+        " does not divide numCols = " + std::to_string(BaseType::numCols()));
   }
   if (pmat) {
     BaseType::buf_ = pmat;

@@ -20,15 +20,17 @@ PackAMatrix<T, accT>::PackAMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int32_t groups,
+    int groups,
     std::int32_t zero_pt)
-    : PackMatrix<PackAMatrix<T, accT>, T, accT>(nRow, nCol, pmat, zero_pt),
+    : PackMatrix<PackAMatrix<T, accT>, T, accT>(
+          nRow,
+          nCol,
+          pmat,
+          groups,
+          zero_pt),
       trans_(trans),
       smat_(smat),
-      ld_(ld),
-      G_(groups) {
-  assert(G_ == 1 && "Groups != 1 not supported yet");
-
+      ld_(ld) {
   if (cpuinfo_has_x86_avx512f()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
@@ -42,6 +44,11 @@ PackAMatrix<T, accT>::PackAMatrix(
   } else {
     // TODO: Have default slower path
     assert(0 && "unsupported architecure");
+  }
+  if (BaseType::numCols() % groups != 0) {
+    throw std::runtime_error(
+        "groups = " + std::to_string(groups) +
+        " does not divide numCols = " + std::to_string(BaseType::numCols()));
   }
   if (!pmat) {
     BaseType::buf_ = (T*)fbgemmAlignedAlloc(
@@ -63,7 +70,7 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
   if (tr) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-        T val = smat_[i + ld_ * j];
+        T val = smat_[i + j * ld_];
         out[addr(i, j) - addr(block.row_start, block.col_start)] = val;
       }
       // zero fill
