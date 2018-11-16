@@ -53,6 +53,16 @@ struct conv_param_t {
         K(k),
         stride(strd),
         pad(pd) {
+    if (ic % g != 0) {
+      throw std::runtime_error(
+          "groups = " + std::to_string(g) +
+          " does not divide number of input channels = " + std::to_string(ic));
+    }
+    if (oc % g != 0) {
+      throw std::runtime_error(
+          "groups = " + std::to_string(g) +
+          " does not divide number of output channels = " + std::to_string(oc));
+    }
     for (int d = 0; d < SPATIAL_DIM; ++d) {
       dilation[d] = 1;
       IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
