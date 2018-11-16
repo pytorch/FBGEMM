@@ -32,9 +32,24 @@ bool check_all_zero_entries(const T* test, int m, int n);
 
 /*
  * @brief In-place transposition for nxk matrix ref.
- * @params n number of rows in output (number of columns in input)
- * @params k number of columns in output (number of rows in input)
+ * @params n number of rows in input (number of columns in output)
+ * @params k number of columns in input (number of rows in output)
  */
 template <typename T>
 void transpose_matrix(T* ref, int n, int k);
+
+/*
+ * @brief Out-of-place transposition for M*N matrix ref.
+ * @params M number of rows in input
+ * @params K number of columns in input
+ */
+template <typename T>
+void transpose_matrix(
+    int M,
+    int N,
+    const T* src,
+    int ld_src,
+    T* dst,
+    int ld_dst);
+
 } // namespace fbgemm
