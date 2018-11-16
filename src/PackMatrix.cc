@@ -18,8 +18,9 @@ PackMatrix<PT, inpType, accType>::PackMatrix(
     int32_t rows,
     int32_t cols,
     inpType* buf,
+    int groups,
     int32_t zero_pt)
-    : buf_(buf), nrows_(rows), ncols_(cols), zero_pt_(zero_pt) {
+    : buf_(buf), nrows_(rows), ncols_(cols), G_(groups), zero_pt_(zero_pt) {
   bufAllocatedHere_ = false;
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");

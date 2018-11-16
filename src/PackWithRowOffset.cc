@@ -22,21 +22,19 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
     const T* smat,
     uint32_t ld,
     inpType* pmat,
-    uint32_t groups,
+    int groups,
     int32_t zero_pt,
     int32_t* row_offset)
     : PackMatrix<PackAWithRowOffset<T, accT>, T, accT>(
           nRow,
           nCol,
           pmat,
+          groups,
           zero_pt),
       trans_(trans),
       smat_(smat),
       ld_(ld),
-      G_(groups),
       row_offset_(row_offset) {
-  assert(G_ == 1 && "Groups != 1 not supported yet");
-
   rowOffsetAllocatedHere = false;
 
   if (cpuinfo_has_x86_avx512f()) {
@@ -52,6 +50,11 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
   } else {
     // TODO: Have default slower path
     assert(0 && "unknown architecure");
+  }
+  if (BaseType::numCols() % groups != 0) {
+    throw std::runtime_error(
+        "groups = " + std::to_string(groups) +
+        " does not divide numCols = " + std::to_string(BaseType::numCols()));
   }
   if (pmat) {
     BaseType::buf_ = pmat;
@@ -70,7 +73,6 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
 template <typename T, typename accT>
 void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   assert(block.row_start % BaseType::blockRowSize() == 0);
-  assert(block.col_start % BaseType::blockColSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
 
@@ -85,7 +87,8 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   T* out = BaseType::getBuf();
   bool tr = (trans_ == matrix_op_t::Transpose);
   // accumulate into row offset?
-  bool row_offset_acc = (block.col_start != 0);
+  bool row_offset_acc =
+      (block.col_start % (this->numCols() / this->numGroups())) != 0;
   int32_t* row_offset_buf = getRowOffsetBuffer();
   if (tr) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {

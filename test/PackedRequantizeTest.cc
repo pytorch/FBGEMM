@@ -83,145 +83,191 @@ TEST_P(fbgemmu8s8acc32test, Test) {
   tie(atrans, btrans, test_ld) = GetParam();
 
   for (auto shape : shapes) {
-    int m = shape[0];
-    int n = shape[1];
-    int k = shape[2];
+    for (int groups : {1, 3, 4}) {
+      for (bool test_bias: {false, true}) {
+        int m = shape[0];
+        int n = shape[1];
+        int k = shape[2];
+        if (k % groups != 0) {
+          continue;
+        }
+        int k_per_group = k / groups;
 
-    aligned_vector<uint8_t> Aint8(m * k, 0);
+        // mxk matrix
+        aligned_vector<uint8_t> Aint8(m * k, 0);
 
-    // nxk matrix
-    aligned_vector<int8_t> Bint8(k * n, 0);
-    // kxn matrix
-    aligned_vector<int8_t> Bint8_ref(k * n, 0);
+        // kxn matrix
+        aligned_vector<int8_t> Bint8(k * n, 0);
+        aligned_vector<int8_t> Bint8_ref(Bint8.size(), 0);
 
-    aligned_vector<int32_t> Cint32_ref(m * n, 0.0f);
-    aligned_vector<int32_t> Cint32_fb(m * n, 0);
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
-    aligned_vector<int32_t> Cint32_local(m * n, 0);
-    aligned_vector<int32_t> Cint32_buffer(m * n, 0);
-    aligned_vector<uint8_t> Cint8_local(m * n, 0);
+        aligned_vector<int32_t> Cint32_ref(m * n * groups, 0);
+        aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
+        aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
+        aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
+        aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size(), 0);
 
-    randFill(Aint8, 0, 255);
-    int32_t Aint8_zero_point = 43;
+        randFill(Aint8, 0, 255);
+        int32_t Aint8_zero_point = 43;
 
-    randFill(Bint8_ref, -128, 127);
-    avoidOverflow(m, n, k, Aint8.data(), Bint8_ref.data());
+        randFill(Bint8_ref, -128, 127);
+        for (int g = 0; g < groups; ++g) {
+          avoidOverflow(
+              m,
+              n,
+              k_per_group,
+              Aint8.data() + g * k_per_group,
+              k,
+              Bint8_ref.data() + g * k_per_group * n,
+              n);
+        }
 
-    for (auto i = 0; i < Bint8.size(); ++i) {
-      Bint8[i] = Bint8_ref[i];
-    }
+        Bint8 = Bint8_ref;
 
-    if (btrans == matrix_op_t::Transpose) {
-      transpose_matrix(Bint8.data(), k, n);
-    }
+        // initialize bias
+        aligned_vector<int32_t> bias_int32(groups * n);
+        int32_t* bias = nullptr;
+        if (test_bias) {
+          randFill(bias_int32, -128, 127);
+          bias = bias_int32.data();
+        }
 
-    int32_t Bint8_zero_point = -30;
-    // To test lda != k , we just reduce k by half and use the original k
-    // as lda.
-    int k_adjusted = k;
-    int n_adjusted = n;
-    if (test_ld) {
-      assert(
-          atrans == matrix_op_t::NoTranspose && "This case is not handled yet");
-      k_adjusted = std::max(k / 2, 1);
-      if (btrans == matrix_op_t::NoTranspose) {
-        n_adjusted = std::max(n / 2, 1);
-      }
-    }
+        if (btrans == matrix_op_t::Transpose) {
+          aligned_vector<int8_t> Bint8_temp(Bint8.size());
+          for (int g = 0; g < groups; ++g) {
+            transpose_matrix(
+                k_per_group,
+                n,
+                Bint8.data() + g * k_per_group * n,
+                n,
+                Bint8_temp.data() + g * k_per_group,
+                groups * k_per_group);
+          }
+          Bint8 = Bint8_temp;
+        }
 
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(n_adjusted);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        k_adjusted,
-        n_adjusted,
-        n,
-        Bint8_ref.data(),
-        Bint8_zero_point,
-        col_offsets.data());
+        int32_t Bint8_zero_point = -30;
+        // To test lda != k , we just reduce k by half and use the original k
+        // as lda.
+        int n_adjusted = n;
+        if (test_ld) {
+          assert(
+              atrans == matrix_op_t::NoTranspose &&
+              "This case is not handled yet");
+          if (btrans == matrix_op_t::NoTranspose) {
+            n_adjusted = std::max(n / 2, 1);
+          }
+        }
 
-    vector<int32_t> row_offsets;
-    row_offsets.resize(m);
+        // computing column offset
+        vector<int32_t> col_offsets;
+        col_offsets.resize(groups * n_adjusted);
+        for (int g = 0; g < groups; ++g) {
+          col_offsets_with_zero_pt_s8acc32_ref(
+              k_per_group,
+              n_adjusted,
+              n,
+              Bint8_ref.data() + g * k_per_group * n,
+              Bint8_zero_point,
+              col_offsets.data() + g * n_adjusted);
+        }
 
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
+        vector<int32_t> row_offsets;
+        row_offsets.resize(m);
 
-    matmul_u8i8acc32_ref(
-        m,
-        n_adjusted,
-        k_adjusted,
-        k,
-        n,
-        n,
-        Aint8.data(),
-        Bint8_ref.data(),
-        Cint32_local.data());
+        float C_multiplier = 0.001234;
+        int32_t C_zero_pt = 5;
 
-    row_offsets_u8acc32_ref(m, k_adjusted, k, Aint8.data(), row_offsets.data());
+        for (int g = 0; g < groups; ++g) {
+          matmul_u8i8acc32_ref(
+              m,
+              n_adjusted,
+              k_per_group,
+              k,
+              n,
+              groups * n,
+              Aint8.data() + g * k_per_group,
+              Bint8_ref.data() + g * k_per_group * n,
+              Cint32_ref.data() + g * n_adjusted);
 
-    requantize_u8acc32_ref(
-        m,
-        n_adjusted,
-        n,
-        Cint32_local.data(),
-        Cint8_local.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        nullptr);
+          row_offsets_u8acc32_ref(
+              m,
+              k_per_group,
+              k,
+              Aint8.data() + g * k_per_group,
+              row_offsets.data());
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
+          requantize_u8acc32_ref(
+              m,
+              n_adjusted,
+              groups * n,
+              Cint32_ref.data() + g * n_adjusted,
+              Cint8_ref.data() + g * n_adjusted,
+              C_multiplier,
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point,
+              row_offsets.data(),
+              col_offsets.data() + g * n_adjusted,
+              bias ? (bias + g * n_adjusted) : nullptr);
+        }
 
-    PackAWithRowOffset<uint8_t> packAN(
-        matrix_op_t::NoTranspose,
-        m,
-        k_adjusted,
-        Aint8.data(),
-        k,
-        nullptr,
-        1,
-        Aint8_zero_point,
-        row_offset_buf.data());
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
 
-    PackBMatrix<int8_t> packedBN(
-        btrans,
-        k_adjusted,
-        n_adjusted,
-        Bint8.data(),
-        (btrans == matrix_op_t::Transpose) ? k : n,
-        nullptr,
-        1,
-        Bint8_zero_point);
+        PackAWithRowOffset<uint8_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            groups,
+            Aint8_zero_point,
+            row_offset_buf.data());
 
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packAN.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
+        PackBMatrix<int8_t> packedBN(
+            btrans,
+            k,
+            n_adjusted,
+            Bint8.data(),
+            (btrans == matrix_op_t::Transpose) ? k : n,
+            nullptr,
+            groups,
+            Bint8_zero_point);
 
-    fbgemmPacked(
-        packAN,
-        packedBN,
-        Cint8_fb.data(),
-        Cint32_buffer.data(),
-        n,
-        outputProcObj,
-        0,
-        1);
-    // printMatrix(matrix_op_t::NoTranspose, Cint32_local.data(),
-    // m, n_adjusted, n, "C local");
-    compare_validate_buffers(
-        Cint8_local.data(), Cint8_fb.data(), m, n, n, static_cast<uint8_t>(0));
-  }
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false> outputProcObj(
+            doNothingObj,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packAN.getRowOffsetBuffer(),
+            col_offsets.data(),
+            bias);
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint8_fb.data(),
+            Cint32_buffer.data(),
+            groups * n,
+            outputProcObj,
+            0,
+            1);
+        // printMatrix(matrix_op_t::NoTranspose, Cint32_local.data(),
+        // m, n_adjusted, n, "C local");
+        compare_validate_buffers(
+            Cint8_ref.data(),
+            Cint8_fb.data(),
+            m,
+            groups * n_adjusted,
+            groups * n,
+            static_cast<uint8_t>(0));
+      } // test_bias
+    } // for each groups
+  } // for each shape
 }
 
 /**
@@ -236,129 +282,163 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
   tie(atrans, btrans, test_ld) = GetParam();
 
   for (auto shape : shapes) {
-    int m = shape[0];
-    int n = shape[1];
-    int k = shape[2];
-
-    aligned_vector<float> Afp32(m * k, 0.0f);
-    aligned_vector<uint8_t> Aint8(m * k, 0);
-
-    aligned_vector<float> Bfp32(k * n, 0.0f);
-    aligned_vector<int8_t> Bint8(k * n, 0);
-
-    aligned_vector<float> Cfp32_ref(m * n, 0.0f);
-    aligned_vector<float> Cfp32_fb(m * n, 0.0f);
-
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
-    aligned_vector<int32_t> Cint32_buffer(m * n, 0);
-
-    randFill(Aint8, 0, 255);
-    int32_t Aint8_zero_point = 43;
-    float Aint8_scale = 0.11;
-    for (auto i = 0; i < Afp32.size(); ++i) {
-      Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
-    }
-
-    randFill(Bint8, -128, 127);
-    avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
-    int32_t Bint8_zero_point = -30;
-    float Bint8_scale = 0.49;
-    for (auto i = 0; i < Bfp32.size(); ++i) {
-      Bfp32[i] = Bint8_scale * (Bint8[i] - Bint8_zero_point);
-    }
-
-    // To test lda != k , we just reduce k by half and use the original k
-    // as lda.
-    int k_adjusted = k;
-    int n_adjusted = n;
-    if (test_ld) {
-      assert(
-          atrans == matrix_op_t::NoTranspose && "This case is not handled yet");
-      k_adjusted = std::max(k / 2, 1);
-      if (btrans == matrix_op_t::NoTranspose) {
-        n_adjusted = std::max(n / 2, 1);
+    for (int groups : {1, 3, 4}) {
+      int m = shape[0];
+      int n = shape[1];
+      int k = shape[2];
+      if (k % groups != 0) {
+        continue;
       }
-    }
+      int k_per_group = k / groups;
 
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(n_adjusted);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        k_adjusted,
-        n_adjusted,
-        n,
-        Bint8.data(),
-        Bint8_zero_point,
-        col_offsets.data());
+      aligned_vector<float> Afp32(m * k, 0.0f);
+      aligned_vector<uint8_t> Aint8(Afp32.size(), 0);
 
-    if (btrans == matrix_op_t::Transpose) {
-      transpose_matrix(Bint8.data(), k, n);
-    }
+      aligned_vector<float> Bfp32(k * n, 0.0f);
+      aligned_vector<int8_t> Bint8(Bfp32.size(), 0);
 
-    matmul_fp_ref(
-        m,
-        n_adjusted,
-        k_adjusted,
-        k,
-        n,
-        n,
-        Afp32.data(),
-        Bfp32.data(),
-        Cfp32_ref.data());
+      aligned_vector<float> Cfp32_ref(m * n * groups, 0.0f);
+      aligned_vector<float> Cfp32_fb(Cfp32_ref.size(), 0.0f);
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
+      aligned_vector<uint8_t> Cint8_fb(Cfp32_ref.size(), 0);
+      aligned_vector<int32_t> Cint32_buffer(Cfp32_ref.size(), 0);
 
-    PackAWithQuantRowOffset<uint8_t> packAN(
-        matrix_op_t::NoTranspose,
-        m,
-        k_adjusted,
-        Afp32.data(),
-        k,
-        nullptr, /*buffer for packed matrix*/
-        Aint8_scale,
-        Aint8_zero_point,
-        1, /*groups*/
-        row_offset_buf.data());
+      randFill(Aint8, 0, 255);
+      int32_t Aint8_zero_point = 43;
+      float Aint8_scale = 0.11;
+      for (auto i = 0; i < Afp32.size(); ++i) {
+        Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
+      }
 
-    PackBMatrix<int8_t> packedBN(
-        btrans,
-        k_adjusted,
-        n_adjusted,
-        Bint8.data(),
-        (btrans == matrix_op_t::Transpose) ? k : n,
-        nullptr,
-        1,
-        Bint8_zero_point);
+      randFill(Bint8, -128, 127);
+      for (int g = 0; g < groups; ++g) {
+        avoidOverflow(
+            m,
+            n,
+            k_per_group,
+            Aint8.data() + g * k_per_group,
+            k,
+            Bint8.data() + g * k_per_group * n,
+            n);
+      }
+      int32_t Bint8_zero_point = -30;
+      float Bint8_scale = 0.49;
+      for (auto i = 0; i < Bfp32.size(); ++i) {
+        Bfp32[i] = Bint8_scale * (Bint8[i] - Bint8_zero_point);
+      }
 
-    DoNothing<float, float> doNothingObj{};
-    ReQuantizeForFloat<false> outputProcObj(
-        doNothingObj,
-        Aint8_scale,
-        Bint8_scale,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packAN.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
+      // To test lda != k , we just reduce k by half and use the original k
+      // as lda.
+      int n_adjusted = n;
+      if (test_ld) {
+        assert(
+            atrans == matrix_op_t::NoTranspose &&
+            "This case is not handled yet");
+        if (btrans == matrix_op_t::NoTranspose) {
+          n_adjusted = std::max(n / 2, 1);
+        }
+      }
 
-    fbgemmPacked(
-        packAN,
-        packedBN,
-        Cfp32_fb.data(),
-        (int32_t*)Cfp32_fb.data(),
-        n,
-        outputProcObj,
-        0,
-        1);
+      // computing column offset
+      vector<int32_t> col_offsets;
+      col_offsets.resize(groups * n_adjusted);
+      for (int g = 0; g < groups; ++g) {
+        col_offsets_with_zero_pt_s8acc32_ref(
+            k_per_group,
+            n_adjusted,
+            n,
+            Bint8.data() + g * k_per_group * n,
+            Bint8_zero_point,
+            col_offsets.data() + g * n_adjusted);
+      }
 
-    float maximum = *max_element(Cfp32_ref.begin(), Cfp32_ref.end());
-    float minimum = *min_element(Cfp32_ref.begin(), Cfp32_ref.end());
-    float atol = (maximum - minimum) / 255 / 1.9;
+      if (btrans == matrix_op_t::Transpose) {
+        aligned_vector<int8_t> Bint8_temp(Bint8.size());
+        for (int g = 0; g < groups; ++g) {
+          transpose_matrix(
+              k_per_group,
+              n,
+              Bint8.data() + g * k_per_group * n,
+              n,
+              Bint8_temp.data() + g * k_per_group,
+              groups * k_per_group);
+        }
+        Bint8 = Bint8_temp;
+      }
 
-    compare_validate_buffers(Cfp32_ref.data(), Cfp32_fb.data(), m, n, n, atol);
-  }
+      for (int g = 0; g < groups; ++g) {
+        matmul_fp_ref(
+            m,
+            n_adjusted,
+            k_per_group,
+            k,
+            n,
+            groups * n,
+            Afp32.data() + g * k_per_group,
+            Bfp32.data() + g * k_per_group * n,
+            Cfp32_ref.data() + g * n_adjusted);
+      }
+
+      vector<int32_t> row_offset_buf;
+      row_offset_buf.resize(
+          PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
+
+      PackAWithQuantRowOffset<uint8_t> packAN(
+          matrix_op_t::NoTranspose,
+          m,
+          k,
+          Afp32.data(),
+          k,
+          nullptr, /*buffer for packed matrix*/
+          Aint8_scale,
+          Aint8_zero_point,
+          groups,
+          row_offset_buf.data());
+
+      PackBMatrix<int8_t> packedBN(
+          btrans,
+          k,
+          n_adjusted,
+          Bint8.data(),
+          (btrans == matrix_op_t::Transpose) ? k : n,
+          nullptr,
+          groups,
+          Bint8_zero_point);
+
+      DoNothing<float, float> doNothingObj{};
+      ReQuantizeForFloat<false> outputProcObj(
+          doNothingObj,
+          Aint8_scale,
+          Bint8_scale,
+          Aint8_zero_point,
+          Bint8_zero_point,
+          packAN.getRowOffsetBuffer(),
+          col_offsets.data(),
+          nullptr);
+
+      fbgemmPacked(
+          packAN,
+          packedBN,
+          Cfp32_fb.data(),
+          reinterpret_cast<int32_t*>(Cfp32_fb.data()),
+          groups * n,
+          outputProcObj,
+          0,
+          1);
+
+      float maximum = *max_element(Cfp32_ref.begin(), Cfp32_ref.end());
+      float minimum = *min_element(Cfp32_ref.begin(), Cfp32_ref.end());
+      float atol = (maximum - minimum) / 255 / 1.9;
+
+      compare_validate_buffers(
+          Cfp32_ref.data(),
+          Cfp32_fb.data(),
+          m,
+          groups * n_adjusted,
+          groups * n,
+          atol);
+    } // for each groups
+  } // for each shape
 }
 
 /**
@@ -373,253 +453,121 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
   tie(atrans, btrans, test_ld) = GetParam();
 
   for (auto shape : shapes) {
-    int m = shape[0];
-    int n = shape[1];
-    int k = shape[2];
-
-    aligned_vector<float> Afp32(m * k, 0.0f);
-    aligned_vector<uint8_t> Aint8(m * k, 0);
-
-    aligned_vector<float> Bfp32(k * n, 0.0f);
-    aligned_vector<int8_t> Bint8(k * n, 0);
-
-    aligned_vector<float> Cfp32_ref(m * n, 0.0f);
-    aligned_vector<int32_t> Cint32_fb(m * n, 0);
-
-    randFill(Afp32, 0, 255);
-    for (auto i = 0; i < Afp32.size(); i++) {
-      Aint8[i] = (uint8_t)Afp32[i];
-    }
-
-    // initialize B matrix
-    randFill(Bfp32, -128, 127);
-    avoidOverflow(m, n, k, Aint8.data(), Bfp32.data());
-
-    for (auto i = 0; i < Bfp32.size(); ++i) {
-      Bint8[i] = (int8_t)Bfp32[i];
-    }
-
-    // To test lda != k , we just reduce k by half and use the original k
-    // as lda.
-    int m_adjusted = m;
-    int n_adjusted = n;
-    int k_adjusted = k;
-    if (test_ld) {
-      assert(
-          atrans == matrix_op_t::NoTranspose && "This case is not handled yet");
-      k_adjusted = std::max(k / 2, 1);
-      if (btrans == matrix_op_t::NoTranspose) {
-        n_adjusted = std::max(n / 2, 1);
+    for (int groups : {1, 3, 4}) {
+      int m = shape[0];
+      int n = shape[1];
+      int k = shape[2];
+      if (k % groups != 0) {
+        continue;
       }
-    }
+      int k_per_group = k / groups;
 
-    if (btrans == matrix_op_t::Transpose) {
-      transpose_matrix(Bint8.data(), k, n);
-    }
+      aligned_vector<float> Afp32(m * k, 0.0f);
+      aligned_vector<uint8_t> Aint8(Afp32.size(), 0);
 
-    matmul_fp_ref(
-        m,
-        n_adjusted,
-        k_adjusted,
-        k,
-        n,
-        n,
-        Afp32.data(),
-        Bfp32.data(),
-        Cfp32_ref.data());
+      aligned_vector<float> Bfp32(k * n, 0.0f);
+      aligned_vector<int8_t> Bint8(Bfp32.size(), 0);
 
-    DoNothing<int32_t, int32_t> doNothingObj{};
-    memCopy<> outputProcObj(doNothingObj);
-    // A zero point and row offset not required
-    PackAMatrix<uint8_t> packAN(
-        matrix_op_t::NoTranspose, m, k_adjusted, Aint8.data(), k);
+      aligned_vector<float> Cfp32_ref(m * n * groups, 0.0f);
+      aligned_vector<int32_t> Cint32_fb(Cfp32_ref.size(), 0);
 
-    // B zero point defaults to 0
-    PackBMatrix<int8_t> packedBN(
-        btrans,
-        k_adjusted,
-        n_adjusted,
-        Bint8.data(),
-        (btrans == matrix_op_t::Transpose) ? k : n);
-
-    fbgemmPacked(
-        packAN,
-        packedBN,
-        Cint32_fb.data(),
-        Cint32_fb.data(),
-        n,
-        outputProcObj,
-        0,
-        1);
-
-    // correctness check
-    for (int i = 0; i < m_adjusted; ++i) {
-      for (int j = 0; j < n_adjusted; ++j) {
-        float expected = Cfp32_ref[i * n + j];
-        int32_t actual = Cint32_fb[i * n + j];
-        EXPECT_EQ(expected, actual)
-            << "GEMM results differ at (" << i << ", " << j << "). ref "
-            << expected << " FBGemm " << actual;
+      randFill(Afp32, 0, 255);
+      for (auto i = 0; i < Afp32.size(); i++) {
+        Aint8[i] = (uint8_t)Afp32[i];
       }
-    }
-  }
-}
 
-/**
- * @brief Unit test for unt8 matrix A, int8 matrix B, and 32-bit
- * accumulation. Output processing: requantization with bias -> nothing.
- * Asymmetric: the zero point is not 0.
- */
-TEST_P(fbgemmu8s8acc32test, TestAsymmetricQuantizedWithBias) {
-  vector<vector<int>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
-  bool test_ld;
-  tie(atrans, btrans, test_ld) = GetParam();
-
-  for (auto shape : shapes) {
-    int m = shape[0];
-    int n = shape[1];
-    int k = shape[2];
-
-    aligned_vector<uint8_t> Aint8(m * k, 0);
-    aligned_vector<uint8_t> Aint8_ref(m * k, 0);
-
-    aligned_vector<int8_t> Bint8(k * n, 0);
-    aligned_vector<int8_t> Bint8_ref(k * n, 0);
-
-    aligned_vector<int32_t> Cint32_fb(m * n, 0);
-    aligned_vector<int32_t> Cint32_ref(m * n, 0);
-
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
-    aligned_vector<uint8_t> Cint8_ref(m * n, 0);
-
-    int n_adjusted = n;
-    int k_adjusted = k;
-
-    if (test_ld) {
-      assert(
-          atrans == matrix_op_t::NoTranspose && "This case is not handled yet");
-      k_adjusted = std::max(k / 2, 1);
-      if (btrans == matrix_op_t::NoTranspose) {
-        n_adjusted = std::max(n / 2, 1);
+      // initialize B matrix
+      randFill(Bfp32, -128, 127);
+      for (int g = 0; g < groups; ++g) {
+        avoidOverflow(
+            m,
+            n,
+            k_per_group,
+            Aint8.data() + g * k_per_group,
+            k,
+            Bfp32.data() + g * k_per_group * n,
+            n);
       }
-    }
 
-    // A and B have scale 1, so exactly represented after quantization
-    randFill(Aint8, 0, 255);
-    randFill(Bint8, -128, 127);
-    avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
+      for (auto i = 0; i < Bfp32.size(); ++i) {
+        Bint8[i] = (int8_t)Bfp32[i];
+      }
 
-    for (auto i = 0; i < Bint8.size(); ++i) {
-      Bint8_ref[i] = Bint8[i];
-    }
+      // To test lda != k , we just reduce k by half and use the original k
+      // as lda.
+      int n_adjusted = n;
+      if (test_ld) {
+        assert(
+            atrans == matrix_op_t::NoTranspose &&
+            "This case is not handled yet");
+        if (btrans == matrix_op_t::NoTranspose) {
+          n_adjusted = std::max(n / 2, 1);
+        }
+      }
 
-    for (auto i = 0; i < Aint8.size(); ++i) {
-      Aint8_ref[i] = Aint8[i];
-    }
+      if (btrans == matrix_op_t::Transpose) {
+        aligned_vector<int8_t> Bint8_temp(Bint8.size());
+        for (int g = 0; g < groups; ++g) {
+          transpose_matrix(
+              k_per_group,
+              n,
+              Bint8.data() + g * k_per_group * n,
+              n,
+              Bint8_temp.data() + g * k_per_group,
+              groups * k_per_group);
+        }
+        Bint8 = Bint8_temp;
+      }
 
-    int32_t Aint8_zero_point = 55;
-    int32_t Bint8_zero_point = -17;
+      for (int g = 0; g < groups; ++g) {
+        matmul_fp_ref(
+            m,
+            n_adjusted,
+            k_per_group,
+            k,
+            n,
+            groups * n,
+            Afp32.data() + g * k_per_group,
+            Bfp32.data() + g * k_per_group * n,
+            Cfp32_ref.data() + g * n_adjusted);
+      }
 
-    // initialize bias
-    aligned_vector<int32_t> bias_int32(n);
-    randFill(bias_int32, -128, 127);
+      DoNothing<int32_t, int32_t> doNothingObj{};
+      memCopy<> outputProcObj(doNothingObj);
+      // A zero point and row offset not required
+      PackAMatrix<uint8_t> packAN(
+          matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, groups);
 
-    if (btrans == matrix_op_t::Transpose) {
-      transpose_matrix(Bint8.data(), k, n);
-    }
+      // B zero point defaults to 0
+      PackBMatrix<int8_t> packedBN(
+          btrans,
+          k,
+          n_adjusted,
+          Bint8.data(),
+          (btrans == matrix_op_t::Transpose) ? k : n,
+          nullptr,
+          groups);
 
-    // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(n_adjusted);
-    col_offsets_with_zero_pt_s8acc32_ref(
-        k_adjusted,
-        n_adjusted,
-        n,
-        Bint8_ref.data(),
-        Bint8_zero_point,
-        col_offsets.data());
+      fbgemmPacked(
+          packAN,
+          packedBN,
+          Cint32_fb.data(),
+          Cint32_fb.data(),
+          groups * n,
+          outputProcObj,
+          0,
+          1);
 
-    matmul_u8i8acc32_ref(
-        m,
-        n_adjusted,
-        k_adjusted,
-        k,
-        n,
-        n,
-        Aint8.data(),
-        Bint8_ref.data(),
-        Cint32_ref.data());
-
-    vector<int32_t> row_offsets;
-    row_offsets.resize(m);
-
-    row_offsets_u8acc32_ref(
-        m, k_adjusted, k, Aint8_ref.data(), row_offsets.data());
-
-    float C_multiplier = 0.1234;
-    int32_t C_zero_pt = 5;
-
-    requantize_u8acc32_ref(
-        m,
-        n_adjusted,
-        n,
-        Cint32_ref.data(),
-        Cint8_ref.data(),
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        row_offsets.data(),
-        col_offsets.data(),
-        bias_int32.data());
-
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
-
-    PackAWithRowOffset<uint8_t> packAN(
-        matrix_op_t::NoTranspose,
-        m,
-        k_adjusted,
-        Aint8.data(),
-        k,
-        nullptr,
-        1,
-        Aint8_zero_point,
-        row_offset_buf.data());
-
-    PackBMatrix<int8_t> packedBN(
-        btrans,
-        k_adjusted,
-        n_adjusted,
-        Bint8.data(),
-        (btrans == matrix_op_t::Transpose) ? k : n,
-        nullptr,
-        1,
-        Bint8_zero_point);
-
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packAN.getRowOffsetBuffer(),
-        col_offsets.data(),
-        bias_int32.data());
-
-    fbgemmPacked(
-        packAN,
-        packedBN,
-        Cint8_fb.data(),
-        Cint32_fb.data(),
-        n,
-        outputProcObj,
-        0,
-        1);
-
-    compare_validate_buffers(
-        Cint8_fb.data(), Cint8_ref.data(), m, n, n, static_cast<uint8_t>(0));
-  }
+      // correctness check
+      for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < groups * n_adjusted; ++j) {
+          float expected = Cfp32_ref[i * groups * n + j];
+          int32_t actual = Cint32_fb[i * groups * n + j];
+          EXPECT_EQ(expected, actual)
+              << "GEMM results differ at (" << i << ", " << j << "). ref "
+              << expected << " FBGemm " << actual;
+        }
+      }
+    } // for each groups
+  } // for each shape
 }

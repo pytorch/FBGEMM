@@ -28,7 +28,10 @@ template <typename outT, typename inT, typename nextOPType>
 template<inst_set_t instSet>
 inline int DoSpmdmOnInpBuffer<outT, inT, nextOPType>::f(outT* out, inT* inp,
     const block_type_t& block, int ld_out, int ld_in) const {
-  B_csc_.SpMDM(block, A_, lda_, true, inp, ld_in);
+  assert(B_csc_.NumOfCols() % groups_ == 0);
+  int n_per_group = B_csc_.NumOfCols() / groups_;
+  int g = block.col_start / n_per_group;
+  B_csc_.SpMDM(block, A_ + g * B_csc_.NumOfRows(), lda_, true, inp, ld_in);
   return nextop_.template f<instSet>(out, inp, block, ld_out, ld_in);
 }
 

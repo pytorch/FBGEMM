@@ -76,22 +76,30 @@ void fbgemmPacked(
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
 
+  if (!packB.isPrePacked()) {
+    throw std::runtime_error("B matrix must be prepacked");
+  }
+  if (packA.numGroups() != packB.numGroups()) {
+    throw std::runtime_error(
+        "A.groups = " + std::to_string(packA.numGroups()) + " and B.groups = " +
+        std::to_string(packB.numGroups()) + " are not the same");
+  }
+
   int MDim = packA.numRows();
   int KDim = packB.numRows();
+  int KDimPerGroup = packB.numRows() / packB.numGroups();
+  int NDim = packB.numCols();
 
   int mBlocks = (MDim + MCB - 1) / MCB;
-  int kBlocks = (KDim + KCB - 1) / KCB;
+  int kBlocks = (KDimPerGroup + KCB - 1) / KCB;
 
   // remainders
   int _mc = MDim % MCB;
-  int _kc = KDim % KCB;
+  int _kc = KDimPerGroup % KCB;
 
   int kc, mc;
 
   block_type_t blockA{0, 0, 0, 0};
-
-  // B must be prepacked
-  assert(packB.isPrePacked() && "B matrix must be prepacked");
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   std::chrono::time_point<std::chrono::high_resolution_clock> t_very_start,
@@ -101,37 +109,48 @@ void fbgemmPacked(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
-      exeKernelObj(packA, packB, 0, C, C_buffer, ldc, outProcess);
   // ToDo: thread based work division
-  for (int i = 0; i < mBlocks; ++i) {
-    mc = (i != mBlocks - 1 || _mc == 0) ? MCB : _mc;
-    for (int k = 0; k < kBlocks; ++k) {
-      kc = (k != kBlocks - 1 || _kc == 0) ? KCB : _kc;
-      // pack A matrix
-      blockA = {i * MCB, mc, k * KCB, kc};
+  for (int g = 0; g < packA.numGroups(); ++g) {
+    ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
+        exeKernelObj(
+            packA,
+            packB,
+            0,
+            C,
+            C_buffer,
+            ldc,
+            outProcess);
+    for (int i = 0; i < mBlocks; ++i) {
+      mc = (i != mBlocks - 1 || _mc == 0) ? MCB : _mc;
+      for (int k = 0; k < kBlocks; ++k) {
+        kc = (k != kBlocks - 1 || _kc == 0) ? KCB : _kc;
+        // pack A matrix
+        blockA = {i * MCB, mc, g * KDimPerGroup + k * KCB, kc};
 
-      packA.pack(blockA);
+        packA.pack(blockA);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-      t_end = std::chrono::high_resolution_clock::now();
-      dt = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start)
-               .count();
-      packing_time += (dt);
-      t_start = std::chrono::high_resolution_clock::now();
+        t_end = std::chrono::high_resolution_clock::now();
+        dt = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                 t_end - t_start)
+                 .count();
+        packing_time += (dt);
+        t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-      exeKernelObj.execute(k);
+        exeKernelObj.execute(g * kBlocks + k);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-      t_end = std::chrono::high_resolution_clock::now();
-      dt = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start)
-               .count();
-      computing_time += (dt);
-      t_start = std::chrono::high_resolution_clock::now();
+        t_end = std::chrono::high_resolution_clock::now();
+        dt = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                 t_end - t_start)
+                 .count();
+        computing_time += (dt);
+        t_start = std::chrono::high_resolution_clock::now();
 #endif
+      }
     }
-  }
+  } // for each group
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   t_end = std::chrono::high_resolution_clock::now();

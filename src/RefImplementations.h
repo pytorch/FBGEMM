@@ -125,6 +125,10 @@ void col_offsets_with_zero_pt_s8acc32_ref(
 
 /**
  * @brief Reference implementation of SPMDM (sparse matrix times dense matrix).
+ *
+ * @param groups when > 1, for gth group, we multiply
+ *               A[:,g*(A.ncols/groups):(g+1)*(A.ncols/groups)] sub-matrix with
+ *               B[:,g*(B.ncols/groups):(g+1)*(B.ncols/groups)] sub-matrix .
  */
 void spmdm_ref(
     int M,
@@ -133,7 +137,8 @@ void spmdm_ref(
     CompressedSparseColumn& B,
     bool accumulation,
     std::int32_t* C,
-    int ldc);
+    int ldc,
+    int groups = 1);
 
 /*
  * @brief Trim a 32-bit integer to a 16-bit integer.

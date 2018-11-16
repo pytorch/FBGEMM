@@ -93,8 +93,8 @@ void matmul_u8i8acc32_ref(
     const uint8_t* Aint8,
     const int8_t* Bint8,
     int32_t* Cint32) {
-  for (int j = 0; j < N; ++j) {
-    for (int i = 0; i < M; ++i) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
       int32_t sum = 0;
       for (int k = 0; k < K; ++k) {
         sum += static_cast<int32_t>(Aint8[i * lda + k]) *
@@ -116,8 +116,8 @@ void matmul_u8i8acc16_ref(
     const uint8_t* Aint8,
     const int8_t* Bint8,
     int32_t* Cint32) {
-  for (int j = 0; j < N; ++j) {
-    for (int i = 0; i < M; ++i) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
       int32_t sum = 0, sum_32bit = 0;
       for (int k = 0; k < K; k += 2) {
         int a0 = Aint8[i * lda + k];
@@ -148,8 +148,8 @@ void matmul_fp_ref(
     const float* Afp32,
     const float* Bfp32,
     float* Cfp32) {
-  for (int j = 0; j < N; ++j) {
-    for (int i = 0; i < M; ++i) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
       float sum = 0;
       for (int k = 0; k < K; ++k) {
         sum += Afp32[i * lda + k] * Bfp32[k * ldb + j];
@@ -198,8 +198,10 @@ void spmdm_ref(
     fbgemm::CompressedSparseColumn& B,
     bool accumulation,
     int32_t* C,
-    int ldc) {
+    int ldc,
+    int groups /*=1*/) {
   int N = B.NumOfCols();
+  assert(N % groups == 0);
   if (!accumulation) {
     for (int i = 0; i < M; ++i) {
       for (int j = 0; j < N; ++j) {
@@ -207,15 +209,17 @@ void spmdm_ref(
       }
     }
   }
-  for (int j = 0; j < N; ++j) {
-    for (int k = B.ColPtr()[j]; k < B.ColPtr()[j + 1]; ++k) {
-      int row = B.RowIdx()[k];
-      int w = B.Values()[k];
-      for (int i = 0; i < M; ++i) {
-        C[i * ldc + j] += A[i * lda + row] * w;
+  for (int g = 0; g < groups; ++g) {
+    for (int j = g * (N / groups); j < (g + 1) * (N / groups); ++j) {
+      for (int k = B.ColPtr()[j]; k < B.ColPtr()[j + 1]; ++k) {
+        int row = g * B.NumOfRows() + B.RowIdx()[k];
+        int w = B.Values()[k];
+        for (int i = 0; i < M; ++i) {
+          C[i * ldc + j] += A[i * lda + row] * w;
+        }
       }
-    }
-  } // for each column of B
+    } // for each column of B
+  } // for each group
 }
 
 int32_t clip_16bit(int32_t x) {

@@ -79,18 +79,25 @@ template bool
 check_all_zero_entries<uint8_t>(const uint8_t* test, int m, int n);
 
 template <typename T>
+void transpose_matrix(
+    int M,
+    int N,
+    const T* src,
+    int ld_src,
+    T* dst,
+    int ld_dst) {
+  for (int i = 0; i < N; ++i) {
+    for (int j = 0; j < M; ++j) {
+      dst[i * ld_dst + j] = src[i + j * ld_src];
+    }
+  } // for each output row
+}
+
+template <typename T>
 void transpose_matrix(T* ref, int n, int k) {
-  aligned_vector<T> local(n * k, 0);
-  for (int i = 0; i < n; ++i) {
-    for (int j = 0; j < k; ++j) {
-      local[j * n + i] = ref[i * k + j];
-    }
-  }
-  for (int i = 0; i < k; ++i) {
-    for (int j = 0; j < n; ++j) {
-      ref[i * n + j] = local[i * n + j];
-    }
-  }
+  std::vector<T> local(n * k);
+  transpose_matrix(n, k, ref, k, local.data(), n);
+  memcpy(ref, local.data(), n * k * sizeof(T));
 }
 
 template void transpose_matrix<float>(float* ref, int n, int k);

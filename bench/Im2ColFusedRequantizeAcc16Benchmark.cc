@@ -189,7 +189,11 @@ void performance_test() {
         PackAWithIm2Col<uint8_t, int16_t>::rowOffsetBufferSize());
 
     PackAWithIm2Col<uint8_t, int16_t> packA(
-        conv_p, Aint8.data(), nullptr, Aint8_zero_point, row_offset_buf.data());
+        conv_p,
+        Aint8.data(),
+        nullptr,
+        Aint8_zero_point,
+        row_offset_buf.data());
 
     PackBMatrix<int8_t, int16_t> packedB(
         matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
