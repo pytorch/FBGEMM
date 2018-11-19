@@ -65,7 +65,6 @@ int compare_buffers(
   return 0;
 }
 
-
 /**
  * @brief Print the matrix.
  * @param op Transpose type of the matrix.
@@ -156,7 +155,6 @@ template void printMatrix<int32_t>(
     size_t C,
     size_t ld,
     std::string name);
-
 
 /**
  * @brief Reference implementation of matrix transposition: B = A^T.
@@ -334,7 +332,7 @@ void transpose_8x8(
   transpose_4x4(M - ib, N, &src[ib * ld_src], ld_src, &dst[ib], ld_dst);
 }
 
-} // namspace internal
+} // namespace internal
 
 void transpose_simd(
     int M,

@@ -11,7 +11,7 @@
 namespace fbgemm {
 
 template <typename T>
-void randFill(aligned_vector<T> &vec, const int low, const int high);
+void randFill(aligned_vector<T>& vec, const int low, const int high);
 
 void llc_flush(std::vector<char>& llc);
 

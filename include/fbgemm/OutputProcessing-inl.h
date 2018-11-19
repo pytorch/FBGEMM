@@ -7,27 +7,36 @@
 #pragma once
 
 template <typename outT, typename inT, typename nextOPType>
-template<inst_set_t instSet>
-inline int memCopy<outT, inT, nextOPType>::f(outT* out, inT* inp,
-    const block_type_t& block, int ld_out, int ld_in) const {
+template <inst_set_t instSet>
+inline int memCopy<outT, inT, nextOPType>::f(
+    outT* out,
+    inT* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in) const {
   static_assert(
       std::is_same<outT, inT>::value,
       "input and output data type must be of same type");
   // only copy if destination is not the same as source
-  if (out + block.row_start*ld_out + block.col_start != inp) {
+  if (out + block.row_start * ld_out + block.col_start != inp) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      memcpy(out + block.col_start + i * ld_out,
-             inp + (i - block.row_start) * ld_in,
-             block.col_size*sizeof(inT));
+      memcpy(
+          out + block.col_start + i * ld_out,
+          inp + (i - block.row_start) * ld_in,
+          block.col_size * sizeof(inT));
     }
   }
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);
 }
 
 template <typename outT, typename inT, typename nextOPType>
-template<inst_set_t instSet>
-inline int DoSpmdmOnInpBuffer<outT, inT, nextOPType>::f(outT* out, inT* inp,
-    const block_type_t& block, int ld_out, int ld_in) const {
+template <inst_set_t instSet>
+inline int DoSpmdmOnInpBuffer<outT, inT, nextOPType>::f(
+    outT* out,
+    inT* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in) const {
   assert(B_csc_.NumOfCols() % groups_ == 0);
   int n_per_group = B_csc_.NumOfCols() / groups_;
   int g = block.col_start / n_per_group;
@@ -103,7 +112,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
               inp + (i - block.row_start) * ld_in + (j - block.col_start) +
               3 * VLEN));
 
-          //if (A_zero_pt != 0) {
+          // if (A_zero_pt != 0) {
           __m256i col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(
@@ -131,7 +140,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
           y_v = _mm256_sub_epi32(y_v, row_offset_v);
           z_v = _mm256_sub_epi32(z_v, row_offset_v);
           w_v = _mm256_sub_epi32(w_v, row_offset_v);
-        //}
+          //}
           if (bias_) {
             x_v = _mm256_add_epi32(
                 x_v,
@@ -242,7 +251,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
           __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
               inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
-          //if (A_zero_pt != 0) {
+          // if (A_zero_pt != 0) {
           __m256i col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(
@@ -252,7 +261,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
 
           // if (row_offset != 0) {
           x_v = _mm256_sub_epi32(x_v, row_offset_v);
-        //}
+          //}
           if (bias_) {
             x_v = _mm256_add_epi32(
                 x_v,
@@ -302,7 +311,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
               inp[(i - block.row_start) * ld_in + (j - block.col_start)];
           // if (A_zero_pt != 0) {
           raw -= Aq_zero_point_ * q_col_offsets_[j];
-        //}
+          //}
           raw -= row_offset;
           if (bias_) {
             raw += bias_[j];

@@ -20,9 +20,9 @@
 #include <mkl.h>
 #endif
 
+#include "BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
-#include "BenchUtils.h"
 
 using namespace std;
 using namespace fbgemm;

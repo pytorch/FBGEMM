@@ -17,9 +17,9 @@
 #include <omp.h>
 #endif
 
+#include "BenchUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
 #include "src/RefImplementations.h"
-#include "BenchUtils.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -156,7 +156,7 @@ int main() {
 #pragma omp parallel
 #endif
           {
-#if defined (FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
+#if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
             int num_threads = 1;
             int tid = 0;
 #else

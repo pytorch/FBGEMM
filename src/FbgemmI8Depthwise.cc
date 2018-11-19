@@ -18,10 +18,11 @@
 
 using namespace std;
 
-namespace fbgemm
-{
+namespace fbgemm {
 
 static array<array<int, 8>, 8> masks = {{
+  // NOTE: clang-format wants to use a different formatting but the current
+  // formatting should be easier to read.
   {  0,  0,  0,  0,  0,  0,  0,  0,  },
   { -1,  0,  0,  0,  0,  0,  0,  0,  },
   { -1, -1,  0,  0,  0,  0,  0,  0,  },

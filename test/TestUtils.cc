@@ -6,8 +6,8 @@
  */
 #include "TestUtils.h"
 #include <gtest/gtest.h>
-#include "fbgemm/Fbgemm.h"
 #include "bench/AlignedVec.h"
+#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 

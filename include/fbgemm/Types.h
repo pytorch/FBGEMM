@@ -19,10 +19,11 @@ typedef struct __attribute__((aligned(2))) __f16 {
 static inline float16 cpu_float2half_rn(float f) {
   float16 ret;
 
-  static_assert(sizeof(unsigned int) == sizeof(float),
-                "Programming error sizeof(unsigned int) != sizeof(float)");
+  static_assert(
+      sizeof(unsigned int) == sizeof(float),
+      "Programming error sizeof(unsigned int) != sizeof(float)");
 
-  unsigned *xp = reinterpret_cast<unsigned int *>(&f);
+  unsigned* xp = reinterpret_cast<unsigned int*>(&f);
   unsigned x = *xp;
   unsigned u = (x & 0x7fffffff), remainder, shift, lsb, lsb_s1, lsb_m1;
   unsigned sign, exponent, mantissa;
@@ -105,11 +106,18 @@ static inline float cpu_half2float(float16 h) {
   return ret;
 }
 
-static inline uint8_t tconv(float x, int8_t /*rtype*/) { return int8_t(x); }
-static inline uint8_t tconv(float x, uint8_t /*rtype*/) { return uint8_t(x); }
+static inline uint8_t tconv(float x, int8_t /*rtype*/) {
+  return int8_t(x);
+}
+static inline uint8_t tconv(float x, uint8_t /*rtype*/) {
+  return uint8_t(x);
+}
 static inline float16 tconv(float x, float16 /*rtype*/) {
   return cpu_float2half_rn(x);
 }
 
-template <typename T> T tconv(T x, T /*rtype*/) { return x; }
+template <typename T>
+T tconv(T x, T /*rtype*/) {
+  return x;
 }
+} // namespace fbgemm

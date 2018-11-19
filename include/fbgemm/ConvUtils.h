@@ -25,7 +25,7 @@ struct conv_param_t {
   std::array<int, SPATIAL_DIM> stride; //< Strides
   std::array<int, SPATIAL_DIM * 2>
       pad; //< Padding (first SPATIAL_DIM is for prev/top/left padding, second
-           //SPATIAL_DIM is for next/bottom/right padding)
+           // SPATIAL_DIM is for next/bottom/right padding)
   std::array<int, SPATIAL_DIM> dilation; //< Kernel dilation
 
   // The following are derived parameters
@@ -87,8 +87,7 @@ struct conv_param_t {
       }
     } else {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
-        out += "I" + std::to_string(d) + ":" +
-            std::to_string(IN_DIM[d]) + ", ";
+        out += "I" + std::to_string(d) + ":" + std::to_string(IN_DIM[d]) + ", ";
       }
     }
     out += "G:" + std::to_string(G) + ", ";

@@ -4,12 +4,12 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include <cpuinfo.h>
 #include <algorithm>
 #include <cassert>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <cpuinfo.h>
 
 #include "fbgemm/Fbgemm.h"
 
@@ -67,7 +67,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
     BaseType::bufAllocatedHere_ = true;
     BaseType::buf_ = static_cast<T*>(
         fbgemmAlignedAlloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
-        //aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
+    // aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
   if (row_offset) {
     rowOffsetAllocatedHere = false;
@@ -272,8 +272,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
     }
 
     // TODO: skip row_offset computation when B_zero_point is 0
-    int32_t row_sum =
-        row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+    int32_t row_sum = row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
 
     __m256i sum_v = _mm256_setzero_si256();
     __m256i one_epi16_v = _mm256_set1_epi16(1);

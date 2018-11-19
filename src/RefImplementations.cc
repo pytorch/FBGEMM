@@ -6,10 +6,10 @@
  */
 #include "RefImplementations.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstring>
-#include <algorithm>
 
 using namespace std;
 

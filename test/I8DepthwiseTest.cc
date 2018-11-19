@@ -11,19 +11,20 @@
 
 #include <gtest/gtest.h>
 
+#include "TestUtils.h"
 #include "bench/AlignedVec.h"
+#include "bench/BenchUtils.h"
 #include "src/FbgemmI8Depthwise.h"
 #include "src/RefImplementations.h"
-#include "TestUtils.h"
-#include "bench/BenchUtils.h"
 
 using namespace std;
 
-namespace fbgemm
-{
+namespace fbgemm {
 
 // From Xray OCR
 static vector<vector<int>> shapes = {
+  // NOTE: clang-format wants to use a different formatting but the current
+  // formatting should be easier to read.
   // N, K, H_in, W_in, stride
   {   1,  272,  47, 125, 1, },
 //  {   1,  272,  64, 125, 1, },
@@ -143,9 +144,9 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
           for (int k = 0; k < K; ++k) {
             int32_t expected = C_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual) <<
-              "Depthwise 3x3 results differ at (" << n << ", " <<
-              h << ", " << w << ", " << k << ").";
+            EXPECT_EQ(expected, actual)
+                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
+                << w << ", " << k << ").";
           }
         }
       }
@@ -178,9 +179,9 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual) <<
-              "Depthwise 3x3 results differ at (" << n << ", " <<
-              h << ", " << w << ", " << k << ").";
+            EXPECT_EQ(expected, actual)
+                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
+                << w << ", " << k << ").";
           }
         }
       }
@@ -289,9 +290,9 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
                   C[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
               ASSERT_EQ(expected, actual)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
-                  << ", " << h << ", " << w << ", " << k << ") "
-                  << shape[0] << " " << shape[1] << " " << shape[2] << " "
-                  << shape[3] << " " << shape[4] << " " << shape[5];
+                  << ", " << h << ", " << w << ", " << k << ") " << shape[0]
+                  << " " << shape[1] << " " << shape[2] << " " << shape[3]
+                  << " " << shape[4] << " " << shape[5];
             }
           } // w
         } // h
@@ -299,10 +300,26 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
     } // n
 
     depthwise_3x3x3_pad_1(
-        N, T, H, W, K, stride_t, stride_h, stride_w, A_zero_point, A.data(),
-        B_zero_point, Bp, C_multiplier, C_zero_point,
-        C_uint8.data(), col_offsets.data(), bias.data(),
-        false /* fuse_relu */, 0, 1);
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A.data(),
+        B_zero_point,
+        Bp,
+        C_multiplier,
+        C_zero_point,
+        C_uint8.data(),
+        col_offsets.data(),
+        bias.data(),
+        false /* fuse_relu */,
+        0,
+        1);
 
     // correctness check
     for (int n = 0; n < N; ++n) {
@@ -435,9 +452,9 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual) <<
-              "Depthwise 3x3 results differ at (" << n << ", " <<
-              h << ", " << w << ", " << k << ").";
+            EXPECT_EQ(expected, actual)
+                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
+                << w << ", " << k << ").";
           }
         }
       }

@@ -58,12 +58,7 @@ void avoidOverflow(
 }
 
 template <typename T>
-void avoidOverflow(
-    int m,
-    int n,
-    int k,
-    const uint8_t* Aint8,
-    T* B) {
+void avoidOverflow(int m, int n, int k, const uint8_t* Aint8, T* B) {
   return avoidOverflow(m, n, k, Aint8, k, B, n);
 }
 

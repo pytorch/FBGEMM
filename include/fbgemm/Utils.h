@@ -36,7 +36,6 @@ enum class inst_set_t { anyarch, avx2, avx512 };
  */
 enum class impl_type_t { ref, opt };
 
-
 /**
  * @brief A struct to represent a block of a matrix.
  */

@@ -9,11 +9,11 @@
 
 #include <gtest/gtest.h>
 
+#include "TestUtils.h"
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
-#include "TestUtils.h"
 
 using namespace std;
 

@@ -16,11 +16,11 @@
 
 #include <gtest/gtest.h>
 
-#include "fbgemm/Fbgemm.h"
-#include "bench/BenchUtils.h"
-#include "src/RefImplementations.h"
 #include "QuantizationHelpers.h"
 #include "TestUtils.h"
+#include "bench/BenchUtils.h"
+#include "fbgemm/Fbgemm.h"
+#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;

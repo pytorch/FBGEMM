@@ -17,11 +17,11 @@
 
 #include <gtest/gtest.h>
 
-#include "fbgemm/Fbgemm.h"
-#include "bench/BenchUtils.h"
-#include "src/RefImplementations.h"
 #include "QuantizationHelpers.h"
 #include "TestUtils.h"
+#include "bench/BenchUtils.h"
+#include "fbgemm/Fbgemm.h"
+#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -84,7 +84,7 @@ TEST_P(fbgemmu8s8acc32test, Test) {
 
   for (auto shape : shapes) {
     for (int groups : {1, 3, 4}) {
-      for (bool test_bias: {false, true}) {
+      for (bool test_bias : {false, true}) {
         int m = shape[0];
         int n = shape[1];
         int k = shape[2];
