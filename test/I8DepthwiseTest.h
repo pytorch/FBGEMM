@@ -8,11 +8,12 @@
 
 #include <vector>
 
-namespace fbgemm
-{
+namespace fbgemm {
 
 // From ResNeXt-3D-101
 static std::vector<std::vector<int>> shapes_3d = {
+  // NOTE: clang-format wants to use a different formatting but the current
+  // formatting should be easier to read.
   // N, K, T_in, H_in, W_in, stride
   {   1,  64,   32,  56, 56, 1, },
   {   1, 128,   16,  28, 28, 1, },

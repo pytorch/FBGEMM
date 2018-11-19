@@ -8,10 +8,10 @@
 
 #include <gtest/gtest.h>
 
+#include "TestUtils.h"
+#include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmFP16.h"
 #include "src/RefImplementations.h"
-#include "bench/BenchUtils.h"
-#include "TestUtils.h"
 
 #ifdef USE_IACA
 #include "iacaMarks.h"
@@ -21,9 +21,9 @@ using namespace std;
 using namespace fbgemm;
 
 namespace {
-  // The template parameter is transpose of A and B
-  class FBGemmFP16Test :
-    public testing::TestWithParam<pair<matrix_op_t, matrix_op_t>> {};
+// The template parameter is transpose of A and B
+class FBGemmFP16Test
+    : public testing::TestWithParam<pair<matrix_op_t, matrix_op_t>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -40,11 +40,11 @@ INSTANTIATE_TEST_CASE_P(
           matrix_op_t::Transpose, matrix_op_t::Transpose)*/));
 
 TEST_P(FBGemmFP16Test, Test) {
-  vector<vector<int> > shapes;
+  vector<vector<int>> shapes;
   random_device r;
   default_random_engine generator(r());
-  uniform_int_distribution<int> dm(1,100);
-  uniform_int_distribution<int> dnk(1,1024);
+  uniform_int_distribution<int> dm(1, 100);
+  uniform_int_distribution<int> dnk(1, 1024);
   for (int i = 0; i < 10; i++) {
     int m = dm(generator);
     int n = dnk(generator);
@@ -95,16 +95,7 @@ TEST_P(FBGemmFP16Test, Test) {
     }
 
     // Gold via reference sgemm
-    matmul_fp_ref(
-        m,
-        n,
-        k,
-        k,
-        n,
-        n,
-        A_ref.data(),
-        B_ref.data(),
-        C_ref.data());
+    matmul_fp_ref(m, n, k, k, n, n, A_ref.data(), B_ref.data(), C_ref.data());
 
     // fbgemm fp16
     PackedGemmMatrixFP16 Bp(btrans, k, n, alpha, B.data());
@@ -115,9 +106,9 @@ TEST_P(FBGemmFP16Test, Test) {
       for (int j = 0; j < n; ++j) {
         float expected = C_ref[i * n + j];
         float actual = C[i * n + j];
-        EXPECT_EQ(expected, actual) <<
-          "GEMM results differ at (" << i << ", " << j <<
-          "). ref " << expected << " FBGemm " << actual;
+        EXPECT_EQ(expected, actual)
+            << "GEMM results differ at (" << i << ", " << j << "). ref "
+            << expected << " FBGemm " << actual;
       }
     }
   }

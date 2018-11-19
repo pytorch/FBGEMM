@@ -17,10 +17,10 @@
 #include <omp.h>
 #endif
 
-#include "fbgemm/FbgemmI8Spmdm.h"
-#include "src/RefImplementations.h"
 #include "TestUtils.h"
 #include "bench/BenchUtils.h"
+#include "fbgemm/FbgemmI8Spmdm.h"
+#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -42,11 +42,11 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
   const vector<array<int, 3>> shapes = {
-    //   M,    N,    K
-    { 1024, 1024, 1024 },
-    {  511,  512,  512 },
-    {  111,  111,  111 },
-    { 14*14*2, 4,    2 },
+      //   M,    N,    K
+      {1024, 1024, 1024},
+      {511, 512, 512},
+      {111, 111, 111},
+      {14 * 14 * 2, 4, 2},
   };
 
   float density;
@@ -82,8 +82,7 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
     default_random_engine eng;
     binomial_distribution<> per_col_nnz_dist(K_adjusted, density);
     uniform_int_distribution<> value_dist(
-        numeric_limits<int8_t>::min() / 2,
-        numeric_limits<int8_t>::max() / 2);
+        numeric_limits<int8_t>::min() / 2, numeric_limits<int8_t>::max() / 2);
 
     vector<int> row_indices(K_adjusted);
 

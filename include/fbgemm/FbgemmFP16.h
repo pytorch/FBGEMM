@@ -182,4 +182,4 @@ extern void cblas_gemm_compute(
     const float beta,
     float* C);
 
-}; // namespace fbgemm2
+}; // namespace fbgemm

@@ -16,9 +16,9 @@
 #include <omp.h>
 #endif
 
+#include "BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
-#include "BenchUtils.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -191,11 +191,7 @@ void performance_test() {
         PackAWithIm2Col<uint8_t, int32_t>::rowOffsetBufferSize());
 
     PackAWithIm2Col<uint8_t, int32_t> packA(
-        conv_p,
-        Aint8.data(),
-        nullptr,
-        Aint8_zero_point,
-        row_offset_buf.data());
+        conv_p, Aint8.data(), nullptr, Aint8_zero_point, row_offset_buf.data());
 
     PackBMatrix<int8_t, int32_t> packedB(
         matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
