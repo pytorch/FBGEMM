@@ -16,9 +16,9 @@
 #include <omp.h>
 #endif
 
+#include "AlignedVec.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmFP16.h"
-#include "AlignedVec.h"
 
 using namespace std;
 using namespace fbgemm;

@@ -18,10 +18,10 @@
 #endif
 
 #include "AlignedVec.h"
-#include "src/FbgemmI8Depthwise.h"
-#include "fbgemm/Utils.h"
-#include "src/RefImplementations.h"
 #include "BenchUtils.h"
+#include "fbgemm/Utils.h"
+#include "src/FbgemmI8Depthwise.h"
+#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -33,9 +33,9 @@ int main() {
   if (flush) {
     llc.resize(128 * 1024 * 1024, 1.0);
   }
-#define llc_flush()                                                            \
-  for (auto i = 0; i < llc.size(); i++) {                                      \
-    llc[i]++;                                                                  \
+#define llc_flush()                       \
+  for (auto i = 0; i < llc.size(); i++) { \
+    llc[i]++;                             \
   }
 
   constexpr int NWARMUP = 4;
@@ -116,10 +116,10 @@ int main() {
     Packed3x3x3ConvMatrix Bp(K, B.data());
 
     double ttot = 0;
-    double bytes =
-        double(NITER) *
-        (K * (N * (2. * sizeof(int32_t) * T_OUT * H_OUT * W_OUT + T * H * W) +
-              K_T * K_H * K_W));
+    double bytes = double(NITER) *
+        (K *
+         (N * (2. * sizeof(int32_t) * T_OUT * H_OUT * W_OUT + T * H * W) +
+          K_T * K_H * K_W));
     double ops =
         double(NITER) * N * T_OUT * H_OUT * W_OUT * K * K_T * K_H * K_W * 2;
     chrono::time_point<chrono::system_clock> t_begin, t_end;
@@ -183,8 +183,14 @@ int main() {
     } // n
 
     // Report performance
-    printf("N = %d K = %d T = %d H = %d W = %d stride = %d\n", N, K, T, H, W,
-           stride_h);
+    printf(
+        "N = %d K = %d T = %d H = %d W = %d stride = %d\n",
+        N,
+        K,
+        T,
+        H,
+        W,
+        stride_h);
     printf("GB/s = %f Gops/s = %f\n", bytes / ttot / 1e9, ops / ttot / 1e9);
 
     ttot = 0;
@@ -236,9 +242,8 @@ int main() {
         for (int h = 0; h < H_OUT; ++h) {
           for (int w = 0; w < W_OUT; ++w) {
             for (int g = 0; g < K; ++g) {
-              uint8_t expected =
-                  C_uint8_ref[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K +
-                              g];
+              uint8_t expected = C_uint8_ref
+                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + g];
               uint8_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + g];
               if (expected != actual) {
@@ -255,9 +260,15 @@ int main() {
     } // n
 
     // Report performance
-    printf("N = %d K = %d T = %d H = %d W = %d stride = %d with requantization "
-           "fused\n",
-           N, K, T, H, W, stride_h);
+    printf(
+        "N = %d K = %d T = %d H = %d W = %d stride = %d with requantization "
+        "fused\n",
+        N,
+        K,
+        T,
+        H,
+        W,
+        stride_h);
     printf("GB/s = %f Gops/s = %f\n", bytes / ttot / 1e9, ops / ttot / 1e9);
   } // for each shape
 

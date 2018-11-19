@@ -86,9 +86,7 @@ void fbgemmPacked(
   }
 
   int MDim = packA.numRows();
-  int KDim = packB.numRows();
   int KDimPerGroup = packB.numRows() / packB.numGroups();
-  int NDim = packB.numCols();
 
   int mBlocks = (MDim + MCB - 1) / MCB;
   int kBlocks = (KDimPerGroup + KCB - 1) / KCB;
@@ -112,14 +110,7 @@ void fbgemmPacked(
   // ToDo: thread based work division
   for (int g = 0; g < packA.numGroups(); ++g) {
     ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
-        exeKernelObj(
-            packA,
-            packB,
-            0,
-            C,
-            C_buffer,
-            ldc,
-            outProcess);
+        exeKernelObj(packA, packB, 0, C, C_buffer, ldc, outProcess);
     for (int i = 0; i < mBlocks; ++i) {
       mc = (i != mBlocks - 1 || _mc == 0) ? MCB : _mc;
       for (int k = 0; k < kBlocks; ++k) {

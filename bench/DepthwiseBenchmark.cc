@@ -16,10 +16,10 @@
 #endif
 
 #include "AlignedVec.h"
-#include "src/FbgemmI8Depthwise.h"
-#include "fbgemm/Utils.h"
-#include "src/RefImplementations.h"
 #include "BenchUtils.h"
+#include "fbgemm/Utils.h"
+#include "src/FbgemmI8Depthwise.h"
+#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -27,6 +27,8 @@ using namespace fbgemm;
 int main() {
   // From Xray OCR
   vector<vector<int>> shapes = {
+    // NOTE: clang-format wants to use a different formatting but the current
+    // formatting should be easier to read.
     // N,  G, H_in, W_in, stride
     {   1,  272,  47, 125, 1, },
     {   1,  272,  64, 125, 1, },
@@ -135,9 +137,9 @@ int main() {
   if (flush) {
     llc.resize(128 * 1024 * 1024, 1.0);
   }
-#define llc_flush()                                                            \
-  for (auto i = 0; i < llc.size(); i++) {                                      \
-    llc[i]++;                                                                  \
+#define llc_flush()                       \
+  for (auto i = 0; i < llc.size(); i++) { \
+    llc[i]++;                             \
   }
 
   constexpr int NWARMUP = 4;
@@ -209,8 +211,7 @@ int main() {
     Packed3x3ConvMatrix Bp(G, B.data());
 
     double ttot = 0;
-    double bytes =
-        double(NITER) *
+    double bytes = double(NITER) *
         (G * (N * (2 * sizeof(int32_t) * H_OUT * W_OUT + H * W) + R * S));
     double ops = double(NITER) * N * H_OUT * W_OUT * G * R * S * 2;
     chrono::time_point<chrono::system_clock> t_begin, t_end;
@@ -256,9 +257,9 @@ int main() {
             int32_t expected = C_ref[((n * H_OUT + h) * W_OUT + w) * G + g];
             int32_t actual = C[((n * H_OUT + h) * W_OUT + w) * G + g];
             if (expected != actual) {
-              cerr << "Depthwise 3x3 results differ at (" << n << ", "
-                   << h << ", " << w << ", " << g << "). expected "
-                   << expected << " actual " << actual << endl;
+              cerr << "Depthwise 3x3 results differ at (" << n << ", " << h
+                   << ", " << w << ", " << g << "). expected " << expected
+                   << " actual " << actual << endl;
               return -1;
             }
             assert(expected == actual);
@@ -320,9 +321,9 @@ int main() {
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * G + g];
             uint8_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * G + g];
             if (expected != actual) {
-              cerr << "Depthwise 3x3 results differ at (" << n << ", "
-                   << h << ", " << w << ", " << g << "). expected "
-                   << (int)expected << " actual " << (int)actual << endl;
+              cerr << "Depthwise 3x3 results differ at (" << n << ", " << h
+                   << ", " << w << ", " << g << "). expected " << (int)expected
+                   << " actual " << (int)actual << endl;
               return -1;
             }
             assert(expected == actual);
@@ -334,7 +335,11 @@ int main() {
     // Report performance
     printf(
         "N = %d G = %d H = %d W = %d stride = %d with requantization fused\n",
-        N, G, H, W, stride_h);
+        N,
+        G,
+        H,
+        W,
+        stride_h);
     printf("GB/s = %f Gops/s = %f\n", bytes / ttot / 1e9, ops / ttot / 1e9);
   } // for each shape
 
