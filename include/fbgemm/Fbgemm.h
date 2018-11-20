@@ -1019,4 +1019,9 @@ static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
   return aligned_mem;
 }
 
+/**
+ * @brief Are we running on a fbgemm supported cpu?
+ */
+bool fbgemmSupportedCPU();
+
 } // namespace fbgemm

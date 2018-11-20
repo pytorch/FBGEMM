@@ -153,6 +153,10 @@ void fbgemmPacked(
 #endif
 }
 
+bool fbgemmSupportedCPU() {
+  return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
+}
+
 template void fbgemmPacked(
     PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
