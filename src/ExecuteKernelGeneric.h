@@ -39,7 +39,9 @@ class ExecuteKernel : public CodeGenBase<
       cT* matC,
       typename packingBMatrix::accType* C_buffer,
       int32_t ldc,
-      const processOutputType& outputProcess);
+      const processOutputType& outputProcess,
+      int thread_id,
+      int num_threads);
   void execute(int kBlock);
 
  private:

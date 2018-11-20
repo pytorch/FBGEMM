@@ -67,6 +67,8 @@ static vector<vector<int>> GetShapes_() {
       {102, 512, 256},
       {102, 512, 257},
       {102, 512, 258},
+
+      {1024, 512, 258},
   };
   return shapes;
 }
@@ -190,21 +192,6 @@ TEST_P(fbgemmu8s8acc16test, Test) {
             nullptr);
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-      PackAWithRowOffset<uint8_t, int16_t> packAN(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          groups,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t, int16_t> packedBN(
           btrans,
           k,
@@ -215,26 +202,54 @@ TEST_P(fbgemmu8s8acc16test, Test) {
           groups,
           Bint8_zero_point);
 
-      DoNothing<> doNothingObj{};
-      ReQuantizeOutput<false> outputProcObj(
-          doNothingObj,
-          C_multiplier,
-          C_zero_pt,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          packAN.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
 
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint8_fb.data(),
-          Cint32_buffer.data(),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+        PackAWithRowOffset<uint8_t, int16_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            groups,
+            Aint8_zero_point,
+            row_offset_buf.data());
+
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false> outputProcObj(
+            doNothingObj,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packAN.getRowOffsetBuffer(),
+            col_offsets.data(),
+            nullptr);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint8_fb.data(),
+            Cint32_buffer.data(),
+            groups * n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
 
       compare_validate_buffers(
           Cint8_ref.data(),
@@ -424,48 +439,6 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
               nullptr);
         }
 
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
-            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-        PackAWithRowOffset<uint8_t, int16_t> packAN(
-            matrix_op_t::NoTranspose,
-            m,
-            k,
-            Aint8.data(),
-            k,
-            nullptr,
-            groups,
-            Aint8_zero_point,
-            row_offset_buf.data());
-
-        // spmdm -> requantization -> nothing
-        // construct an output processing pipeline in reverse order
-        // i.e. last output operation first
-        // Last operation should always be DoNothing with
-        // correct input and output type.
-        DoNothing<> doNothingObj{};
-        // The second last operation is requantization back
-        // to int8
-        ReQuantizeOutput<false> reqObj(
-            doNothingObj,
-            C_multiplier,
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point,
-            packAN.getRowOffsetBuffer(),
-            col_offsets.data(),
-            nullptr);
-        // the top most (first) operation in the output processing
-        // pipeline is spmdm
-        // outType = final output type after fullly processing through pipeline
-        // inType = initial input type at the first call to the whole pipeline
-        DoSpmdmOnInpBuffer<
-            ReQuantizeOutput<false>::outType,
-            int32_t,
-            ReQuantizeOutput<false>>
-            spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
-
         PackBMatrix<int8_t, int16_t> packedB(
             btrans,
             k,
@@ -476,15 +449,71 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
             groups,
             Bint8_zero_point);
 
-        fbgemmPacked(
-            packAN,
-            packedB,
-            Cint8_fb.data(),
-            Cint32_fb.data(),
-            groups * n,
-            spmdmObj,
-            0,
-            1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+        {
+          vector<int32_t> row_offset_buf;
+          row_offset_buf.resize(
+              PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
+
+          PackAWithRowOffset<uint8_t, int16_t> packAN(
+              matrix_op_t::NoTranspose,
+              m,
+              k,
+              Aint8.data(),
+              k,
+              nullptr,
+              groups,
+              Aint8_zero_point,
+              row_offset_buf.data());
+
+          // spmdm -> requantization -> nothing
+          // construct an output processing pipeline in reverse order
+          // i.e. last output operation first
+          // Last operation should always be DoNothing with
+          // correct input and output type.
+          DoNothing<> doNothingObj{};
+          // The second last operation is requantization back
+          // to int8
+          ReQuantizeOutput<false> reqObj(
+              doNothingObj,
+              C_multiplier,
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point,
+              packAN.getRowOffsetBuffer(),
+              col_offsets.data(),
+              nullptr);
+          // the top most (first) operation in the output processing
+          // pipeline is spmdm
+          // outType = final output type after fullly processing through
+          // pipeline inType = initial input type at the first call to the whole
+          // pipeline
+          DoSpmdmOnInpBuffer<
+              ReQuantizeOutput<false>::outType,
+              int32_t,
+              ReQuantizeOutput<false>>
+              spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
+
+#ifdef _OPENMP
+          int num_threads = omp_get_num_threads();
+          int tid = omp_get_thread_num();
+#else
+          int num_threads = 1;
+          int tid = 0;
+#endif
+
+          fbgemmPacked(
+              packAN,
+              packedB,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              groups * n,
+              spmdmObj,
+              tid,
+              num_threads);
+        }
 
         compare_validate_buffers(
             Cint8_ref.data(),
@@ -598,21 +627,6 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
             row_offsets.data());
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-      PackAWithRowOffset<uint8_t, int16_t> packAN(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          groups,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t, int16_t> packedBN(
           btrans,
           k,
@@ -623,18 +637,47 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
           groups,
           Bint8_zero_point);
 
-      // DoNothing<> doNothingObj{};
-      DoNothing<int32_t, int32_t> doNothingObj{};
-      memCopy<> outputProcObj(doNothingObj);
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint32_fb.data(),
-          Cint32_buffer.data(),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
+
+        PackAWithRowOffset<uint8_t, int16_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            groups,
+            Aint8_zero_point,
+            row_offset_buf.data());
+
+        // DoNothing<> doNothingObj{};
+        DoNothing<int32_t, int32_t> doNothingObj{};
+        memCopy<> outputProcObj(doNothingObj);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint32_fb.data(),
+            Cint32_buffer.data(),
+            groups * n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
 
       compare_validate_buffers(
           Cint32_ref.data(),
