@@ -31,6 +31,7 @@ void performance_test() {
   vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
+    // m, n, k
     {156800, 4, 36},
     {156800, 8, 36},
     {156800, 16, 36},
@@ -214,20 +215,6 @@ void performance_test() {
     // printMatrix(matrix_op_t::NoTranspose, col_offsets.data(), 1, n, n, "col
     // offsets before");
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
-
-    PackAWithRowOffset<uint8_t> packAN(
-        matrix_op_t::NoTranspose,
-        m,
-        k,
-        Aint8.data(),
-        k,
-        nullptr,
-        1,
-        Aint8_zero_point,
-        row_offset_buf.data());
-
     PackBMatrix<int8_t> packedBN(
         matrix_op_t::NoTranspose,
         k,
@@ -237,17 +224,6 @@ void performance_test() {
         nullptr,
         1,
         Bint8_zero_point);
-
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false> outputProcObj(
-        doNothingObj,
-        C_multiplier,
-        C_zero_pt,
-        Aint8_zero_point,
-        Bint8_zero_point,
-        packAN.getRowOffsetBuffer(),
-        col_offsets.data(),
-        nullptr);
 
     ttot = 0.0;
     runType = "FBGEMM_i8_acc32";
@@ -268,15 +244,56 @@ void performance_test() {
 #endif
       llc_flush(llc);
       start = chrono::high_resolution_clock::now();
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint8_fb.data(),
-          Cint32_buffer.data(),
-          n,
-          outputProcObj,
-          0,
-          1);
+
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
+
+        PackAWithRowOffset<uint8_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            1,
+            Aint8_zero_point,
+            row_offset_buf.data());
+
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false> outputProcObj(
+            doNothingObj,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packAN.getRowOffsetBuffer(),
+            col_offsets.data(),
+            nullptr);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+        // printf ( "tid: %d, num_threads: %d\n", tid, num_threads );
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint8_fb.data(),
+            Cint32_buffer.data(),
+            n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
+
       end = chrono::high_resolution_clock::now();
 
       if (i >= NWARMUP) {
@@ -324,7 +341,10 @@ void performance_test() {
 
 int main(int /* unused */, char** /* unused */) {
 #ifdef _OPENMP
-  omp_set_num_threads(1);
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
 #endif
   performance_test();
   return 0;
