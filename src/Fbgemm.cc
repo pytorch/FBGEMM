@@ -38,7 +38,7 @@ void fbgemmPacked(
     uint32_t ldc,
     const processOutputType& outProcess,
     int thread_id,
-    int /* num_threads */) {
+    int num_threads) {
   static_assert(
       std::is_same<
           typename packingAMatrix::accType,
@@ -107,11 +107,23 @@ void fbgemmPacked(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  // ToDo: thread based work division
   for (int g = 0; g < packA.numGroups(); ++g) {
+    int i_per_thread = (mBlocks + num_threads - 1) / num_threads;
+    int i_begin = std::min(thread_id * i_per_thread, mBlocks);
+    int i_end = std::min(i_begin + i_per_thread, mBlocks);
+
     ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
-        exeKernelObj(packA, packB, 0, C, C_buffer, ldc, outProcess);
-    for (int i = 0; i < mBlocks; ++i) {
+        exeKernelObj(
+            packA,
+            packB,
+            0,
+            C,
+            C_buffer,
+            ldc,
+            outProcess,
+            thread_id,
+            num_threads);
+    for (int i = i_begin; i < i_end; ++i) {
       mc = (i != mBlocks - 1 || _mc == 0) ? MCB : _mc;
       for (int k = 0; k < kBlocks; ++k) {
         kc = (k != kBlocks - 1 || _kc == 0) ? KCB : _kc;

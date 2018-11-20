@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <iostream>
 #include <random>
 #include <vector>
 
@@ -68,6 +67,8 @@ static vector<vector<int>> GetShapes_() {
       {102, 512, 256},
       {102, 512, 257},
       {102, 512, 258},
+
+      {1024, 512, 258},
   };
   return shapes;
 }
@@ -211,21 +212,6 @@ TEST_P(fbgemmu8s8acc32test, Test) {
               bias ? (bias + g * n_adjusted) : nullptr);
         }
 
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
-            PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
-
-        PackAWithRowOffset<uint8_t> packAN(
-            matrix_op_t::NoTranspose,
-            m,
-            k,
-            Aint8.data(),
-            k,
-            nullptr,
-            groups,
-            Aint8_zero_point,
-            row_offset_buf.data());
-
         PackBMatrix<int8_t> packedBN(
             btrans,
             k,
@@ -236,26 +222,54 @@ TEST_P(fbgemmu8s8acc32test, Test) {
             groups,
             Bint8_zero_point);
 
-        DoNothing<> doNothingObj{};
-        ReQuantizeOutput<false> outputProcObj(
-            doNothingObj,
-            C_multiplier,
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point,
-            packAN.getRowOffsetBuffer(),
-            col_offsets.data(),
-            bias);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+        {
+          vector<int32_t> row_offset_buf;
+          row_offset_buf.resize(
+              PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
 
-        fbgemmPacked(
-            packAN,
-            packedBN,
-            Cint8_fb.data(),
-            Cint32_buffer.data(),
-            groups * n,
-            outputProcObj,
-            0,
-            1);
+          PackAWithRowOffset<uint8_t> packAN(
+              matrix_op_t::NoTranspose,
+              m,
+              k,
+              Aint8.data(),
+              k,
+              nullptr,
+              groups,
+              Aint8_zero_point,
+              row_offset_buf.data());
+
+          DoNothing<> doNothingObj{};
+          ReQuantizeOutput<false> outputProcObj(
+              doNothingObj,
+              C_multiplier,
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point,
+              packAN.getRowOffsetBuffer(),
+              col_offsets.data(),
+              bias);
+
+#ifdef _OPENMP
+          int num_threads = omp_get_num_threads();
+          int tid = omp_get_thread_num();
+#else
+          int num_threads = 1;
+          int tid = 0;
+#endif
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cint8_fb.data(),
+              Cint32_buffer.data(),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        }
         // printMatrix(matrix_op_t::NoTranspose, Cint32_local.data(),
         // m, n_adjusted, n, "C local");
         compare_validate_buffers(
@@ -379,22 +393,6 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
             Cfp32_ref.data() + g * n_adjusted);
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
-
-      PackAWithQuantRowOffset<uint8_t> packAN(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Afp32.data(),
-          k,
-          nullptr, /*buffer for packed matrix*/
-          Aint8_scale,
-          Aint8_zero_point,
-          groups,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t> packedBN(
           btrans,
           k,
@@ -405,26 +403,55 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
           groups,
           Bint8_zero_point);
 
-      DoNothing<float, float> doNothingObj{};
-      ReQuantizeForFloat<false> outputProcObj(
-          doNothingObj,
-          Aint8_scale,
-          Bint8_scale,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          packAN.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
 
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cfp32_fb.data(),
-          reinterpret_cast<int32_t*>(Cfp32_fb.data()),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+        PackAWithQuantRowOffset<uint8_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Afp32.data(),
+            k,
+            nullptr, /*buffer for packed matrix*/
+            Aint8_scale,
+            Aint8_zero_point,
+            groups,
+            row_offset_buf.data());
+
+        DoNothing<float, float> doNothingObj{};
+        ReQuantizeForFloat<false> outputProcObj(
+            doNothingObj,
+            Aint8_scale,
+            Bint8_scale,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packAN.getRowOffsetBuffer(),
+            col_offsets.data(),
+            nullptr);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cfp32_fb.data(),
+            reinterpret_cast<int32_t*>(Cfp32_fb.data()),
+            groups * n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
 
       float maximum = *max_element(Cfp32_ref.begin(), Cfp32_ref.end());
       float minimum = *min_element(Cfp32_ref.begin(), Cfp32_ref.end());
@@ -532,12 +559,6 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
             Cfp32_ref.data() + g * n_adjusted);
       }
 
-      DoNothing<int32_t, int32_t> doNothingObj{};
-      memCopy<> outputProcObj(doNothingObj);
-      // A zero point and row offset not required
-      PackAMatrix<uint8_t> packAN(
-          matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, groups);
-
       // B zero point defaults to 0
       PackBMatrix<int8_t> packedBN(
           btrans,
@@ -548,15 +569,35 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
           nullptr,
           groups);
 
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint32_fb.data(),
-          Cint32_fb.data(),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        // A zero point and row offset not required
+        PackAMatrix<uint8_t> packAN(
+            matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, groups);
+
+        DoNothing<int32_t, int32_t> doNothingObj{};
+        memCopy<> outputProcObj(doNothingObj);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint32_fb.data(),
+            Cint32_fb.data(),
+            groups * n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
 
       // correctness check
       for (int i = 0; i < m; ++i) {
