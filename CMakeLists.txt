@@ -51,6 +51,16 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
+#check if compiler supports openmp
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+else()
+  message(WARNING "OpenMP is not supported by the compiler")
+endif()
+
 #All the source files that use avx512 instructions statically
 set(FBGEMM_AVX512_SRCS src/Utils_avx512.cc)
 
