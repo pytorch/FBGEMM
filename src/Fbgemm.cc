@@ -46,6 +46,7 @@ void fbgemmPacked(
       "Accumulation type of both matrices should be the same");
 
   int MCB, KCB;
+  int MR;
 
   // Run time CPU detection
   if (cpuinfo_initialize()) {
@@ -58,6 +59,10 @@ void fbgemmPacked(
           typename packingAMatrix::inpType,
           typename packingAMatrix::accType,
           inst_set_t::avx512>::KCB;
+      MR = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::MR;
     } else if (cpuinfo_has_x86_avx2()) {
       MCB = PackingTraits<
           typename packingAMatrix::inpType,
@@ -67,6 +72,10 @@ void fbgemmPacked(
           typename packingAMatrix::inpType,
           typename packingAMatrix::accType,
           inst_set_t::avx2>::KCB;
+      MR = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::MR;
     } else {
       // TODO: Have default slower path
       assert(0 && "unsupported architecture");
@@ -88,11 +97,9 @@ void fbgemmPacked(
   int MDim = packA.numRows();
   int KDimPerGroup = packB.numRows() / packB.numGroups();
 
-  int mBlocks = (MDim + MCB - 1) / MCB;
   int kBlocks = (KDimPerGroup + KCB - 1) / KCB;
 
   // remainders
-  int _mc = MDim % MCB;
   int _kc = KDimPerGroup % KCB;
 
   int kc, mc;
@@ -108,9 +115,8 @@ void fbgemmPacked(
 #endif
 
   for (int g = 0; g < packA.numGroups(); ++g) {
-    int i_per_thread = (mBlocks + num_threads - 1) / num_threads;
-    int i_begin = std::min(thread_id * i_per_thread, mBlocks);
-    int i_end = std::min(i_begin + i_per_thread, mBlocks);
+    int i_begin, i_end;
+    fbgemmGetRange(num_threads, thread_id, MDim, MR, i_begin, i_end);
 
     ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
         exeKernelObj(
@@ -123,13 +129,12 @@ void fbgemmPacked(
             outProcess,
             thread_id,
             num_threads);
-    for (int i = i_begin; i < i_end; ++i) {
-      mc = (i != mBlocks - 1 || _mc == 0) ? MCB : _mc;
-      for (int k = 0; k < kBlocks; ++k) {
-        kc = (k != kBlocks - 1 || _kc == 0) ? KCB : _kc;
+    for (int i = i_begin; i < i_end; i += MCB) { // i is the element index
+      mc = std::min(i_end - i, MCB);
+      for (int kb = 0; kb < kBlocks; ++kb) { // kb is the block index
+        kc = (kb != kBlocks - 1 || _kc == 0) ? KCB : _kc;
         // pack A matrix
-        blockA = {i * MCB, mc, g * KDimPerGroup + k * KCB, kc};
-
+        blockA = {i, mc, g * KDimPerGroup + kb * KCB, kc};
         packA.pack(blockA);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -141,7 +146,7 @@ void fbgemmPacked(
         t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-        exeKernelObj.execute(g * kBlocks + k);
+        exeKernelObj.execute(g * kBlocks + kb);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
         t_end = std::chrono::high_resolution_clock::now();
