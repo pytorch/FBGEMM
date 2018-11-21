@@ -72,7 +72,7 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
 
 template <typename T, typename accT>
 void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
-  assert(block.row_start % BaseType::blockRowSize() == 0);
+  // assert(block.row_start % BaseType::blockRowSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
 
