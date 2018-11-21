@@ -1,0 +1,11 @@
+language: cpp
+os:
+ - linux
+ - osx
+before_script:
+ - mkdir build
+ - cd build
+script:
+ - cmake ..
+ - make
+ - ctest --verbose
