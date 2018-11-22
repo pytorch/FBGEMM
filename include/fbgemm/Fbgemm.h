@@ -883,12 +883,20 @@ class ReQuantizeOutput {
   template <inst_set_t instSet>
   inline int f(
       outT* out,
-      inT* inp,
+      const inT* inp,
       const block_type_t& block,
       int ld_out,
       int ld_in) const;
 
  private:
+  template <bool A_SYMMETRIC, bool B_SYMMETRIC, bool HAS_BIAS>
+  void f_(
+      outT* out,
+      const inT* inp,
+      const block_type_t& block,
+      int ld_out,
+      int ld_in) const;
+
   nextOPType& nextop_;
   float C_multiplier_;
   std::int32_t C_zero_point_;
