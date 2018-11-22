@@ -39,8 +39,8 @@ set(FBGEMM_AVX2_SRCS src/ExecuteKernel.cc
                 src/PackAWithIm2Col.cc
                 src/PackBMatrix.cc
                 src/PackMatrix.cc
-                src/PackWithQuantRowOffset.cc
-                src/PackWithRowOffset.cc
+                src/PackAWithQuantRowOffset.cc
+                src/PackAWithRowOffset.cc
                 src/RefImplementations.cc
                 src/Utils.cc)
 
