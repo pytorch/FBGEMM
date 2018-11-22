@@ -6,7 +6,7 @@ include(ExternalProject)
 
 ExternalProject_Add(asmjit
   GIT_REPOSITORY https://github.com/asmjit/asmjit
-  GIT_TAG master
+  GIT_TAG 673dcefaa048c5f5a2bf8b85daf8f7b9978d018a
   SOURCE_DIR "${FBGEMM_THIRDPARTY_DIR}/asmjit"
   BINARY_DIR "${FBGEMM_BINARY_DIR}/asmjit"
   CONFIGURE_COMMAND ""
