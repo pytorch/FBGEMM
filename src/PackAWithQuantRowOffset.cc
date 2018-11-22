@@ -242,9 +242,7 @@ template <typename T, typename accT>
 int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize() {
   if (cpuinfo_initialize()) {
     if (cpuinfo_has_x86_avx512f()) {
-      // TODO: avx512 path
-      // Currently use avx2 code
-      return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+      return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     } else if (cpuinfo_has_x86_avx2()) {
       return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     } else {
