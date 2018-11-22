@@ -148,6 +148,8 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   add_library(fbgemm SHARED $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
+  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
