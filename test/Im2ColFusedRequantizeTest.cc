@@ -7,6 +7,10 @@
 #include <cmath>
 #include <cstdio>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <gtest/gtest.h>
 
 #include "TestUtils.h"
@@ -154,17 +158,6 @@ static void Im2colTest() {
             nullptr);
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithIm2Col<uint8_t, ACC_T>::rowOffsetBufferSize());
-
-      PackAWithIm2Col<uint8_t, ACC_T> packA(
-          conv_p,
-          Aint8.data(),
-          nullptr,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t, ACC_T> packedB(
           matrix_op_t::NoTranspose,
           KDim,
@@ -174,26 +167,50 @@ static void Im2colTest() {
           nullptr,
           conv_p.G);
 
-      DoNothing<> doNothingObj{};
-      ReQuantizeOutput<false> outputProcObj(
-          doNothingObj,
-          C_multiplier,
-          C_zero_pt,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          packA.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithIm2Col<uint8_t, ACC_T>::rowOffsetBufferSize());
 
-      fbgemmPacked(
-          packA,
-          packedB,
-          Cint8_fb.data(),
-          Cint32_fb.data(),
-          conv_p.G * NDim,
-          outputProcObj,
-          0,
-          1);
+        PackAWithIm2Col<uint8_t, ACC_T> packA(
+            conv_p,
+            Aint8.data(),
+            nullptr,
+            Aint8_zero_point,
+            row_offset_buf.data());
+
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false> outputProcObj(
+            doNothingObj,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packA.getRowOffsetBuffer(),
+            col_offsets.data(),
+            nullptr);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packA,
+            packedB,
+            Cint8_fb.data(),
+            Cint32_fb.data(),
+            conv_p.G * NDim,
+            outputProcObj,
+            tid,
+            num_threads);
+      } // omp parallel
 
       // correctness check
       for (int n = 0; n < conv_p.MB; ++n) {
@@ -394,17 +411,6 @@ static void Im2col3DTest() {
             nullptr);
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithIm2Col<uint8_t, ACC_T, 3>::rowOffsetBufferSize());
-
-      PackAWithIm2Col<uint8_t, ACC_T, 3> packA(
-          conv_p,
-          Aint8.data(),
-          nullptr,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t, ACC_T> packedB(
           matrix_op_t::NoTranspose,
           KDim,
@@ -415,26 +421,50 @@ static void Im2col3DTest() {
           conv_p.G,
           Bint8_zero_point);
 
-      DoNothing<> doNothingObj{};
-      ReQuantizeOutput<false> outputProcObj(
-          doNothingObj,
-          C_multiplier,
-          C_zero_pt,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          packA.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf;
+        row_offset_buf.resize(
+            PackAWithIm2Col<uint8_t, ACC_T, 3>::rowOffsetBufferSize());
 
-      fbgemmPacked(
-          packA,
-          packedB,
-          Cint8_fb.data(),
-          Cint32_fb.data(),
-          conv_p.G * NDim,
-          outputProcObj,
-          0,
-          1);
+        PackAWithIm2Col<uint8_t, ACC_T, 3> packA(
+            conv_p,
+            Aint8.data(),
+            nullptr,
+            Aint8_zero_point,
+            row_offset_buf.data());
+
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false> outputProcObj(
+            doNothingObj,
+            C_multiplier,
+            C_zero_pt,
+            Aint8_zero_point,
+            Bint8_zero_point,
+            packA.getRowOffsetBuffer(),
+            col_offsets.data(),
+            nullptr);
+
+#ifdef _OPENMP
+        int num_threads = omp_get_num_threads();
+        int tid = omp_get_thread_num();
+#else
+        int num_threads = 1;
+        int tid = 0;
+#endif
+
+        fbgemmPacked(
+            packA,
+            packedB,
+            Cint8_fb.data(),
+            Cint32_fb.data(),
+            conv_p.G * NDim,
+            outputProcObj,
+            tid,
+            num_threads);
+      } // omp parallel
 
       // correctness check
       for (int n = 0; n < conv_p.MB; ++n) {

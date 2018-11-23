@@ -249,7 +249,7 @@ TEST_P(fbgemmu8s8acc16test, Test) {
             outputProcObj,
             tid,
             num_threads);
-      }
+      } // omp parallel
 
       compare_validate_buffers(
           Cint8_ref.data(),
