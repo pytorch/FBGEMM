@@ -39,6 +39,11 @@ void requantize_u8acc32_ref(
  * @brief Reference implementation of requantization step.
  * float multiplier
  * @params bias can be nullptr
+ * @params ncols_per_quant_group the number of columns share the same
+ *         quantization parameter.
+ *         ncols_per_quant_group == N : per-tensor quantization
+ *         ncols_per_quant_group == N / groups : per-group quantization
+ *         ncols_per_quant_group == 1 : per-channel quantization
  */
 void requantize_u8acc32_ref(
     int M,
@@ -46,13 +51,14 @@ void requantize_u8acc32_ref(
     int ld,
     const std::int32_t* inp,
     std::uint8_t* out,
-    float C_multiplier,
+    const float* C_multiplier,
     std::int32_t C_zero_point,
     std::int32_t A_zero_point,
-    std::int32_t B_zero_point,
+    const std::int32_t* B_zero_point,
     const std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
+    int ncols_per_quant_group,
     bool fuse_relu = false);
 
 /**
@@ -114,14 +120,18 @@ void row_offsets_u8acc32_ref(
 /**
  * @brief Reference implementation to compute adjusted col_offsets (sum of
  * columns of B and adjusted with B_zero_point)
+ *
+ * @params ncols_per_quant_group see ncols_per_quant_group in
+ *         requantize_u8acc32_ref
  */
 void col_offsets_with_zero_pt_s8acc32_ref(
     int K,
     int N,
     int ld,
     const std::int8_t* Bint8,
-    std::int32_t B_zero_point,
-    std::int32_t* col_offsets);
+    const std::int32_t* B_zero_point,
+    std::int32_t* col_offsets,
+    int ncols_per_quant_group);
 
 /**
  * @brief Reference implementation of SPMDM (sparse matrix times dense matrix).

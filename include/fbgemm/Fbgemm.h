@@ -843,13 +843,19 @@ class DoSpmdmOnInpBuffer {
   const int groups_;
 };
 
+enum class QuantizationGranularity {
+  TENSOR,
+  GROUP,
+  OUT_CHANNEL,
+};
+
 /**
  * @brief Requantize values in inp buffer and write to out buffer.
  *        pass the out buffer to next op for further processing.
- *
  */
 template <
     bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR,
     typename outT = std::uint8_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
@@ -859,13 +865,15 @@ class ReQuantizeOutput {
   using inpType = inT;
   ReQuantizeOutput(
       nextOPType& nextop,
-      float C_multiplier,
+      const float* C_multiplier,
       std::int32_t C_zero_point,
       std::int32_t Aq_zero_point,
-      std::int32_t Bq_zero_point,
+      const std::int32_t* Bq_zero_point,
       const std::int32_t* row_offsets,
       const std::int32_t* col_offsets,
-      const std::int32_t* bias)
+      const std::int32_t* bias,
+      std::uint32_t nCol,
+      int groups = 1)
       : nextop_(nextop),
         C_multiplier_(C_multiplier),
         C_zero_point_(C_zero_point),
@@ -873,7 +881,9 @@ class ReQuantizeOutput {
         Bq_zero_point_(Bq_zero_point),
         q_row_offsets_(row_offsets),
         q_col_offsets_(col_offsets),
-        bias_(bias) {}
+        bias_(bias),
+        ncols_(nCol),
+        groups_(groups) {}
 
   template <inst_set_t instSet>
   inline int f(
@@ -893,13 +903,15 @@ class ReQuantizeOutput {
       int ld_in) const;
 
   nextOPType& nextop_;
-  float C_multiplier_;
+  const float* C_multiplier_;
   std::int32_t C_zero_point_;
   std::int32_t Aq_zero_point_;
-  std::int32_t Bq_zero_point_;
+  const std::int32_t* Bq_zero_point_;
   const std::int32_t* q_row_offsets_;
   const std::int32_t* q_col_offsets_;
   const std::int32_t* bias_;
+  std::uint32_t ncols_;
+  int groups_;
 };
 
 /**
@@ -908,6 +920,7 @@ class ReQuantizeOutput {
  */
 template <
     bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR,
     typename outT = float,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
@@ -918,12 +931,14 @@ class ReQuantizeForFloat {
   ReQuantizeForFloat(
       nextOPType& nextop,
       float Aq_scale,
-      float Bq_scale,
+      const float* Bq_scale,
       std::int32_t Aq_zero_point,
-      std::int32_t Bq_zero_point,
+      const std::int32_t* Bq_zero_point,
       const std::int32_t* row_offsets,
       const std::int32_t* col_offsets,
-      const float* bias)
+      const float* bias,
+      std::uint32_t nCol,
+      int groups = 1)
       : nextop_(nextop),
         Aq_scale_(Aq_scale),
         Bq_scale_(Bq_scale),
@@ -931,7 +946,9 @@ class ReQuantizeForFloat {
         Bq_zero_point_(Bq_zero_point),
         q_row_offsets_(row_offsets),
         q_col_offsets_(col_offsets),
-        bias_(bias) {}
+        bias_(bias),
+        ncols_(nCol),
+        groups_(groups) {}
 
   template <inst_set_t instSet>
   inline int f(
@@ -943,12 +960,15 @@ class ReQuantizeForFloat {
 
  private:
   nextOPType& nextop_;
-  float Aq_scale_, Bq_scale_;
+  float Aq_scale_;
+  const float* Bq_scale_;
   std::int32_t Aq_zero_point_;
-  std::int32_t Bq_zero_point_;
+  const std::int32_t* Bq_zero_point_;
   const std::int32_t* q_row_offsets_;
   const std::int32_t* q_col_offsets_;
   const float* bias_;
+  std::uint32_t ncols_;
+  int groups_;
 };
 
 // type specialized implementation in an include file

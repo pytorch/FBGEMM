@@ -44,9 +44,14 @@ inline int DoSpmdmOnInpBuffer<outT, inT, nextOPType>::f(
   return nextop_.template f<instSet>(out, inp, block, ld_out, ld_in);
 }
 
-template <bool FUSE_RELU, typename outT, typename inT, typename nextOPType>
+template <
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    typename outT,
+    typename inT,
+    typename nextOPType>
 template <bool A_SYMMETRIC, bool B_SYMMETRIC, bool HAS_BIAS>
-void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
+void ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f_(
     outT* out,
     const inT* inp,
     const block_type_t& block,
@@ -54,7 +59,13 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
     int ld_in) const {
   // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
   // using AVX2 instructions
-  __m256 multiplier_v = _mm256_set1_ps(C_multiplier_);
+  int quant_param_idx = 0;
+  if (Q_GRAN == QuantizationGranularity::GROUP) {
+    int ncol_per_group = ncols_ / groups_;
+    int g = block.col_start / ncol_per_group;
+    quant_param_idx = g;
+  }
+  __m256 multiplier_v = _mm256_set1_ps(C_multiplier_[quant_param_idx]);
 
   __m256i min_v = _mm256_set1_epi8(std::numeric_limits<uint8_t>::min());
   __m256i max_v = _mm256_set1_epi8(std::numeric_limits<uint8_t>::max());
@@ -63,7 +74,9 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
       (A_SYMMETRIC == (Aq_zero_point_ == 0)) &&
       "A_SYMMETRIC == true if and only if Aq_zero_point == 0");
   assert(
-      (B_SYMMETRIC == (Bq_zero_point_ == 0 || q_row_offsets_ == nullptr)) &&
+      (B_SYMMETRIC ==
+       ((Q_GRAN == QuantizationGranularity::TENSOR && Bq_zero_point_[0] == 0) ||
+        q_row_offsets_ == nullptr)) &&
       "B_SYMMETRIC == true if and only if Bq_zero_point == 0 "
       "or q_row_offsets_ == nullptr");
   assert(
@@ -79,10 +92,22 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
 
   constexpr int VLEN = 8;
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    std::int32_t row_offset = (q_row_offsets_ && !B_SYMMETRIC)
-        ? q_row_offsets_[i - block.row_start] * Bq_zero_point_
-        : 0;
+    // Scale row_offset with Bq_zero_point
+    int32_t row_offset = 0;
+    if (B_SYMMETRIC) {
+      row_offset = 0;
+    } else if (
+        Q_GRAN == QuantizationGranularity::TENSOR ||
+        Q_GRAN == QuantizationGranularity::GROUP) {
+      row_offset =
+          q_row_offsets_[i - block.row_start] * Bq_zero_point_[quant_param_idx];
+    } else {
+      assert(
+          Q_GRAN == QuantizationGranularity::OUT_CHANNEL &&
+          "unknown quantization granularity");
+    }
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
+
     int j = block.col_start;
     for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
          j += (VLEN * 4)) {
@@ -122,9 +147,33 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
       }
 
       if (!B_SYMMETRIC) {
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(
+              _mm256_set1_epi32(q_row_offsets_[i - block.row_start]),
+              _mm256_loadu_si256(
+                  reinterpret_cast<const __m256i*>(Bq_zero_point_ + j)));
+        }
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(
+              _mm256_set1_epi32(q_row_offsets_[i - block.row_start]),
+              _mm256_loadu_si256(
+                  reinterpret_cast<const __m256i*>(Bq_zero_point_ + j + VLEN)));
+        }
         y_v = _mm256_sub_epi32(y_v, row_offset_v);
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(
+              _mm256_set1_epi32(q_row_offsets_[i - block.row_start]),
+              _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+                  Bq_zero_point_ + j + 2 * VLEN)));
+        }
         z_v = _mm256_sub_epi32(z_v, row_offset_v);
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(
+              _mm256_set1_epi32(q_row_offsets_[i - block.row_start]),
+              _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+                  Bq_zero_point_ + j + 3 * VLEN)));
+        }
         w_v = _mm256_sub_epi32(w_v, row_offset_v);
       }
       if (HAS_BIAS) {
@@ -157,10 +206,24 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
        * representation as an FP32 value, and will be rounded to nearest
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
-      __m256 x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
-      __m256 y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
-      __m256 z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
-      __m256 w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
+      __m256 x_scaled_v, y_scaled_v, z_scaled_v, w_scaled_v;
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        x_scaled_v = _mm256_mul_ps(
+            _mm256_cvtepi32_ps(x_v), _mm256_loadu_ps(C_multiplier_ + j));
+        y_scaled_v = _mm256_mul_ps(
+            _mm256_cvtepi32_ps(y_v), _mm256_loadu_ps(C_multiplier_ + j + VLEN));
+        z_scaled_v = _mm256_mul_ps(
+            _mm256_cvtepi32_ps(z_v),
+            _mm256_loadu_ps(C_multiplier_ + j + 2 * VLEN));
+        w_scaled_v = _mm256_mul_ps(
+            _mm256_cvtepi32_ps(w_v),
+            _mm256_loadu_ps(C_multiplier_ + j + 3 * VLEN));
+      } else {
+        x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+        y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
+        z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
+        w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
+      }
 
       /*
        * Convert scaled FP32 result to int32_t using CVTPS2DQ instruction.
@@ -238,6 +301,12 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
       }
 
       if (!B_SYMMETRIC) {
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(
+              _mm256_set1_epi32(q_row_offsets_[i - block.row_start]),
+              _mm256_loadu_si256(
+                  reinterpret_cast<const __m256i*>(Bq_zero_point_ + j)));
+        }
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
       if (HAS_BIAS) {
@@ -246,7 +315,13 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
             _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias_ + j)));
       }
 
-      __m256 x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+      __m256 x_scaled_v;
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        x_scaled_v = _mm256_mul_ps(
+            _mm256_cvtepi32_ps(x_v), _mm256_loadu_ps(C_multiplier_ + j));
+      } else {
+        x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+      }
       __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
 
       __m256i x_packed_v = _mm256_adds_epi16(
@@ -281,19 +356,26 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
           _mm256_castsi256_si128(x_clamped_v));
     } // j loop vectorized
 
+    // TODO: vectorize remainder using masking
     for (; j < block.col_start + block.col_size; ++j) {
       int32_t raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
       if (!A_SYMMETRIC) {
         raw -= Aq_zero_point_ * q_col_offsets_[j];
       }
       if (!B_SYMMETRIC) {
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset = q_row_offsets_[i - block.row_start] * Bq_zero_point_[j];
+        }
         raw -= row_offset;
       }
       if (HAS_BIAS) {
         raw += bias_[j];
       }
 
-      float ab = raw * C_multiplier_;
+      float ab = raw *
+          ((Q_GRAN == QuantizationGranularity::OUT_CHANNEL)
+               ? C_multiplier_[j]
+               : C_multiplier_[quant_param_idx]);
       long rounded = std::lrintf(ab) + C_zero_point_;
 
       out[i * ld_out + j] = std::max(
@@ -303,9 +385,14 @@ void ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f_(
   } // i loop
 }
 
-template <bool FUSE_RELU, typename outT, typename inT, typename nextOPType>
+template <
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    typename outT,
+    typename inT,
+    typename nextOPType>
 template <inst_set_t instSet>
-inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
+inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
     outT* out,
     const inT* inp,
     const block_type_t& block,
@@ -314,19 +401,35 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
   static_assert(
       std::is_same<inT, int32_t>::value,
       "input data type must be of int32_t type");
+  int ncol_per_group = ncols_ / groups_;
+  assert(
+      block.col_size <= ncol_per_group &&
+      "ReQuantizeOutput should be called at most 1 group at a time.");
+  int g = block.col_start / ncol_per_group;
   if (instSet == inst_set_t::anyarch) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
         raw -= Aq_zero_point_ * q_col_offsets_[j];
+        int Bq_zero_point_idx;
+        if (Q_GRAN == QuantizationGranularity::TENSOR) {
+          Bq_zero_point_idx = 0;
+        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          Bq_zero_point_idx = g;
+        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          Bq_zero_point_idx = j;
+        } else {
+          assert(false && "unknown quantization granularity");
+        }
         if (q_row_offsets_) {
-          raw -= q_row_offsets_[i - block.row_start] * Bq_zero_point_;
+          raw -= q_row_offsets_[i - block.row_start] *
+              Bq_zero_point_[Bq_zero_point_idx];
         }
         if (bias_) {
           raw += bias_[j];
         }
 
-        float ab = raw * C_multiplier_;
+        float ab = raw * C_multiplier_[Bq_zero_point_idx];
         long rounded = std::lrintf(ab) + C_zero_point_;
 
         out[i * ld_out + j] = std::max(
@@ -336,8 +439,11 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
     }
   } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
     if (std::is_same<outT, uint8_t>::value) {
+      bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+                             Bq_zero_point_[0] == 0) ||
+          q_row_offsets_ == nullptr;
       if (Aq_zero_point_ == 0) {
-        if (Bq_zero_point_ == 0 || q_row_offsets_ == nullptr) {
+        if (b_symmetric) {
           if (bias_ == nullptr) {
             f_<true, true, false>(out, inp, block, ld_out, ld_in);
           } else {
@@ -351,7 +457,7 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
           }
         }
       } else {
-        if (Bq_zero_point_ == 0 || q_row_offsets_ == nullptr) {
+        if (b_symmetric) {
           if (bias_ == nullptr) {
             f_<false, true, false>(out, inp, block, ld_out, ld_in);
           } else {
@@ -374,9 +480,14 @@ inline int ReQuantizeOutput<FUSE_RELU, outT, inT, nextOPType>::f(
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);
 }
 
-template <bool FUSE_RELU, typename outT, typename inT, typename nextOPType>
+template <
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    typename outT,
+    typename inT,
+    typename nextOPType>
 template <inst_set_t instSet>
-inline int ReQuantizeForFloat<FUSE_RELU, outT, inT, nextOPType>::f(
+inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
     outT* out,
     inT* inp,
     const block_type_t& block,
@@ -388,12 +499,28 @@ inline int ReQuantizeForFloat<FUSE_RELU, outT, inT, nextOPType>::f(
   static_assert(
       std::is_same<float, outT>::value,
       "output data type is of not expected type");
+  int ncol_per_group = ncols_ / groups_;
+  assert(
+      block.col_size <= ncol_per_group &&
+      "ReQuantizeOutput should be called at most 1 group at a time.");
+  int g = block.col_start / ncol_per_group;
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
       inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
       raw -= Aq_zero_point_ * q_col_offsets_[j];
-      raw -= q_row_offsets_[i - block.row_start] * Bq_zero_point_;
-      float res = raw * Aq_scale_ * Bq_scale_;
+      int Bq_zero_point_idx;
+      if (Q_GRAN == QuantizationGranularity::TENSOR) {
+        Bq_zero_point_idx = 0;
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        Bq_zero_point_idx = g;
+      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        Bq_zero_point_idx = j;
+      } else {
+        assert(false && "unknown quantization granularity");
+      }
+      raw -= q_row_offsets_[i - block.row_start] *
+          Bq_zero_point_[Bq_zero_point_idx];
+      float res = raw * Aq_scale_ * Bq_scale_[Bq_zero_point_idx];
       if (bias_) {
         res += bias_[j];
       }

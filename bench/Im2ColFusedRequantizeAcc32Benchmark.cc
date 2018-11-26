@@ -125,45 +125,32 @@ void performance_test() {
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
   for (auto conv_p : shapes) {
-    aligned_vector<float> Afp32(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0.0f);
     aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
+        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC);
 
     aligned_vector<uint8_t> Aint8_out(
         conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.K[0] *
-            conv_p.K[1] * conv_p.IC,
-        0);
+        conv_p.K[1] * conv_p.IC);
 
-    aligned_vector<float> Bfp32(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0.0f);
     aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
+        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC);
 
     aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-
-    aligned_vector<int32_t> Cint32_fb(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-
-    aligned_vector<int32_t> Cint32_fb2(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC);
+    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+    aligned_vector<int32_t> Cint32_fb2(Cint32_ref.size());
 
     // cout << conv_p.toString() << endl;
 
     // A matrix (input activations)
-    randFill(Afp32, 0, 5);
+    randFill<uint8_t>(Aint8, 0, 5);
     int32_t Aint8_zero_point = 4;
-    for (auto i = 0; i < Afp32.size(); ++i) {
-      Aint8[i] = static_cast<uint8_t>(Afp32[i]);
-    }
+    aligned_vector<float> Apf32(Aint8.begin(), Aint8.end());
 
     // B matrix (weights)
-    randFill(Bfp32, -4, 4);
+    randFill<int8_t>(Bint8, -4, 4);
     // int32_t Bint8_zero_point = -3;
-    for (auto i = 0; i < Bfp32.size(); ++i) {
-      Bint8[i] = static_cast<int8_t>(Bfp32[i]);
-    }
+    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
     // reference implementation
     conv_ref(
@@ -186,8 +173,7 @@ void performance_test() {
     double ttot = 0.0;
     string runType;
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
+    vector<int32_t> row_offset_buf(
         PackAWithIm2Col<uint8_t, int32_t>::rowOffsetBufferSize());
 
     PackAWithIm2Col<uint8_t, int32_t> packA(
