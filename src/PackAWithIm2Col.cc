@@ -36,10 +36,10 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
               std::multiplies<int>()) *
               conv_p.IC,
           pmat,
-          conv_p.G,
-          zero_pt),
+          conv_p.G),
       conv_p_(conv_p),
-      sdata_(sdata) {
+      sdata_(sdata),
+      zero_pt_(zero_pt) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
   if (cpuinfo_has_x86_avx512f()) {
@@ -187,7 +187,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           std::memset(
               out + (i - block.row_start) * BaseType::blockColSize() +
                   (j_blk_start - block.col_start),
-              BaseType::zeroPoint(),
+              zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
@@ -239,7 +239,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               &out
                   [(i - block.row_start) * BaseType::blockColSize() +
                    (j_blk_start - block.col_start)],
-              BaseType::zeroPoint(),
+              zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(

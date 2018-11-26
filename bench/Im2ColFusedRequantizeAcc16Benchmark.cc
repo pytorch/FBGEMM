@@ -307,7 +307,6 @@ void performance_test() {
           KDim,
           nullptr,
           1,
-          Aint8_zero_point,
           row_offset_buf.data());
 
       fbgemmPacked(

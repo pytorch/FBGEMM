@@ -23,14 +23,12 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
     uint32_t ld,
     inpType* pmat,
     int groups,
-    int32_t zero_pt,
     int32_t* row_offset)
     : PackMatrix<PackAWithRowOffset<T, accT>, T, accT>(
           nRow,
           nCol,
           pmat,
-          groups,
-          zero_pt),
+          groups),
       trans_(trans),
       smat_(smat),
       ld_(ld),
