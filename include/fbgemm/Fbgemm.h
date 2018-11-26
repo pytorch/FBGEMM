@@ -373,6 +373,12 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
 
   PackBMatrix() = delete; // no default constructor
 
+  /**
+   * @params groups if > 1 and trans == NoTranspose, smat is nRow x nCol
+   *                and each group is (nRow / groups) x nCol
+   *                if > 1 and trans == Transpose, smat is (nCol * groups) x
+   *                (nRow / groups).
+   */
   PackBMatrix(
       matrix_op_t trans,
       std::int32_t nRow,
