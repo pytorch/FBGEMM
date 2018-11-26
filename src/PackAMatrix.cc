@@ -20,14 +20,8 @@ PackAMatrix<T, accT>::PackAMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int groups,
-    std::int32_t zero_pt)
-    : PackMatrix<PackAMatrix<T, accT>, T, accT>(
-          nRow,
-          nCol,
-          pmat,
-          groups,
-          zero_pt),
+    int groups)
+    : PackMatrix<PackAMatrix<T, accT>, T, accT>(nRow, nCol, pmat, groups),
       trans_(trans),
       smat_(smat),
       ld_(ld) {

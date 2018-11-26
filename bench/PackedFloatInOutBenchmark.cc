@@ -195,8 +195,7 @@ void performance_test() {
         Bint8.data(),
         n,
         nullptr,
-        1,
-        Bint8_zero_point);
+        1);
 
     DoNothing<float, float> doNothingObj{};
     ReQuantizeForFloat<false> outputProcObj(

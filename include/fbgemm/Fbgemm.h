@@ -92,14 +92,12 @@ class PackMatrix {
    *               dimension A.rows by B.cols*B.groups .
    *               A.groups must be same as B.groups, A.groups must divide
    *               A.cols, and B.groups must divide B.rows and C.cols.
-   * @param zero_pt the quantized value that maps to 0.0f floating-point number.
    */
   PackMatrix(
       std::int32_t rows,
       std::int32_t cols,
       inpType* pmat,
-      int groups = 1,
-      std::int32_t zero_pt = 0);
+      int groups = 1);
 
   /**
    * @return true usually when the matrix is constant matrix (e.g., weight
@@ -276,13 +274,6 @@ class PackMatrix {
         : (numPackedCols() % blockColSize());
   }
 
-  /**
-   * @return the quantized value that maps to 0.0f floating-point number
-   */
-  std::int32_t zeroPoint() const {
-    return zero_pt_;
-  }
-
   inpType* buf_;
   std::int32_t brow_; ///< the number of rows in each block
   std::int32_t bcol_; ///< the number of columns in each block
@@ -293,7 +284,6 @@ class PackMatrix {
  private:
   std::int32_t nrows_, ncols_;
   int G_;
-  std::int32_t zero_pt_;
   block_type_t packedBlock_; ///< The block in the source matrix just packed
   std::int32_t last_brow_, last_bcol_;
 };
@@ -320,8 +310,7 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      int groups = 1,
-      std::int32_t zero_pt = 0);
+      int groups = 1);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -391,8 +380,7 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      int groups = 1,
-      std::int32_t zero_pt = 0);
+      int groups = 1);
 
   /**
    * Weight matrices are usually constant so worth pre-packing.
@@ -468,7 +456,7 @@ class PackAWithIm2Col
 
   PackAWithIm2Col() = delete; // no default constructor
   /**
-   * TODO: Currently only groups == 1 supported
+   * @param zero_pt the quantized value that maps to 0.0f floating-point number.
    */
   PackAWithIm2Col(
       const conv_param_t<SPATIAL_DIM>& conv_param,
@@ -523,6 +511,7 @@ class PackAWithIm2Col
  private:
   const conv_param_t<SPATIAL_DIM>& conv_p_;
   const T* sdata_;
+  std::int32_t zero_pt_;
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
   std::int32_t row_interleave_B_;
@@ -551,7 +540,6 @@ class PackAWithRowOffset final
       std::uint32_t ld,
       inpType* pmat = nullptr,
       int groups = 1,
-      std::int32_t zero_pt = 0,
       std::int32_t* row_offset = nullptr);
 
   /**
@@ -693,6 +681,7 @@ class PackAWithQuantRowOffset final
   const float* smat_;
   std::int32_t ld_;
   float scale_;
+  std::int32_t zero_pt_;
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
   std::int32_t row_interleave_B_;

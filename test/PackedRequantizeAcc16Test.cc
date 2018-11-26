@@ -199,8 +199,7 @@ TEST_P(fbgemmu8s8acc16test, Test) {
           Bint8.data(),
           (btrans == matrix_op_t::Transpose) ? k : n,
           nullptr,
-          groups,
-          Bint8_zero_point);
+          groups);
 
 #ifdef _OPENMP
 #pragma omp parallel
@@ -218,7 +217,6 @@ TEST_P(fbgemmu8s8acc16test, Test) {
             k,
             nullptr,
             groups,
-            Aint8_zero_point,
             row_offset_buf.data());
 
         DoNothing<> doNothingObj{};
@@ -446,8 +444,7 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
             Bint8.data(),
             (btrans == matrix_op_t::Transpose) ? k : n,
             nullptr,
-            groups,
-            Bint8_zero_point);
+            groups);
 
 #ifdef _OPENMP
 #pragma omp parallel
@@ -465,7 +462,6 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
               k,
               nullptr,
               groups,
-              Aint8_zero_point,
               row_offset_buf.data());
 
           // spmdm -> requantization -> nothing
@@ -634,8 +630,7 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
           Bint8.data(),
           (btrans == matrix_op_t::Transpose) ? k : n,
           nullptr,
-          groups,
-          Bint8_zero_point);
+          groups);
 
 #ifdef _OPENMP
 #pragma omp parallel
@@ -653,7 +648,6 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
             k,
             nullptr,
             groups,
-            Aint8_zero_point,
             row_offset_buf.data());
 
         // DoNothing<> doNothingObj{};
