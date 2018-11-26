@@ -309,8 +309,7 @@ void performance_test() {
               Aint8.data(),
               k,
               nullptr,
-              1,
-              Aint8_zero_point);
+              1);
           PackAWithRowOffset<uint8_t, int16_t> packAWithRowOffset(
               matrix_op_t::NoTranspose,
               m,
@@ -319,7 +318,6 @@ void performance_test() {
               k,
               nullptr,
               1,
-              Aint8_zero_point,
               row_offset_buf.data());
 
           // no-op output process objects

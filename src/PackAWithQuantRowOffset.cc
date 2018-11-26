@@ -31,12 +31,12 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
           nRow,
           nCol,
           pmat,
-          groups,
-          zero_pt),
+          groups),
       trans_(trans),
       smat_(smat),
       ld_(ld),
       scale_(scale),
+      zero_pt_(zero_pt),
       row_offset_(row_offset) {
   rowOffsetAllocatedHere = false;
 
@@ -158,7 +158,7 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
     for (; j < block.col_size / VLEN * VLEN; j += VLEN) {
       __m256 val_v = _mm256_loadu_ps(smat_temp + i * ld_temp + j);
       __m256 transformed_v = _mm256_fmadd_ps(
-          val_v, inverse_scale_v, _mm256_set1_ps(BaseType::zeroPoint()));
+          val_v, inverse_scale_v, _mm256_set1_ps(zero_pt_));
       __m256 clipped_v = _mm256_max_ps(
           _mm256_set1_ps(std::numeric_limits<uint8_t>::min()),
           _mm256_min_ps(
@@ -180,7 +180,7 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
 #endif
     for (; j < block.col_size; ++j) {
       float val = smat_temp[i * ld_temp + j];
-      float transformed = val / scale_ + BaseType::zeroPoint();
+      float transformed = val / scale_ + zero_pt_;
       float clipped = std::min<float>(
           std::max<float>(transformed, std::numeric_limits<uint8_t>::min()),
           std::numeric_limits<uint8_t>::max());

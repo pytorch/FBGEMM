@@ -222,8 +222,7 @@ void performance_test() {
         Bint8.data(),
         n,
         nullptr,
-        1,
-        Bint8_zero_point);
+        1);
 
     ttot = 0.0;
     runType = "FBGEMM_i8_acc32";
@@ -261,7 +260,6 @@ void performance_test() {
             k,
             nullptr,
             1,
-            Aint8_zero_point,
             row_offset_buf.data());
 
         DoNothing<> doNothingObj{};

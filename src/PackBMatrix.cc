@@ -20,14 +20,8 @@ PackBMatrix<T, accT>::PackBMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int groups,
-    std::int32_t zero_pt)
-    : PackMatrix<PackBMatrix<T, accT>, T, accT>(
-          nRow,
-          nCol,
-          pmat,
-          groups,
-          zero_pt),
+    int groups)
+    : PackMatrix<PackBMatrix<T, accT>, T, accT>(nRow, nCol, pmat, groups),
       trans_(trans),
       smat_(smat),
       ld_(ld) {
@@ -162,8 +156,7 @@ bool PackBMatrix<T, accT>::metaEquals(const PackBMatrix<T, accT>& that) const {
       BaseType::blockCols() != that.blockCols() ||
       BaseType::numPackedRows() != that.numPackedRows() ||
       BaseType::numPackedCols() != that.numPackedCols() ||
-      BaseType::zeroPoint() != that.zeroPoint() || trans_ != that.trans_ ||
-      BaseType::numGroups() != that.numGroups() ||
+      trans_ != that.trans_ || BaseType::numGroups() != that.numGroups() ||
       row_interleave_ != that.row_interleave_) {
     return false;
   }
