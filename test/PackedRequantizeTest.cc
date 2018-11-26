@@ -219,8 +219,7 @@ TEST_P(fbgemmu8s8acc32test, Test) {
             Bint8.data(),
             (btrans == matrix_op_t::Transpose) ? k : n,
             nullptr,
-            groups,
-            Bint8_zero_point);
+            groups);
 
 #ifdef _OPENMP
 #pragma omp parallel
@@ -238,7 +237,6 @@ TEST_P(fbgemmu8s8acc32test, Test) {
               k,
               nullptr,
               groups,
-              Aint8_zero_point,
               row_offset_buf.data());
 
           DoNothing<> doNothingObj{};
@@ -400,8 +398,7 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
           Bint8.data(),
           (btrans == matrix_op_t::Transpose) ? k : n,
           nullptr,
-          groups,
-          Bint8_zero_point);
+          groups);
 
 #ifdef _OPENMP
 #pragma omp parallel

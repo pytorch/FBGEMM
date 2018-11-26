@@ -418,8 +418,7 @@ static void Im2col3DTest() {
           Bint8.data(),
           NDim,
           nullptr,
-          conv_p.G,
-          Bint8_zero_point);
+          conv_p.G);
 
 #ifdef _OPENMP
 #pragma omp parallel
