@@ -6,8 +6,6 @@
 #include <cstdint>
 #include <limits>
 
-#include <cpuinfo.h>
-
 namespace fbgemm {
 
 // Copied from gemmlowp

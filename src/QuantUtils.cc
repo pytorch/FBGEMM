@@ -1,5 +1,6 @@
 #include "fbgemm/QuantUtils.h"
 
+#include <cpuinfo.h>
 #include <immintrin.h>
 
 #include "fbgemm/Fbgemm.h"
