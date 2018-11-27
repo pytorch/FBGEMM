@@ -373,6 +373,16 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
 
   PackBMatrix() = delete; // no default constructor
 
+  /**
+   * @params groups if > 1 and trans == NoTranspose, smat is nRow x nCol with
+   *                groups are vertically concatenated: each group is
+   *                (nRow / groups) x nCol .
+   *                if > 1 and trans == Transpose, smat is (nCol * groups) x
+   *                (nRow / groups) with groups are horizontally concatenated:
+   *                each group is nCol x (nRow / groups) . Each group is
+   *                transposed and vertically concatenated to match with the
+   *                NoTranspose case.
+   */
   PackBMatrix(
       matrix_op_t trans,
       std::int32_t nRow,

@@ -140,8 +140,8 @@ TEST_P(fbgemmu8s8acc32test, Test) {
                 n,
                 Bint8.data() + g * k_per_group * n,
                 n,
-                Bint8_temp.data() + g * k_per_group,
-                groups * k_per_group);
+                Bint8_temp.data() + g * k_per_group * n,
+                k_per_group);
           }
           Bint8 = Bint8_temp;
         }
@@ -217,7 +217,7 @@ TEST_P(fbgemmu8s8acc32test, Test) {
             k,
             n_adjusted,
             Bint8.data(),
-            (btrans == matrix_op_t::Transpose) ? k : n,
+            (btrans == matrix_op_t::Transpose) ? k_per_group : n,
             nullptr,
             groups);
 
@@ -372,8 +372,8 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
               n,
               Bint8.data() + g * k_per_group * n,
               n,
-              Bint8_temp.data() + g * k_per_group,
-              groups * k_per_group);
+              Bint8_temp.data() + g * k_per_group * n,
+              k_per_group);
         }
         Bint8 = Bint8_temp;
       }
@@ -396,7 +396,7 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
           k,
           n_adjusted,
           Bint8.data(),
-          (btrans == matrix_op_t::Transpose) ? k : n,
+          (btrans == matrix_op_t::Transpose) ? k_per_group : n,
           nullptr,
           groups);
 
@@ -537,8 +537,8 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
               n,
               Bint8.data() + g * k_per_group * n,
               n,
-              Bint8_temp.data() + g * k_per_group,
-              groups * k_per_group);
+              Bint8_temp.data() + g * k_per_group * n,
+              k_per_group);
         }
         Bint8 = Bint8_temp;
       }
@@ -562,7 +562,7 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
           k,
           n_adjusted,
           Bint8.data(),
-          (btrans == matrix_op_t::Transpose) ? k : n,
+          (btrans == matrix_op_t::Transpose) ? k_per_group : n,
           nullptr,
           groups);
 
