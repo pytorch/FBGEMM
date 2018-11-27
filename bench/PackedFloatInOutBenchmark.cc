@@ -86,27 +86,27 @@ void performance_test() {
     int k = shape[2];
 
     float alpha = 1.f, beta = 0.f;
-    aligned_vector<float> Afp32(m * k, 0.0f);
-    aligned_vector<uint8_t> Aint8(m * k, 0);
+    aligned_vector<float> Afp32(m * k);
+    aligned_vector<uint8_t> Aint8(Afp32.size());
 
-    aligned_vector<float> Bfp32(k * n, 0.0f);
-    aligned_vector<int8_t> Bint8(k * n, 0);
+    aligned_vector<float> Bfp32(k * n);
+    aligned_vector<int8_t> Bint8(Bfp32.size());
 
-    aligned_vector<float> Cfp32_mkl(m * n, 0.0f);
-    aligned_vector<float> Cfp32_fb(m * n, 0.0f);
+    aligned_vector<float> Cfp32_mkl(m * n);
+    aligned_vector<float> Cfp32_fb(Cfp32_mkl.size());
 
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
-    aligned_vector<int32_t> Cint32_buffer(m * n, 0);
+    aligned_vector<uint8_t> Cint8_fb(Cfp32_mkl.size());
+    aligned_vector<int32_t> Cint32_buffer(Cfp32_mkl.size());
 
     // A matrix
-    randFill(Aint8, 0, 255);
+    randFill<uint8_t>(Aint8, 0, 255);
     float Aint8_scale = 0.11;
     int32_t Aint8_zero_point = 43;
     for (auto i = 0; i < Afp32.size(); ++i) {
       Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
     }
 
-    randFill(Bint8, -128, 127);
+    randFill<int8_t>(Bint8, -128, 127);
     avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
 
     float Bint8_scale = 0.49;
@@ -116,10 +116,9 @@ void performance_test() {
     }
 
     // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(n);
+    vector<int32_t> col_offsets(n);
     col_offsets_with_zero_pt_s8acc32_ref(
-        k, n, n, Bint8.data(), Bint8_zero_point, col_offsets.data());
+        k, n, n, Bint8.data(), &Bint8_zero_point, col_offsets.data(), n);
 
     double ttot = 0;
     std::string type;
@@ -172,8 +171,7 @@ void performance_test() {
     // printMatrix(matrix_op_t::NoTranspose, col_offsets.data(), 1, n, n, "col
     // offsets before");
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
+    vector<int32_t> row_offset_buf(
         PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
 
     PackAWithQuantRowOffset<uint8_t> packAN(
@@ -201,12 +199,13 @@ void performance_test() {
     ReQuantizeForFloat<false> outputProcObj(
         doNothingObj,
         Aint8_scale,
-        Bint8_scale,
+        &Bint8_scale,
         Aint8_zero_point,
-        Bint8_zero_point,
+        &Bint8_zero_point,
         packAN.getRowOffsetBuffer(),
         col_offsets.data(),
-        nullptr);
+        nullptr,
+        n);
 
     ttot = 0;
     type = "FBGEMM_i8_acc32";

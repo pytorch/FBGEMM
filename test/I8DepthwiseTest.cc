@@ -85,10 +85,10 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
     aligned_vector<int8_t> B(K * R * S);
     aligned_vector<int32_t> C_ref(N * H_OUT * W_OUT * K), C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
-    randFill(B, -16, 16);
+    randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
     depthwise_3x3_pad_1_ref(
@@ -211,10 +211,10 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
     aligned_vector<int32_t> C_ref(N * T_OUT * H_OUT * W_OUT * K),
         C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
-    randFill(B, -16, 16);
+    randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
     depthwise_3x3x3_pad_1_ref(
@@ -360,7 +360,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     int32_t C_num_rows = N * H_OUT * W_OUT;
     aligned_vector<int32_t> C_ref(C_num_rows * K), C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
     // Each row of G has a different range to really test per-channel
@@ -368,7 +368,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     vector<int32_t> B_zero_point(K);
     for (auto k = 0; k < K; ++k) {
       aligned_vector<int8_t> Bk(R * S);
-      randFill(Bk, -16 + k, 16 + k);
+      randFill<int8_t>(Bk, -16 + k, 16 + k);
       copy(Bk.begin(), Bk.end(), B.begin() + k * R * S);
 
       B_zero_point[k] = 5 + k;

@@ -77,7 +77,7 @@ int main() {
         cout << M << ", " << N << ", " << K << ", ";
 
         aligned_vector<uint8_t> A(M * K);
-        randFill(A, 0, 255);
+        randFill<uint8_t>(A, 0, 255);
 
         fbgemm::CompressedSparseColumn B_csc(K, N);
         vector<int32_t> C(M * N);
@@ -156,13 +156,8 @@ int main() {
 #pragma omp parallel
 #endif
           {
-#if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
-            int num_threads = 1;
-            int tid = 0;
-#else
-            int num_threads = omp_get_num_threads();
-            int tid = omp_get_thread_num();
-#endif
+            int num_threads = fbgemm_get_num_threads();
+            int tid = fbgemm_get_thread_num();
             int i_per_thread =
                 ((M + 31) / 32 + num_threads - 1) / num_threads * 32;
             int i_begin = std::min(tid * i_per_thread, M);

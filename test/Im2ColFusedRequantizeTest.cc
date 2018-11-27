@@ -20,8 +20,22 @@
 #include "src/RefImplementations.h"
 
 using namespace std;
+using namespace fbgemm;
 
-namespace fbgemm {
+vector<QuantizationGranularity> qGranularityVals{
+    QuantizationGranularity::TENSOR,
+    QuantizationGranularity::GROUP,
+    QuantizationGranularity::OUT_CHANNEL};
+
+namespace {
+class fbgemmIm2colTest
+    : public testing::TestWithParam<QuantizationGranularity> {};
+}; // namespace
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    fbgemmIm2colTest,
+    ::testing::ValuesIn(qGranularityVals));
 
 // From Faster-RCNN with ShuffleNet
 static vector<conv_param_t<>> shapes = {
@@ -71,7 +85,7 @@ static vector<conv_param_t<>> shapes = {
     conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
 };
 
-template <typename ACC_T>
+template <typename ACC_T, QuantizationGranularity Q_GRAN>
 static void Im2colTest() {
   for (auto conv_p : shapes) {
     for (int groups : {1, 4}) {
@@ -80,29 +94,38 @@ static void Im2colTest() {
       }
       conv_p.G = groups;
       aligned_vector<uint8_t> Aint8(
-          conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
+          conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC);
       aligned_vector<int8_t> Bint8(
-          conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
+          conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC);
       aligned_vector<int32_t> Cint32_ref(
-          conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
+          conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC);
+      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size());
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
 
-      int32_t Aint8_zero_point, Bint8_zero_point;
+      int ncols_per_quant_group = conv_p.OC;
+      if (Q_GRAN == QuantizationGranularity::GROUP) {
+        ncols_per_quant_group = conv_p.OC / conv_p.G;
+      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        ncols_per_quant_group = 1;
+      }
+      int32_t Aint8_zero_point;
+      aligned_vector<int32_t> Bint8_zero_point(
+          conv_p.OC / ncols_per_quant_group);
       if (is_same<ACC_T, int32_t>::value) {
-        randFill(Aint8, 0, 80);
+        randFill<uint8_t>(Aint8, 0, 80);
         Aint8_zero_point = 43;
-        randFill(Bint8, -16, 16);
-        Bint8_zero_point = -30;
+        randFill<int8_t>(Bint8, -16, 16);
+        randFill(Bint8_zero_point, -50, -10);
       } else {
-        randFill(Aint8, 0, 5);
+        randFill<uint8_t>(Aint8, 0, 5);
         Aint8_zero_point = 4;
-        randFill(Bint8, -4, 4);
-        Bint8_zero_point = -2;
+        randFill<int8_t>(Bint8, -4, 4);
+        randFill(Bint8_zero_point, -3, -1);
       }
 
-      float C_multiplier = 0.1234;
+      aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+      randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
       int32_t C_zero_pt = 5;
 
       int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
@@ -116,16 +139,16 @@ static void Im2colTest() {
       im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
 
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(groups * NDim);
+      vector<int32_t> col_offsets(groups * NDim);
       for (int g = 0; g < groups; ++g) {
         col_offsets_with_zero_pt_s8acc32_ref(
             KDimPerGroup,
             NDim,
             NDim,
             Bint8.data() + g * KDimPerGroup * NDim,
-            Bint8_zero_point,
-            col_offsets.data() + g * NDim);
+            Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
+            col_offsets.data() + g * NDim,
+            ncols_per_quant_group);
       }
 
       conv_ref(
@@ -149,13 +172,14 @@ static void Im2colTest() {
             conv_p.G * NDim,
             Cint32_ref.data() + g * NDim,
             Cint8_ref.data() + g * NDim,
-            C_multiplier,
+            C_multiplier.data() + g * NDim / ncols_per_quant_group,
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
             row_offsets.data(),
             col_offsets.data() + g * NDim,
-            nullptr);
+            nullptr,
+            ncols_per_quant_group);
       }
 
       PackBMatrix<int8_t, ACC_T> packedB(
@@ -171,8 +195,7 @@ static void Im2colTest() {
 #pragma omp parallel
 #endif
       {
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
+        vector<int32_t> row_offset_buf(
             PackAWithIm2Col<uint8_t, ACC_T>::rowOffsetBufferSize());
 
         PackAWithIm2Col<uint8_t, ACC_T> packA(
@@ -183,23 +206,20 @@ static void Im2colTest() {
             row_offset_buf.data());
 
         DoNothing<> doNothingObj{};
-        ReQuantizeOutput<false> outputProcObj(
+        ReQuantizeOutput<false, Q_GRAN> outputProcObj(
             doNothingObj,
-            C_multiplier,
+            C_multiplier.data(),
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            Bint8_zero_point.data(),
             packA.getRowOffsetBuffer(),
             col_offsets.data(),
-            nullptr);
+            nullptr,
+            conv_p.G * NDim,
+            conv_p.G);
 
-#ifdef _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
 
         fbgemmPacked(
             packA,
@@ -236,12 +256,26 @@ static void Im2colTest() {
   } // for each shape
 }
 
-TEST(FBGemmIm2colTest, Acc32Test) {
-  Im2colTest<int32_t>();
+TEST_P(fbgemmIm2colTest, Acc32Test) {
+  QuantizationGranularity q_granularity = GetParam();
+  if (q_granularity == QuantizationGranularity::TENSOR) {
+    Im2colTest<int32_t, QuantizationGranularity::TENSOR>();
+  } else if (q_granularity == QuantizationGranularity::GROUP) {
+    Im2colTest<int32_t, QuantizationGranularity::GROUP>();
+  } else {
+    Im2colTest<int32_t, QuantizationGranularity::OUT_CHANNEL>();
+  }
 }
 
-TEST(FBGemmIm2colTest, Acc16Test) {
-  Im2colTest<int16_t>();
+TEST_P(fbgemmIm2colTest, Acc16Test) {
+  QuantizationGranularity q_granularity = GetParam();
+  if (q_granularity == QuantizationGranularity::TENSOR) {
+    Im2colTest<int16_t, QuantizationGranularity::TENSOR>();
+  } else if (q_granularity == QuantizationGranularity::GROUP) {
+    Im2colTest<int16_t, QuantizationGranularity::GROUP>();
+  } else {
+    Im2colTest<int16_t, QuantizationGranularity::OUT_CHANNEL>();
+  }
 }
 
 static vector<conv_param_t<3>> shapes_3d = {
@@ -319,7 +353,7 @@ static vector<conv_param_t<3>> shapes_3d = {
         3>(1, 8, 16, {8, 14, 14}, 1, {1, 1, 1}, {2, 2, 2}, {0, 0, 0, 0, 0, 0}),
 };
 
-template <typename ACC_T>
+template <typename ACC_T, QuantizationGranularity Q_GRAN>
 static void Im2col3DTest() {
   for (auto conv_p : shapes_3d) {
     for (int groups : {1, 4}) {
@@ -329,32 +363,39 @@ static void Im2col3DTest() {
       conv_p.G = groups;
       aligned_vector<uint8_t> Aint8(
           conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IN_DIM[2] *
-              conv_p.IC,
-          0);
+          conv_p.IC);
       aligned_vector<int8_t> Bint8(
-          conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC * conv_p.OC, 0);
+          conv_p.K[0] * conv_p.K[1] * conv_p.K[2] * conv_p.IC * conv_p.OC);
       aligned_vector<int32_t> Cint32_ref(
           conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] *
-              conv_p.OUT_DIM[2] * conv_p.OC,
-          0);
-      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
+          conv_p.OUT_DIM[2] * conv_p.OC);
+      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size());
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
 
-      int32_t Aint8_zero_point, Bint8_zero_point;
+      int ncols_per_quant_group = conv_p.OC;
+      if (Q_GRAN == QuantizationGranularity::GROUP) {
+        ncols_per_quant_group = conv_p.OC / conv_p.G;
+      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        ncols_per_quant_group = 1;
+      }
+      int32_t Aint8_zero_point;
+      aligned_vector<int32_t> Bint8_zero_point(
+          conv_p.OC / ncols_per_quant_group);
       if (is_same<ACC_T, int32_t>::value) {
-        randFill(Aint8, 0, 80);
+        randFill<uint8_t>(Aint8, 0, 80);
         Aint8_zero_point = 43;
-        randFill(Bint8, -16, 16);
-        Bint8_zero_point = -30;
+        randFill<int8_t>(Bint8, -16, 16);
+        randFill(Bint8_zero_point, -50, -10);
       } else {
-        randFill(Aint8, 0, 5);
+        randFill<uint8_t>(Aint8, 0, 5);
         Aint8_zero_point = 4;
-        randFill(Bint8, -4, 4);
-        Bint8_zero_point = -2;
+        randFill<int8_t>(Bint8, -4, 4);
+        randFill(Bint8_zero_point, -3, -1);
       }
 
-      float C_multiplier = 0.1234;
+      aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+      randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
       int32_t C_zero_pt = 5;
 
       int MDim =
@@ -369,16 +410,16 @@ static void Im2col3DTest() {
       im2col3d_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
 
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(groups * NDim);
+      vector<int32_t> col_offsets(groups * NDim);
       for (int g = 0; g < groups; ++g) {
         col_offsets_with_zero_pt_s8acc32_ref(
             KDimPerGroup,
             NDim,
             NDim,
             Bint8.data() + g * KDimPerGroup * NDim,
-            Bint8_zero_point,
-            col_offsets.data() + g * NDim);
+            Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
+            col_offsets.data() + g * NDim,
+            ncols_per_quant_group);
       }
 
       conv3d_ref(
@@ -402,13 +443,14 @@ static void Im2col3DTest() {
             conv_p.G * NDim,
             Cint32_ref.data() + g * NDim,
             Cint8_ref.data() + g * NDim,
-            C_multiplier,
+            C_multiplier.data() + g * NDim / ncols_per_quant_group,
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
             row_offsets.data(),
             col_offsets.data() + g * NDim,
-            nullptr);
+            nullptr,
+            ncols_per_quant_group);
       }
 
       PackBMatrix<int8_t, ACC_T> packedB(
@@ -424,8 +466,7 @@ static void Im2col3DTest() {
 #pragma omp parallel
 #endif
       {
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
+        vector<int32_t> row_offset_buf(
             PackAWithIm2Col<uint8_t, ACC_T, 3>::rowOffsetBufferSize());
 
         PackAWithIm2Col<uint8_t, ACC_T, 3> packA(
@@ -436,23 +477,20 @@ static void Im2col3DTest() {
             row_offset_buf.data());
 
         DoNothing<> doNothingObj{};
-        ReQuantizeOutput<false> outputProcObj(
+        ReQuantizeOutput<false, Q_GRAN> outputProcObj(
             doNothingObj,
-            C_multiplier,
+            C_multiplier.data(),
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            Bint8_zero_point.data(),
             packA.getRowOffsetBuffer(),
             col_offsets.data(),
-            nullptr);
+            nullptr,
+            conv_p.G * NDim,
+            conv_p.G);
 
-#ifdef _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
 
         fbgemmPacked(
             packA,
@@ -495,12 +533,24 @@ static void Im2col3DTest() {
   } // for each shape
 }
 
-TEST(FBGemmIm2colTest, 3DAcc32Test) {
-  Im2col3DTest<int32_t>();
+TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
+  QuantizationGranularity q_granularity = GetParam();
+  if (q_granularity == QuantizationGranularity::TENSOR) {
+    Im2col3DTest<int32_t, QuantizationGranularity::TENSOR>();
+  } else if (q_granularity == QuantizationGranularity::GROUP) {
+    Im2col3DTest<int32_t, QuantizationGranularity::GROUP>();
+  } else {
+    Im2col3DTest<int32_t, QuantizationGranularity::OUT_CHANNEL>();
+  }
 }
 
-TEST(FBGemmIm2colTest, 3DAcc16Test) {
-  Im2col3DTest<int16_t>();
+TEST_P(fbgemmIm2colTest, 3DAcc16Test) {
+  QuantizationGranularity q_granularity = GetParam();
+  if (q_granularity == QuantizationGranularity::TENSOR) {
+    Im2col3DTest<int16_t, QuantizationGranularity::TENSOR>();
+  } else if (q_granularity == QuantizationGranularity::GROUP) {
+    Im2col3DTest<int16_t, QuantizationGranularity::GROUP>();
+  } else {
+    Im2col3DTest<int16_t, QuantizationGranularity::OUT_CHANNEL>();
+  }
 }
-
-} // namespace fbgemm

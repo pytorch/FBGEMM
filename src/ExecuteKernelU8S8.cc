@@ -240,170 +240,194 @@ void ExecuteKernel<
 
   } // for each j block
 }
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    uint8_t,
-    ReQuantizeOutput<false /* FUSE_RELU*/>>;
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    uint8_t,
-    ReQuantizeOutput<true>>;
+////////////////////////////////////////////////////////////////////////////////
+// ReQuantizeOutput
+#define INSTANTIATE_BASE(ACC_T, RELU, Q_GRAN) \
+  template class ExecuteKernel<               \
+      PackAWithRowOffset<uint8_t, ACC_T>,     \
+      PackBMatrix<int8_t, ACC_T>,             \
+      uint8_t,                                \
+      ReQuantizeOutput<RELU, Q_GRAN>>;
 
-template class ExecuteKernel<
-    PackAWithQuantRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    float,
-    ReQuantizeForFloat<false>>;
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-template class ExecuteKernel<
-    PackAWithQuantRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    float,
-    ReQuantizeForFloat<true>>;
+#define INSTANTIATE_RELU(ACC_T) \
+  INSTANTIATE_Q_GRANS(ACC_T, false);   \
+  INSTANTIATE_Q_GRANS(ACC_T, true);
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    float,
-    ReQuantizeForFloat<false>>;
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    float,
-    ReQuantizeForFloat<true>>;
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
+
+#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
+  template class ExecuteKernel<                            \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,        \
+      PackBMatrix<int8_t, ACC_T>,                          \
+      uint8_t,                                             \
+      ReQuantizeOutput<RELU, Q_GRAN>>;
+
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(                                                            \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+
+#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+
+#define INSTANTIATE_RELU(ACC_T)   \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template class ExecuteKernel<
     PackAMatrix<uint8_t, int16_t>,
     PackBMatrix<int8_t, int16_t>,
-    int32_t,
-    memCopy<>>;
-
-template class ExecuteKernel<
-    PackAMatrix<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
     uint8_t,
     ReQuantizeOutput<false>>;
 
-template class ExecuteKernel<
-    PackAMatrix<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    int32_t,
-    memCopy<>>;
+////////////////////////////////////////////////////////////////////////////////
+// ReQuantizeForFloat
+#define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN) \
+  template class ExecuteKernel<                \
+      PACK_A<uint8_t, int32_t>,                \
+      PackBMatrix<int8_t, int32_t>,            \
+      float,                                   \
+      ReQuantizeForFloat<RELU, Q_GRAN>>;
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    DoSpmdmOnInpBuffer<
-        ReQuantizeOutput<false>::outType,
-        int32_t,
-        ReQuantizeOutput<false>>>;
+#define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    DoSpmdmOnInpBuffer<
-        ReQuantizeOutput<true>::outType,
-        int32_t,
-        ReQuantizeOutput<true>>>;
+#define INSTANTIATE_RELU(PACK_A)      \
+  INSTANTIATE_Q_GRANS(PACK_A, false); \
+  INSTANTIATE_Q_GRANS(PACK_A, true);
+
+INSTANTIATE_RELU(PackAWithRowOffset);
+INSTANTIATE_RELU(PackAWithQuantRowOffset);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
+
+#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
+  template class ExecuteKernel<                            \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,        \
+      PackBMatrix<int8_t, ACC_T>,                          \
+      float,                                               \
+      ReQuantizeForFloat<RELU, Q_GRAN>>;
+
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(                                                            \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+
+#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+
+#define INSTANTIATE_RELU(ACC_T)          \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int16_t>,
     PackBMatrix<int8_t, int16_t>,
     float,
-    DoSpmdmOnInpBuffer<
-        ReQuantizeForFloat<false>::outType,
-        int32_t,
-        ReQuantizeForFloat<false>>>;
+    ReQuantizeForFloat<false /* FUSE_RELU*/>>;
+
+////////////////////////////////////////////////////////////////////////////////
+// DoSpmdmOnInpBuffer
+#define INSTANTIATE_BASE(RELU, Q_GRAN)      \
+  template class ExecuteKernel<             \
+      PackAWithRowOffset<uint8_t, int16_t>, \
+      PackBMatrix<int8_t, int16_t>,         \
+      uint8_t,                              \
+      DoSpmdmOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
+
+#define INSTANTIATE_Q_GRANS(RELU)                          \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+
+INSTANTIATE_Q_GRANS(false);
+INSTANTIATE_Q_GRANS(true);
+
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int16_t>,
     PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
+    float,
+    DoSpmdmOnInpBuffer<float, int32_t, ReQuantizeForFloat<false>>>;
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    ReQuantizeOutput<true>>;
+////////////////////////////////////////////////////////////////////////////////
+// memCopy
+#define INSTANTIATE_BASE(PACK_A, ACC_T) \
+  template class ExecuteKernel<         \
+      PACK_A<uint8_t, ACC_T>,           \
+      PackBMatrix<int8_t, ACC_T>,       \
+      int32_t,                            \
+      memCopy<>>;
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    int32_t,
-    memCopy<>>;
+#define INSTANTIATE_ACC_T(PACK_A)   \
+  INSTANTIATE_BASE(PACK_A, int32_t) \
+  INSTANTIATE_BASE(PACK_A, int16_t)
 
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    int32_t,
-    memCopy<>>;
+INSTANTIATE_ACC_T(PackAMatrix);
+INSTANTIATE_ACC_T(PackAWithRowOffset);
 
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int16_t, 3>,
-    PackBMatrix<int8_t, int16_t>,
-    int32_t,
-    memCopy<>>;
+#undef INSTANTIATE_ACC_T
+#undef INSTANTIATE_BASE
 
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
+#define INSTANTIATE_BASE(ACC_T, SPATIAL_DIM)        \
+  template class ExecuteKernel<                     \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>, \
+      PackBMatrix<int8_t, ACC_T>,                   \
+      int32_t,                                        \
+      memCopy<>>;
 
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int16_t, 3>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
+#define INSTANTIATE_SPATIAL_DIM(ACC_T) \
+  INSTANTIATE_BASE(ACC_T, 2);          \
+  INSTANTIATE_BASE(ACC_T, 3);
 
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    int32_t,
-    memCopy<>>;
+INSTANTIATE_SPATIAL_DIM(int32_t);
+INSTANTIATE_SPATIAL_DIM(int16_t);
 
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    int32_t,
-    memCopy<>>;
-
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int32_t, 3>,
-    PackBMatrix<int8_t, int32_t>,
-    int32_t,
-    memCopy<>>;
-
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int32_t>,
-    PackBMatrix<int8_t, int32_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
-
-template class ExecuteKernel<
-    PackAWithIm2Col<uint8_t, int32_t, 3>,
-    PackBMatrix<int8_t, int32_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_BASE
 
 template class ExecuteKernel<
     PackAWithQuantRowOffset<uint8_t, int32_t>,
     PackBMatrix<int8_t, int32_t>,
     int32_t,
     memCopy<>>;
-
-template class ExecuteKernel<
-    PackAWithRowOffset<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    float,
-    ReQuantizeForFloat<false>>;
 
 template class ExecuteKernel<
     PackAMatrix<uint8_t, int16_t>,

@@ -73,19 +73,17 @@ TEST_P(FBGemmFP16Test, Test) {
     }
     cerr << endl;
 
-    aligned_vector<float> A(m * k, 0.f);
-    aligned_vector<float> B(k * n, 0.f);
+    // initialize with small numbers
+    aligned_vector<int> Aint(m * k);
+    aligned_vector<int> Bint(k * n);
+    randFill(Aint, 0, 4);
+    randFill(Bint, 0, 4);
+    aligned_vector<float> A(Aint.begin(), Aint.end());
+    aligned_vector<float> B(Bint.begin(), Bint.end());
+
     aligned_vector<float> C(m * n, NAN);
 
-    // initialize with small numbers
-    randFill(A, 0, 4);
-    randFill(B, 0, 4);
-    randFill(C, 0, 4);
-
-    aligned_vector<float> A_ref, B_ref, C_ref;
-    A_ref = A;
-    B_ref = B;
-    C_ref = C;
+    aligned_vector<float> A_ref(A), B_ref(B), C_ref(C);
 
     if (atrans == matrix_op_t::Transpose) {
       transpose_matrix(A_ref.data(), k, m);

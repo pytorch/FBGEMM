@@ -57,24 +57,25 @@ void requantize_u8acc32_ref(
     int ld,
     const int32_t* inp,
     uint8_t* out,
-    float C_multiplier,
+    const float* C_multiplier,
     int32_t C_zero_point,
     int32_t A_zero_point,
-    int32_t B_zero_point,
+    const int32_t* B_zero_point,
     const int32_t* row_offsets,
     const int32_t* col_offsets,
     const int32_t* bias,
+    int ncols_per_quant_group,
     bool fuse_relu) {
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
       int32_t raw = inp[i * ld + j];
       raw -= A_zero_point * col_offsets[j];
-      raw -= B_zero_point * row_offsets[i];
+      raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
       if (bias) {
         raw += bias[j];
       }
 
-      float result = raw * C_multiplier;
+      float result = raw * C_multiplier[j / ncols_per_quant_group];
       long rounded = lrintf(result) + C_zero_point;
       out[i * ld + j] = std::max(
           fuse_relu ? static_cast<long>(C_zero_point) : 0l,
@@ -180,14 +181,15 @@ void col_offsets_with_zero_pt_s8acc32_ref(
     int N,
     int ld,
     const int8_t* Bint8,
-    int32_t B_zero_point,
-    int32_t* col_offsets) {
+    const int32_t* B_zero_point,
+    int32_t* col_offsets,
+    int ncols_per_quant_group) {
   for (int j = 0; j < N; ++j) {
     int32_t sum = 0;
     for (int k = 0; k < K; ++k) {
       sum += Bint8[k * ld + j];
     }
-    col_offsets[j] = sum - B_zero_point * K;
+    col_offsets[j] = sum - B_zero_point[j / ncols_per_quant_group] * K;
   }
 }
 
@@ -578,13 +580,14 @@ void depthwise_3x3_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier,
+          &C_multiplier,
           C_zero_point,
           A_zero_point,
-          B_zero_point,
+          &B_zero_point,
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };
@@ -644,13 +647,14 @@ void depthwise_3x3_per_channel_quantization_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier[k],
+          &C_multiplier[k],
           C_zero_point,
           A_zero_point,
-          B_zero_point[k],
+          &B_zero_point[k],
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };
@@ -781,13 +785,14 @@ void depthwise_3x3x3_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier,
+          &C_multiplier,
           C_zero_point,
           A_zero_point,
-          B_zero_point,
+          &B_zero_point,
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };

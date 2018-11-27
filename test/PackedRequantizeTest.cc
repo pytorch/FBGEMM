@@ -25,17 +25,35 @@
 using namespace std;
 using namespace fbgemm;
 
-std::vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
-                                       matrix_op_t::Transpose};
+vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
+                                  matrix_op_t::Transpose};
+
+vector<QuantizationGranularity> qGranularityVals{
+    QuantizationGranularity::TENSOR,
+    QuantizationGranularity::GROUP,
+    QuantizationGranularity::OUT_CHANNEL};
 
 namespace {
-class fbgemmu8s8acc32test : public testing::TestWithParam<
-                                std::tuple<matrix_op_t, matrix_op_t, bool>> {};
+class fbgemmu8s8acc32WithQuantGranularityTest
+    : public testing::TestWithParam<
+          tuple<matrix_op_t, matrix_op_t, bool, QuantizationGranularity>> {};
+class fbgemmu8s8acc32Test
+    : public testing::TestWithParam<
+          tuple<matrix_op_t, matrix_op_t, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
-    fbgemmu8s8acc32test,
+    fbgemmu8s8acc32WithQuantGranularityTest,
+    ::testing::Combine(
+        ::testing::Values(matrix_op_t::NoTranspose),
+        ::testing::ValuesIn(transposeVals),
+        ::testing::Bool(),
+        ::testing::ValuesIn(qGranularityVals)));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    fbgemmu8s8acc32Test,
     ::testing::Combine(
         ::testing::Values(matrix_op_t::NoTranspose),
         ::testing::ValuesIn(transposeVals),
@@ -77,11 +95,12 @@ static vector<vector<int>> GetShapes_() {
  * @brief Unit test for uint8 matrix A, int8 matrix B, and 32-bit
  * accumulation. Output processing: requantization -> nothing
  */
-TEST_P(fbgemmu8s8acc32test, Test) {
+TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
-  tie(atrans, btrans, test_ld) = GetParam();
+  QuantizationGranularity q_granularity;
+  tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
     for (int groups : {1, 3, 4}) {
@@ -95,22 +114,21 @@ TEST_P(fbgemmu8s8acc32test, Test) {
         int k_per_group = k / groups;
 
         // mxk matrix
-        aligned_vector<uint8_t> Aint8(m * k, 0);
+        aligned_vector<uint8_t> Aint8(m * k);
 
         // kxn matrix
-        aligned_vector<int8_t> Bint8(k * n, 0);
-        aligned_vector<int8_t> Bint8_ref(Bint8.size(), 0);
+        aligned_vector<int8_t> Bint8_ref(k * n);
 
-        aligned_vector<int32_t> Cint32_ref(m * n * groups, 0);
-        aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-        aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-        aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
-        aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size(), 0);
+        aligned_vector<int32_t> Cint32_ref(m * n * groups);
+        aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size());
+        aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+        aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
+        aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
-        randFill(Aint8, 0, 255);
+        randFill<uint8_t>(Aint8, 0, 255);
         int32_t Aint8_zero_point = 43;
 
-        randFill(Bint8_ref, -128, 127);
+        randFill<int8_t>(Bint8_ref, -128, 127);
         for (int g = 0; g < groups; ++g) {
           avoidOverflow(
               m,
@@ -122,7 +140,7 @@ TEST_P(fbgemmu8s8acc32test, Test) {
               n);
         }
 
-        Bint8 = Bint8_ref;
+        aligned_vector<int8_t> Bint8(Bint8_ref);
 
         // initialize bias
         aligned_vector<int32_t> bias_int32(groups * n);
@@ -146,7 +164,6 @@ TEST_P(fbgemmu8s8acc32test, Test) {
           Bint8 = Bint8_temp;
         }
 
-        int32_t Bint8_zero_point = -30;
         // To test lda != k , we just reduce k by half and use the original k
         // as lda.
         int n_adjusted = n;
@@ -159,23 +176,33 @@ TEST_P(fbgemmu8s8acc32test, Test) {
           }
         }
 
+        int ncols_per_quant_group = groups * n_adjusted;
+        if (q_granularity == QuantizationGranularity::GROUP) {
+          ncols_per_quant_group = n_adjusted;
+        } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
+          ncols_per_quant_group = 1;
+        }
+        aligned_vector<int32_t> Bint8_zero_point(
+            groups * n_adjusted / ncols_per_quant_group);
+        randFill(Bint8_zero_point, -50, -10);
+
         // computing column offset
-        vector<int32_t> col_offsets;
-        col_offsets.resize(groups * n_adjusted);
+        vector<int32_t> col_offsets(groups * n_adjusted);
         for (int g = 0; g < groups; ++g) {
           col_offsets_with_zero_pt_s8acc32_ref(
               k_per_group,
               n_adjusted,
               n,
               Bint8_ref.data() + g * k_per_group * n,
-              Bint8_zero_point,
-              col_offsets.data() + g * n_adjusted);
+              Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
+              col_offsets.data() + g * n_adjusted,
+              ncols_per_quant_group);
         }
 
-        vector<int32_t> row_offsets;
-        row_offsets.resize(m);
+        vector<int32_t> row_offsets(m);
 
-        float C_multiplier = 0.001234;
+        aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+        randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
         int32_t C_zero_pt = 5;
 
         for (int g = 0; g < groups; ++g) {
@@ -203,13 +230,14 @@ TEST_P(fbgemmu8s8acc32test, Test) {
               groups * n,
               Cint32_ref.data() + g * n_adjusted,
               Cint8_ref.data() + g * n_adjusted,
-              C_multiplier,
+              C_multiplier.data() + g * n_adjusted / ncols_per_quant_group,
               C_zero_pt,
               Aint8_zero_point,
-              Bint8_zero_point,
+              Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
               row_offsets.data(),
               col_offsets.data() + g * n_adjusted,
-              bias ? (bias + g * n_adjusted) : nullptr);
+              bias ? (bias + g * n_adjusted) : nullptr,
+              ncols_per_quant_group);
         }
 
         PackBMatrix<int8_t> packedBN(
@@ -225,8 +253,7 @@ TEST_P(fbgemmu8s8acc32test, Test) {
 #pragma omp parallel
 #endif
         {
-          vector<int32_t> row_offset_buf;
-          row_offset_buf.resize(
+          vector<int32_t> row_offset_buf(
               PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
 
           PackAWithRowOffset<uint8_t> packAN(
@@ -239,34 +266,80 @@ TEST_P(fbgemmu8s8acc32test, Test) {
               groups,
               row_offset_buf.data());
 
+          int num_threads = fbgemm_get_num_threads();
+          int tid = fbgemm_get_thread_num();
+
           DoNothing<> doNothingObj{};
-          ReQuantizeOutput<false> outputProcObj(
-              doNothingObj,
-              C_multiplier,
-              C_zero_pt,
-              Aint8_zero_point,
-              Bint8_zero_point,
-              packAN.getRowOffsetBuffer(),
-              col_offsets.data(),
-              bias);
 
-#ifdef _OPENMP
-          int num_threads = omp_get_num_threads();
-          int tid = omp_get_thread_num();
-#else
-          int num_threads = 1;
-          int tid = 0;
-#endif
+          if (q_granularity == QuantizationGranularity::TENSOR) {
+            ReQuantizeOutput<false> outputProcObj(
+                doNothingObj,
+                C_multiplier.data(),
+                C_zero_pt,
+                Aint8_zero_point,
+                Bint8_zero_point.data(),
+                packAN.getRowOffsetBuffer(),
+                col_offsets.data(),
+                bias,
+                groups * n_adjusted,
+                groups);
 
-          fbgemmPacked(
-              packAN,
-              packedBN,
-              Cint8_fb.data(),
-              Cint32_buffer.data(),
-              groups * n,
-              outputProcObj,
-              tid,
-              num_threads);
+            fbgemmPacked(
+                packAN,
+                packedBN,
+                Cint8_fb.data(),
+                Cint32_buffer.data(),
+                groups * n,
+                outputProcObj,
+                tid,
+                num_threads);
+          } else if (q_granularity == QuantizationGranularity::GROUP) {
+            ReQuantizeOutput<false, QuantizationGranularity::GROUP>
+                outputProcObj(
+                    doNothingObj,
+                    C_multiplier.data(),
+                    C_zero_pt,
+                    Aint8_zero_point,
+                    Bint8_zero_point.data(),
+                    packAN.getRowOffsetBuffer(),
+                    col_offsets.data(),
+                    bias,
+                    groups * n_adjusted,
+                    groups);
+
+            fbgemmPacked(
+                packAN,
+                packedBN,
+                Cint8_fb.data(),
+                Cint32_buffer.data(),
+                groups * n,
+                outputProcObj,
+                tid,
+                num_threads);
+          } else {
+            ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL>
+                outputProcObj(
+                    doNothingObj,
+                    C_multiplier.data(),
+                    C_zero_pt,
+                    Aint8_zero_point,
+                    Bint8_zero_point.data(),
+                    packAN.getRowOffsetBuffer(),
+                    col_offsets.data(),
+                    bias,
+                    groups * n_adjusted,
+                    groups);
+
+            fbgemmPacked(
+                packAN,
+                packedBN,
+                Cint8_fb.data(),
+                Cint32_buffer.data(),
+                groups * n,
+                outputProcObj,
+                tid,
+                num_threads);
+          }
         }
         // printMatrix(matrix_op_t::NoTranspose, Cint32_local.data(),
         // m, n_adjusted, n, "C local");
@@ -287,11 +360,12 @@ TEST_P(fbgemmu8s8acc32test, Test) {
  * accumulation. Directly output fp32 matrix C. Output processing:
  * requantization -> nothing
  */
-TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
+TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
-  tie(atrans, btrans, test_ld) = GetParam();
+  QuantizationGranularity q_granularity;
+  tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
     for (int groups : {1, 3, 4}) {
@@ -303,26 +377,26 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
       }
       int k_per_group = k / groups;
 
-      aligned_vector<float> Afp32(m * k, 0.0f);
-      aligned_vector<uint8_t> Aint8(Afp32.size(), 0);
+      aligned_vector<float> Afp32(m * k);
+      aligned_vector<uint8_t> Aint8(Afp32.size());
 
-      aligned_vector<float> Bfp32(k * n, 0.0f);
-      aligned_vector<int8_t> Bint8(Bfp32.size(), 0);
+      aligned_vector<float> Bfp32(k * n);
+      aligned_vector<int8_t> Bint8(Bfp32.size());
 
-      aligned_vector<float> Cfp32_ref(m * n * groups, 0.0f);
-      aligned_vector<float> Cfp32_fb(Cfp32_ref.size(), 0.0f);
+      aligned_vector<float> Cfp32_ref(m * n * groups);
+      aligned_vector<float> Cfp32_fb(Cfp32_ref.size());
 
-      aligned_vector<uint8_t> Cint8_fb(Cfp32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_buffer(Cfp32_ref.size(), 0);
+      aligned_vector<uint8_t> Cint8_fb(Cfp32_ref.size());
+      aligned_vector<int32_t> Cint32_buffer(Cfp32_ref.size());
 
-      randFill(Aint8, 0, 255);
+      randFill<uint8_t>(Aint8, 0, 255);
       int32_t Aint8_zero_point = 43;
       float Aint8_scale = 0.11;
       for (auto i = 0; i < Afp32.size(); ++i) {
         Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
       }
 
-      randFill(Bint8, -128, 127);
+      randFill<int8_t>(Bint8, -128, 127);
       for (int g = 0; g < groups; ++g) {
         avoidOverflow(
             m,
@@ -332,11 +406,6 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
             k,
             Bint8.data() + g * k_per_group * n,
             n);
-      }
-      int32_t Bint8_zero_point = -30;
-      float Bint8_scale = 0.49;
-      for (auto i = 0; i < Bfp32.size(); ++i) {
-        Bfp32[i] = Bint8_scale * (Bint8[i] - Bint8_zero_point);
       }
 
       // To test lda != k , we just reduce k by half and use the original k
@@ -351,17 +420,37 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
         }
       }
 
+      int ncols_per_quant_group = groups * n_adjusted;
+      if (q_granularity == QuantizationGranularity::GROUP) {
+        ncols_per_quant_group = n_adjusted;
+      } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
+        ncols_per_quant_group = 1;
+      }
+      aligned_vector<int32_t> Bint8_zero_point(
+          groups * n_adjusted / ncols_per_quant_group);
+      randFill(Bint8_zero_point, -50, -10);
+      aligned_vector<float> Bint8_scale(Bint8_zero_point.size());
+      randFill(Bint8_scale, 0.49f / 2, 0.49f * 3 / 2);
+      for (int i = 0; i < k; ++i) {
+        int g = i / k_per_group;
+        for (int j = 0; j < n_adjusted; ++j) {
+          int quant_group = (g * n_adjusted + j) / ncols_per_quant_group;
+          Bfp32[i * n + j] = Bint8_scale[quant_group] *
+              (Bint8[i * n + j] - Bint8_zero_point[quant_group]);
+        }
+      }
+
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(groups * n_adjusted);
+      vector<int32_t> col_offsets(groups * n_adjusted);
       for (int g = 0; g < groups; ++g) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
             n,
             Bint8.data() + g * k_per_group * n,
-            Bint8_zero_point,
-            col_offsets.data() + g * n_adjusted);
+            Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
+            col_offsets.data() + g * n_adjusted,
+            ncols_per_quant_group);
       }
 
       if (btrans == matrix_op_t::Transpose) {
@@ -404,8 +493,7 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
 #pragma omp parallel
 #endif
       {
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
+        vector<int32_t> row_offset_buf(
             PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
 
         PackAWithQuantRowOffset<uint8_t> packAN(
@@ -420,47 +508,96 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
             groups,
             row_offset_buf.data());
 
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+
         DoNothing<float, float> doNothingObj{};
-        ReQuantizeForFloat<false> outputProcObj(
-            doNothingObj,
-            Aint8_scale,
-            Bint8_scale,
-            Aint8_zero_point,
-            Bint8_zero_point,
-            packAN.getRowOffsetBuffer(),
-            col_offsets.data(),
-            nullptr);
 
-#ifdef _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        if (q_granularity == QuantizationGranularity::TENSOR) {
+          ReQuantizeForFloat<false> outputProcObj(
+              doNothingObj,
+              Aint8_scale,
+              Bint8_scale.data(),
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              packAN.getRowOffsetBuffer(),
+              col_offsets.data(),
+              nullptr,
+              groups * n_adjusted,
+              groups);
 
-        fbgemmPacked(
-            packAN,
-            packedBN,
-            Cfp32_fb.data(),
-            reinterpret_cast<int32_t*>(Cfp32_fb.data()),
-            groups * n,
-            outputProcObj,
-            tid,
-            num_threads);
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cfp32_fb.data(),
+              reinterpret_cast<int32_t*>(Cfp32_fb.data()),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        } else if (q_granularity == QuantizationGranularity::GROUP) {
+          ReQuantizeForFloat<false, QuantizationGranularity::GROUP>
+              outputProcObj(
+                  doNothingObj,
+                  Aint8_scale,
+                  Bint8_scale.data(),
+                  Aint8_zero_point,
+                  Bint8_zero_point.data(),
+                  packAN.getRowOffsetBuffer(),
+                  col_offsets.data(),
+                  nullptr,
+                  groups * n_adjusted,
+                  groups);
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cfp32_fb.data(),
+              reinterpret_cast<int32_t*>(Cfp32_fb.data()),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        } else {
+          ReQuantizeForFloat<false, QuantizationGranularity::OUT_CHANNEL>
+              outputProcObj(
+                  doNothingObj,
+                  Aint8_scale,
+                  Bint8_scale.data(),
+                  Aint8_zero_point,
+                  Bint8_zero_point.data(),
+                  packAN.getRowOffsetBuffer(),
+                  col_offsets.data(),
+                  nullptr,
+                  groups * n_adjusted,
+                  groups);
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cfp32_fb.data(),
+              reinterpret_cast<int32_t*>(Cfp32_fb.data()),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        }
       }
 
-      float maximum = *max_element(Cfp32_ref.begin(), Cfp32_ref.end());
-      float minimum = *min_element(Cfp32_ref.begin(), Cfp32_ref.end());
-      float atol = (maximum - minimum) / 255 / 1.9;
-
+      float maximum = 0;
+      for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < groups * n_adjusted; ++j) {
+          float c = Cfp32_ref[i * groups * n + j];
+          maximum = std::max(maximum, std::abs(c));
+        }
+      }
       compare_validate_buffers(
           Cfp32_ref.data(),
           Cfp32_fb.data(),
           m,
           groups * n_adjusted,
           groups * n,
-          atol);
+          maximum * 1e-5f);
     } // for each groups
   } // for each shape
 }
@@ -470,7 +607,7 @@ TEST_P(fbgemmu8s8acc32test, TestFloatInputOutput) {
  * accumulation. Output processing: requantization -> nothing. Symmetric: the
  * zero point is 0.
  */
-TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
+TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
@@ -486,22 +623,17 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
       }
       int k_per_group = k / groups;
 
-      aligned_vector<float> Afp32(m * k, 0.0f);
-      aligned_vector<uint8_t> Aint8(Afp32.size(), 0);
+      aligned_vector<uint8_t> Aint8(m * k);
+      aligned_vector<int8_t> Bint8(k * n);
 
-      aligned_vector<float> Bfp32(k * n, 0.0f);
-      aligned_vector<int8_t> Bint8(Bfp32.size(), 0);
+      aligned_vector<float> Cfp32_ref(m * n * groups);
+      aligned_vector<int32_t> Cint32_fb(Cfp32_ref.size());
 
-      aligned_vector<float> Cfp32_ref(m * n * groups, 0.0f);
-      aligned_vector<int32_t> Cint32_fb(Cfp32_ref.size(), 0);
-
-      randFill(Afp32, 0, 255);
-      for (auto i = 0; i < Afp32.size(); i++) {
-        Aint8[i] = (uint8_t)Afp32[i];
-      }
+      randFill<uint8_t>(Aint8, 0, 255);
+      aligned_vector<float> Afp32(Aint8.begin(), Aint8.end());
 
       // initialize B matrix
-      randFill(Bfp32, -128, 127);
+      randFill<int8_t>(Bint8, -128, 127);
       for (int g = 0; g < groups; ++g) {
         avoidOverflow(
             m,
@@ -509,13 +641,11 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
             k_per_group,
             Aint8.data() + g * k_per_group,
             k,
-            Bfp32.data() + g * k_per_group * n,
+            Bint8.data() + g * k_per_group * n,
             n);
       }
 
-      for (auto i = 0; i < Bfp32.size(); ++i) {
-        Bint8[i] = (int8_t)Bfp32[i];
-      }
+      aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
       // To test lda != k , we just reduce k by half and use the original k
       // as lda.
@@ -577,13 +707,8 @@ TEST_P(fbgemmu8s8acc32test, TestSymmetricQuantizedInputOutput) {
         DoNothing<int32_t, int32_t> doNothingObj{};
         memCopy<> outputProcObj(doNothingObj);
 
-#ifdef _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
 
         fbgemmPacked(
             packAN,

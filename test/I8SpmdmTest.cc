@@ -66,7 +66,7 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
     }
 
     aligned_vector<uint8_t> A(M * K);
-    randFill(A, 0, 255);
+    randFill<uint8_t>(A, 0, 255);
 
     CompressedSparseColumn B_csc(K_adjusted, N_adjusted);
     vector<int32_t> C(M * N);
@@ -127,13 +127,8 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
 #pragma omp parallel
 #endif
     {
-#ifdef _OPENMP
-      int num_threads = omp_get_num_threads();
-      int tid = omp_get_thread_num();
-#else
-      int num_threads = 1;
-      int tid = 0;
-#endif
+      int num_threads = fbgemm_get_num_threads();
+      int tid = fbgemm_get_thread_num();
       int i_per_thread = (M + num_threads - 1) / num_threads;
       int i_begin = std::min(tid * i_per_thread, M);
       int i_end = std::min(i_begin + i_per_thread, M);

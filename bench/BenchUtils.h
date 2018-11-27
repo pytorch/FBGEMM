@@ -11,8 +11,11 @@
 namespace fbgemm {
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, const int low, const int high);
+void randFill(aligned_vector<T>& vec, T low, T high);
 
 void llc_flush(std::vector<char>& llc);
+
+int fbgemm_get_num_threads();
+int fbgemm_get_thread_num();
 
 } // namespace fbgemm
