@@ -436,13 +436,14 @@ void RequantizeAvx2(
   DoNothing<> doNothingObj{};
   ReQuantizeOutput<false /* FUSE_RELU */> requantizeObj(
     doNothingObj,
-    params.real_multiplier,
+    &params.real_multiplier,
     params.target_qparams.zero_point,
     0,
     0,
     nullptr,
     nullptr,
-    nullptr);
+    nullptr,
+    len);
   requantizeObj.f<inst_set_t::avx2>(dst, src, {0, 1, 0, len}, 0, 0);
 }
 #endif

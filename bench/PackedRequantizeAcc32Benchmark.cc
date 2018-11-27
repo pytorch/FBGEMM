@@ -103,42 +103,35 @@ void performance_test() {
     int k = shape[2];
 
     float alpha = 1.f, beta = 0.f;
-    aligned_vector<float> Afp32(m * k, 0.0f);
-    aligned_vector<uint8_t> Aint8(m * k, 0);
+    aligned_vector<uint8_t> Aint8(m * k);
 
-    aligned_vector<float> Bfp32(k * n, 0.0f);
-    aligned_vector<int8_t> Bint8(k * n, 0);
+    aligned_vector<int8_t> Bint8(k * n);
 
-    aligned_vector<float> Cfp32_mkl(m * n, 0.0f);
-    aligned_vector<int32_t> Cint32_mkl(m * n, 0.0f);
-    aligned_vector<int32_t> Cint32_fb(m * n, 0);
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0);
-    aligned_vector<int32_t> Cint32_local(m * n, 0);
-    aligned_vector<int32_t> Cint32_buffer(m * n, 0);
-    aligned_vector<uint8_t> Cint8_local(m * n, 0);
+    aligned_vector<float> Cfp32_mkl(m * n);
+    aligned_vector<int32_t> Cint32_mkl(Cfp32_mkl.size());
+    aligned_vector<int32_t> Cint32_fb(Cfp32_mkl.size());
+    aligned_vector<uint8_t> Cint8_fb(Cfp32_mkl.size());
+    aligned_vector<int32_t> Cint32_local(Cfp32_mkl.size());
+    aligned_vector<int32_t> Cint32_buffer(Cfp32_mkl.size());
+    aligned_vector<uint8_t> Cint8_local(Cfp32_mkl.size());
 
     // A matrix
-    randFill(Aint8, 0, 255);
+    randFill<uint8_t>(Aint8, 0, 255);
     // float Aint8_scale = 0.11;
     int32_t Aint8_zero_point = 43;
-    for (auto i = 0; i < Afp32.size(); ++i) {
-      Afp32[i] = (float)Aint8[i];
-    }
+    aligned_vector<float> Afp32(Aint8.begin(), Aint8.end());
 
-    randFill(Bint8, -128, 127);
+    randFill<int8_t>(Bint8, -128, 127);
     avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
 
     // float Bint8_scale = 0.49;
     int32_t Bint8_zero_point = -30;
-    for (auto i = 0; i < Bfp32.size(); ++i) {
-      Bfp32[i] = (float)Bint8[i];
-    }
+    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
     // computing column offset
-    vector<int32_t> col_offsets;
-    col_offsets.resize(n);
+    vector<int32_t> col_offsets(n);
     col_offsets_with_zero_pt_s8acc32_ref(
-        k, n, n, Bint8.data(), Bint8_zero_point, col_offsets.data());
+        k, n, n, Bint8.data(), &Bint8_zero_point, col_offsets.data(), n);
 
     double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
     double ttot = 0.0;
@@ -180,8 +173,7 @@ void performance_test() {
     }
 #endif
 
-    vector<int32_t> row_offsets;
-    row_offsets.resize(m);
+    vector<int32_t> row_offsets(m);
 
     float C_multiplier = 0.1234;
     int32_t C_zero_pt = 5;
@@ -197,13 +189,14 @@ void performance_test() {
         n,
         Cint32_local.data(),
         Cint8_local.data(),
-        C_multiplier,
+        &C_multiplier,
         C_zero_pt,
         Aint8_zero_point,
-        Bint8_zero_point,
+        &Bint8_zero_point,
         row_offsets.data(),
         col_offsets.data(),
-        nullptr); // bias
+        nullptr, // bias
+        n); // ncols per quant group
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
@@ -248,8 +241,7 @@ void performance_test() {
 #pragma omp parallel
 #endif
       {
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
+        vector<int32_t> row_offset_buf(
             PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
 
         PackAWithRowOffset<uint8_t> packAN(
@@ -265,21 +257,17 @@ void performance_test() {
         DoNothing<> doNothingObj{};
         ReQuantizeOutput<false> outputProcObj(
             doNothingObj,
-            C_multiplier,
+            &C_multiplier,
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            &Bint8_zero_point,
             packAN.getRowOffsetBuffer(),
             col_offsets.data(),
-            nullptr);
+            nullptr,
+            n);
 
-#ifdef _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
         // printf ( "tid: %d, num_threads: %d\n", tid, num_threads );
         fbgemmPacked(
             packAN,

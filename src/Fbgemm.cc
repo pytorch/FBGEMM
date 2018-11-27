@@ -198,149 +198,70 @@ bool fbgemmSupportedCPU() {
   return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
 }
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
+////////////////////////////////////////////////////////////////////////////////
+// ReQuantizeOutput
+#define INSTANTIATE_BASE(ACC_T, RELU, Q_GRAN)                                \
+  template void fbgemmPacked(                                                \
+      PackMatrix<PackAWithRowOffset<uint8_t, ACC_T>, uint8_t, ACC_T>& packA, \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB,          \
+      uint8_t* C,                                                            \
+      int32_t* C_buffer,                                                     \
+      uint32_t ldc,                                                          \
+      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,                      \
+      int thread_id,                                                         \
+      int num_threads);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<true>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
-        packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    float* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeForFloat<false>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_RELU(ACC_T) \
+  INSTANTIATE_Q_GRANS(ACC_T, false);   \
+  INSTANTIATE_Q_GRANS(ACC_T, true);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
-        packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    float* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeForFloat<true>& outProcess,
-    int thread_id,
-    int num_threads);
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
 
-template void fbgemmPacked(
-    PackMatrix<PackAMatrix<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    float* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeForFloat<false>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN)          \
+  template void fbgemmPacked(                                       \
+      PackMatrix<                                                   \
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
+          uint8_t,                                                  \
+          ACC_T>& packA,                                            \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
+      uint8_t* C,                                                   \
+      int32_t* C_buffer,                                            \
+      uint32_t ldc,                                                 \
+      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
+      int thread_id,                                                \
+      int num_threads);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    float* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeForFloat<true>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(                                                            \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
+#define INSTANTIATE_RELU(ACC_T)   \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int32_t, 3>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int32_t>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int32_t, 3>, uint8_t, int32_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
-        packA,
-    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
-
-// 16 bit accumulation functions
-template void fbgemmPacked(
-    PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template void fbgemmPacked(
     PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>& packA,
@@ -352,27 +273,108 @@ template void fbgemmPacked(
     int thread_id,
     int num_threads);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const DoSpmdmOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<false>>&
-        outProcess,
-    int thread_id,
-    int num_threads);
+////////////////////////////////////////////////////////////////////////////////
+// ReQuantizeForFloat
+#define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN)                          \
+  template void fbgemmPacked(                                           \
+      PackMatrix<PACK_A<uint8_t, int32_t>, uint8_t, int32_t>& packA,    \
+      PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB, \
+      float* C,                                                         \
+      int32_t* C_buffer,                                                \
+      uint32_t ldc,                                                     \
+      const ReQuantizeForFloat<RELU, Q_GRAN>& outProcess,               \
+      int thread_id,                                                    \
+      int num_threads);
+
+#define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+
+#define INSTANTIATE_RELU(PACK_A)      \
+  INSTANTIATE_Q_GRANS(PACK_A, false); \
+  INSTANTIATE_Q_GRANS(PACK_A, true);
+
+INSTANTIATE_RELU(PackAWithRowOffset);
+INSTANTIATE_RELU(PackAWithQuantRowOffset);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
+
+#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN)          \
+  template void fbgemmPacked(                                       \
+      PackMatrix<                                                   \
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
+          uint8_t,                                                  \
+          ACC_T>& packA,                                            \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
+      float* C,                                                     \
+      int32_t* C_buffer,                                            \
+      uint32_t ldc,                                                 \
+      const ReQuantizeForFloat<RELU, Q_GRAN>& outProcess,           \
+      int thread_id,                                                \
+      int num_threads);
+
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(                                                            \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+
+#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+
+#define INSTANTIATE_RELU(ACC_T)          \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+
+INSTANTIATE_RELU(int32_t);
+INSTANTIATE_RELU(int16_t);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template void fbgemmPacked(
     PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
+    float* C,
     int32_t* C_buffer,
     uint32_t ldc,
-    const DoSpmdmOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<true>>&
-        outProcess,
+    const ReQuantizeForFloat<false>& outProcess,
     int thread_id,
     int num_threads);
+
+////////////////////////////////////////////////////////////////////////////////
+// DoSpmdmOnInpBuffer
+#define INSTANTIATE_BASE(RELU, Q_GRAN)                                    \
+  template void fbgemmPacked(                                             \
+      PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& \
+          packA,                                                          \
+      PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,   \
+      uint8_t* C,                                                         \
+      int32_t* C_buffer,                                                  \
+      uint32_t ldc,                                                       \
+      const DoSpmdmOnInpBuffer<                                           \
+          uint8_t,                                                        \
+          int32_t,                                                        \
+          ReQuantizeOutput<RELU, Q_GRAN>>& outProcess,                    \
+      int thread_id,                                                      \
+      int num_threads);
+
+#define INSTANTIATE_Q_GRANS(RELU)                          \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+
+INSTANTIATE_Q_GRANS(false);
+INSTANTIATE_Q_GRANS(true);
+
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
 
 template void fbgemmPacked(
     PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
@@ -385,73 +387,61 @@ template void fbgemmPacked(
     int thread_id,
     int num_threads);
 
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
+////////////////////////////////////////////////////////////////////////////////
+// memCopy
+#define INSTANTIATE_BASE(PACK_A, ACC_T)                             \
+  template void fbgemmPacked(                                       \
+      PackMatrix<PACK_A<uint8_t, ACC_T>, uint8_t, ACC_T>& packA,    \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
+      int32_t* C,                                                   \
+      int32_t* C_buffer,                                            \
+      uint32_t ldc,                                                 \
+      const memCopy<>& outProcess,                                  \
+      int thread_id,                                                \
+      int num_threads);
+
+#define INSTANTIATE_ACC_T(PACK_A)   \
+  INSTANTIATE_BASE(PACK_A, int32_t) \
+  INSTANTIATE_BASE(PACK_A, int16_t)
+
+INSTANTIATE_ACC_T(PackAMatrix);
+INSTANTIATE_ACC_T(PackAWithRowOffset);
+
+#undef INSTANTIATE_ACC_T
+#undef INSTANTIATE_BASE
+
+#define INSTANTIATE_BASE(ACC_T, SPATIAL_DIM)                        \
+  template void fbgemmPacked(                                       \
+      PackMatrix<                                                   \
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
+          uint8_t,                                                  \
+          ACC_T>& packA,                                            \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
+      int32_t* C,                                                   \
+      int32_t* C_buffer,                                            \
+      uint32_t ldc,                                                 \
+      const memCopy<>& outProcess,                                  \
+      int thread_id,                                                \
+      int num_threads);
+
+#define INSTANTIATE_SPATIAL_DIM(ACC_T) \
+  INSTANTIATE_BASE(ACC_T, 2);          \
+  INSTANTIATE_BASE(ACC_T, 3);
+
+INSTANTIATE_SPATIAL_DIM(int32_t);
+INSTANTIATE_SPATIAL_DIM(int16_t);
+
+#undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_BASE
 
 template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<true>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
+    PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
+        packA,
+    PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
     int32_t* C,
     int32_t* C_buffer,
     uint32_t ldc,
     const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int16_t, 3>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    int32_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const memCopy<>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithIm2Col<uint8_t, int16_t, 3>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
     int thread_id,
     int num_threads);
 
@@ -462,16 +452,6 @@ template void fbgemmPacked(
     int32_t* C_buffer,
     uint32_t ldc,
     const DoNothing<int32_t, int32_t>& outProcess,
-    int thread_id,
-    int num_threads);
-
-template void fbgemmPacked(
-    PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    float* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeForFloat<false>& outProcess,
     int thread_id,
     int num_threads);
 
