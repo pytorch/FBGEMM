@@ -69,7 +69,7 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
         g * this->packedBufferSize(block.row_size, block.col_size);
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-        T val = tr ? smat_[g * block.row_size + i + ld_ * j]
+        T val = tr ? smat_[i + (g * block.col_size + j) * ld_]
                    : smat_[(g * block.row_size + i) * ld_ + j];
         out[addr(i, j)] = tconv(val, out[addr(i, j)]);
       }
