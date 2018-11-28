@@ -1,0 +1,21 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: buildpack-deps:xenial
+    steps:
+      - checkout
+
+      - run:
+        name: Configure FBGEMM
+        command: mkdir build && cd build && cmake ../
+
+      - run:
+        name: Build FBGEMM
+        command: make -j
+
+      - run:
+        name: Test FBGEMM
+        command: ctest
+
+
