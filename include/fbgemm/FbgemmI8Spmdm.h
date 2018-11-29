@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <vector>
+#include "ConvUtils.h"
 #include "Utils.h"
 
 // #define FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -21,6 +22,7 @@ extern double spmdm_transpose_32xN_time;
 extern double spmdm_compute_time;
 extern double spmdm_transpose_Nx32_time;
 extern double spmdm_run_time;
+extern double sconv_run_time;
 #endif
 
 namespace fbgemm {
@@ -45,6 +47,19 @@ class CompressedSparseColumn {
   }
   std::vector<std::int8_t>& Values() {
     return values_;
+  }
+  std::vector<std::int16_t>& KHs() {
+    return kh_;
+  }
+  std::vector<std::int16_t>& KWs() {
+    return kw_;
+  }
+  /**
+   * ICs include group: i.e. for ith input channels withint group g, ICs contain
+   * g*(groups_per_input_channels) + i
+   */
+  std::vector<std::int16_t>& ICs() {
+    return ic_;
   }
 
   std::size_t NumOfRows() const {
@@ -83,11 +98,27 @@ class CompressedSparseColumn {
       std::int32_t* C,
       int ldc) const;
 
+  void SparseConv(
+      const conv_param_t<>& conv_p,
+      const block_type_t& block,
+      const std::uint8_t* A,
+      std::int32_t A_zero_point,
+      bool accumulation,
+      std::int32_t* C,
+      int ldc) const;
+
  private:
   const std::size_t num_rows_;
-  std::vector<std::int32_t> colptr_;
-  std::vector<std::int16_t> rowidx_;
+  std::vector<std::int32_t> colptr_; // corresponds to out channels
   std::vector<std::int8_t> values_;
+
+  // For SpMDM
+  std::vector<std::int16_t> rowidx_; // kh kw ic are flattened with im2col
+
+  // For direct sparse convolution
+  std::vector<std::int16_t> kh_;
+  std::vector<std::int16_t> kw_;
+  std::vector<std::int16_t> ic_; // in channels
 
   // Cache IsHyperSparse to minimize its overhead.
   mutable bool hyper_sparse_;

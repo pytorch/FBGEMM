@@ -808,7 +808,7 @@ class ReluOutput {
 };
 
 /**
- * @brief Perform Sparse-Matrix * Dense-Matrix as a part the of output
+ * @brief Perform Dense-Matrix * Sparse-Matrix as a part the of output
  * processing pipeline.
  *
  * SPMDM (SParse Matrix times Dense Matrix) inplace on the 32-bit input buffer
@@ -845,6 +845,51 @@ class DoSpmdmOnInpBuffer {
   const int lda_;
   const CompressedSparseColumn& B_csc_;
   const int groups_;
+};
+
+/**
+ * @brief Perform Dense-Matrix * Sparse-Matrix as a part the of output
+ * processing pipeline.
+ *
+ * SPMDM (SParse Matrix times Dense Matrix) inplace on the 32-bit input buffer
+ * (inp). After modifying the input buffer, pass it to the next op.
+ * When groups > 1, each group is numRows() x (numCols()/groups) matrix.
+ */
+template <
+    typename outT = std::int32_t,
+    typename inT = std::int32_t,
+    typename nextOPType = DoNothing<inT, inT>>
+class DoSConvOnInpBuffer {
+ public:
+  using outType = outT;
+  using inpType = inT;
+  DoSConvOnInpBuffer(
+      nextOPType& nextop,
+      const std::uint8_t* A,
+      const conv_param_t<>& conv_p,
+      std::int32_t A_zero_point,
+      const CompressedSparseColumn& B_csc,
+      int groups = 1)
+      : nextop_(nextop),
+        A_(A),
+        conv_p_(conv_p),
+        A_zero_point_(A_zero_point),
+        B_csc_(B_csc) {}
+
+  template <inst_set_t instSet>
+  inline int f(
+      outT* out,
+      inT* inp,
+      const block_type_t& block,
+      int ld_out,
+      int ld_in) const;
+
+ private:
+  nextOPType& nextop_;
+  const std::uint8_t* A_;
+  const conv_param_t<>& conv_p_;
+  const std::int32_t A_zero_point_;
+  const CompressedSparseColumn& B_csc_;
 };
 
 enum class QuantizationGranularity {

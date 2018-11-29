@@ -381,6 +381,24 @@ INSTANTIATE_Q_GRANS(true);
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
 
+#define INSTANTIATE_BASE(RELU, Q_GRAN)   \
+  template class ExecuteKernel<          \
+      PackAWithIm2Col<uint8_t, int16_t>, \
+      PackBMatrix<int8_t, int16_t>,      \
+      uint8_t,                           \
+      DoSConvOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
+
+#define INSTANTIATE_Q_GRANS(RELU)                          \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+
+INSTANTIATE_Q_GRANS(false);
+INSTANTIATE_Q_GRANS(true);
+
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BASE
+
 template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int16_t>,
     PackBMatrix<int8_t, int16_t>,
