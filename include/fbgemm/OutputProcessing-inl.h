@@ -44,6 +44,18 @@ inline int DoSpmdmOnInpBuffer<outT, inT, nextOPType>::f(
   return nextop_.template f<instSet>(out, inp, block, ld_out, ld_in);
 }
 
+template <typename outT, typename inT, typename nextOPType>
+template <inst_set_t instSet>
+inline int DoSConvOnInpBuffer<outT, inT, nextOPType>::f(
+    outT* out,
+    inT* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in) const {
+  B_csc_.SparseConv(conv_p_, block, A_, A_zero_point_, true, inp, ld_in);
+  return nextop_.template f<instSet>(out, inp, block, ld_out, ld_in);
+}
+
 template <
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
