@@ -7,15 +7,15 @@ jobs:
       - checkout
 
       - run:
-        name: Configure FBGEMM
-        command: mkdir build && cd build && cmake ../
+          name: Configure FBGEMM
+          command: mkdir build && cd build && cmake ../
 
       - run:
-        name: Build FBGEMM
-        command: make -j
+          name: Build FBGEMM
+          command: make -j
 
       - run:
-        name: Test FBGEMM
-        command: ctest
+          name: Test FBGEMM
+          command: ctest
 
 
