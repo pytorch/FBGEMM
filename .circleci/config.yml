@@ -21,7 +21,7 @@ jobs:
             mkdir build_static
             cd build_static
             cmake -DCMAKE_INSTALL_PREFIX=/root/project/install -DFBGEMM_LIBRARY_TYPE=static ../
-            make -j
+            make
             make install
 
       - run:
@@ -38,7 +38,7 @@ jobs:
             mkdir build_shared
             cd build_shared
             cmake -DCMAKE_INSTALL_PREFIX=/root/project/install -DFBGEMM_LIBRARY_TYPE=shared ../
-            make -j
+            make
             make install
 
       - run:
