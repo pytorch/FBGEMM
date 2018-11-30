@@ -10,7 +10,9 @@
 #include <random>
 #include <type_traits>
 
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 namespace fbgemm {
 
