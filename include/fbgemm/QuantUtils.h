@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include "FbgemmBuild.h"
 
 namespace fbgemm {
 
@@ -18,7 +19,7 @@ namespace fbgemm {
 // In other words, 'zero_point' is the quantized value that corresponds
 // to the real value 0, and 'scale' is the difference of real values
 // corresponding to consecutive quantized values.
-struct TensorQuantizationParams {
+struct FBGEMM_API TensorQuantizationParams {
   float scale;
   std::int32_t zero_point;
   int precision;
@@ -26,7 +27,7 @@ struct TensorQuantizationParams {
   float Max() const;
 };
 
-TensorQuantizationParams ChooseQuantizationParams(
+FBGEMM_API TensorQuantizationParams ChooseQuantizationParams(
     float min,
     float max,
     std::int32_t qmin,
@@ -36,7 +37,7 @@ TensorQuantizationParams ChooseQuantizationParams(
 
 // Parameters when we scale from int32 intermediate matrix multiplication
 // results to 8-bit integers
-struct RequantizationParams {
+struct FBGEMM_API RequantizationParams {
   // For floating-point requantization
   float real_multiplier;
 
@@ -47,7 +48,7 @@ struct RequantizationParams {
   TensorQuantizationParams target_qparams;
 };
 
-void ChooseRequantizationMultiplier(
+FBGEMM_API void ChooseRequantizationMultiplier(
     float real_multiplier,
     std::int32_t* quantized_multiplier,
     int* right_shift,
@@ -58,7 +59,7 @@ void ChooseRequantizationMultiplier(
 
 /// Clamp src in T1 to the desired precision and convert it to T2
 template <typename T1, typename T2 = std::uint8_t>
-T2 clamp(T1 src, int precision, bool is_signed = false)
+FBGEMM_API T2 clamp(T1 src, int precision, bool is_signed = false)
 // TODO: T26263653 fix signed-integer-overflow undefined behavior
 #if defined(__has_feature)
 #if __has_feature(__address_sanitizer__)
@@ -82,7 +83,7 @@ T2 clamp(T1 src, int precision, bool is_signed = false)
 /// Quantize src using zero_point and scale, clamp to the specified precision,
 /// and convert it to type T
 template <typename T>
-T Quantize(
+FBGEMM_API T Quantize(
     float src,
     std::int32_t zero_point,
     float scale,
@@ -96,25 +97,25 @@ T Quantize(
 }
 
 template <typename T>
-T Quantize(float src, const TensorQuantizationParams& qparams) {
+FBGEMM_API T Quantize(float src, const TensorQuantizationParams& qparams) {
   return Quantize<T>(
       src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
 template <typename T>
-void Quantize(
+FBGEMM_API void Quantize(
     const float* src,
     T* dst,
     int len,
     const TensorQuantizationParams& qparams);
 
 template <typename T>
-float Dequantize(T src, const TensorQuantizationParams& qparams) {
+FBGEMM_API float Dequantize(T src, const TensorQuantizationParams& qparams) {
   return qparams.scale * (src - qparams.zero_point);
 }
 
 template <typename T>
-void Dequantize(
+FBGEMM_API void Dequantize(
     const T* src,
     float* dst,
     int len,
@@ -127,16 +128,16 @@ void Dequantize(
 /**
  * Find the min and max value in a float matrix.
  */
-void FindMinMax(const float* m, float* min, float* max, int len);
+FBGEMM_API void FindMinMax(const float* m, float* min, float* max, int len);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (pure fixed-point)
 
-std::int64_t
+FBGEMM_API std::int64_t
 SaturatingRoundingMulWithShift(std::int32_t a, std::int32_t b, int right_shift);
 
 template <typename T>
-T Requantize(
+FBGEMM_API T Requantize(
     std::int32_t src, // int32 input before requantization
     std::int32_t zero_point,
     std::int32_t multiplier,
@@ -150,7 +151,7 @@ T Requantize(
 }
 
 template <typename T>
-T RequantizeFixedPoint(
+FBGEMM_API T RequantizeFixedPoint(
     std::int32_t src, // int32 input before requantization
     const RequantizationParams& params) {
   return Requantize<T>(
@@ -161,14 +162,14 @@ T RequantizeFixedPoint(
       params.target_qparams.precision);
 }
 
-void RequantizeFixedPointAvx2(
+FBGEMM_API void RequantizeFixedPointAvx2(
     const std::int32_t* src,
     std::uint8_t* dst,
     int len,
     const RequantizationParams& params);
 
 template <typename T>
-void RequantizeFixedPoint(
+FBGEMM_API void RequantizeFixedPoint(
     const std::int32_t* src,
     T* dst,
     int len,
@@ -178,7 +179,7 @@ void RequantizeFixedPoint(
 // Requantization (with floats)
 
 template <typename T>
-T Requantize(
+FBGEMM_API T Requantize(
     std::int32_t src, // int32 input before requantization
     std::int32_t zero_point,
     float multiplier,
@@ -189,7 +190,7 @@ T Requantize(
 }
 
 template <typename T>
-T Requantize(
+FBGEMM_API T Requantize(
     std::int32_t src, // int32 input before requantization
     const RequantizationParams& params) {
   return Requantize<T>(
@@ -199,14 +200,14 @@ T Requantize(
       params.target_qparams.precision);
 }
 
-void RequantizeAvx2(
+FBGEMM_API void RequantizeAvx2(
     const std::int32_t* src,
     std::uint8_t* dst,
     int len,
     const RequantizationParams& params);
 
 template <typename T>
-void Requantize(
+FBGEMM_API void Requantize(
     const std::int32_t* src,
     T* dst,
     int len,

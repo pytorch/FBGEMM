@@ -184,7 +184,7 @@ constexpr array<KernelInfo::knl_ptr, 15> KernelInfo::kernel;
 constexpr array<array<array<int, 2>, 2>, 121> KernelInfo::partition;
 
 // autotuned kernel splits for various cases m = 1:mb_max
-void cblas_gemm_compute(
+FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
