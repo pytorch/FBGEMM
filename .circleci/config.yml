@@ -7,15 +7,43 @@ jobs:
       - checkout
 
       - run:
-          name: Configure FBGEMM
-          command: mkdir build && cd build && cmake ../
+          name: Install prerequisites
+          command: |
+            set -e
+            apt-get update -y
+            apt-get update
+            apt-get -qq install cmake -y
 
       - run:
-          name: Build FBGEMM
-          command: make -j
+          name: Build FBGEMM static lib
+          command: |
+            set -e
+            mkdir build_static
+            cd build_static
+            cmake -DCMAKE_INSTALL_PREFIX=/root/project/install -DFBGEMM_LIBRARY_TYPE=static ../
+            make -j
+            make install
 
       - run:
-          name: Test FBGEMM
-          command: ctest
+          name: Test FBGEMM static lib
+          command: |
+            set -e
+            cd build_static
+            ctest --verbose
 
+      - run:
+          name: Build FBGEMM shared lib
+          command: |
+            set -e
+            mkdir build_shared
+            cd build_shared
+            cmake -DCMAKE_INSTALL_PREFIX=/root/project/install -DFBGEMM_LIBRARY_TYPE=shared ../
+            make -j
+            make install
 
+      - run:
+          name: Test FBGEMM shared lib
+          command: |
+            set -e
+            cd build_shared
+            ctest --verbose
