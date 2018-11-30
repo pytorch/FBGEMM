@@ -385,7 +385,7 @@ void conv_ref(
     int32_t* C) {
   // filters are assumed to be in G RS C/G x K format
   int IC = conv_p.IC;
-  int OC = conv_p.IC;
+  int OC = conv_p.OC;
   int G = conv_p.G;
   assert(IC % G == 0);
   assert(OC % G == 0);
