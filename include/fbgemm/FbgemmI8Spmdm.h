@@ -10,6 +10,7 @@
 #include <vector>
 #include "ConvUtils.h"
 #include "Utils.h"
+#include "FbgemmBuild.h"
 
 // #define FBGEMM_MEASURE_TIME_BREAKDOWN
 
@@ -35,7 +36,7 @@ namespace fbgemm {
  * be sparse, and it's usually more efficient to use CSC format to represent
  * the second input matrix.
  */
-class CompressedSparseColumn {
+class FBGEMM_API CompressedSparseColumn {
  public:
   CompressedSparseColumn(int num_of_rows, int num_of_cols);
 

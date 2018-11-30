@@ -7,6 +7,7 @@
 #pragma once
 #include <string>
 #include <type_traits>
+#include "FbgemmBuild.h"
 
 namespace fbgemm {
 
@@ -59,7 +60,7 @@ struct block_type_t {
  * @brief A function to compare data in two buffers for closeness/equality.
  */
 template <typename T>
-int compare_buffers(
+FBGEMM_API int compare_buffers(
     const T* ref,
     const T* test,
     int m,

@@ -19,6 +19,7 @@
 #include "FbgemmI8Spmdm.h"
 #include "Types.h"
 #include "Utils.h"
+#include "FbgemmBuild.h"
 
 // Turning on this option will print out time breakdown of each stage (e.g.,
 // input packing, the main GEMM kernel, each output processing pipeline).
@@ -294,7 +295,8 @@ class PackMatrix {
  * accumulation type is int32.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
+class FBGEMM_API PackAMatrix final
+    : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
  public:
   using This = PackAMatrix<T, accT>;
   using BaseType = PackMatrix<This, T, accT>;
@@ -364,7 +366,8 @@ class PackAMatrix final : public PackMatrix<PackAMatrix<T, accT>, T, accT> {
  *        type is int32.
  */
 template <typename T, typename accT = std::int32_t>
-class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
+class FBGEMM_API PackBMatrix final
+    : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
  public:
   using This = PackBMatrix<T, accT>;
   using BaseType = PackMatrix<This, T, accT>;
@@ -456,7 +459,7 @@ class PackBMatrix final : public PackMatrix<PackBMatrix<T, accT>, T, accT> {
  * quantized.
  */
 template <typename T, typename accT = std::int32_t, int SPATIAL_DIM = 2>
-class PackAWithIm2Col
+class FBGEMM_API PackAWithIm2Col
     : public PackMatrix<PackAWithIm2Col<T, accT, SPATIAL_DIM>, T, accT> {
  public:
   using This = PackAWithIm2Col<T, accT, SPATIAL_DIM>;
@@ -533,7 +536,7 @@ class PackAWithIm2Col
  *        The source matrix is already quantized.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAWithRowOffset final
+class FBGEMM_API PackAWithRowOffset final
     : public PackMatrix<PackAWithRowOffset<T, accT>, T, accT> {
  public:
   using This = PackAWithRowOffset<T, accT>;
@@ -616,7 +619,7 @@ class PackAWithRowOffset final
  *        The source matrix is in fp32 and quantized during packing.
  */
 template <typename T, typename accT = std::int32_t>
-class PackAWithQuantRowOffset final
+class FBGEMM_API PackAWithQuantRowOffset final
     : public PackMatrix<PackAWithQuantRowOffset<T, accT>, T, accT> {
  public:
   using This = PackAWithQuantRowOffset<T, accT>;
@@ -709,7 +712,7 @@ class PackAWithQuantRowOffset final
  *
  */
 template <typename outT = std::uint8_t, typename inT = std::uint8_t>
-class DoNothing {
+class FBGEMM_API DoNothing {
  public:
   using outType = outT;
   using inpType = inT;
@@ -740,7 +743,7 @@ template <
     typename outT = std::int32_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
-class memCopy {
+class FBGEMM_API memCopy {
  public:
   using outType = outT;
   using inpType = inT;
@@ -819,7 +822,7 @@ template <
     typename outT = std::int32_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<inT, inT>>
-class DoSpmdmOnInpBuffer {
+class FBGEMM_API DoSpmdmOnInpBuffer {
  public:
   using outType = outT;
   using inpType = inT;
@@ -908,7 +911,7 @@ template <
     typename outT = std::uint8_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
-class ReQuantizeOutput {
+class FBGEMM_API ReQuantizeOutput {
  public:
   using outType = outT;
   using inpType = inT;
@@ -973,7 +976,7 @@ template <
     typename outT = float,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
-class ReQuantizeForFloat {
+class FBGEMM_API ReQuantizeForFloat {
  public:
   using outType = outT;
   using inpType = inT;
@@ -1048,7 +1051,7 @@ template <
     typename packingBMatrix,
     typename cT,
     typename processOutputType>
-void fbgemmPacked(
+FBGEMM_API void fbgemmPacked(
     PackMatrix<
         packingAMatrix,
         typename packingAMatrix::inpType,
@@ -1094,7 +1097,7 @@ static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
 /**
  * @brief Are we running on a fbgemm supported cpu?
  */
-bool fbgemmSupportedCPU();
+FBGEMM_API bool fbgemmSupportedCPU();
 
 /*
  * @brief Partition the workload between 0 and m into num_threads segments. Each

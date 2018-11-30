@@ -79,7 +79,8 @@ add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
 
 set_target_properties(fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_STANDARD 11
-      CXX_EXTENSIONS NO)
+      CXX_EXTENSIONS NO
+      CXX_VISIBILITY_PRESET hidden)
 
 target_compile_options(fbgemm_avx2 PRIVATE
   "-m64" "-mavx2" "-mfma" "-masm=intel")
@@ -151,9 +152,14 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
     $<TARGET_OBJECTS:fbgemm_avx512>)
   set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_target_properties(fbgemm PROPERTIES
+    CXX_VISIBILITY_PRESET hidden)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
+  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
