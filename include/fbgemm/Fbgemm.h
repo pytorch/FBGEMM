@@ -862,7 +862,7 @@ template <
     typename outT = std::int32_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<inT, inT>>
-class DoSConvOnInpBuffer {
+class FBGEMM_API DoSConvOnInpBuffer {
  public:
   using outType = outT;
   using inpType = inT;
