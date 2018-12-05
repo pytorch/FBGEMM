@@ -20,6 +20,7 @@
 #include "Types.h"
 #include "Utils.h"
 #include "FbgemmBuild.h"
+#include "QuantUtilsAvx2.h"
 
 // Turning on this option will print out time breakdown of each stage (e.g.,
 // input packing, the main GEMM kernel, each output processing pipeline).
@@ -895,12 +896,6 @@ class FBGEMM_API DoSConvOnInpBuffer {
   const CompressedSparseColumn& B_csc_;
 };
 
-enum class QuantizationGranularity {
-  TENSOR,
-  GROUP,
-  OUT_CHANNEL,
-};
-
 /**
  * @brief Requantize values in inp buffer and write to out buffer.
  *        pass the out buffer to next op for further processing.
@@ -946,14 +941,6 @@ class FBGEMM_API ReQuantizeOutput {
       int ld_in) const;
 
  private:
-  template <bool A_SYMMETRIC, bool B_SYMMETRIC, bool HAS_BIAS>
-  void f_(
-      outT* out,
-      const inT* inp,
-      const block_type_t& block,
-      int ld_out,
-      int ld_in) const;
-
   nextOPType& nextop_;
   const float* C_multiplier_;
   std::int32_t C_zero_point_;
@@ -1024,9 +1011,7 @@ class FBGEMM_API ReQuantizeForFloat {
 };
 
 // type specialized implementation in an include file
-#ifdef __AVX2__
 #include "OutputProcessing-inl.h"
-#endif
 
 /*
  *

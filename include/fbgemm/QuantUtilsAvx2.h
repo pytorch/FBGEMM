@@ -2,10 +2,11 @@
 
 #include <cstdint>
 #include "FbgemmBuild.h"
+#include "UtilsAvx2.h"
 
 namespace fbgemm {
 
-// Copied from gemmlowp
+// Structs from gemmlowp
 //
 // A structure to hold quantization parameters 'scale' and 'zero_point'.
 // The meaning of these values is as the constants in the quantization equation
@@ -61,5 +62,22 @@ void RequantizeAvx2(
     std::uint8_t* dst,
     int len,
     const RequantizationParams& params);
+
+/**
+ * @brief Requantize with avx2 and bias is fused.
+ */
+template <
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    QuantizationGranularity Q_GRAN,
+    bool HAS_BIAS,
+    bool FUSE_RELU>
+void requantizeOutputProcessingAvx2(
+    std::uint8_t* out,
+    const std::int32_t* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in,
+    const requantizationParams_t& r);
 
 } // namespace fbgemm
