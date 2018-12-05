@@ -12,6 +12,8 @@
 #include <iostream>
 #include <stdexcept>
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/QuantUtilsAvx2.h"
+#include "OptimizedKernelsAvx2.h"
 
 namespace fbgemm {
 
@@ -108,92 +110,30 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
       tr ? smat_transposed : smat_ + block.row_start * ld_ + block.col_start;
   int32_t ld_temp = tr ? block.col_size : ld_;
 
-#if defined(__AVX2__) && defined(__FMA__)
-  constexpr int VLEN = 8;
-  __m256 inverse_scale_v = _mm256_set1_ps(1.0f / scale_);
-  __m256i shuffle_mask_v = _mm256_set_epi8(
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0x0c,
-      0x08,
-      0x04,
-      0x00,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0x0c,
-      0x08,
-      0x04,
-      0x00);
-  __m256i permute_mask_v =
-      _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
-#endif
+  static_assert(
+      std::is_same<T, uint8_t>::value,
+      "PackAWithQuantRowOffset<T, accT>::pack only works for T == uint8_t");
+
+  // Only scale and zero points are used in QuantizeAvx2
+  TensorQuantizationParams qparams;
+  qparams.scale = scale_;
+  qparams.zero_point = zero_pt_;
 
   for (int i = 0; i < block.row_size; ++i) {
+    QuantizeAvx2(
+        smat_temp + i * ld_temp,
+        out + i * BaseType::blockColSize(),
+        block.col_size,
+        qparams);
     int32_t row_sum = row_offset_acc ? row_offset_buf[i] : 0;
-    int j = 0;
-#if defined(__AVX2__) && defined(__FMA__)
-    static_assert(
-        std::is_same<T, uint8_t>::value,
-        "PackAWithQuantRowOffset<T, accT>::pack only works for T == uint8_t");
-    for (; j < block.col_size / VLEN * VLEN; j += VLEN) {
-      __m256 val_v = _mm256_loadu_ps(smat_temp + i * ld_temp + j);
-      __m256 transformed_v = _mm256_fmadd_ps(
-          val_v, inverse_scale_v, _mm256_set1_ps(zero_pt_));
-      __m256 clipped_v = _mm256_max_ps(
-          _mm256_set1_ps(std::numeric_limits<uint8_t>::min()),
-          _mm256_min_ps(
-              transformed_v,
-              _mm256_set1_ps(std::numeric_limits<uint8_t>::max())));
-      __m256i res_v = _mm256_cvtps_epi32(clipped_v);
+    row_sum += reduceAvx2(out + i * BaseType::blockColSize(), block.col_size);
+    row_offset_buf[i] = row_sum;
 
-      // An instruction sequence to save 8 32-bit integers as 8 8-bit integers
-      res_v = _mm256_shuffle_epi8(res_v, shuffle_mask_v);
-      res_v = _mm256_permutevar8x32_epi32(res_v, permute_mask_v);
-      _mm_storel_epi64(
-          reinterpret_cast<__m128i*>(out + i * BaseType::blockColSize() + j),
-          _mm256_castsi256_si128(res_v));
-
-      for (int j2 = j; j2 < j + VLEN; ++j2) {
-        row_sum += out[i * BaseType::blockColSize() + j2];
-      }
-    }
-#endif
-    for (; j < block.col_size; ++j) {
-      float val = smat_temp[i * ld_temp + j];
-      float transformed = val / scale_ + zero_pt_;
-      float clipped = std::min<float>(
-          std::max<float>(transformed, std::numeric_limits<uint8_t>::min()),
-          std::numeric_limits<uint8_t>::max());
-      T res = nearbyint(clipped);
-      row_sum += res;
-      out[i * BaseType::blockColSize() + j] = res;
-    }
     // zero fill
     // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
-    for (; j < block_p.col_size; ++j) {
+    for (int j = block.col_start + block.col_size; j < block_p.col_size; ++j) {
       out[i * BaseType::blockColSize() + j] = 0;
     }
-    row_offset_buf[i] = row_sum;
   }
 }
 
