@@ -14,7 +14,7 @@
 #include "TestUtils.h"
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
-#include "src/FbgemmI8Depthwise.h"
+#include "src/FbgemmI8DepthwiseAvx2.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
