@@ -1,4 +1,7 @@
-# FBGEMM 
+# FBGEMM
+
+## Linux Build: [![CircleCI](https://circleci.com/gh/pytorch/FBGEMM.svg?style=svg)](https://circleci.com/gh/pytorch/FBGEMM)
+
 FBGEMM (Facebook GEneral Matrix Multiplication) is a low-precision,
 high-performance matrix-matrix multiplications and convolution library for
 server-side inference. 
