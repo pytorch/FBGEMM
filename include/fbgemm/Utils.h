@@ -95,34 +95,4 @@ void transpose_simd(
     float* dst,
     int ld_dst);
 
-namespace internal {
-
-/**
- * @brief Transpose a matrix using Intel AVX2.
- *
- * This is called if the code is running on a CPU with Intel AVX2 support.
- */
-void transpose_8x8(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
-
-/**
- * @brief Transpose a matrix using Intel AVX512.
- *
- * This is called if the code is running on a CPU with Intel AVX512 support.
- */
-void transpose_16x16(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
-
-} // namespace internal
-
 } // namespace fbgemm
