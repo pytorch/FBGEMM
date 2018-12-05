@@ -65,6 +65,7 @@ endif()
 
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
+  src/OptimizedKernelsAvx2.cc
   src/QuantUtilsAvx2.cc
   src/Utils_avx2.cc)
 
