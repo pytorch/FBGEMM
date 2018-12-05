@@ -4,7 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "FbgemmI8Depthwise.h"
+#include "FbgemmI8DepthwiseAvx2.h"
 
 #include <cassert>
 #include <cmath> // for lrintf and sqrt
