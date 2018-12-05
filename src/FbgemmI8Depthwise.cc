@@ -6,21 +6,17 @@
  */
 #include "FbgemmI8Depthwise.h"
 
-#include <algorithm>
-#include <array>
 #include <cassert>
-#include <cmath>
-#include <cstdio>
-#include <tuple>
-#include <vector>
+#include <cmath> // for lrintf and sqrt
+#include <tuple> // for tie
 
-#include <x86intrin.h>
+#include <immintrin.h>
 
 using namespace std;
 
 namespace fbgemm {
 
-static array<array<int, 8>, 8> masks = {{
+static int masks[8][8] = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
   {  0,  0,  0,  0,  0,  0,  0,  0,  },
@@ -31,7 +27,7 @@ static array<array<int, 8>, 8> masks = {{
   { -1, -1, -1, -1, -1,  0,  0,  0,  },
   { -1, -1, -1, -1, -1, -1,  0,  0,  },
   { -1, -1, -1, -1, -1, -1, -1,  0,  },
-}};
+};
 
 template <int KERNEL_PROD>
 PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
@@ -39,7 +35,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : K_(K) {
   // Transpose the input matrix to make packing faster.
-  vector<int8_t> smat_transposed(K * KERNEL_PROD);
+  alignas(64) int8_t smat_transposed[K * KERNEL_PROD];
   for (int i = 0; i < KERNEL_PROD; ++i) {
     for (int j = 0; j < K; ++j) {
       smat_transposed[i * K + j] = smat[i + j * KERNEL_PROD];
@@ -108,25 +104,25 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
   for (int k1 = 0; k1 < K; k1 += 32) {
-    array<__m256i, KERNEL_PROD> b_v;
+    __m256i b_v[KERNEL_PROD];
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_loadu_si256(
-          reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+          reinterpret_cast<const __m256i*>(masks[remainder / 4]));
       for (int i = 0; i < KERNEL_PROD; ++i) {
         b_v[i] = _mm256_maskload_epi32(
-            reinterpret_cast<const int*>(smat_transposed.data() + i * K + k1),
+            reinterpret_cast<const int*>(smat_transposed + i * K + k1),
             mask_v);
       }
     } else {
       for (int i = 0; i < KERNEL_PROD; ++i) {
         b_v[i] = _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(
-            smat_transposed.data() + i * K + k1));
+            smat_transposed + i * K + k1));
       }
     }
 
     // Interleave 2 SIMD registers
-    array<__m256i, KERNEL_PROD_ALIGNED> b_interleaved_epi16;
+    __m256i b_interleaved_epi16[KERNEL_PROD_ALIGNED];
     __m256i zero_v = _mm256_setzero_si256();
     for (int i = 0; i < KERNEL_PROD_ALIGNED / 2; ++i) {
       if (2 * i + 1 >= KERNEL_PROD) {
@@ -142,7 +138,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    array<__m256i, KERNEL_PROD_ALIGNED> b_interleaved_epi32;
+    __m256i b_interleaved_epi32[KERNEL_PROD_ALIGNED];
     for (int i = 0; i < KERNEL_PROD_ALIGNED / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
@@ -384,8 +380,8 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
     int32_t* C,
     int remainder,
     __m256i* a_sum = nullptr) {
-  array<__m256i, 4> c, c_temp;
-  array<__m256i, 2> a_sum_temp{};
+  __m256i c[4], c_temp[4];
+  __m256i a_sum_temp[2] = {0, 0};
 
   int k = 0;
   if (K >= 4) {
@@ -399,7 +395,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
         &c[1],
         &c[2],
         &c[3],
-        a_sum_temp.data());
+        a_sum_temp);
 
     for (k = 4; k < K / 4 * 4; k += 4) {
       madd_epi16x4_packed<SUM_A>(
@@ -412,7 +408,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
           &c_temp[1],
           &c_temp[2],
           &c_temp[3],
-          a_sum_temp.data());
+          a_sum_temp);
 
       c[0] = _mm256_add_epi32(c[0], c_temp[0]);
       c[1] = _mm256_add_epi32(c[1], c_temp[1]);
@@ -436,7 +432,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
         &c_temp[1],
         &c_temp[2],
         &c_temp[3],
-        a_sum_temp.data());
+        a_sum_temp);
 
     c[0] = _mm256_add_epi32(c[0], c_temp[0]);
     c[1] = _mm256_add_epi32(c[1], c_temp[1]);
@@ -457,7 +453,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
   } else {
     if (K - k == 1) {
       madd_epi16_packed<SUM_A>(
-          a_v[k], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp.data());
+          a_v[k], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp);
     } else if (K - k == 2) {
       madd_epi16x2_packed<SUM_A>(
           a_v[k],
@@ -467,7 +463,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
           &c[1],
           &c[2],
           &c[3],
-          a_sum_temp.data());
+          a_sum_temp);
     }
 
     c[0] = _mm256_add_epi32(c[0], c_temp[0]);
@@ -552,8 +548,8 @@ static inline __attribute__((always_inline)) void requantize_(
     multiplier_v = _mm256_set1_ps(*C_multiplier);
   }
 
-  __m256i min_v = _mm256_set1_epi8(numeric_limits<uint8_t>::min());
-  __m256i max_v = _mm256_set1_epi8(numeric_limits<uint8_t>::max());
+  __m256i min_v = _mm256_set1_epi8(static_cast<uint8_t>(0));
+  __m256i max_v = _mm256_set1_epi8(static_cast<uint8_t>(255));
 
   __m256i A_zero_point_v = _mm256_set1_epi32(A_zero_point);
   __m256i C_zero_point_epi16_v = _mm256_set1_epi16(C_zero_point);
@@ -790,7 +786,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
     mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -813,7 +809,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
   //     }
   //   }
   // }
-  array<__m256i, 9> a_v = {
+  __m256i a_v[9] = {
       A_zero_point_v,
       A_zero_point_v,
       A_zero_point_v,
@@ -861,13 +857,13 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum;
+  __m256i a_sum[4];
   inner_prod_3x3_packed_<SUM_A, REMAINDER>(
-      a_v.data(),
+      a_v,
       reinterpret_cast<const __m256i*>(Bp),
       C,
       remainder,
-      a_sum.data());
+      a_sum);
   if (SUM_A) {
     __m256i B_zero_point_v;
     for (int i = 0; i < (REMAINDER ? (remainder / 8) : 4); ++i) {
@@ -907,7 +903,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
     mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -930,7 +926,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   //     }
   //   }
   // }
-  array<__m256i, 8> a_v;
+  __m256i a_v[8];
   a_v[0] = A_zero_point_v;
   a_v[1] = A_zero_point_v;
   a_v[2] = A_zero_point_v;
@@ -975,13 +971,13 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum;
+  __m256i a_sum[4];
   inner_prod_packed_<8, SUM_A, REMAINDER>(
-      a_v.data(),
+      a_v,
       reinterpret_cast<const __m256i*>(Bp),
       C,
       remainder,
-      a_sum.data());
+      a_sum);
 
   a_v[0] = A_zero_point_v;
   a_v[1] = A_zero_point_v;
@@ -1032,13 +1028,13 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum_temp;
+  __m256i a_sum_temp[4];
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
+      a_v,
       reinterpret_cast<const __m256i*>(Bp) + 8,
       C,
       remainder,
-      a_sum_temp.data());
+      a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1093,11 +1089,11 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
+      a_v,
       reinterpret_cast<const __m256i*>(Bp) + 16,
       C,
       remainder,
-      a_sum_temp.data());
+      a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1124,11 +1120,11 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<3, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
+      a_v,
       reinterpret_cast<const __m256i*>(Bp) + 24,
       C,
       remainder,
-      a_sum_temp.data());
+      a_sum_temp);
 
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
