@@ -64,7 +64,9 @@ else()
 endif()
 
 #All the source files that either use avx2 instructions statically
-set(FBGEMM_AVX2_SRCS src/Utils_avx2.cc)
+set(FBGEMM_AVX2_SRCS
+  src/QuantUtilsAvx2.cc
+  src/Utils_avx2.cc)
 
 #All the source files that use avx512 instructions statically
 set(FBGEMM_AVX512_SRCS src/Utils_avx512.cc)
@@ -72,6 +74,8 @@ set(FBGEMM_AVX512_SRCS src/Utils_avx512.cc)
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/OutputProcessing-inl.h
                           include/fbgemm/PackingTraits-inl.h
+                          include/fbgemm/QuantUtils.h
+                          include/fbgemm/QuantUtilsAvx2.h
                           include/fbgemm/Utils.h
                           include/fbgemm/ConvUtils.h
                           include/fbgemm/Types.h
