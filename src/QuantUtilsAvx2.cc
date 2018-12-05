@@ -18,7 +18,6 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-// FIXME: code duplication with PackAWithQuantRowOffset
 void QuantizeAvx2(
     const float* src,
     uint8_t* dst,
@@ -28,6 +27,41 @@ void QuantizeAvx2(
   constexpr int VLEN = 8;
   std::size_t i = 0;
   __m256 inverse_scale_v = _mm256_set1_ps(1.f / qparams.scale);
+  __m256i shuffle_mask_v = _mm256_set_epi8(
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0x0c,
+      0x08,
+      0x04,
+      0x00,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+      0x0c,
+      0x08,
+      0x04,
+      0x00);
+  __m256i permute_mask_v =
+      _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
     __m256 transformed_v = _mm256_fmadd_ps(
@@ -36,11 +70,12 @@ void QuantizeAvx2(
         _mm256_max_ps(transformed_v, _mm256_set1_ps(0.f)),
         _mm256_set1_ps(255.f));
     __m256i rounded_v = _mm256_cvtps_epi32(clipped_v);
-    alignas(64) std::int32_t temp_int32[VLEN];
-    _mm256_store_si256((__m256i*)temp_int32, rounded_v);
-    for (int j = 0; j < VLEN; ++j) {
-      dst[i + j] = temp_int32[j];
-    }
+
+    // An instruction sequence to save 8 32-bit integers as 8 8-bit integers
+    rounded_v = _mm256_shuffle_epi8(rounded_v, shuffle_mask_v);
+    rounded_v = _mm256_permutevar8x32_epi32(rounded_v, permute_mask_v);
+    _mm_storel_epi64(
+        reinterpret_cast<__m128i*>(dst + i), _mm256_castsi256_si128(rounded_v));
   }
 
   for (; i < len; ++i) {
