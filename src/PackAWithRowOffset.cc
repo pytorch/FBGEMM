@@ -11,6 +11,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "fbgemm/Fbgemm.h"
+#include "OptimizedKernelsAvx2.h"
 
 namespace fbgemm {
 
@@ -109,6 +110,10 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       }
     }
   } else {
+    // reduceAvx2 only written for T == uint8_t
+    static_assert(
+        std::is_same<T, uint8_t>::value,
+        "PackAWithRowOffset<T, accT>::pack only works for T == uint8_t");
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int buf_idx = i - block.row_start;
       memcpy(
@@ -121,31 +126,7 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       }
       int32_t row_sum =
           row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      __m256i sum_v = _mm256_setzero_si256();
-      __m256i one_epi16_v = _mm256_set1_epi16(1);
-      __m256i one_epi8_v = _mm256_set1_epi8(1);
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size / 32 * 32;
-           j += 32) {
-        __m256i src_v = _mm256_loadu_si256(
-            reinterpret_cast<__m256i const*>(smat_ + i * ld_ + j));
-        sum_v = _mm256_add_epi32(
-            sum_v,
-            _mm256_madd_epi16(
-                _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
-      }
-      for (int j = block.col_start + block.col_size / 32 * 32;
-           j < block.col_start + block.col_size;
-           ++j) {
-        row_sum += smat_[i * ld_ + j];
-      }
-      // alignas(64) std::array<int32_t, 8> temp;
-      alignas(64) std::int32_t temp[8];
-      //_mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
-      _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-      for (int k = 0; k < 8; ++k) {
-        row_sum += temp[k];
-      }
+      row_sum += reduceAvx2(smat_ + i * ld_ + block.col_start, block.col_size);
       row_offset_buf[i - block.row_start] = row_sum;
     }
   }
