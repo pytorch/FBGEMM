@@ -7,8 +7,6 @@
 #ifndef FBGEMM_UKERNELS
 #define FBGEMM_UKERNELS
 #include <cstdint>
-#include <tuple>
-#include <vector>
 #include "fbgemm/Types.h"
 
 namespace fbgemm {

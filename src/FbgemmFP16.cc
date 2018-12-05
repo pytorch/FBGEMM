@@ -10,7 +10,7 @@
 #include <array>
 #include <utility>
 
-#include "FbgemmFP16UKernels.h"
+#include "FbgemmFP16UKernelsAvx2.h"
 
 using namespace std;
 
