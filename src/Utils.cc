@@ -7,7 +7,6 @@
 #include "fbgemm/Utils.h"
 #include "TransposeUtils.h"
 #include <cpuinfo.h>
-#include <immintrin.h>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
