@@ -7,6 +7,7 @@
 #pragma once
 #include <string>
 #include <type_traits>
+#include "UtilsAvx2.h"
 #include "FbgemmBuild.h"
 
 namespace fbgemm {
@@ -36,25 +37,6 @@ enum class inst_set_t { anyarch, avx2, avx512 };
  * ref is reference and opt is optimized.
  */
 enum class impl_type_t { ref, opt };
-
-/**
- * @brief A struct to represent a block of a matrix.
- */
-struct block_type_t {
-  int row_start;
-  int row_size;
-  int col_start;
-  int col_size;
-
-  std::string toString() const {
-    std::string out = "";
-    out += "row start:" + std::to_string(row_start) + ", ";
-    out += "row size:" + std::to_string(row_size) + ", ";
-    out += "col start:" + std::to_string(col_start) + ", ";
-    out += "col size:" + std::to_string(col_size);
-    return out;
-  }
-};
 
 /**
  * @brief A function to compare data in two buffers for closeness/equality.
