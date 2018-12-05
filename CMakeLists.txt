@@ -78,6 +78,7 @@ set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/QuantUtils.h
                           include/fbgemm/QuantUtilsAvx2.h
                           include/fbgemm/Utils.h
+                          include/fbgemm/UtilsAvx2.h
                           include/fbgemm/ConvUtils.h
                           include/fbgemm/Types.h
                           include/fbgemm/FbgemmI8Spmdm.h)
