@@ -30,7 +30,6 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/Fbgemm.cc
                 src/FbgemmFP16.cc
                 src/FbgemmFP16UKernels.cc
-                src/FbgemmI8Depthwise.cc
                 src/FbgemmI8Spmdm.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16_avx512.cc
@@ -65,6 +64,7 @@ endif()
 
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
+  src/FbgemmI8DepthwiseAvx2.cc
   src/OptimizedKernelsAvx2.cc
   src/QuantUtilsAvx2.cc
   src/Utils_avx2.cc)
