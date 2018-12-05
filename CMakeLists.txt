@@ -29,12 +29,11 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc
                 src/FbgemmFP16.cc
-                src/FbgemmFP16UKernels.cc
                 src/FbgemmI8Spmdm.cc
                 src/GenerateKernelU8S8S32ACC16.cc
-                src/GenerateKernelU8S8S32ACC16_avx512.cc
+                src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC32.cc
-                src/GenerateKernelU8S8S32ACC32_avx512.cc
+                src/GenerateKernelU8S8S32ACC32Avx512.cc
                 src/PackAMatrix.cc
                 src/PackAWithIm2Col.cc
                 src/PackBMatrix.cc
@@ -64,13 +63,14 @@ endif()
 
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
+  src/FbgemmFP16UKernelsAvx2.cc
   src/FbgemmI8DepthwiseAvx2.cc
   src/OptimizedKernelsAvx2.cc
   src/QuantUtilsAvx2.cc
-  src/Utils_avx2.cc)
+  src/UtilsAvx2.cc)
 
 #All the source files that use avx512 instructions statically
-set(FBGEMM_AVX512_SRCS src/Utils_avx512.cc)
+set(FBGEMM_AVX512_SRCS src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/OutputProcessing-inl.h
@@ -93,8 +93,6 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_EXTENSIONS NO
       CXX_VISIBILITY_PRESET hidden)
 
-target_compile_options(fbgemm_generic PRIVATE
-  "-m64" "-mavx2" "-mfma" "-masm=intel")
 target_compile_options(fbgemm_avx2 PRIVATE
   "-m64" "-mavx2" "-mfma" "-masm=intel")
 target_compile_options(fbgemm_avx512 PRIVATE

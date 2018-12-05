@@ -9,7 +9,6 @@
 /**
  * Top level include file for FBGEMM.
  */
-#include <immintrin.h>
 #include <cassert>
 #include <cmath>
 #include <limits>
