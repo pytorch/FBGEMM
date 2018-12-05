@@ -6,26 +6,9 @@
 #include <cstdint>
 #include <limits>
 #include "FbgemmBuild.h"
+#include "QuantUtilsAvx2.h"
 
 namespace fbgemm {
-
-// Copied from gemmlowp
-//
-// A structure to hold quantization parameters 'scale' and 'zero_point'.
-// The meaning of these values is as the constants in the quantization equation
-//
-//   real_value = scale * (quantized_value - zero_point)
-//
-// In other words, 'zero_point' is the quantized value that corresponds
-// to the real value 0, and 'scale' is the difference of real values
-// corresponding to consecutive quantized values.
-struct FBGEMM_API TensorQuantizationParams {
-  float scale;
-  std::int32_t zero_point;
-  int precision;
-  float Min() const;
-  float Max() const;
-};
 
 FBGEMM_API TensorQuantizationParams ChooseQuantizationParams(
     float min,
@@ -34,19 +17,6 @@ FBGEMM_API TensorQuantizationParams ChooseQuantizationParams(
     std::int32_t qmax,
     bool preserve_sparsity = false,
     bool force_scale_power_of_two = false);
-
-// Parameters when we scale from int32 intermediate matrix multiplication
-// results to 8-bit integers
-struct FBGEMM_API RequantizationParams {
-  // For floating-point requantization
-  float real_multiplier;
-
-  // For fixed-point requantization
-  std::int32_t multiplier;
-  int right_shift;
-
-  TensorQuantizationParams target_qparams;
-};
 
 FBGEMM_API void ChooseRequantizationMultiplier(
     float real_multiplier,
@@ -125,11 +95,6 @@ FBGEMM_API void Dequantize(
   }
 }
 
-/**
- * Find the min and max value in a float matrix.
- */
-FBGEMM_API void FindMinMax(const float* m, float* min, float* max, int len);
-
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (pure fixed-point)
 
@@ -162,12 +127,6 @@ FBGEMM_API T RequantizeFixedPoint(
       params.target_qparams.precision);
 }
 
-FBGEMM_API void RequantizeFixedPointAvx2(
-    const std::int32_t* src,
-    std::uint8_t* dst,
-    int len,
-    const RequantizationParams& params);
-
 template <typename T>
 FBGEMM_API void RequantizeFixedPoint(
     const std::int32_t* src,
@@ -199,12 +158,6 @@ FBGEMM_API T Requantize(
       params.real_multiplier,
       params.target_qparams.precision);
 }
-
-FBGEMM_API void RequantizeAvx2(
-    const std::int32_t* src,
-    std::uint8_t* dst,
-    int len,
-    const RequantizationParams& params);
 
 template <typename T>
 FBGEMM_API void Requantize(
