@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "ExecuteKernel.h"
-#include <immintrin.h>
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
 
