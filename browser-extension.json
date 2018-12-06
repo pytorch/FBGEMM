@@ -4,32 +4,15 @@
   "internalRepository" : "fbsource",
   "cannedReplies" : {
     "Feature Request" :
-          "This feature request doesn't appear to be actively being worked on. "
-          "We would happily consider a pull request implementing it. If you "
-          "plan to work on this issue let us know in the comments and we will "
-          "re-open the issue and assign it to you. If you feel strongly that "
-          "this issue deserves more attention, please comment here with your "
-          "use-case and we will try to prioritize as appropriate.",
+          "This feature request doesn't appear to be actively being worked on. We would happily consider a pull request implementing it. If you plan to work on this issue let us know in the comments and we will re-open the issue and assign it to you. If you feel strongly that this issue deserves more attention, please comment here with your use-case and we will try to prioritize as appropriate.",
 
     "Human Timeout" :
-          "This issue has been waiting for more info for more than 2 weeks. "
-          "I'm closing it for now, but feel free to re-open it if you can "
-          "provide more info. "
-          "https://github.com/facebook/hhvm/wiki/Human-Timeouts",
+          "This issue has been waiting for more info for more than 2 weeks. I'm closing it for now, but feel free to re-open it if you can provide more info. https://github.com/facebook/hhvm/wiki/Human-Timeouts",
 
     "No Isolated Repro" :
-          "We've been unable to reproduce this bug, and are unable to "
-          "investigate further. We are closing the issue for now, if you "
-          "identify a test case we can use to reproduce your bug feel free to "
-          "re-open.",
+          "We've been unable to reproduce this bug, and are unable to investigate further. We are closing the issue for now, if you identify a test case we can use to reproduce your bug feel free to re-open.",
 
     "Wishlist" :
-          "We're a small team, and it doesn't look as though anyone in the "
-          "community is actively working on this issue, so we've decided to "
-          "close it. If you plan to send us a pull request resolving the issue "
-          "let us know in the comments and we will re-open it and assign it to "
-          "you. If you feel this issue deserves more attention, please comment "
-          "here with your use-case and we will try to prioritize as "
-          "appropriate."
+          "We're a small team, and it doesn't look as though anyone in the community is actively working on this issue, so we've decided to close it. If you plan to send us a pull request resolving the issue let us know in the comments and we will re-open it and assign it to you. If you feel this issue deserves more attention, please comment here with your use-case and we will try to prioritize as appropriate."
   }
 }
