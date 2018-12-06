@@ -9,6 +9,19 @@
 
 namespace fbgemm {
 
+template <typename TA, typename TB, typename TC, typename accT>
+thread_local asmjit::JitRuntime CodeGenBase<TA, TB, TC, accT>::rt_;
+
+template <typename TA, typename TB, typename TC, typename accT>
+thread_local asmjit::CodeHolder CodeGenBase<TA, TB, TC, accT>::code_;
+
+template <typename TA, typename TB, typename TC, typename accT>
+thread_local std::map<
+    std::tuple<bool, int, int>,
+    typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
+    CodeGenBase<TA, TB, TC, accT>::codeCache_;
+
+
 namespace x86 = asmjit::x86;
 
 /**
