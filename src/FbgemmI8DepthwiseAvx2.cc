@@ -6,7 +6,7 @@
  */
 #include "FbgemmI8DepthwiseAvx2.h"
 
-#include <algorithm>
+#include <algorithm> // for min and max
 #include <cassert>
 #include <cmath> // for lrintf and sqrt
 #include <tuple> // for tie
