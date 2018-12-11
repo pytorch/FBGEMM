@@ -15,8 +15,6 @@ double computing_time = 0.0;
 double run_time = 0.0;
 #endif
 
-using namespace fbgemm;
-
 namespace fbgemm {
 
 template <
@@ -200,29 +198,34 @@ bool fbgemmSupportedCPU() {
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeOutput
-#define INSTANTIATE_BASE(ACC_T, RELU, Q_GRAN)                                \
-  template void fbgemmPacked(                                                \
-      PackMatrix<PackAWithRowOffset<uint8_t, ACC_T>, uint8_t, ACC_T>& packA, \
-      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB,          \
-      uint8_t* C,                                                            \
-      int32_t* C_buffer,                                                     \
-      uint32_t ldc,                                                          \
-      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,                      \
-      int thread_id,                                                         \
+#define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN)               \
+  template void fbgemmPacked(                                       \
+      PackMatrix<PACK_A<uint8_t, ACC_T>, uint8_t, ACC_T>& packA,    \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
+      uint8_t* C,                                                   \
+      int32_t* C_buffer,                                            \
+      uint32_t ldc,                                                 \
+      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
+      int thread_id,                                                \
       int num_threads);
 
-#define INSTANTIATE_Q_GRANS(ACC_T, RELU)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                          \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_RELU(ACC_T) \
-  INSTANTIATE_Q_GRANS(ACC_T, false);   \
-  INSTANTIATE_Q_GRANS(ACC_T, true);
+#define INSTANTIATE_RELU(PACK_A, ACC_T)      \
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false); \
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, true);
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+#define INSTANTIATE_ACC_T(PACK_A)    \
+  INSTANTIATE_RELU(PACK_A, int32_t); \
+  INSTANTIATE_RELU(PACK_A, int16_t);
 
+INSTANTIATE_ACC_T(PackAMatrix);
+INSTANTIATE_ACC_T(PackAWithRowOffset);
+
+#undef INSTANTIATE_ACC_T
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
@@ -262,16 +265,6 @@ INSTANTIATE_RELU(int16_t);
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
-
-template void fbgemmPacked(
-    PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>& packA,
-    PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
-    uint8_t* C,
-    int32_t* C_buffer,
-    uint32_t ldc,
-    const ReQuantizeOutput<false>& outProcess,
-    int thread_id,
-    int num_threads);
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeForFloat

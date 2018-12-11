@@ -243,25 +243,30 @@ void ExecuteKernel<
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeOutput
-#define INSTANTIATE_BASE(ACC_T, RELU, Q_GRAN) \
-  template class ExecuteKernel<               \
-      PackAWithRowOffset<uint8_t, ACC_T>,     \
-      PackBMatrix<int8_t, ACC_T>,             \
-      uint8_t,                                \
+#define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN) \
+  template class ExecuteKernel<                       \
+      PACK_A<uint8_t, ACC_T>,                         \
+      PackBMatrix<int8_t, ACC_T>,                     \
+      uint8_t,                                        \
       ReQuantizeOutput<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_Q_GRANS(ACC_T, RELU)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                          \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_RELU(ACC_T) \
-  INSTANTIATE_Q_GRANS(ACC_T, false);   \
-  INSTANTIATE_Q_GRANS(ACC_T, true);
+#define INSTANTIATE_RELU(PACK_A, ACC_T)      \
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false); \
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, true);
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+#define INSTANTIATE_ACC_T(PACK_A)    \
+  INSTANTIATE_RELU(PACK_A, int32_t); \
+  INSTANTIATE_RELU(PACK_A, int16_t);
 
+INSTANTIATE_ACC_T(PackAMatrix);
+INSTANTIATE_ACC_T(PackAWithRowOffset);
+
+#undef INSTANTIATE_ACC_T
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
@@ -294,12 +299,6 @@ INSTANTIATE_RELU(int16_t);
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
-
-template class ExecuteKernel<
-    PackAMatrix<uint8_t, int16_t>,
-    PackBMatrix<int8_t, int16_t>,
-    uint8_t,
-    ReQuantizeOutput<false>>;
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeForFloat
