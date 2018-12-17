@@ -470,6 +470,10 @@ class FBGEMM_API PackAWithIm2Col
   PackAWithIm2Col() = delete; // no default constructor
   /**
    * @param zero_pt the quantized value that maps to 0.0f floating-point number.
+   * @params row_offset If nullptr, this constructor internally allocates a
+   *                    buffer and owns it. Otherwise, this class doesn't own
+   *                    the buffer. The buffer will be populated when pack
+   *                    function is called.
    */
   PackAWithIm2Col(
       const conv_param_t<SPATIAL_DIM>& conv_param,
@@ -545,6 +549,12 @@ class FBGEMM_API PackAWithRowOffset final
   using accType = accT;
 
   PackAWithRowOffset() = delete; // no default constructor
+  /**
+   * @params row_offset If nullptr, this constructor internally allocates a
+   *                    buffer and owns it. Otherwise, this class doesn't own
+   *                    the buffer. The buffer will be populated when pack
+   *                    function is called.
+   */
   PackAWithRowOffset(
       matrix_op_t trans,
       std::uint32_t nRow,
@@ -628,6 +638,12 @@ class FBGEMM_API PackAWithQuantRowOffset final
   using accType = accT;
 
   PackAWithQuantRowOffset() = delete; // no default constructor
+  /**
+   * @params row_offset If nullptr, this constructor internally allocates a
+   *                    buffer and owns it. Otherwise, this class doesn't own
+   *                    the buffer. The buffer will be populated when pack
+   *                    function is called.
+   */
   PackAWithQuantRowOffset(
       matrix_op_t trans,
       std::int32_t nRow,
@@ -909,6 +925,25 @@ class FBGEMM_API ReQuantizeOutput {
  public:
   using outType = outT;
   using inpType = inT;
+  /**
+   * @params C_multiplier The length of this array is
+   *                      1 when Q_GRAN == QuantizationGranularity::TENSOR,
+   *                      groups when Q_GRAN == QuantizationGranularity::GROUP,
+   *                      nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
+   * @params Bq_zero_point The length of this array should be the same as
+   *                       C_multiplier.
+   * @params row_offsets Typically, this should've been computed by a
+   *                     PackAMatrix and should be obtained by
+   *                     PackMatrix::getRowOffsetBuffer().
+   *                     If Bq_zero_point == 0 (symmetric quantization of B
+   *                     matrix), we can pass nullptr.
+   * @params col_offsets This should be pre-computed for example using
+   *                     col_offsets_with_zero_pt_s8acc32_ref.
+   *                     The length should be nCol.
+   *                     See PackedRequantizeTest.cc for an example.
+   *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
+   * @params bias can be nullptr otherwise the length should be nCol
+   */
   ReQuantizeOutput(
       nextOPType& nextop,
       const float* C_multiplier,
@@ -966,6 +1001,25 @@ class FBGEMM_API ReQuantizeForFloat {
  public:
   using outType = outT;
   using inpType = inT;
+  /**
+   * @params Bq_scale The length of this array is
+   *                  1 when Q_GRAN == QuantizationGranularity::TENSOR,
+   *                  groups when Q_GRAN == QuantizationGranularity::GROUP,
+   *                  nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
+   * @params Bq_zero_point The length of this array should be the same as
+   *                       Bq_scale.
+   * @params row_offsets Typically, this should've been computed by a
+   *                     PackAMatrix and should be obtained by
+   *                     PackMatrix::getRowOffsetBuffer().
+   *                     If Bq_zero_point == 0 (symmetric quantization of B
+   *                     matrix), we can pass nullptr.
+   * @params col_offsets This should be pre-computed for example using
+   *                     col_offsets_with_zero_pt_s8acc32_ref.
+   *                     The length should be nCol.
+   *                     See PackedRequantizeTest.cc for an example.
+   *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
+   * @params bias can be nullptr otherwise the length should be nCol
+   */
   ReQuantizeForFloat(
       nextOPType& nextop,
       float Aq_scale,
