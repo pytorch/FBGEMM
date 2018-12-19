@@ -41,14 +41,41 @@ class PackedGemmMatrixFP16 {
       const float* smat,
       const int brow = 512)
       : nrow_(nrow), ncol_(ncol), brow_(brow) {
+    initializeParam();
+    initializeMemory();
+    // copy source matrix into packed matrix
+    this->packFromSrc(trans, alpha, smat);
+  }
+
+  PackedGemmMatrixFP16(
+      const int nrow,
+      const int ncol,
+      const int brow,
+      const int last_brow,
+      const int bcol,
+      const int nbrow,
+      const int nbcol,
+      const uint64_t size)
+      : nrow_(nrow),
+        ncol_(ncol),
+        brow_(brow),
+        last_brow_(last_brow),
+        bcol_(bcol),
+        nbrow_(nbrow),
+        nbcol_(nbcol),
+        size_(size) {
+    initializeMemory();
+  }
+
+  void initializeParam() {
     bcol_ = 8 * 1; // hardwired
 
     // set up internal packing parameters
     nbrow_ = ((numRows() % blockRowSize()) == 0)
         ? (numRows() / blockRowSize())
         : ((numRows() + blockRowSize()) / blockRowSize());
-    last_brow_ = ((nrow % blockRowSize()) == 0) ? blockRowSize()
-                                                : (nrow % blockRowSize());
+    last_brow_ = ((nrow_ % blockRowSize()) == 0) ? blockRowSize()
+                                                 : (nrow_ % blockRowSize());
     nbcol_ = ((numCols() % blockColSize()) == 0)
         ? (numCols() / blockColSize())
         : ((numCols() + blockColSize()) / blockColSize());
@@ -62,7 +89,9 @@ class PackedGemmMatrixFP16 {
           << "lefover is currently done via MKL: hence overhead will inccur";
 #endif
     }
+  }
 
+  void initializeMemory() {
     // allocate and initialize packed memory
     const int padding = 1024; // required by sw pipelined kernels
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
@@ -72,9 +101,6 @@ class PackedGemmMatrixFP16 {
     for (auto i = 0; i < matSize(); i++) {
       pmat_[i] = tconv(0.f, pmat_[i]);
     }
-
-    // copy source matrix into packed matrix
-    this->packFromSrc(trans, alpha, smat);
   }
 
   ~PackedGemmMatrixFP16() {
@@ -134,6 +160,18 @@ class PackedGemmMatrixFP16 {
   }
   int numCols() const {
     return ncol_;
+  }
+  int lastBrow() const {
+    return last_brow_;
+  }
+  int numBrow() const {
+    return nbrow_;
+  }
+  int numBcol() const {
+    return nbcol_;
+  }
+  float16* pmat() const {
+    return pmat_;
   }
   inline int blockRowSize() const {
     return brow_;
