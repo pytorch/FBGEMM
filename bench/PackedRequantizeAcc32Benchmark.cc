@@ -226,6 +226,9 @@ void performance_test() {
     double total_postprocessing_time = 0.0;
     double total_run_time = 0.0;
 #endif
+    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
+         << ", ";
+
     for (auto i = 0; i < NWARMUP + NITER; ++i) {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
       packing_time = 0.0;
@@ -314,8 +317,7 @@ void performance_test() {
          << total_postprocessing_time / (double)NITER / 1e6 << ", "
          << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
-         << setw(16) << runType << ", " << setw(5) << fixed << setw(5)
+    cout << setw(16) << runType << ", " << setw(5) << fixed << setw(5)
          << setprecision(1) << nops / ttot << endl;
     cout << endl;
 
