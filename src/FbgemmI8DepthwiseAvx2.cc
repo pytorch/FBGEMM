@@ -112,13 +112,12 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
           reinterpret_cast<const __m256i*>(masks[remainder / 4]));
       for (int i = 0; i < KERNEL_PROD; ++i) {
         b_v[i] = _mm256_maskload_epi32(
-            reinterpret_cast<const int*>(smat_transposed + i * K + k1),
-            mask_v);
+            reinterpret_cast<const int*>(smat_transposed + i * K + k1), mask_v);
       }
     } else {
       for (int i = 0; i < KERNEL_PROD; ++i) {
-        b_v[i] = _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(
-            smat_transposed + i * K + k1));
+        b_v[i] = _mm256_lddqu_si256(
+            reinterpret_cast<const __m256i*>(smat_transposed + i * K + k1));
       }
     }
 
@@ -457,14 +456,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
           a_v[k], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp);
     } else if (K - k == 2) {
       madd_epi16x2_packed<SUM_A>(
-          a_v[k],
-          a_v[k + 1],
-          Bp + k,
-          &c[0],
-          &c[1],
-          &c[2],
-          &c[3],
-          a_sum_temp);
+          a_v[k], a_v[k + 1], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp);
     }
 
     c[0] = _mm256_add_epi32(c[0], c_temp[0]);
@@ -860,11 +852,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
 
   __m256i a_sum[4];
   inner_prod_3x3_packed_<SUM_A, REMAINDER>(
-      a_v,
-      reinterpret_cast<const __m256i*>(Bp),
-      C,
-      remainder,
-      a_sum);
+      a_v, reinterpret_cast<const __m256i*>(Bp), C, remainder, a_sum);
   if (SUM_A) {
     __m256i B_zero_point_v;
     for (int i = 0; i < (REMAINDER ? (remainder / 8) : 4); ++i) {
@@ -974,11 +962,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
 
   __m256i a_sum[4];
   inner_prod_packed_<8, SUM_A, REMAINDER>(
-      a_v,
-      reinterpret_cast<const __m256i*>(Bp),
-      C,
-      remainder,
-      a_sum);
+      a_v, reinterpret_cast<const __m256i*>(Bp), C, remainder, a_sum);
 
   a_v[0] = A_zero_point_v;
   a_v[1] = A_zero_point_v;
@@ -1031,11 +1015,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
 
   __m256i a_sum_temp[4];
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v,
-      reinterpret_cast<const __m256i*>(Bp) + 8,
-      C,
-      remainder,
-      a_sum_temp);
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 8, C, remainder, a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1090,11 +1070,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v,
-      reinterpret_cast<const __m256i*>(Bp) + 16,
-      C,
-      remainder,
-      a_sum_temp);
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 16, C, remainder, a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1121,11 +1097,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<3, SUM_A, REMAINDER, true /* acc */>(
-      a_v,
-      reinterpret_cast<const __m256i*>(Bp) + 24,
-      C,
-      remainder,
-      a_sum_temp);
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 24, C, remainder, a_sum_temp);
 
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);

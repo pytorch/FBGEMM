@@ -11,8 +11,8 @@
 #include <iostream>
 #include <numeric>
 
-#include "fbgemm/Fbgemm.h"
 #include "OptimizedKernelsAvx2.h"
+#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
