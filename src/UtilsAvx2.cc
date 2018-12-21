@@ -4,8 +4,8 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "TransposeUtils.h"
 #include <immintrin.h>
+#include "TransposeUtils.h"
 
 namespace fbgemm {
 
@@ -144,7 +144,6 @@ inline void transpose_kernel_8x8_avx2(
   _mm256_storeu_ps(&dst[6 * ld_dst], g);
   _mm256_storeu_ps(&dst[7 * ld_dst], h);
 }
-
 
 void transpose_8x8(
     int M,

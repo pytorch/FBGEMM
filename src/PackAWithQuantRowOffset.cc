@@ -11,9 +11,9 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+#include "OptimizedKernelsAvx2.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx2.h"
-#include "OptimizedKernelsAvx2.h"
 
 namespace fbgemm {
 

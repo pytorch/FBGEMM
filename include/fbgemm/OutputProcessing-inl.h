@@ -111,7 +111,7 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
   } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
     if (std::is_same<outT, uint8_t>::value) {
       bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
-                             Bq_zero_point_[0] == 0) ||
+                          Bq_zero_point_[0] == 0) ||
           q_row_offsets_ == nullptr;
 
       requantizationParams_t r = {Aq_zero_point_,

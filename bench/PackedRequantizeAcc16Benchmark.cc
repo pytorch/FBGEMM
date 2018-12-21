@@ -296,13 +296,7 @@ void performance_test() {
               PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
 
           PackAMatrix<uint8_t, int16_t> packA(
-              matrix_op_t::NoTranspose,
-              m,
-              k,
-              Aint8.data(),
-              k,
-              nullptr,
-              1);
+              matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, 1);
           PackAWithRowOffset<uint8_t, int16_t> packAWithRowOffset(
               matrix_op_t::NoTranspose,
               m,

@@ -187,13 +187,7 @@ void performance_test() {
         row_offset_buf.data());
 
     PackBMatrix<int8_t> packedBN(
-        matrix_op_t::NoTranspose,
-        k,
-        n,
-        Bint8.data(),
-        n,
-        nullptr,
-        1);
+        matrix_op_t::NoTranspose, k, n, Bint8.data(), n, nullptr, 1);
 
     DoNothing<float, float> doNothingObj{};
     ReQuantizeForFloat<false> outputProcObj(

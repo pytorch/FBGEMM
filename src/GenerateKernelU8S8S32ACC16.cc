@@ -21,7 +21,6 @@ thread_local std::map<
     typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
     CodeGenBase<TA, TB, TC, accT>::codeCache_;
 
-
 namespace x86 = asmjit::x86;
 
 /**

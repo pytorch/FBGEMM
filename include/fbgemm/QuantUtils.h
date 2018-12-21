@@ -68,8 +68,7 @@ FBGEMM_API T Quantize(
 
 template <typename T>
 FBGEMM_API T Quantize(float src, const TensorQuantizationParams& qparams) {
-  return Quantize<T>(
-      src, qparams.zero_point, qparams.scale, qparams.precision);
+  return Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
 template <typename T>

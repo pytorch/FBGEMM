@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "fbgemm/Utils.h"
-#include "TransposeUtils.h"
 #include <cpuinfo.h>
 #include <cassert>
 #include <cinttypes>
@@ -14,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include "TransposeUtils.h"
 
 namespace fbgemm {
 

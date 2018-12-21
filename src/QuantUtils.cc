@@ -153,16 +153,16 @@ void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-#define FBGEMM_SPECIALIZED_QUANTIZE(T)      \
-  template <>                                 \
-  void Quantize<T>(                         \
-      const float* src,                     \
-      T* dst,                                 \
-      const int len,                          \
-      const TensorQuantizationParams& qparams) {   \
-    for (int i = 0; i < len; ++i) {           \
-      dst[i] = Quantize<T>(src[i], qparams); \
-    }                                         \
+#define FBGEMM_SPECIALIZED_QUANTIZE(T)           \
+  template <>                                    \
+  void Quantize<T>(                              \
+      const float* src,                          \
+      T* dst,                                    \
+      const int len,                             \
+      const TensorQuantizationParams& qparams) { \
+    for (int i = 0; i < len; ++i) {              \
+      dst[i] = Quantize<T>(src[i], qparams);     \
+    }                                            \
   }
 FBGEMM_SPECIALIZED_QUANTIZE(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)

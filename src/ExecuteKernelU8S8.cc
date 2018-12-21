@@ -288,7 +288,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
 
-#define INSTANTIATE_RELU(ACC_T)   \
+#define INSTANTIATE_RELU(ACC_T)          \
   INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
   INSTANTIATE_SPATIAL_DIM(ACC_T, true);
 
@@ -410,7 +410,7 @@ template class ExecuteKernel<
   template class ExecuteKernel<         \
       PACK_A<uint8_t, ACC_T>,           \
       PackBMatrix<int8_t, ACC_T>,       \
-      int32_t,                            \
+      int32_t,                          \
       memCopy<>>;
 
 #define INSTANTIATE_ACC_T(PACK_A)   \
@@ -427,7 +427,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
   template class ExecuteKernel<                     \
       PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>, \
       PackBMatrix<int8_t, ACC_T>,                   \
-      int32_t,                                        \
+      int32_t,                                      \
       memCopy<>>;
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T) \

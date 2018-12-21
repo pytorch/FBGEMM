@@ -244,7 +244,7 @@ TEST_P(fbgemmIm2colTest, Acc16Test) {
   }
 }
 
-template<QuantizationGranularity Q_GRAN>
+template <QuantizationGranularity Q_GRAN>
 void SConvTest() {
   for (auto conv_p : shapes) {
     for (int groups : {1, 4}) {

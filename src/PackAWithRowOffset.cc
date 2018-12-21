@@ -10,8 +10,8 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-#include "fbgemm/Fbgemm.h"
 #include "OptimizedKernelsAvx2.h"
+#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 

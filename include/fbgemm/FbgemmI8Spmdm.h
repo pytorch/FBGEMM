@@ -9,8 +9,8 @@
 #include <cstdint>
 #include <vector>
 #include "ConvUtils.h"
-#include "Utils.h"
 #include "FbgemmBuild.h"
+#include "Utils.h"
 
 // #define FBGEMM_MEASURE_TIME_BREAKDOWN
 

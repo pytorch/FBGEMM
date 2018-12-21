@@ -7,8 +7,8 @@
 #pragma once
 #include <string>
 #include <type_traits>
-#include "UtilsAvx2.h"
 #include "FbgemmBuild.h"
+#include "UtilsAvx2.h"
 
 namespace fbgemm {
 

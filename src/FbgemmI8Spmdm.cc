@@ -236,8 +236,7 @@ void CompressedSparseColumn::SparseConv(
   // TODO: if not hyper sparse, transpose a block of A matrix as in SpMDM.
   if (!accumulation) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      for (int j = block.col_start; j < block.col_start + block.col_size;
-           ++j) {
+      for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         C[(i - block.row_start) * ldc + j - block.col_start] = 0;
       }
     }
@@ -245,8 +244,7 @@ void CompressedSparseColumn::SparseConv(
   for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
     for (int k = colptr_[j]; k < colptr_[j + 1]; ++k) {
       int v = values_[k];
-      for (int i = block.row_start; i < block.row_start + block.row_size;
-           ++i) {
+      for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
         int ow = i % conv_p.OUT_DIM[1];
         int oh = i / conv_p.OUT_DIM[1] % conv_p.OUT_DIM[0];
         int n = i / conv_p.OUT_DIM[1] / conv_p.OUT_DIM[0];

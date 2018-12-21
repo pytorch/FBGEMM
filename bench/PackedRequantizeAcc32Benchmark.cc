@@ -209,13 +209,7 @@ void performance_test() {
     // offsets before");
 
     PackBMatrix<int8_t> packedBN(
-        matrix_op_t::NoTranspose,
-        k,
-        n,
-        Bint8.data(),
-        n,
-        nullptr,
-        1);
+        matrix_op_t::NoTranspose, k, n, Bint8.data(), n, nullptr, 1);
 
     ttot = 0.0;
     runType = "FBGEMM_i8_acc32";
