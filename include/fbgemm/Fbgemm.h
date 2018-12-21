@@ -15,11 +15,11 @@
 #include <memory>
 #include <type_traits>
 #include "ConvUtils.h"
+#include "FbgemmBuild.h"
 #include "FbgemmI8Spmdm.h"
+#include "QuantUtilsAvx2.h"
 #include "Types.h"
 #include "Utils.h"
-#include "FbgemmBuild.h"
-#include "QuantUtilsAvx2.h"
 
 // Turning on this option will print out time breakdown of each stage (e.g.,
 // input packing, the main GEMM kernel, each output processing pipeline).
