@@ -445,6 +445,7 @@ void performance_test() {
 
 int main() {
 #ifdef _OPENMP
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
   const char* val = getenv("OMP_NUM_THREADS");
   if (val == nullptr || !*val) {
     omp_set_num_threads(1);
