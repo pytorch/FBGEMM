@@ -43,7 +43,7 @@ TEST_P(FBGemmFP16Test, Test) {
   vector<vector<int>> shapes;
   random_device r;
   default_random_engine generator(r());
-  uniform_int_distribution<int> dm(1, 100);
+  uniform_int_distribution<int> dm(1, 256);
   uniform_int_distribution<int> dnk(1, 1024);
   for (int i = 0; i < 10; i++) {
     int m = dm(generator);

@@ -229,7 +229,7 @@ FBGEMM_API void cblas_gemm_compute(
 
       const int kb = std::min(Bp.blockRowSize(), Bp.numRows() - k_ind);
 
-      auto m1 = 0;
+      auto m1 = m0;
       for (auto c = 0; c < 2; c++) {
         auto kernel_nrows = KernelInfo::partition[mb][c][0];
         auto nkernel_nrows = KernelInfo::partition[mb][c][1];
