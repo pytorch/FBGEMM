@@ -72,7 +72,7 @@ template <
     QuantizationGranularity Q_GRAN,
     bool HAS_BIAS,
     bool FUSE_RELU>
-void requantizeOutputProcessingAvx2(
+FBGEMM_API void requantizeOutputProcessingAvx2(
     std::uint8_t* out,
     const std::int32_t* inp,
     const block_type_t& block,
