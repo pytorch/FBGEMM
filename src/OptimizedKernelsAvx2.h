@@ -7,13 +7,14 @@
 #pragma once
 
 #include <cstdint> // for std::int32_t
+#include "fbgemm/FbgemmBuild.h"
 
 namespace fbgemm {
 
 /**
  * @brief Sum a given vector.
  */
-std::int32_t reduceAvx2(const std::uint8_t* A, int len);
+FBGEMM_API std::int32_t reduceAvx2(const std::uint8_t* A, int len);
 
 /**
  * @brief Transpose 8 rows from source matrix.
