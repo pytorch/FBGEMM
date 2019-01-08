@@ -12,6 +12,10 @@
 #include <mkl.h>
 #endif
 
+#ifdef USE_BLAS
+#include <cblas.h>
+#endif
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -101,7 +105,7 @@ void performance_test() {
     // warm up MKL and fbgemm
     // check correctness at the same time
     for (auto w = 0; w < 3; w++) {
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
       cblas_sgemm(
           CblasRowMajor,
           CblasNoTrans,
@@ -121,19 +125,25 @@ void performance_test() {
       cblas_gemm_compute(
           matrix_op_t::NoTranspose, m, A.data(), Bp, beta, C_fb.data());
 
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
       // Compare results
       for (auto i = 0; i < C_ref.size(); i++) {
-        // printf("%f %f\n", C_ref[i], C_fb[i]);
-        assert(std::abs(C_ref[i] - C_fb[i]) < 1e-3);
+        if(std::abs(C_ref[i] - C_fb[i]) > 1e-3) {
+          fprintf(stderr, "Error: too high diff between fp32 ref %f and fp16 %f\n", C_ref[i], C_fb[i]);
+	  return;
+	}
       }
 #endif
     }
 
     chrono::time_point<chrono::system_clock> t_begin, t_end;
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
     // Gold via MKL sgemm
+  #if defined(USE_MKL)
     type = "MKL_FP32";
+  #else
+    type = "BLAS_FP32";
+  #endif
     ttot = 0;
     for (auto it = -3; it < NITER; it++) {
       if (flush) {
@@ -166,7 +176,7 @@ void performance_test() {
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(
-        "\n%15s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
+        "\n%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
         type.c_str(),
         m,
         n,
@@ -199,7 +209,7 @@ void performance_test() {
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(
-        "%15s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
+        "%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
         type.c_str(),
         m,
         n,
