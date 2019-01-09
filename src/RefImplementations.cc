@@ -797,4 +797,93 @@ void depthwise_3x3x3_pad_1_ref(
   }
 };
 
+void depthwise_3x3x3_per_channel_quantization_pad_1_ref(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const int8_t* B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias) {
+  constexpr int K_T = 3, K_H = 3, K_W = 3;
+  constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
+                PAD_R = 1;
+  int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+  int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+
+  vector<int32_t> C_int32(N * T_OUT * H_OUT * W_OUT * K);
+  depthwise_3x3x3_pad_1_ref(
+      N,
+      T,
+      H,
+      W,
+      K,
+      stride_t,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B,
+      C_int32.data());
+
+  vector<int32_t> row_offsets(N * T_OUT * H_OUT * W_OUT * K);
+  for (int n = 0; n < N; ++n) {
+    for (int t = 0; t < T_OUT; ++t) {
+      for (int h = 0; h < H_OUT; ++h) {
+        for (int w = 0; w < W_OUT; ++w) {
+          for (int k = 0; k < K; ++k) {
+            int sum = 0;
+            for (int k_t = 0; k_t < K_T; ++k_t) {
+              int t_in = -PAD_P + t * stride_t + k_t;
+              for (int k_h = 0; k_h < K_H; ++k_h) {
+                int h_in = -PAD_T + h * stride_h + k_h;
+                for (int k_w = 0; k_w < K_W; ++k_w) {
+                  int w_in = -PAD_L + w * stride_w + k_w;
+                  int a = t_in < 0 || t_in >= T || h_in < 0 || h_in >= H ||
+                          w_in < 0 || w_in >= W
+                      ? A_zero_point
+                      : A[(((n * T + t_in) * H + h_in) * W + w_in) * K + k];
+                  sum += a;
+                }
+              }
+            }
+            row_offsets[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k] =
+                sum;
+          }
+        } // w
+      } // h
+    } // t
+  } // for each n
+
+  for (int i = 0; i < N * T_OUT * H_OUT * W_OUT; ++i) {
+    for (int k = 0; k < K; ++k) {
+      requantize_u8acc32_ref(
+          1,
+          1,
+          1,
+          C_int32.data() + i * K + k,
+          C + i * K + k,
+          &C_multiplier[k],
+          C_zero_point,
+          A_zero_point,
+          &B_zero_point[k],
+          &row_offsets[i * K + k],
+          col_offsets + k,
+          bias ? bias + k : nullptr,
+          1);
+    }
+  }
+};
+
 } // namespace fbgemm
