@@ -526,7 +526,7 @@ class FBGEMM_API PackAWithIm2Col
   }
 
  private:
-  const conv_param_t<SPATIAL_DIM>& conv_p_;
+  const conv_param_t<SPATIAL_DIM> conv_p_;
   const T* sdata_;
   std::int32_t zero_pt_;
   std::int32_t* row_offset_;
@@ -906,7 +906,7 @@ class FBGEMM_API DoSConvOnInpBuffer {
  private:
   nextOPType& nextop_;
   const std::uint8_t* A_;
-  const conv_param_t<>& conv_p_;
+  const conv_param_t<> conv_p_;
   const std::int32_t A_zero_point_;
   const CompressedSparseColumn& B_csc_;
 };
