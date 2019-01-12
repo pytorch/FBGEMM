@@ -215,7 +215,7 @@ int main() {
             C_uint8.data(),
             col_offsets.data(),
             bias.data(),
-            false /* fuse_relu */,
+            false, /* fuse_relu */
             tid,
             num_threads);
       }
