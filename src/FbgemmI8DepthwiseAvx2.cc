@@ -1273,7 +1273,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
   }
 }
 
-template <bool SUM_A>
+template <bool SUM_A, bool FUSE_RELU>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_kernel_(
     int H,
@@ -1333,12 +1333,94 @@ depthwise_3x3_per_channel_quantization_kernel_(
         &row_offsets[k]);
   }
   if (SUM_A) {
-    requantize_per_channel_<false, true>(
+    requantize_per_channel_<FUSE_RELU, true /*HAS_BIAS*/>(
         A_zero_point,
         C_multiplier,
         C_zero_point,
         C_int32,
         C_uint8 + (h * W_OUT + w) * K,
+        K,
+        row_offsets,
+        col_offsets,
+        bias);
+  }
+}
+
+template <bool SUM_A, bool FUSE_RELU>
+static inline __attribute__((always_inline)) void
+depthwise_3x3x3_per_channel_quantization_kernel_(
+    int T,
+    int H,
+    int W,
+    int K,
+    int t,
+    int h,
+    int w,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const int8_t* Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t* C_int32,
+    uint8_t* C_uint8,
+    int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const int32_t* bias) {
+  constexpr int R = 3, S = 3;
+  constexpr int PAD_P = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1, PAD_R = 1;
+  int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
+  int t_in = -PAD_P + t * stride_t;
+  int h_in = -PAD_T + h * stride_h;
+  int w_in = -PAD_L + w * stride_w;
+
+  int k;
+  for (k = 0; k < K / 32 * 32; k += 32) {
+    inner_prod_3x3x3_packed_<SUM_A, false /*remainder*/, true /*per-channel*/>(
+        T,
+        H,
+        W,
+        K,
+        t_in,
+        h_in,
+        w_in,
+        A + ((t_in * H + h_in) * W + w_in) * K + k,
+        A_zero_point,
+        Bp + k * 28,
+        B_zero_point + k,
+        C_int32 + k,
+        0,
+        &row_offsets[k]);
+  }
+  int remainder = K - k;
+  if (remainder) {
+    inner_prod_3x3x3_packed_<SUM_A, true /*remainder*/, true /*per-channel*/>(
+        T,
+        H,
+        W,
+        K,
+        t_in,
+        h_in,
+        w_in,
+        A + ((t_in * H + h_in) * W + w_in) * K + k,
+        A_zero_point,
+        Bp + k * 28,
+        B_zero_point + k,
+        C_int32 + k,
+        remainder,
+        &row_offsets[k]);
+  }
+  if (SUM_A) {
+    requantize_per_channel_<FUSE_RELU, true>(
+        A_zero_point,
+        C_multiplier,
+        C_zero_point,
+        C_int32,
+        C_uint8 + ((t * H_OUT + h) * W_OUT + w) * K,
         K,
         row_offsets,
         col_offsets,
@@ -1773,7 +1855,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
   } // for each n
 };
 
-template <bool FUSE_RESCALE = true>
+template <bool FUSE_RESCALE = true, bool FUSE_RELU = false>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_pad_1_(
     int N,
@@ -1853,7 +1935,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       if (w_begin == 0) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1877,7 +1959,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1902,7 +1984,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1929,7 +2011,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = 0;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1953,7 +2035,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1978,7 +2060,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2006,7 +2088,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       if (w_begin == 0) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2030,7 +2112,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2055,7 +2137,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2076,6 +2158,119 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             bias);
       }
     }
+  } // for each n
+};
+
+template <bool FUSE_RESCALE = true, bool FUSE_RELU = false>
+static inline __attribute__((always_inline)) void
+depthwise_3x3x3_per_channel_quantization_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t* C_int32,
+    uint8_t* C_uint8,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    int thread_id,
+    int num_threads) {
+  assert(K % 8 == 0);
+  constexpr int K_T = 3, K_H = 3, K_W = 3;
+  constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
+                PAD_R = 1;
+  int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+  int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+  const int8_t* Bp = B.PackedMat();
+
+  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  int32_t* C_temp;
+
+  int n_begin, n_end;
+  int t_begin, t_end, h_begin, h_end;
+  if (N >= num_threads) {
+    int n_per_thread = (N + num_threads - 1) / num_threads;
+    n_begin = std::min(thread_id * n_per_thread, N);
+    n_end = std::min(n_begin + n_per_thread, N);
+    t_begin = 0;
+    t_end = T_OUT;
+    h_begin = 0;
+    h_end = H_OUT;
+  } else {
+    int nthreads_per_n = num_threads / N;
+    n_begin = std::min(thread_id / nthreads_per_n, N);
+    n_end = std::min(n_begin + 1, N);
+
+    int tid_of_n_begin = std::min(n_begin * nthreads_per_n, num_threads);
+    int tid_of_n_end = std::min(tid_of_n_begin + nthreads_per_n, num_threads);
+    int nthreads_of_n = tid_of_n_end - tid_of_n_begin;
+    int tid_within_n = thread_id - tid_of_n_begin;
+    assert(tid_within_n >= 0);
+    assert(tid_within_n < nthreads_of_n);
+
+    // n is processed by num_threads_t * num_threads_h 2D grid of threads
+    int num_threads_t, num_threads_h;
+    // num_threads_w <= num_threads_h
+    tie(num_threads_t, num_threads_h) = closest_factors_(nthreads_of_n);
+    int tid_t = tid_within_n / num_threads_h;
+    int tid_h = tid_within_n % num_threads_h;
+
+    int t_per_thread = (T_OUT + num_threads_t - 1) / num_threads_t;
+    t_begin = std::min(tid_t * t_per_thread, T_OUT);
+    t_end = std::min(t_begin + t_per_thread, T_OUT);
+
+    int h_per_thread = (H_OUT + num_threads_h - 1) / num_threads_h;
+    h_begin = std::min(tid_h * h_per_thread, H_OUT);
+    h_end = std::min(h_begin + h_per_thread, H_OUT);
+  }
+
+  for (int n = n_begin; n < n_end; ++n) {
+    const uint8_t* A_base = A + n * T * H * W * K;
+    uint8_t* C_uint8_base = C_uint8 + n * T_OUT * H_OUT * W_OUT * K;
+
+    for (int t = t_begin; t < t_end; ++t) {
+      for (int h = h_begin; h < h_end; ++h) {
+        for (int w = 0; w < W_OUT; ++w) {
+          C_temp = FUSE_RESCALE
+              ? C_int32
+              : C_int32 + (((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K;
+          depthwise_3x3x3_per_channel_quantization_kernel_<
+              FUSE_RESCALE,
+              FUSE_RELU>(
+              T,
+              H,
+              W,
+              K,
+              t,
+              h,
+              w,
+              stride_t,
+              stride_h,
+              stride_w,
+              A_zero_point,
+              A_base,
+              B_zero_point,
+              Bp,
+              C_multiplier,
+              C_zero_point,
+              C_temp,
+              C_uint8_base,
+              row_offsets,
+              col_offsets,
+              bias);
+        } // w
+      } // h
+    } // t
   } // for each n
 };
 
@@ -2212,9 +2407,9 @@ void depthwise_3x3_pad_1(
     uint8_t* C,
     const int32_t* col_offsets,
     const int32_t* bias,
+    bool fuse_relu,
     int thread_id,
-    int num_threads,
-    bool fuse_relu) {
+    int num_threads) {
   int32_t C_int32_temp[(K + 31) / 32 * 32];
   if (fuse_relu) {
     if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
@@ -2632,81 +2827,275 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     uint8_t* C,
     const int32_t* col_offsets,
     const int32_t* bias,
+    bool fuse_relu,
     int thread_id,
     int num_threads) {
   int32_t C_int32_temp[(K + 31) / 32 * 32];
-  if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
+  if (fuse_relu) {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    }
+  } else {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    }
+  }
+}
+
+void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    int thread_id,
+    int num_threads) {
+  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  if (fuse_relu) {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        true /* FUSE_RESCALE */,
+        true /* FUSE_RELU */>(
         N,
+        T,
         H,
         W,
         K,
+        stride_t,
         stride_h,
         stride_w,
         A_zero_point,
         A,
         B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (1 == stride_h && 1 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (2 == stride_h && 2 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
+        B,
         C_multiplier,
         C_zero_point,
         C_int32_temp,
@@ -2716,17 +3105,21 @@ void depthwise_3x3_per_channel_quantization_pad_1(
         thread_id,
         num_threads);
   } else {
-    depthwise_3x3_per_channel_quantization_pad_1_(
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        true /* FUSE_RESCALE */,
+        false /* FUSE_RELU */>(
         N,
+        T,
         H,
         W,
         K,
+        stride_t,
         stride_h,
         stride_w,
         A_zero_point,
         A,
         B_zero_point,
-        Bp,
+        B,
         C_multiplier,
         C_zero_point,
         C_int32_temp,

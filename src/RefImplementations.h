@@ -298,4 +298,23 @@ FBGEMM_API void depthwise_3x3x3_pad_1_ref(
     const std::int32_t* col_offsets,
     const std::int32_t* bias);
 
+FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1_ref(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const std::int8_t* B,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const std::int32_t* bias);
+
 } // namespace fbgemm

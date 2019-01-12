@@ -71,9 +71,9 @@ FBGEMM_API void depthwise_3x3_pad_1(
     std::uint8_t* C,
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
+    bool fuse_relu = false,
     int thread_id = 0,
-    int num_threads = 1,
-    bool fuse_relu = false);
+    int num_threads = 1);
 
 /**
  * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
@@ -95,6 +95,7 @@ FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
     std::uint8_t* C,
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
+    bool fuse_relu = false,
     int thread_id = 0,
     int num_threads = 1);
 
@@ -128,6 +129,28 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     std::int32_t B_zero_point,
     const Packed3x3x3ConvMatrix& Bp,
     float C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const std::int32_t* bias,
+    bool fuse_relu = false,
+    int thread_id = 0,
+    int num_threads = 1);
+
+FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& Bp,
+    const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
     const std::int32_t* col_offsets,
