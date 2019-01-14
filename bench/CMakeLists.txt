@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 find_package(MKL)
+if (NOT ${MKL_FOUND})
+  find_package(BLAS)
+endif()
+
 #benchmarks
 macro(add_benchmark BENCHNAME)
   add_executable(${BENCHNAME} ${ARGN}
@@ -13,11 +17,18 @@ macro(add_benchmark BENCHNAME)
   target_link_libraries(${BENCHNAME} fbgemm)
   add_dependencies(${BENCHNAME} fbgemm)
   if(${MKL_FOUND})
+    message(STATUS "MKL_LIBRARIES= ${MKL_LIBRARIES}")
     target_include_directories(${BENCHNAME} PRIVATE "${MKL_INCLUDE_DIR}")
     target_link_libraries(${BENCHNAME} "${MKL_LIBRARIES}")
     target_compile_options(${BENCHNAME} PRIVATE
       "-DUSE_MKL")
   endif()
+  if (${BLAS_FOUND})
+    message(STATUS "BLAS_LIBRARIES= ${BLAS_LIBRARIES}")
+    target_compile_options(${BENCHNAME} PRIVATE "-DUSE_BLAS")
+    target_link_libraries(${BENCHNAME} "${BLAS_LIBRARIES}")
+  endif()
+
   set_target_properties(${BENCHNAME} PROPERTIES FOLDER test)
 endmacro()
 
