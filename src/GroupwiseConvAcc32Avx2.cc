@@ -148,7 +148,7 @@ void GenConvKernel<int32_t>::genConstForPermutations<inst_set_t::avx2>(
   // Permute to put 1st group to lower 128-bit and 2nd group in upper
   // 128-bit.
   // load 7, 5, 3, 1, 6, 4, 2, 0 in a 64-bit reg
-  a->mov(permute_const_reg, 0x0705030106040200);
+  a->mov(permute_const_reg, static_cast<asmjit::Imm>(0x0705030106040200));
   a->movq(const_reg_xmm, permute_const_reg);
   // Zero extend 8 packed 8-bit integers in the low 8 bytes of const_reg_xmm to
   // 8 packed 32-bit integers in stPermRegAvx2_
