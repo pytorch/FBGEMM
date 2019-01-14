@@ -486,6 +486,31 @@ void conv3d_ref(
   } // for each n
 }
 
+void transposeConvWeights(
+    const conv_param_t<>& conv_p,
+    const std::int8_t* src,
+    std::int8_t* dest) {
+  int R = conv_p.K[0];
+  int S = conv_p.K[1];
+  int G = conv_p.G;
+  int IC_per_G = conv_p.IC / conv_p.G;
+  int OC_per_G = conv_p.OC / conv_p.G;
+
+  // Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
+  for (int r = 0; r < R; ++r) {
+    for (int s = 0; s < S; ++s) {
+      for (int k = 0; k < OC_per_G; ++k) {
+        for (int g = 0; g < G; ++g) {
+          for (int c = 0; c < IC_per_G; ++c) {
+            dest[(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k] =
+                src[(((g * OC_per_G + k) * R + r) * S + s) * IC_per_G + c];
+          }
+        }
+      }
+    }
+  }
+}
+
 void depthwise_3x3_pad_1_ref(
     int N,
     int H,

@@ -192,6 +192,22 @@ void fbgemmPacked(
 #endif
 }
 
+template <int SPATIAL_DIM>
+FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  int C_per_G = conv_p.IC / conv_p.G;
+  int K_per_G = conv_p.OC / conv_p.G;
+
+  return (SPATIAL_DIM == 2) && (C_per_G == K_per_G) && (C_per_G == 4) &&
+      (conv_p.G % 8 == 0) && (conv_p.K[0] == conv_p.K[1]) &&
+      (conv_p.K[0] == 3) && (conv_p.pad[0] == 1) && (conv_p.pad[1] == 1) &&
+      (conv_p.pad[0] == conv_p.pad[2]) && (conv_p.pad[1] == conv_p.pad[3]) &&
+      (conv_p.dilation[0] == 1) && (conv_p.dilation[0] == conv_p.dilation[1]) &&
+      (conv_p.stride[0] == 1) && (conv_p.stride[0] == conv_p.stride[1]);
+}
+
+template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
+template bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
+
 bool fbgemmSupportedCPU() {
   return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
 }
