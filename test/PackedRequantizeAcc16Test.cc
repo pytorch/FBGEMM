@@ -25,17 +25,34 @@
 using namespace std;
 using namespace fbgemm;
 
-std::vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
+vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
                                        matrix_op_t::Transpose};
 
+vector<QuantizationGranularity> qGranularityVals{
+    QuantizationGranularity::TENSOR,
+    QuantizationGranularity::GROUP,
+    QuantizationGranularity::OUT_CHANNEL};
+
 namespace {
-class fbgemmu8s8acc16test : public testing::TestWithParam<
-                                std::tuple<matrix_op_t, matrix_op_t, bool>> {};
+class fbgemmu8s8acc16WithQuantGranularityTest
+    : public testing::TestWithParam<
+          tuple<matrix_op_t, matrix_op_t, bool, QuantizationGranularity>> {};
+class fbgemmu8s8acc16Test
+    : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
-    fbgemmu8s8acc16test,
+    fbgemmu8s8acc16WithQuantGranularityTest,
+    ::testing::Combine(
+        ::testing::Values(matrix_op_t::NoTranspose),
+        ::testing::ValuesIn(transposeVals),
+        ::testing::Bool(),
+        ::testing::ValuesIn(qGranularityVals)));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    fbgemmu8s8acc16Test,
     ::testing::Combine(
         ::testing::Values(matrix_op_t::NoTranspose),
         ::testing::ValuesIn(transposeVals),
@@ -67,6 +84,8 @@ static vector<vector<int>> GetShapes_() {
       {102, 512, 256},
       {102, 512, 257},
       {102, 512, 258},
+
+      {1024, 512, 258},
   };
   return shapes;
 }
@@ -75,11 +94,12 @@ static vector<vector<int>> GetShapes_() {
  * @brief Unit test for uint8 matrix A, int8 matrix B, and 16-bit
  * accumulation. Output processing: requantization -> nothing
  */
-TEST_P(fbgemmu8s8acc16test, Test) {
+TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
-  tie(atrans, btrans, test_ld) = GetParam();
+  QuantizationGranularity q_granularity;
+  tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
     for (int groups : {1, 3, 4}) {
@@ -91,22 +111,21 @@ TEST_P(fbgemmu8s8acc16test, Test) {
       }
       int k_per_group = k / groups;
 
-      aligned_vector<uint8_t> Aint8(m * k, 0);
+      aligned_vector<uint8_t> Aint8(m * k);
 
-      aligned_vector<int8_t> Bint8(k * n, 0);
-      aligned_vector<int8_t> Bint8_ref(Bint8.size(), 0);
+      aligned_vector<int8_t> Bint8_ref(k * n);
 
-      aligned_vector<int32_t> Cint32_ref(m * n * groups, 0);
-      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size(), 0);
+      aligned_vector<int32_t> Cint32_ref(m * n * groups);
+      aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size());
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+      aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
+      aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
-      randFill(Aint8, 0, 255);
+      randFill<uint8_t>(Aint8, 0, 255);
       int32_t Aint8_zero_point = 43;
 
-      randFill(Bint8_ref, -128, 127);
-      Bint8 = Bint8_ref;
+      randFill<int8_t>(Bint8_ref, -128, 127);
+      aligned_vector<int8_t> Bint8(Bint8_ref);
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
@@ -116,13 +135,12 @@ TEST_P(fbgemmu8s8acc16test, Test) {
               n,
               Bint8.data() + g * k_per_group * n,
               n,
-              Bint8_temp.data() + g * k_per_group,
-              groups * k_per_group);
+              Bint8_temp.data() + g * k_per_group * n,
+              k_per_group);
         }
         Bint8 = Bint8_temp;
       }
 
-      int32_t Bint8_zero_point = -30;
       // To test lda != k , we just reduce k by half and use the original k
       // as lda.
       int n_adjusted = n;
@@ -135,23 +153,33 @@ TEST_P(fbgemmu8s8acc16test, Test) {
         }
       }
 
+      int ncols_per_quant_group = groups * n_adjusted;
+      if (q_granularity == QuantizationGranularity::GROUP) {
+        ncols_per_quant_group = n_adjusted;
+      } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
+        ncols_per_quant_group = 1;
+      }
+      aligned_vector<int32_t> Bint8_zero_point(
+          groups * n_adjusted / ncols_per_quant_group);
+      randFill(Bint8_zero_point, -60, 0);
+
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(groups * n_adjusted);
+      vector<int32_t> col_offsets(groups * n_adjusted);
       for (int g = 0; g < groups; ++g) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
             n,
             Bint8_ref.data() + g * k_per_group * n,
-            Bint8_zero_point,
-            col_offsets.data() + g * n_adjusted);
+            Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
+            col_offsets.data() + g * n_adjusted,
+            ncols_per_quant_group);
       }
 
-      vector<int32_t> row_offsets;
-      row_offsets.resize(m);
+      vector<int32_t> row_offsets(m);
 
-      float C_multiplier = 0.1234;
+      aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+      randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
       int32_t C_zero_pt = 5;
 
       int brow = 256;
@@ -181,60 +209,116 @@ TEST_P(fbgemmu8s8acc16test, Test) {
             groups * n,
             Cint32_ref.data() + g * n_adjusted,
             Cint8_ref.data() + g * n_adjusted,
-            C_multiplier,
+            C_multiplier.data() + g * n_adjusted / ncols_per_quant_group,
             C_zero_pt,
             Aint8_zero_point,
-            Bint8_zero_point,
+            Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
             row_offsets.data(),
             col_offsets.data() + g * n_adjusted,
-            nullptr);
+            nullptr,
+            ncols_per_quant_group);
       }
-
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-      PackAWithRowOffset<uint8_t, int16_t> packAN(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          groups,
-          Aint8_zero_point,
-          row_offset_buf.data());
 
       PackBMatrix<int8_t, int16_t> packedBN(
           btrans,
           k,
           n_adjusted,
           Bint8.data(),
-          (btrans == matrix_op_t::Transpose) ? k : n,
+          (btrans == matrix_op_t::Transpose) ? k_per_group : n,
           nullptr,
-          groups,
-          Bint8_zero_point);
+          groups);
 
-      DoNothing<> doNothingObj{};
-      ReQuantizeOutput<false> outputProcObj(
-          doNothingObj,
-          C_multiplier,
-          C_zero_pt,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          packAN.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf(
+            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
 
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint8_fb.data(),
-          Cint32_buffer.data(),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+        PackAWithRowOffset<uint8_t, int16_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            groups,
+            row_offset_buf.data());
+
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+
+        DoNothing<> doNothingObj{};
+
+        if (q_granularity == QuantizationGranularity::TENSOR) {
+          ReQuantizeOutput<false> outputProcObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              packAN.getRowOffsetBuffer(),
+              col_offsets.data(),
+              nullptr,
+              groups * n_adjusted,
+              groups);
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cint8_fb.data(),
+              Cint32_buffer.data(),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        } else if (q_granularity == QuantizationGranularity::GROUP) {
+          ReQuantizeOutput<false, QuantizationGranularity::GROUP> outputProcObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              packAN.getRowOffsetBuffer(),
+              col_offsets.data(),
+              nullptr,
+              groups * n_adjusted,
+              groups);
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cint8_fb.data(),
+              Cint32_buffer.data(),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        } else {
+          ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL>
+              outputProcObj(
+                  doNothingObj,
+                  C_multiplier.data(),
+                  C_zero_pt,
+                  Aint8_zero_point,
+                  Bint8_zero_point.data(),
+                  packAN.getRowOffsetBuffer(),
+                  col_offsets.data(),
+                  nullptr,
+                  groups * n_adjusted,
+                  groups);
+
+          fbgemmPacked(
+              packAN,
+              packedBN,
+              Cint8_fb.data(),
+              Cint32_buffer.data(),
+              groups * n,
+              outputProcObj,
+              tid,
+              num_threads);
+        }
+      } // omp parallel
 
       compare_validate_buffers(
           Cint8_ref.data(),
@@ -251,11 +335,12 @@ TEST_P(fbgemmu8s8acc16test, Test) {
  * @brief Unit test for uint8 matrix A, int8 matrix B, and 16-bit
  * accumulation. Output processing: spmdm -> requantization -> nothing
  */
-TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
+TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
-  tie(atrans, btrans, test_ld) = GetParam();
+  QuantizationGranularity q_granularity;
+  tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
     for (int groups : {1, 3, 4}) {
@@ -270,21 +355,19 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
         }
         int k_per_group = k / groups;
 
-        aligned_vector<uint8_t> Aint8(m * k, 0);
+        aligned_vector<uint8_t> Aint8(m * k);
+        aligned_vector<int8_t> Bint8(k * n);
 
-        aligned_vector<int8_t> Bint8(k * n, 0);
-        aligned_vector<int8_t> Bint8_ref(Bint8.size(), 0);
+        aligned_vector<int32_t> Cint32_ref(m * n * groups);
+        aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size());
+        aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+        aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
+        aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
-        aligned_vector<int32_t> Cint32_ref(m * n * groups, 0);
-        aligned_vector<uint8_t> Cint8_ref(Cint32_ref.size(), 0);
-        aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-        aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
-        aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size(), 0);
-
-        randFill(Aint8, 0, 255);
+        randFill<uint8_t>(Aint8, 0, 255);
         int32_t Aint8_zero_point = 43;
 
-        randFill(Bint8, -128, 127);
+        randFill<int8_t>(Bint8, -128, 127);
 
         // To test lda != k , we just reduce k by half and use the original k
         // as lda.
@@ -298,18 +381,27 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
           }
         }
 
-        int32_t Bint8_zero_point = -30;
+        int ncols_per_quant_group = groups * n_adjusted;
+        if (q_granularity == QuantizationGranularity::GROUP) {
+          ncols_per_quant_group = n_adjusted;
+        } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
+          ncols_per_quant_group = 1;
+        }
+        aligned_vector<int32_t> Bint8_zero_point(
+            groups * n_adjusted / ncols_per_quant_group);
+        randFill(Bint8_zero_point, -50, -10);
+
         // computing column offset
-        vector<int32_t> col_offsets;
-        col_offsets.resize(groups * n_adjusted);
+        vector<int32_t> col_offsets(groups * n_adjusted);
         for (int g = 0; g < groups; ++g) {
           col_offsets_with_zero_pt_s8acc32_ref(
               k_per_group,
               n_adjusted,
               n,
-              Bint8_ref.data() + g * k_per_group * n,
-              Bint8_zero_point,
-              col_offsets.data() + g * n_adjusted);
+              Bint8.data() + g * k_per_group * n,
+              Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
+              col_offsets.data() + g * n_adjusted,
+              ncols_per_quant_group);
         }
 
         CompressedSparseColumn B_csc(k_per_group, groups * n_adjusted);
@@ -353,7 +445,7 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
         }
         B_csc.ColPtr()[groups * n_adjusted] = total_nnz;
 
-        Bint8_ref = Bint8;
+        aligned_vector<int8_t> Bint8_ref(Bint8);
 
         if (btrans == matrix_op_t::Transpose) {
           aligned_vector<int8_t> Bint8_temp(Bint8.size());
@@ -363,16 +455,16 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
                 n,
                 Bint8.data() + g * k_per_group * n,
                 n,
-                Bint8_temp.data() + g * k_per_group,
-                groups * k_per_group);
+                Bint8_temp.data() + g * k_per_group * n,
+                k_per_group);
           }
           Bint8 = Bint8_temp;
         }
 
-        vector<int32_t> row_offsets;
-        row_offsets.resize(m);
+        vector<int32_t> row_offsets(m);
 
-        float C_multiplier = 0.1234;
+        aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+        randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
         int32_t C_zero_pt = 5;
 
         int brow = 256;
@@ -415,76 +507,143 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
               groups * n,
               Cint32_ref.data() + g * n_adjusted,
               Cint8_ref.data() + g * n_adjusted,
-              C_multiplier,
+              C_multiplier.data() + g * n_adjusted / ncols_per_quant_group,
               C_zero_pt,
               Aint8_zero_point,
-              Bint8_zero_point,
+              Bint8_zero_point.data() + g * n_adjusted / ncols_per_quant_group,
               row_offsets.data(),
               col_offsets.data() + g * n_adjusted,
-              nullptr);
+              nullptr,
+              ncols_per_quant_group);
         }
-
-        vector<int32_t> row_offset_buf;
-        row_offset_buf.resize(
-            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-        PackAWithRowOffset<uint8_t, int16_t> packAN(
-            matrix_op_t::NoTranspose,
-            m,
-            k,
-            Aint8.data(),
-            k,
-            nullptr,
-            groups,
-            Aint8_zero_point,
-            row_offset_buf.data());
-
-        // spmdm -> requantization -> nothing
-        // construct an output processing pipeline in reverse order
-        // i.e. last output operation first
-        // Last operation should always be DoNothing with
-        // correct input and output type.
-        DoNothing<> doNothingObj{};
-        // The second last operation is requantization back
-        // to int8
-        ReQuantizeOutput<false> reqObj(
-            doNothingObj,
-            C_multiplier,
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point,
-            packAN.getRowOffsetBuffer(),
-            col_offsets.data(),
-            nullptr);
-        // the top most (first) operation in the output processing
-        // pipeline is spmdm
-        // outType = final output type after fullly processing through pipeline
-        // inType = initial input type at the first call to the whole pipeline
-        DoSpmdmOnInpBuffer<
-            ReQuantizeOutput<false>::outType,
-            int32_t,
-            ReQuantizeOutput<false>>
-            spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
 
         PackBMatrix<int8_t, int16_t> packedB(
             btrans,
             k,
             n_adjusted,
             Bint8.data(),
-            (btrans == matrix_op_t::Transpose) ? k : n,
+            (btrans == matrix_op_t::Transpose) ? k_per_group : n,
             nullptr,
-            groups,
-            Bint8_zero_point);
+            groups);
 
-        fbgemmPacked(
-            packAN,
-            packedB,
-            Cint8_fb.data(),
-            Cint32_fb.data(),
-            groups * n,
-            spmdmObj,
-            0,
-            1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+        {
+          vector<int32_t> row_offset_buf(
+              PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
+
+          PackAWithRowOffset<uint8_t, int16_t> packAN(
+              matrix_op_t::NoTranspose,
+              m,
+              k,
+              Aint8.data(),
+              k,
+              nullptr,
+              groups,
+              row_offset_buf.data());
+
+          int num_threads = fbgemm_get_num_threads();
+          int tid = fbgemm_get_thread_num();
+
+          // spmdm -> requantization -> nothing
+          // construct an output processing pipeline in reverse order
+          // i.e. last output operation first
+          // Last operation should always be DoNothing with
+          // correct input and output type.
+          DoNothing<> doNothingObj{};
+
+          if (q_granularity == QuantizationGranularity::TENSOR) {
+            // The second last operation is requantization back
+            // to int8
+            ReQuantizeOutput<false> reqObj(
+                doNothingObj,
+                C_multiplier.data(),
+                C_zero_pt,
+                Aint8_zero_point,
+                Bint8_zero_point.data(),
+                packAN.getRowOffsetBuffer(),
+                col_offsets.data(),
+                nullptr,
+                groups * n_adjusted,
+                groups);
+            // the top most (first) operation in the output processing
+            // pipeline is spmdm
+            // outType = final output type after fullly processing through
+            // pipeline inType = initial input type at the first call to the
+            // whole pipeline
+            DoSpmdmOnInpBuffer<
+                ReQuantizeOutput<false>::outType,
+                int32_t,
+                ReQuantizeOutput<false>>
+                spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
+
+            fbgemmPacked(
+                packAN,
+                packedB,
+                Cint8_fb.data(),
+                Cint32_fb.data(),
+                groups * n,
+                spmdmObj,
+                tid,
+                num_threads);
+          } else if (q_granularity == QuantizationGranularity::GROUP) {
+            ReQuantizeOutput<false, QuantizationGranularity::GROUP> reqObj(
+                doNothingObj,
+                C_multiplier.data(),
+                C_zero_pt,
+                Aint8_zero_point,
+                Bint8_zero_point.data(),
+                packAN.getRowOffsetBuffer(),
+                col_offsets.data(),
+                nullptr,
+                groups * n_adjusted,
+                groups);
+            DoSpmdmOnInpBuffer<
+                ReQuantizeOutput<false>::outType,
+                int32_t,
+                ReQuantizeOutput<false, QuantizationGranularity::GROUP>>
+                spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
+
+            fbgemmPacked(
+                packAN,
+                packedB,
+                Cint8_fb.data(),
+                Cint32_fb.data(),
+                groups * n,
+                spmdmObj,
+                tid,
+                num_threads);
+          } else {
+            ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL>
+                reqObj(
+                    doNothingObj,
+                    C_multiplier.data(),
+                    C_zero_pt,
+                    Aint8_zero_point,
+                    Bint8_zero_point.data(),
+                    packAN.getRowOffsetBuffer(),
+                    col_offsets.data(),
+                    nullptr,
+                    groups * n_adjusted,
+                    groups);
+            DoSpmdmOnInpBuffer<
+                ReQuantizeOutput<false>::outType,
+                int32_t,
+                ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL>>
+                spmdmObj(reqObj, Aint8.data(), k, B_csc, groups);
+
+            fbgemmPacked(
+                packAN,
+                packedB,
+                Cint8_fb.data(),
+                Cint32_fb.data(),
+                groups * n,
+                spmdmObj,
+                tid,
+                num_threads);
+          }
+        }
 
         compare_validate_buffers(
             Cint8_ref.data(),
@@ -502,7 +661,7 @@ TEST_P(fbgemmu8s8acc16test, SpMDMTest) {
  * @brief Unit test for uint8 matrix A, int8 matrix B, and 16-bit
  * accumulation. Output processing: nothing
  */
-TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
+TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
@@ -518,20 +677,19 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
       }
       int k_per_group = k / groups;
 
-      aligned_vector<uint8_t> Aint8(m * k, 0);
+      aligned_vector<uint8_t> Aint8(m * k);
 
-      aligned_vector<int8_t> Bint8(k * n, 0);
-      aligned_vector<int8_t> Bint8_ref(Bint8.size(), 0);
+      aligned_vector<int8_t> Bint8_ref(k * n);
 
-      aligned_vector<int32_t> Cint32_ref(m * n * groups, 0);
-      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
-      aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size(), 0);
+      aligned_vector<int32_t> Cint32_ref(m * n * groups);
+      aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+      aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
-      randFill(Aint8, 0, 255);
+      randFill<uint8_t>(Aint8, 0, 255);
       int32_t Aint8_zero_point = 43;
 
-      randFill(Bint8_ref, -128, 127);
-      Bint8 = Bint8_ref;
+      randFill<int8_t>(Bint8_ref, -128, 127);
+      aligned_vector<int8_t> Bint8(Bint8_ref);
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
@@ -541,8 +699,8 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
               n,
               Bint8.data() + g * k_per_group * n,
               n,
-              Bint8_temp.data() + g * k_per_group,
-              groups * k_per_group);
+              Bint8_temp.data() + g * k_per_group * n,
+              k_per_group);
         }
         Bint8 = Bint8_temp;
       }
@@ -561,20 +719,19 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
       }
 
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(groups * n_adjusted);
+      vector<int32_t> col_offsets(groups * n_adjusted);
       for (int g = 0; g < groups; ++g) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
             n,
             Bint8_ref.data() + g * k_per_group * n,
-            Bint8_zero_point,
-            col_offsets.data() + g * n_adjusted);
+            &Bint8_zero_point,
+            col_offsets.data() + g * n_adjusted,
+            n_adjusted);
       }
 
-      vector<int32_t> row_offsets;
-      row_offsets.resize(m);
+      vector<int32_t> row_offsets(m);
 
       int brow = 256;
       for (int g = 0; g < groups; ++g) {
@@ -598,43 +755,49 @@ TEST_P(fbgemmu8s8acc16test, NoRequantizeTest) {
             row_offsets.data());
       }
 
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-      PackAWithRowOffset<uint8_t, int16_t> packAN(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          groups,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
       PackBMatrix<int8_t, int16_t> packedBN(
           btrans,
           k,
           n_adjusted,
           Bint8.data(),
-          (btrans == matrix_op_t::Transpose) ? k : n,
+          (btrans == matrix_op_t::Transpose) ? k_per_group : n,
           nullptr,
-          groups,
-          Bint8_zero_point);
+          groups);
 
-      // DoNothing<> doNothingObj{};
-      DoNothing<int32_t, int32_t> doNothingObj{};
-      memCopy<> outputProcObj(doNothingObj);
-      fbgemmPacked(
-          packAN,
-          packedBN,
-          Cint32_fb.data(),
-          Cint32_buffer.data(),
-          groups * n,
-          outputProcObj,
-          0,
-          1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        vector<int32_t> row_offset_buf(
+            PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
+
+        PackAWithRowOffset<uint8_t, int16_t> packAN(
+            matrix_op_t::NoTranspose,
+            m,
+            k,
+            Aint8.data(),
+            k,
+            nullptr,
+            groups,
+            row_offset_buf.data());
+
+        // DoNothing<> doNothingObj{};
+        DoNothing<int32_t, int32_t> doNothingObj{};
+        memCopy<> outputProcObj(doNothingObj);
+
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+
+        fbgemmPacked(
+            packAN,
+            packedBN,
+            Cint32_fb.data(),
+            Cint32_buffer.data(),
+            groups * n,
+            outputProcObj,
+            tid,
+            num_threads);
+      }
 
       compare_validate_buffers(
           Cint32_ref.data(),

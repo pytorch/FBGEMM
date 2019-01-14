@@ -14,7 +14,7 @@
 #include "TestUtils.h"
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
-#include "src/FbgemmI8Depthwise.h"
+#include "src/FbgemmI8DepthwiseAvx2.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
@@ -85,10 +85,10 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
     aligned_vector<int8_t> B(K * R * S);
     aligned_vector<int32_t> C_ref(N * H_OUT * W_OUT * K), C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
-    randFill(B, -16, 16);
+    randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
     depthwise_3x3_pad_1_ref(
@@ -168,6 +168,7 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
         C_uint8.data(),
         col_offsets.data(),
         bias.data(),
+        false, /* fuse_relu */
         0,
         1);
 
@@ -211,10 +212,10 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
     aligned_vector<int32_t> C_ref(N * T_OUT * H_OUT * W_OUT * K),
         C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
-    randFill(B, -16, 16);
+    randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
     depthwise_3x3x3_pad_1_ref(
@@ -317,7 +318,7 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
         C_uint8.data(),
         col_offsets.data(),
         bias.data(),
-        false /* fuse_relu */,
+        false, /* fuse_relu */
         0,
         1);
 
@@ -360,7 +361,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     int32_t C_num_rows = N * H_OUT * W_OUT;
     aligned_vector<int32_t> C_ref(C_num_rows * K), C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
     // Each row of G has a different range to really test per-channel
@@ -368,7 +369,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     vector<int32_t> B_zero_point(K);
     for (auto k = 0; k < K; ++k) {
       aligned_vector<int8_t> Bk(R * S);
-      randFill(Bk, -16 + k, 16 + k);
+      randFill<int8_t>(Bk, -16 + k, 16 + k);
       copy(Bk.begin(), Bk.end(), B.begin() + k * R * S);
 
       B_zero_point[k] = 5 + k;
@@ -441,6 +442,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
         C_uint8.data(),
         col_offsets.data(),
         bias.data(),
+        false, /* fuse_relu */
         0,
         1);
 
@@ -459,6 +461,140 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
         }
       }
     }
+  } // for each shape
+} // Test3x3PerChannelQuantization
+
+TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
+  for (auto shape : shapes_3d) {
+    int N = shape[0];
+    int K = shape[1];
+    int T = shape[2];
+    int H = shape[3];
+    int W = shape[4];
+    int stride_t = shape[5];
+    int stride_h = stride_t;
+    int stride_w = stride_t;
+    constexpr int K_T = 3, K_H = 3, K_W = 3;
+    constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
+                  PAD_R = 1;
+    int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+    int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+    int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+
+    aligned_vector<uint8_t> A(N * T * H * W * K);
+    aligned_vector<int8_t> B(K * K_T * K_H * K_W);
+    int32_t C_num_rows = N * T_OUT * H_OUT * W_OUT;
+    aligned_vector<int32_t> C_ref(C_num_rows * K), C(C_ref.size());
+
+    randFill<uint8_t>(A, 0, 86);
+    int32_t A_zero_point = 43;
+
+    // Each row of G has a different range to really test per-channel
+    // quantization.
+    vector<int32_t> B_zero_point(K);
+    for (auto k = 0; k < K; ++k) {
+      aligned_vector<int8_t> Bk(K_T * K_H * K_W);
+      randFill<int8_t>(Bk, -16 + k, 16 + k);
+      copy(Bk.begin(), Bk.end(), B.begin() + k * K_T * K_H * K_W);
+
+      B_zero_point[k] = 5 + k;
+    }
+
+    depthwise_3x3x3_pad_1_ref(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A.data(),
+        B.data(),
+        C_ref.data());
+
+    aligned_vector<int32_t> C_ref_transpose(C_ref);
+    transpose_matrix(C_ref.data(), C_num_rows, K);
+    vector<float> C_multiplier(K);
+    for (auto k = 0; k < K; ++k) {
+      auto C_ref_k_begin = C_ref_transpose.begin() + k * C_num_rows;
+      auto C_ref_k_end = C_ref_k_begin + C_num_rows;
+      int32_t minimum = *min_element(C_ref_k_begin, C_ref_k_end);
+      int32_t maximum = *max_element(C_ref_k_begin, C_ref_k_end);
+      C_multiplier[k] = 255. / (maximum - minimum);
+      cerr << "k " << k << " minimum " << minimum << " maximum " << maximum
+           << " multiplier " << C_multiplier[k] << endl;
+    }
+    int32_t C_zero_point = 5;
+
+    aligned_vector<int32_t> col_offsets(K);
+    aligned_vector<int32_t> bias(K);
+    randFill(col_offsets, -100, 100);
+    randFill(bias, -40, 40);
+
+    aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
+    depthwise_3x3x3_per_channel_quantization_pad_1_ref(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A.data(),
+        B_zero_point.data(),
+        B.data(),
+        C_multiplier.data(),
+        C_zero_point,
+        C_uint8_ref.data(),
+        col_offsets.data(),
+        bias.data());
+
+    Packed3x3x3ConvMatrix Bp(K, B.data());
+
+    depthwise_3x3x3_per_channel_quantization_pad_1(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A.data(),
+        B_zero_point.data(),
+        Bp,
+        C_multiplier.data(),
+        C_zero_point,
+        C_uint8.data(),
+        col_offsets.data(),
+        bias.data(),
+        false, /* fuse_relu */
+        0,
+        1);
+
+    // correctness check
+    for (int n = 0; n < N; ++n) {
+      for (int t = 0; t < T_OUT; ++t) {
+        for (int h = 0; h < H_OUT; ++h) {
+          for (int w = 0; w < W_OUT; ++w) {
+            for (int k = 0; k < K; ++k) {
+              int32_t expected = C_uint8_ref
+                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+              int32_t actual =
+                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+              ASSERT_EQ(expected, actual)
+                  << "Depthwise 3x3 results differ at (" << n << ", " << t
+                  << ", " << h << ", " << w << ", " << k << ").";
+            }
+          } // w
+        } // h
+      } // t
+    } // n
   } // for each shape
 } // Test3x3PerChannelQuantization
 

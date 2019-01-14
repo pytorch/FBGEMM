@@ -5,36 +5,65 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "BenchUtils.h"
+
+#include <algorithm>
 #include <random>
+#include <type_traits>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace fbgemm {
 
 std::default_random_engine eng;
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, const int low, const int high) {
-  std::random_device r;
-  std::uniform_int_distribution<int> dis(low, high);
-  for (auto& v : vec) {
-    v = static_cast<T>(dis(eng));
-  }
+void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
+  std::uniform_int_distribution<T> dis(low, high);
+  std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
+}
+
+template <typename T>
+void randFill(aligned_vector<T>& vec, T low, T high, std::false_type) {
+  std::uniform_real_distribution<T> dis(low, high);
+  std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
+}
+
+template <typename T>
+void randFill(aligned_vector<T>& vec, T low, T high) {
+  randFill(vec, low, high, std::is_integral<T>());
 }
 
 template void
-randFill<float>(aligned_vector<float>& vec, const int low, const int high);
+randFill<float>(aligned_vector<float>& vec, float low, float high);
 template void
-randFill<uint8_t>(aligned_vector<uint8_t>& vec, const int low, const int high);
+randFill<uint8_t>(aligned_vector<uint8_t>& vec, uint8_t low, uint8_t high);
 template void
-randFill<int8_t>(aligned_vector<int8_t>& vec, const int low, const int high);
-
-template void
-randFill<int>(aligned_vector<int>& vec, const int low, const int high);
+randFill<int8_t>(aligned_vector<int8_t>& vec, int8_t low, int8_t high);
+template void randFill<int>(aligned_vector<int>& vec, int low, int high);
 
 void llc_flush(std::vector<char>& llc) {
   volatile char* data = llc.data();
   for (int i = 0; i < llc.size(); i++) {
     data[i]++;
   }
+}
+
+int fbgemm_get_num_threads() {
+#if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
+  return 1;
+#else
+  return omp_get_num_threads();
+#endif
+}
+
+int fbgemm_get_thread_num() {
+#if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
+  return 0;
+#else
+  return omp_get_thread_num();
+#endif
 }
 
 } // namespace fbgemm

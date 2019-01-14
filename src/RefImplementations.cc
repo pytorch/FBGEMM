@@ -57,24 +57,25 @@ void requantize_u8acc32_ref(
     int ld,
     const int32_t* inp,
     uint8_t* out,
-    float C_multiplier,
+    const float* C_multiplier,
     int32_t C_zero_point,
     int32_t A_zero_point,
-    int32_t B_zero_point,
+    const int32_t* B_zero_point,
     const int32_t* row_offsets,
     const int32_t* col_offsets,
     const int32_t* bias,
+    int ncols_per_quant_group,
     bool fuse_relu) {
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
       int32_t raw = inp[i * ld + j];
       raw -= A_zero_point * col_offsets[j];
-      raw -= B_zero_point * row_offsets[i];
+      raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
       if (bias) {
         raw += bias[j];
       }
 
-      float result = raw * C_multiplier;
+      float result = raw * C_multiplier[j / ncols_per_quant_group];
       long rounded = lrintf(result) + C_zero_point;
       out[i * ld + j] = std::max(
           fuse_relu ? static_cast<long>(C_zero_point) : 0l,
@@ -180,14 +181,15 @@ void col_offsets_with_zero_pt_s8acc32_ref(
     int N,
     int ld,
     const int8_t* Bint8,
-    int32_t B_zero_point,
-    int32_t* col_offsets) {
+    const int32_t* B_zero_point,
+    int32_t* col_offsets,
+    int ncols_per_quant_group) {
   for (int j = 0; j < N; ++j) {
     int32_t sum = 0;
     for (int k = 0; k < K; ++k) {
       sum += Bint8[k * ld + j];
     }
-    col_offsets[j] = sum - B_zero_point * K;
+    col_offsets[j] = sum - B_zero_point[j / ncols_per_quant_group] * K;
   }
 }
 
@@ -383,7 +385,7 @@ void conv_ref(
     int32_t* C) {
   // filters are assumed to be in G RS C/G x K format
   int IC = conv_p.IC;
-  int OC = conv_p.IC;
+  int OC = conv_p.OC;
   int G = conv_p.G;
   assert(IC % G == 0);
   assert(OC % G == 0);
@@ -484,6 +486,31 @@ void conv3d_ref(
   } // for each n
 }
 
+void transposeConvWeights(
+    const conv_param_t<>& conv_p,
+    const std::int8_t* src,
+    std::int8_t* dest) {
+  int R = conv_p.K[0];
+  int S = conv_p.K[1];
+  int G = conv_p.G;
+  int IC_per_G = conv_p.IC / conv_p.G;
+  int OC_per_G = conv_p.OC / conv_p.G;
+
+  // Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
+  for (int r = 0; r < R; ++r) {
+    for (int s = 0; s < S; ++s) {
+      for (int k = 0; k < OC_per_G; ++k) {
+        for (int g = 0; g < G; ++g) {
+          for (int c = 0; c < IC_per_G; ++c) {
+            dest[(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k] =
+                src[(((g * OC_per_G + k) * R + r) * S + s) * IC_per_G + c];
+          }
+        }
+      }
+    }
+  }
+}
+
 void depthwise_3x3_pad_1_ref(
     int N,
     int H,
@@ -578,13 +605,14 @@ void depthwise_3x3_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier,
+          &C_multiplier,
           C_zero_point,
           A_zero_point,
-          B_zero_point,
+          &B_zero_point,
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };
@@ -644,13 +672,14 @@ void depthwise_3x3_per_channel_quantization_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier[k],
+          &C_multiplier[k],
           C_zero_point,
           A_zero_point,
-          B_zero_point[k],
+          &B_zero_point[k],
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };
@@ -781,13 +810,103 @@ void depthwise_3x3x3_pad_1_ref(
           1,
           C_int32.data() + i * K + k,
           C + i * K + k,
-          C_multiplier,
+          &C_multiplier,
           C_zero_point,
           A_zero_point,
-          B_zero_point,
+          &B_zero_point,
           &row_offsets[i * K + k],
           col_offsets + k,
-          bias ? bias + k : nullptr);
+          bias ? bias + k : nullptr,
+          1);
+    }
+  }
+};
+
+void depthwise_3x3x3_per_channel_quantization_pad_1_ref(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const int8_t* B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias) {
+  constexpr int K_T = 3, K_H = 3, K_W = 3;
+  constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
+                PAD_R = 1;
+  int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+  int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+
+  vector<int32_t> C_int32(N * T_OUT * H_OUT * W_OUT * K);
+  depthwise_3x3x3_pad_1_ref(
+      N,
+      T,
+      H,
+      W,
+      K,
+      stride_t,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B,
+      C_int32.data());
+
+  vector<int32_t> row_offsets(N * T_OUT * H_OUT * W_OUT * K);
+  for (int n = 0; n < N; ++n) {
+    for (int t = 0; t < T_OUT; ++t) {
+      for (int h = 0; h < H_OUT; ++h) {
+        for (int w = 0; w < W_OUT; ++w) {
+          for (int k = 0; k < K; ++k) {
+            int sum = 0;
+            for (int k_t = 0; k_t < K_T; ++k_t) {
+              int t_in = -PAD_P + t * stride_t + k_t;
+              for (int k_h = 0; k_h < K_H; ++k_h) {
+                int h_in = -PAD_T + h * stride_h + k_h;
+                for (int k_w = 0; k_w < K_W; ++k_w) {
+                  int w_in = -PAD_L + w * stride_w + k_w;
+                  int a = t_in < 0 || t_in >= T || h_in < 0 || h_in >= H ||
+                          w_in < 0 || w_in >= W
+                      ? A_zero_point
+                      : A[(((n * T + t_in) * H + h_in) * W + w_in) * K + k];
+                  sum += a;
+                }
+              }
+            }
+            row_offsets[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k] =
+                sum;
+          }
+        } // w
+      } // h
+    } // t
+  } // for each n
+
+  for (int i = 0; i < N * T_OUT * H_OUT * W_OUT; ++i) {
+    for (int k = 0; k < K; ++k) {
+      requantize_u8acc32_ref(
+          1,
+          1,
+          1,
+          C_int32.data() + i * K + k,
+          C + i * K + k,
+          &C_multiplier[k],
+          C_zero_point,
+          A_zero_point,
+          &B_zero_point[k],
+          &row_offsets[i * K + k],
+          col_offsets + k,
+          bias ? bias + k : nullptr,
+          1);
     }
   }
 };

@@ -22,25 +22,27 @@ set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
-set(FBGEMM_AVX2_SRCS src/ExecuteKernel.cc
+set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc
                 src/FbgemmFP16.cc
-                src/FbgemmFP16UKernels.cc
-                src/FbgemmI8Depthwise.cc
                 src/FbgemmI8Spmdm.cc
                 src/GenerateKernelU8S8S32ACC16.cc
-                src/GenerateKernelU8S8S32ACC16_avx512.cc
+                src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC32.cc
-                src/GenerateKernelU8S8S32ACC32_avx512.cc
+                src/GenerateKernelU8S8S32ACC32Avx512.cc
+                src/GroupwiseConvAcc32Avx2.cc
                 src/PackAMatrix.cc
                 src/PackAWithIm2Col.cc
                 src/PackBMatrix.cc
                 src/PackMatrix.cc
-                src/PackWithQuantRowOffset.cc
-                src/PackWithRowOffset.cc
+                src/PackAWithQuantRowOffset.cc
+                src/PackAWithRowOffset.cc
+                src/PackWeightMatrixForGConv.cc
+                src/QuantUtils.cc
                 src/RefImplementations.cc
                 src/Utils.cc)
 
@@ -51,24 +53,47 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
+#check if compiler supports openmp
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+else()
+  message(WARNING "OpenMP is not supported by the compiler")
+endif()
+
+#All the source files that either use avx2 instructions statically
+set(FBGEMM_AVX2_SRCS
+  src/FbgemmFP16UKernelsAvx2.cc
+  src/FbgemmI8DepthwiseAvx2.cc
+  src/OptimizedKernelsAvx2.cc
+  src/QuantUtilsAvx2.cc
+  src/UtilsAvx2.cc)
+
 #All the source files that use avx512 instructions statically
-set(FBGEMM_AVX512_SRCS src/Utils_avx512.cc)
+set(FBGEMM_AVX512_SRCS src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/OutputProcessing-inl.h
                           include/fbgemm/PackingTraits-inl.h
+                          include/fbgemm/QuantUtils.h
+                          include/fbgemm/QuantUtilsAvx2.h
                           include/fbgemm/Utils.h
+                          include/fbgemm/UtilsAvx2.h
                           include/fbgemm/ConvUtils.h
                           include/fbgemm/Types.h
                           include/fbgemm/FbgemmI8Spmdm.h)
 
 
+add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS})
 add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
 
-set_target_properties(fbgemm_avx2 fbgemm_avx512 PROPERTIES
+set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_STANDARD 11
-      CXX_EXTENSIONS NO)
+      CXX_EXTENSIONS NO
+      CXX_VISIBILITY_PRESET hidden)
 
 target_compile_options(fbgemm_avx2 PRIVATE
   "-m64" "-mavx2" "-mfma" "-masm=intel")
@@ -120,6 +145,12 @@ if(NOT TARGET cpuinfo)
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
+target_include_directories(fbgemm_generic BEFORE
+      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+      PRIVATE "${ASMJIT_SRC_DIR}/src"
+      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+
 target_include_directories(fbgemm_avx2 BEFORE
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
@@ -133,14 +164,28 @@ target_include_directories(fbgemm_avx512 BEFORE
       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
-  add_library(fbgemm $<TARGET_OBJECTS:fbgemm_avx2>
+  add_library(fbgemm
+    $<TARGET_OBJECTS:fbgemm_generic>
+    $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-  add_library(fbgemm SHARED $<TARGET_OBJECTS:fbgemm_avx2>
+  add_library(fbgemm SHARED
+    $<TARGET_OBJECTS:fbgemm_generic>
+    $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
+  set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_target_properties(fbgemm PROPERTIES
+    CXX_VISIBILITY_PRESET hidden)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-  add_library(fbgemm STATIC $<TARGET_OBJECTS:fbgemm_avx2>
+  add_library(fbgemm STATIC
+    $<TARGET_OBJECTS:fbgemm_generic>
+    $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
+  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()

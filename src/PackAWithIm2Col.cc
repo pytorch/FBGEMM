@@ -11,6 +11,7 @@
 #include <iostream>
 #include <numeric>
 
+#include "OptimizedKernelsAvx2.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -36,10 +37,10 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
               std::multiplies<int>()) *
               conv_p.IC,
           pmat,
-          conv_p.G,
-          zero_pt),
+          conv_p.G),
       conv_p_(conv_p),
-      sdata_(sdata) {
+      sdata_(sdata),
+      zero_pt_(zero_pt) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
   if (cpuinfo_has_x86_avx512f()) {
@@ -108,6 +109,10 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
     }
   }
 
+  // reduceAvx2 only written for T == uint8_t
+  static_assert(
+      std::is_same<T, uint8_t>::value,
+      "PackAWithIm2Col<T, accT>::pack only works for T == uint8_t");
   if (point_wise) {
     int32_t ld = this->numCols();
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
@@ -122,31 +127,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       }
       int32_t row_sum =
           row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      __m256i sum_v = _mm256_setzero_si256();
-      __m256i one_epi16_v = _mm256_set1_epi16(1);
-      __m256i one_epi8_v = _mm256_set1_epi8(1);
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size / 32 * 32;
-           j += 32) {
-        __m256i src_v = _mm256_loadu_si256(
-            reinterpret_cast<__m256i const*>(sdata_ + i * ld + j));
-        sum_v = _mm256_add_epi32(
-            sum_v,
-            _mm256_madd_epi16(
-                _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
-      }
-      for (int j = block.col_start + block.col_size / 32 * 32;
-           j < block.col_start + block.col_size;
-           ++j) {
-        row_sum += sdata_[i * ld + j];
-      }
-      // alignas(64) std::array<int32_t, 8> temp;
-      alignas(64) std::int32_t temp[8];
-      //_mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
-      _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-      for (int k = 0; k < 8; ++k) {
-        row_sum += temp[k];
-      }
+      row_sum += reduceAvx2(sdata_ + i * ld + block.col_start, block.col_size);
       row_offset_buf[i - block.row_start] = row_sum;
     }
 
@@ -187,7 +168,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           std::memset(
               out + (i - block.row_start) * BaseType::blockColSize() +
                   (j_blk_start - block.col_start),
-              BaseType::zeroPoint(),
+              zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
@@ -239,7 +220,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               &out
                   [(i - block.row_start) * BaseType::blockColSize() +
                    (j_blk_start - block.col_start)],
-              BaseType::zeroPoint(),
+              zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
@@ -273,27 +254,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
     // TODO: skip row_offset computation when B_zero_point is 0
     int32_t row_sum = row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-
-    __m256i sum_v = _mm256_setzero_si256();
-    __m256i one_epi16_v = _mm256_set1_epi16(1);
-    __m256i one_epi8_v = _mm256_set1_epi8(1);
-    for (int j = 0; j < block.col_size / 32 * 32; j += 32) {
-      __m256i src_v = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(
-          out + (i - block.row_start) * this->blockColSize() + j));
-      sum_v = _mm256_add_epi32(
-          sum_v,
-          _mm256_madd_epi16(
-              _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
-    }
-    for (int j = block.col_size / 32 * 32; j < block.col_size; ++j) {
-      row_sum += out[(i - block.row_start) * this->blockColSize() + j];
-    }
-    alignas(64) int32_t temp[8];
-    _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-    for (int k = 0; k < 8; ++k) {
-      row_sum += temp[k];
-    }
-
+    row_sum += reduceAvx2(
+        out + (i - block.row_start) * this->blockColSize(), block.col_size);
     row_offset_buf[i - block.row_start] = row_sum;
   } // for each i
 }

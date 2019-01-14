@@ -20,14 +20,8 @@ PackBMatrix<T, accT>::PackBMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int groups,
-    std::int32_t zero_pt)
-    : PackMatrix<PackBMatrix<T, accT>, T, accT>(
-          nRow,
-          nCol,
-          pmat,
-          groups,
-          zero_pt),
+    int groups)
+    : PackMatrix<PackBMatrix<T, accT>, T, accT>(nRow, nCol, pmat, groups),
       trans_(trans),
       smat_(smat),
       ld_(ld) {
@@ -75,7 +69,7 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
         g * this->packedBufferSize(block.row_size, block.col_size);
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-        T val = tr ? smat_[g * block.row_size + i + ld_ * j]
+        T val = tr ? smat_[i + (g * block.col_size + j) * ld_]
                    : smat_[(g * block.row_size + i) * ld_ + j];
         out[addr(i, j)] = tconv(val, out[addr(i, j)]);
       }
@@ -162,8 +156,7 @@ bool PackBMatrix<T, accT>::metaEquals(const PackBMatrix<T, accT>& that) const {
       BaseType::blockCols() != that.blockCols() ||
       BaseType::numPackedRows() != that.numPackedRows() ||
       BaseType::numPackedCols() != that.numPackedCols() ||
-      BaseType::zeroPoint() != that.zeroPoint() || trans_ != that.trans_ ||
-      BaseType::numGroups() != that.numGroups() ||
+      trans_ != that.trans_ || BaseType::numGroups() != that.numGroups() ||
       row_interleave_ != that.row_interleave_) {
     return false;
   }

@@ -65,7 +65,7 @@ int main() {
 
   // open all files
   ofstream srcfile;
-  srcfile.open("FbgemmFP16UKernels.cc");
+  srcfile.open("FbgemmFP16UKernelsAvx2.cc");
   srcfile
       << "/*\n"
          " * Copyright (c) Facebook, Inc. and its affiliates.\n"
@@ -73,14 +73,14 @@ int main() {
          " * This source code is licensed under the BSD-style license found in the\n"
          " * LICENSE file in the root directory of this source tree.\n"
          " */\n";
-  srcfile << "#include \"FbgemmFP16UKernels.h\"\n\n";
+  srcfile << "#include \"FbgemmFP16UKernelsAvx2.h\"\n\n";
   srcfile << "namespace fbgemm {\n\n";
   if (iaca) {
     srcfile << "#include \"iacaMarks.h\"\n";
   }
 
   ofstream hdrfile;
-  hdrfile.open("FbgemmFP16UKernels.h");
+  hdrfile.open("FbgemmFP16UKernelsAvx2.h");
   hdrfile
       << "/*\n"
          " * Copyright (c) Facebook, Inc. and its affiliates.\n"
@@ -92,8 +92,6 @@ int main() {
   hdrfile << "#ifndef FBGEMM_UKERNELS\n";
   hdrfile << "#define FBGEMM_UKERNELS\n";
   hdrfile << "#include <cstdint>\n";
-  hdrfile << "#include <tuple>\n";
-  hdrfile << "#include <vector>\n";
   hdrfile << "#include \"fbgemm/Types.h\"\n\n";
   hdrfile << "namespace fbgemm {\n\n";
   hdrfile << "using fp16 = float16;\n";

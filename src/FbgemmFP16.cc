@@ -10,7 +10,7 @@
 #include <array>
 #include <utility>
 
-#include "FbgemmFP16UKernels.h"
+#include "FbgemmFP16UKernelsAvx2.h"
 
 using namespace std;
 
@@ -184,7 +184,7 @@ constexpr array<KernelInfo::knl_ptr, 15> KernelInfo::kernel;
 constexpr array<array<array<int, 2>, 2>, 121> KernelInfo::partition;
 
 // autotuned kernel splits for various cases m = 1:mb_max
-void cblas_gemm_compute(
+FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
@@ -229,7 +229,7 @@ void cblas_gemm_compute(
 
       const int kb = std::min(Bp.blockRowSize(), Bp.numRows() - k_ind);
 
-      auto m1 = 0;
+      auto m1 = m0;
       for (auto c = 0; c < 2; c++) {
         auto kernel_nrows = KernelInfo::partition[mb][c][0];
         auto nkernel_nrows = KernelInfo::partition[mb][c][1];

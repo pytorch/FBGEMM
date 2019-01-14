@@ -12,6 +12,10 @@
 #include <mkl.h>
 #endif
 
+#ifdef USE_BLAS
+#include <cblas.h>
+#endif
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -73,20 +77,24 @@ void performance_test() {
     int n = s[1];
     int k = s[2];
 
-    aligned_vector<float> A(m * k, 0.f);
-    aligned_vector<float> B(k * n, 0.f);
-    aligned_vector<float> Cg(m * n, 1.f);
-    aligned_vector<float> Cp(m * n, NAN);
+    aligned_vector<float> C_ref(m * n, 1.f);
+    aligned_vector<float> C_fb(m * n, NAN);
 
     // initialize with small numbers
-    randFill(A, 0, 4);
+    aligned_vector<int> Aint(m * k);
+    randFill(Aint, 0, 4);
+    aligned_vector<float> A(Aint.begin(), Aint.end());
 
-    randFill(B, 0, 4);
+    aligned_vector<int> Bint(k * n);
+    randFill(Bint, 0, 4);
+    aligned_vector<float> B(Bint.begin(), Bint.end());
     PackedGemmMatrixFP16 Bp(btran, k, n, alpha, B.data());
 
     if (beta != 0.0f) {
-      randFill(Cg, 0, 4);
-      Cp = Cg;
+      aligned_vector<int> Cint(C_ref.size());
+      randFill(Cint, 0, 4);
+      C_ref.assign(Cint.begin(), Cint.end());
+      C_fb = C_ref;
     }
 
     double nflops = 2.0 * (double)m * (double)n * (double)k * (double)NITER;
@@ -97,7 +105,7 @@ void performance_test() {
     // warm up MKL and fbgemm
     // check correctness at the same time
     for (auto w = 0; w < 3; w++) {
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
       cblas_sgemm(
           CblasRowMajor,
           CblasNoTrans,
@@ -111,25 +119,35 @@ void performance_test() {
           B.data(),
           (btran == matrix_op_t::NoTranspose) ? n : k,
           beta,
-          Cg.data(),
+          C_ref.data(),
           n);
 #endif
       cblas_gemm_compute(
-          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, Cp.data());
+          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, C_fb.data());
 
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
       // Compare results
-      for (auto i = 0; i < Cg.size(); i++) {
-        // printf("%f %f\n", Cg[i], Cp[i]);
-        assert(std::abs(Cg[i] - Cp[i]) < 1e-3);
+      for (auto i = 0; i < C_ref.size(); i++) {
+        if (std::abs(C_ref[i] - C_fb[i]) > 1e-3) {
+          fprintf(
+              stderr,
+              "Error: too high diff between fp32 ref %f and fp16 %f\n",
+              C_ref[i],
+              C_fb[i]);
+          return;
+        }
       }
 #endif
     }
 
     chrono::time_point<chrono::system_clock> t_begin, t_end;
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_BLAS)
     // Gold via MKL sgemm
+#if defined(USE_MKL)
     type = "MKL_FP32";
+#else
+    type = "BLAS_FP32";
+#endif
     ttot = 0;
     for (auto it = -3; it < NITER; it++) {
       if (flush) {
@@ -151,7 +169,7 @@ void performance_test() {
           B.data(),
           (btran == matrix_op_t::NoTranspose) ? n : k,
           beta,
-          Cg.data(),
+          C_ref.data(),
           n);
       t_end = chrono::system_clock::now();
       if (it >= 0) {
@@ -162,7 +180,7 @@ void performance_test() {
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(
-        "\n%15s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
+        "\n%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
         type.c_str(),
         m,
         n,
@@ -184,7 +202,7 @@ void performance_test() {
 
       t_begin = chrono::system_clock::now();
       cblas_gemm_compute(
-          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, Cp.data());
+          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, C_fb.data());
       t_end = chrono::system_clock::now();
 
       if (it >= 0) {
@@ -195,7 +213,7 @@ void performance_test() {
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(
-        "%15s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
+        "%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
         type.c_str(),
         m,
         n,
@@ -208,8 +226,11 @@ void performance_test() {
 
 int main(int /*argc*/, char** /*argv*/) {
 #ifdef _OPENMP
-  omp_set_num_threads(1);
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
 #endif
-
   performance_test();
 }

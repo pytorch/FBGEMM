@@ -23,51 +23,37 @@
 using namespace std;
 using namespace fbgemm;
 
+template <typename Acc_t>
 void performance_test() {
   vector<conv_param_t<>> shapes = {
-      // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w, pad_h, pad_w
-      conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {2, 2}, {0, 0, 0, 0}),
-      conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {2, 2}, {0, 0, 0, 0}),
-      conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {47, 125}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {64, 125}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {66, 125}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {67, 100}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {75, 75}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {75, 76}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {75, 100}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {94, 75}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {109, 75}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {24, 63}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {33, 63}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {34, 50}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {36, 63}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {38, 38}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {38, 40}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {47, 38}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(51, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(100, 1088, 1088, {7, 7}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {93, 250}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {128, 250}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {133, 200}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {150, 150}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {150, 151}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {150, 158}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {188, 150}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 248, 248, {225, 150}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {47, 125}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {64, 125}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {66, 125}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {67, 100}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {75, 75}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {75, 76}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 272, 272, {94, 75}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(51, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(100, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
+      // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
+      // ResNext 101
+      // Batch size = 1
+      conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
+      conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 512, 512, {28, 28}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 1024, 1024, {14, 14}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // Batch size = 50
+      conv_param_t<>(50, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
+      conv_param_t<>(50, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 512, 512, {28, 28}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(
+          50, 1024, 1024, {14, 14}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(50, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
   };
 
   bool flush = true;
@@ -88,6 +74,7 @@ void performance_test() {
        << "OC, "
        << "IH, "
        << "IW, "
+       << "G, "
        << "KH, "
        << "KW, "
        << "stride_h, "
@@ -111,6 +98,7 @@ void performance_test() {
        << "OC, "
        << "IH, "
        << "IW, "
+       << "G, "
        << "KH, "
        << "KW, "
        << "stride_h, "
@@ -125,45 +113,32 @@ void performance_test() {
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
   for (auto conv_p : shapes) {
-    aligned_vector<float> Afp32(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0.0f);
+    if (conv_p.IC % conv_p.G != 0 || conv_p.OC % conv_p.G != 0) {
+      continue;
+    }
     aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
+        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC);
 
     aligned_vector<uint8_t> Aint8_out(
         conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.K[0] *
-            conv_p.K[1] * conv_p.IC,
-        0);
+        conv_p.K[1] * conv_p.IC);
 
-    aligned_vector<float> Bfp32(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0.0f);
     aligned_vector<int8_t> Bint8(
-        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC, 0);
+        conv_p.K[0] * conv_p.K[1] * conv_p.IC * conv_p.OC);
 
     aligned_vector<int32_t> Cint32_ref(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-
-    aligned_vector<int32_t> Cint32_fb(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-
-    aligned_vector<int32_t> Cint32_fb2(
-        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC, 0);
-
-    // cout << conv_p.toString() << endl;
+        conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1] * conv_p.OC);
+    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size());
+    aligned_vector<int32_t> Cint32_fb2(Cint32_ref.size());
 
     // A matrix (input activations)
-    randFill(Afp32, 0, 5);
+    randFill<uint8_t>(Aint8, 0, 5);
     int32_t Aint8_zero_point = 4;
-    for (auto i = 0; i < Afp32.size(); ++i) {
-      Aint8[i] = static_cast<uint8_t>(Afp32[i]);
-    }
 
     // B matrix (weights)
-    randFill(Bfp32, -4, 4);
+    randFill<int8_t>(Bint8, -4, 4);
     // int32_t Bint8_zero_point = -3;
-    for (auto i = 0; i < Bfp32.size(); ++i) {
-      Bint8[i] = static_cast<int8_t>(Bfp32[i]);
-    }
+    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
     // reference implementation
     conv_ref(
@@ -175,7 +150,7 @@ void performance_test() {
 
     // matrix dimensions after im2col
     int MDim = conv_p.MB * conv_p.OUT_DIM[0] * conv_p.OUT_DIM[1];
-    int NDim = conv_p.OC;
+    int NDim = conv_p.OC / conv_p.G;
     int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
 
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), KDim, NDim, NDim,
@@ -186,15 +161,20 @@ void performance_test() {
     double ttot = 0.0;
     string runType;
 
-    vector<int32_t> row_offset_buf;
-    row_offset_buf.resize(
-        PackAWithIm2Col<uint8_t, int32_t>::rowOffsetBufferSize());
+    vector<int32_t> row_offset_buf(
+        PackAWithIm2Col<uint8_t, Acc_t>::rowOffsetBufferSize());
 
-    PackAWithIm2Col<uint8_t, int32_t> packA(
+    PackAWithIm2Col<uint8_t, Acc_t> packA(
         conv_p, Aint8.data(), nullptr, Aint8_zero_point, row_offset_buf.data());
 
-    PackBMatrix<int8_t, int32_t> packedB(
-        matrix_op_t::NoTranspose, KDim, NDim, Bint8.data(), NDim);
+    PackBMatrix<int8_t, Acc_t> packedB(
+        matrix_op_t::NoTranspose,
+        KDim,
+        NDim,
+        Bint8.data(),
+        NDim,
+        nullptr,
+        conv_p.G);
 
     // no-op output process objects
     DoNothing<int32_t, int32_t> doNothing32BitObj;
@@ -226,7 +206,7 @@ void performance_test() {
           packedB,
           Cint32_fb.data(),
           Cint32_fb.data(),
-          NDim,
+          conv_p.G * NDim,
           memcopyObj,
           0,
           1);
@@ -299,15 +279,14 @@ void performance_test() {
       // printMatrix(matrix_op_t::NoTranspose, Aint8_out.data(), MDim, KDim,
       // KDim, "A_out after im2col unpacked");
 
-      PackAWithRowOffset<uint8_t, int32_t> packAN(
+      PackAWithRowOffset<uint8_t, Acc_t> packAN(
           matrix_op_t::NoTranspose,
           MDim,
           KDim,
           Aint8_out.data(),
           KDim,
           nullptr,
-          1,
-          Aint8_zero_point,
+          conv_p.G,
           row_offset_buf.data());
 
       fbgemmPacked(
@@ -315,7 +294,7 @@ void performance_test() {
           packedB,
           Cint32_fb2.data(),
           Cint32_fb2.data(),
-          NDim,
+          conv_p.G * NDim,
           memcopyObj,
           0,
           1);
@@ -371,8 +350,13 @@ void performance_test() {
 
 int main() {
 #ifdef _OPENMP
-  omp_set_num_threads(1);
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
 #endif
-  performance_test();
+  performance_test<int16_t>();
+  performance_test<int32_t>();
   return 0;
 }

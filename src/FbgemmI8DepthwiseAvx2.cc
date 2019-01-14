@@ -4,23 +4,20 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "FbgemmI8Depthwise.h"
+#include "FbgemmI8DepthwiseAvx2.h"
 
-#include <algorithm>
-#include <array>
+#include <algorithm> // for min and max
 #include <cassert>
-#include <cmath>
-#include <cstdio>
-#include <tuple>
-#include <vector>
+#include <cmath> // for lrintf and sqrt
+#include <tuple> // for tie
 
-#include <x86intrin.h>
+#include <immintrin.h>
 
 using namespace std;
 
 namespace fbgemm {
 
-static array<array<int, 8>, 8> masks = {{
+static int masks[8][8] = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
   {  0,  0,  0,  0,  0,  0,  0,  0,  },
@@ -31,7 +28,7 @@ static array<array<int, 8>, 8> masks = {{
   { -1, -1, -1, -1, -1,  0,  0,  0,  },
   { -1, -1, -1, -1, -1, -1,  0,  0,  },
   { -1, -1, -1, -1, -1, -1, -1,  0,  },
-}};
+};
 
 template <int KERNEL_PROD>
 PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
@@ -39,7 +36,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : K_(K) {
   // Transpose the input matrix to make packing faster.
-  vector<int8_t> smat_transposed(K * KERNEL_PROD);
+  alignas(64) int8_t smat_transposed[K * KERNEL_PROD];
   for (int i = 0; i < KERNEL_PROD; ++i) {
     for (int j = 0; j < K; ++j) {
       smat_transposed[i * K + j] = smat[i + j * KERNEL_PROD];
@@ -108,25 +105,24 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
   for (int k1 = 0; k1 < K; k1 += 32) {
-    array<__m256i, KERNEL_PROD> b_v;
+    __m256i b_v[KERNEL_PROD];
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_loadu_si256(
-          reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+          reinterpret_cast<const __m256i*>(masks[remainder / 4]));
       for (int i = 0; i < KERNEL_PROD; ++i) {
         b_v[i] = _mm256_maskload_epi32(
-            reinterpret_cast<const int*>(smat_transposed.data() + i * K + k1),
-            mask_v);
+            reinterpret_cast<const int*>(smat_transposed + i * K + k1), mask_v);
       }
     } else {
       for (int i = 0; i < KERNEL_PROD; ++i) {
-        b_v[i] = _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(
-            smat_transposed.data() + i * K + k1));
+        b_v[i] = _mm256_lddqu_si256(
+            reinterpret_cast<const __m256i*>(smat_transposed + i * K + k1));
       }
     }
 
     // Interleave 2 SIMD registers
-    array<__m256i, KERNEL_PROD_ALIGNED> b_interleaved_epi16;
+    __m256i b_interleaved_epi16[KERNEL_PROD_ALIGNED];
     __m256i zero_v = _mm256_setzero_si256();
     for (int i = 0; i < KERNEL_PROD_ALIGNED / 2; ++i) {
       if (2 * i + 1 >= KERNEL_PROD) {
@@ -142,7 +138,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    array<__m256i, KERNEL_PROD_ALIGNED> b_interleaved_epi32;
+    __m256i b_interleaved_epi32[KERNEL_PROD_ALIGNED];
     for (int i = 0; i < KERNEL_PROD_ALIGNED / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
@@ -384,8 +380,8 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
     int32_t* C,
     int remainder,
     __m256i* a_sum = nullptr) {
-  array<__m256i, 4> c, c_temp;
-  array<__m256i, 2> a_sum_temp{};
+  __m256i c[4], c_temp[4];
+  __m256i a_sum_temp[2] = {0, 0};
 
   int k = 0;
   if (K >= 4) {
@@ -399,7 +395,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
         &c[1],
         &c[2],
         &c[3],
-        a_sum_temp.data());
+        a_sum_temp);
 
     for (k = 4; k < K / 4 * 4; k += 4) {
       madd_epi16x4_packed<SUM_A>(
@@ -412,7 +408,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
           &c_temp[1],
           &c_temp[2],
           &c_temp[3],
-          a_sum_temp.data());
+          a_sum_temp);
 
       c[0] = _mm256_add_epi32(c[0], c_temp[0]);
       c[1] = _mm256_add_epi32(c[1], c_temp[1]);
@@ -436,7 +432,7 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
         &c_temp[1],
         &c_temp[2],
         &c_temp[3],
-        a_sum_temp.data());
+        a_sum_temp);
 
     c[0] = _mm256_add_epi32(c[0], c_temp[0]);
     c[1] = _mm256_add_epi32(c[1], c_temp[1]);
@@ -457,17 +453,10 @@ static inline __attribute__((always_inline)) void inner_prod_packed_(
   } else {
     if (K - k == 1) {
       madd_epi16_packed<SUM_A>(
-          a_v[k], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp.data());
+          a_v[k], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp);
     } else if (K - k == 2) {
       madd_epi16x2_packed<SUM_A>(
-          a_v[k],
-          a_v[k + 1],
-          Bp + k,
-          &c[0],
-          &c[1],
-          &c[2],
-          &c[3],
-          a_sum_temp.data());
+          a_v[k], a_v[k + 1], Bp + k, &c[0], &c[1], &c[2], &c[3], a_sum_temp);
     }
 
     c[0] = _mm256_add_epi32(c[0], c_temp[0]);
@@ -552,8 +541,8 @@ static inline __attribute__((always_inline)) void requantize_(
     multiplier_v = _mm256_set1_ps(*C_multiplier);
   }
 
-  __m256i min_v = _mm256_set1_epi8(numeric_limits<uint8_t>::min());
-  __m256i max_v = _mm256_set1_epi8(numeric_limits<uint8_t>::max());
+  __m256i min_v = _mm256_set1_epi8(static_cast<uint8_t>(0));
+  __m256i max_v = _mm256_set1_epi8(static_cast<uint8_t>(255));
 
   __m256i A_zero_point_v = _mm256_set1_epi32(A_zero_point);
   __m256i C_zero_point_epi16_v = _mm256_set1_epi16(C_zero_point);
@@ -790,7 +779,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
     mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -813,7 +802,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
   //     }
   //   }
   // }
-  array<__m256i, 9> a_v = {
+  __m256i a_v[9] = {
       A_zero_point_v,
       A_zero_point_v,
       A_zero_point_v,
@@ -861,13 +850,9 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum;
+  __m256i a_sum[4];
   inner_prod_3x3_packed_<SUM_A, REMAINDER>(
-      a_v.data(),
-      reinterpret_cast<const __m256i*>(Bp),
-      C,
-      remainder,
-      a_sum.data());
+      a_v, reinterpret_cast<const __m256i*>(Bp), C, remainder, a_sum);
   if (SUM_A) {
     __m256i B_zero_point_v;
     for (int i = 0; i < (REMAINDER ? (remainder / 8) : 4); ++i) {
@@ -907,7 +892,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
     mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4].data()));
+        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -930,7 +915,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   //     }
   //   }
   // }
-  array<__m256i, 8> a_v;
+  __m256i a_v[8];
   a_v[0] = A_zero_point_v;
   a_v[1] = A_zero_point_v;
   a_v[2] = A_zero_point_v;
@@ -975,13 +960,9 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum;
+  __m256i a_sum[4];
   inner_prod_packed_<8, SUM_A, REMAINDER>(
-      a_v.data(),
-      reinterpret_cast<const __m256i*>(Bp),
-      C,
-      remainder,
-      a_sum.data());
+      a_v, reinterpret_cast<const __m256i*>(Bp), C, remainder, a_sum);
 
   a_v[0] = A_zero_point_v;
   a_v[1] = A_zero_point_v;
@@ -1032,13 +1013,9 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
     }
   }
 
-  array<__m256i, 4> a_sum_temp;
+  __m256i a_sum_temp[4];
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
-      reinterpret_cast<const __m256i*>(Bp) + 8,
-      C,
-      remainder,
-      a_sum_temp.data());
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 8, C, remainder, a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1093,11 +1070,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<8, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
-      reinterpret_cast<const __m256i*>(Bp) + 16,
-      C,
-      remainder,
-      a_sum_temp.data());
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 16, C, remainder, a_sum_temp);
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
     a_sum[1] = _mm256_add_epi32(a_sum[1], a_sum_temp[1]);
@@ -1124,11 +1097,7 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 
   inner_prod_packed_<3, SUM_A, REMAINDER, true /* acc */>(
-      a_v.data(),
-      reinterpret_cast<const __m256i*>(Bp) + 24,
-      C,
-      remainder,
-      a_sum_temp.data());
+      a_v, reinterpret_cast<const __m256i*>(Bp) + 24, C, remainder, a_sum_temp);
 
   if (SUM_A) {
     a_sum[0] = _mm256_add_epi32(a_sum[0], a_sum_temp[0]);
@@ -1304,7 +1273,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
   }
 }
 
-template <bool SUM_A>
+template <bool SUM_A, bool FUSE_RELU>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_kernel_(
     int H,
@@ -1364,12 +1333,94 @@ depthwise_3x3_per_channel_quantization_kernel_(
         &row_offsets[k]);
   }
   if (SUM_A) {
-    requantize_per_channel_<false, true>(
+    requantize_per_channel_<FUSE_RELU, true /*HAS_BIAS*/>(
         A_zero_point,
         C_multiplier,
         C_zero_point,
         C_int32,
         C_uint8 + (h * W_OUT + w) * K,
+        K,
+        row_offsets,
+        col_offsets,
+        bias);
+  }
+}
+
+template <bool SUM_A, bool FUSE_RELU>
+static inline __attribute__((always_inline)) void
+depthwise_3x3x3_per_channel_quantization_kernel_(
+    int T,
+    int H,
+    int W,
+    int K,
+    int t,
+    int h,
+    int w,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const int8_t* Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t* C_int32,
+    uint8_t* C_uint8,
+    int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const int32_t* bias) {
+  constexpr int R = 3, S = 3;
+  constexpr int PAD_P = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1, PAD_R = 1;
+  int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
+  int t_in = -PAD_P + t * stride_t;
+  int h_in = -PAD_T + h * stride_h;
+  int w_in = -PAD_L + w * stride_w;
+
+  int k;
+  for (k = 0; k < K / 32 * 32; k += 32) {
+    inner_prod_3x3x3_packed_<SUM_A, false /*remainder*/, true /*per-channel*/>(
+        T,
+        H,
+        W,
+        K,
+        t_in,
+        h_in,
+        w_in,
+        A + ((t_in * H + h_in) * W + w_in) * K + k,
+        A_zero_point,
+        Bp + k * 28,
+        B_zero_point + k,
+        C_int32 + k,
+        0,
+        &row_offsets[k]);
+  }
+  int remainder = K - k;
+  if (remainder) {
+    inner_prod_3x3x3_packed_<SUM_A, true /*remainder*/, true /*per-channel*/>(
+        T,
+        H,
+        W,
+        K,
+        t_in,
+        h_in,
+        w_in,
+        A + ((t_in * H + h_in) * W + w_in) * K + k,
+        A_zero_point,
+        Bp + k * 28,
+        B_zero_point + k,
+        C_int32 + k,
+        remainder,
+        &row_offsets[k]);
+  }
+  if (SUM_A) {
+    requantize_per_channel_<FUSE_RELU, true>(
+        A_zero_point,
+        C_multiplier,
+        C_zero_point,
+        C_int32,
+        C_uint8 + ((t * H_OUT + h) * W_OUT + w) * K,
         K,
         row_offsets,
         col_offsets,
@@ -1804,7 +1855,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
   } // for each n
 };
 
-template <bool FUSE_RESCALE = true>
+template <bool FUSE_RESCALE = true, bool FUSE_RELU = false>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_pad_1_(
     int N,
@@ -1884,7 +1935,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       if (w_begin == 0) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1908,7 +1959,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1933,7 +1984,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1960,7 +2011,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = 0;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -1984,7 +2035,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2009,7 +2060,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2037,7 +2088,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       if (w_begin == 0) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2061,7 +2112,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2086,7 +2137,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         w = W_OUT - 1;
         C_temp = FUSE_RESCALE ? C_int32
                               : C_int32 + ((n * H_OUT + h) * W_OUT + w) * K;
-        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE>(
+        depthwise_3x3_per_channel_quantization_kernel_<FUSE_RESCALE, FUSE_RELU>(
             H,
             W,
             K,
@@ -2107,6 +2158,119 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             bias);
       }
     }
+  } // for each n
+};
+
+template <bool FUSE_RESCALE = true, bool FUSE_RELU = false>
+static inline __attribute__((always_inline)) void
+depthwise_3x3x3_per_channel_quantization_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    int32_t* C_int32,
+    uint8_t* C_uint8,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    int thread_id,
+    int num_threads) {
+  assert(K % 8 == 0);
+  constexpr int K_T = 3, K_H = 3, K_W = 3;
+  constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
+                PAD_R = 1;
+  int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+  int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+  int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+  const int8_t* Bp = B.PackedMat();
+
+  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  int32_t* C_temp;
+
+  int n_begin, n_end;
+  int t_begin, t_end, h_begin, h_end;
+  if (N >= num_threads) {
+    int n_per_thread = (N + num_threads - 1) / num_threads;
+    n_begin = std::min(thread_id * n_per_thread, N);
+    n_end = std::min(n_begin + n_per_thread, N);
+    t_begin = 0;
+    t_end = T_OUT;
+    h_begin = 0;
+    h_end = H_OUT;
+  } else {
+    int nthreads_per_n = num_threads / N;
+    n_begin = std::min(thread_id / nthreads_per_n, N);
+    n_end = std::min(n_begin + 1, N);
+
+    int tid_of_n_begin = std::min(n_begin * nthreads_per_n, num_threads);
+    int tid_of_n_end = std::min(tid_of_n_begin + nthreads_per_n, num_threads);
+    int nthreads_of_n = tid_of_n_end - tid_of_n_begin;
+    int tid_within_n = thread_id - tid_of_n_begin;
+    assert(tid_within_n >= 0);
+    assert(tid_within_n < nthreads_of_n);
+
+    // n is processed by num_threads_t * num_threads_h 2D grid of threads
+    int num_threads_t, num_threads_h;
+    // num_threads_w <= num_threads_h
+    tie(num_threads_t, num_threads_h) = closest_factors_(nthreads_of_n);
+    int tid_t = tid_within_n / num_threads_h;
+    int tid_h = tid_within_n % num_threads_h;
+
+    int t_per_thread = (T_OUT + num_threads_t - 1) / num_threads_t;
+    t_begin = std::min(tid_t * t_per_thread, T_OUT);
+    t_end = std::min(t_begin + t_per_thread, T_OUT);
+
+    int h_per_thread = (H_OUT + num_threads_h - 1) / num_threads_h;
+    h_begin = std::min(tid_h * h_per_thread, H_OUT);
+    h_end = std::min(h_begin + h_per_thread, H_OUT);
+  }
+
+  for (int n = n_begin; n < n_end; ++n) {
+    const uint8_t* A_base = A + n * T * H * W * K;
+    uint8_t* C_uint8_base = C_uint8 + n * T_OUT * H_OUT * W_OUT * K;
+
+    for (int t = t_begin; t < t_end; ++t) {
+      for (int h = h_begin; h < h_end; ++h) {
+        for (int w = 0; w < W_OUT; ++w) {
+          C_temp = FUSE_RESCALE
+              ? C_int32
+              : C_int32 + (((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K;
+          depthwise_3x3x3_per_channel_quantization_kernel_<
+              FUSE_RESCALE,
+              FUSE_RELU>(
+              T,
+              H,
+              W,
+              K,
+              t,
+              h,
+              w,
+              stride_t,
+              stride_h,
+              stride_w,
+              A_zero_point,
+              A_base,
+              B_zero_point,
+              Bp,
+              C_multiplier,
+              C_zero_point,
+              C_temp,
+              C_uint8_base,
+              row_offsets,
+              col_offsets,
+              bias);
+        } // w
+      } // h
+    } // t
   } // for each n
 };
 
@@ -2243,9 +2407,9 @@ void depthwise_3x3_pad_1(
     uint8_t* C,
     const int32_t* col_offsets,
     const int32_t* bias,
+    bool fuse_relu,
     int thread_id,
-    int num_threads,
-    bool fuse_relu) {
+    int num_threads) {
   int32_t C_int32_temp[(K + 31) / 32 * 32];
   if (fuse_relu) {
     if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
@@ -2663,81 +2827,275 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     uint8_t* C,
     const int32_t* col_offsets,
     const int32_t* bias,
+    bool fuse_relu,
     int thread_id,
     int num_threads) {
   int32_t C_int32_temp[(K + 31) / 32 * 32];
-  if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
+  if (fuse_relu) {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          true /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    }
+  } else {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RESCALE */,
+          false /* FUSE_RELU */>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          thread_id,
+          num_threads);
+    }
+  }
+}
+
+void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    int thread_id,
+    int num_threads) {
+  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  if (fuse_relu) {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        true /* FUSE_RESCALE */,
+        true /* FUSE_RELU */>(
         N,
+        T,
         H,
         W,
         K,
+        stride_t,
         stride_h,
         stride_w,
         A_zero_point,
         A,
         B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (1 == stride_h && 1 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else if (2 == stride_h && 2 == stride_w) {
-    depthwise_3x3_per_channel_quantization_pad_1_(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
+        B,
         C_multiplier,
         C_zero_point,
         C_int32_temp,
@@ -2747,17 +3105,21 @@ void depthwise_3x3_per_channel_quantization_pad_1(
         thread_id,
         num_threads);
   } else {
-    depthwise_3x3_per_channel_quantization_pad_1_(
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        true /* FUSE_RESCALE */,
+        false /* FUSE_RELU */>(
         N,
+        T,
         H,
         W,
         K,
+        stride_t,
         stride_h,
         stride_w,
         A_zero_point,
         A,
         B_zero_point,
-        Bp,
+        B,
         C_multiplier,
         C_zero_point,
         C_int32_temp,

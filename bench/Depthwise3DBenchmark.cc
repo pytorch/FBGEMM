@@ -20,7 +20,7 @@
 #include "AlignedVec.h"
 #include "BenchUtils.h"
 #include "fbgemm/Utils.h"
-#include "src/FbgemmI8Depthwise.h"
+#include "src/FbgemmI8DepthwiseAvx2.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
@@ -62,10 +62,10 @@ int main() {
     aligned_vector<int32_t> C_ref(N * T_OUT * H_OUT * W_OUT * K),
         C(C_ref.size());
 
-    randFill(A, 0, 86);
+    randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
 
-    randFill(B, -16, 16);
+    randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
     depthwise_3x3x3_pad_1_ref(
@@ -129,13 +129,8 @@ int main() {
       t_begin = chrono::system_clock::now();
 #pragma omp parallel
       {
-#if _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
         depthwise_3x3x3_pad_1(
             N,
             T,
@@ -200,13 +195,8 @@ int main() {
       t_begin = chrono::system_clock::now();
 #pragma omp parallel
       {
-#if _OPENMP
-        int num_threads = omp_get_num_threads();
-        int tid = omp_get_thread_num();
-#else
-        int num_threads = 1;
-        int tid = 0;
-#endif
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
         depthwise_3x3x3_pad_1(
             N,
             T,
@@ -225,7 +215,7 @@ int main() {
             C_uint8.data(),
             col_offsets.data(),
             bias.data(),
-            false /* fuse_relu */,
+            false, /* fuse_relu */
             tid,
             num_threads);
       }

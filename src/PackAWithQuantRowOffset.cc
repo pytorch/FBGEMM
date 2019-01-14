@@ -6,34 +6,39 @@
  */
 #include <cpuinfo.h>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+#include "OptimizedKernelsAvx2.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/QuantUtilsAvx2.h"
 
 namespace fbgemm {
 
 template <typename T, typename accT>
-PackAWithRowOffset<T, accT>::PackAWithRowOffset(
+PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
     matrix_op_t trans,
-    uint32_t nRow,
-    uint32_t nCol,
-    const T* smat,
-    uint32_t ld,
+    int32_t nRow,
+    int32_t nCol,
+    const float* smat,
+    int32_t ld,
     inpType* pmat,
-    int groups,
+    float scale,
     int32_t zero_pt,
+    int groups,
     int32_t* row_offset)
-    : PackMatrix<PackAWithRowOffset<T, accT>, T, accT>(
+    : PackMatrix<PackAWithQuantRowOffset<T, accT>, T, accT>(
           nRow,
           nCol,
           pmat,
-          groups,
-          zero_pt),
+          groups),
       trans_(trans),
       smat_(smat),
       ld_(ld),
+      scale_(scale),
+      zero_pt_(zero_pt),
       row_offset_(row_offset) {
   rowOffsetAllocatedHere = false;
 
@@ -65,14 +70,14 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
   }
   if (!row_offset_) {
     rowOffsetAllocatedHere = true;
-    row_offset_ = static_cast<int32_t*>(
-        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(int32_t)));
+    row_offset_ = reinterpret_cast<int32_t*>(
+        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(accT)));
   }
 }
 
 template <typename T, typename accT>
-void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
-  assert(block.row_start % BaseType::blockRowSize() == 0);
+void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
+  // assert(block.row_start % BaseType::blockRowSize() == 0);
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
 
@@ -90,71 +95,50 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   bool row_offset_acc =
       (block.col_start % (this->numCols() / this->numGroups())) != 0;
   int32_t* row_offset_buf = getRowOffsetBuffer();
+
+  float smat_transposed[block.row_size * block.col_size];
   if (tr) {
-    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-        T val = smat_[i + ld_ * j];
-        row_sum += val;
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = val;
-      }
-      row_offset_buf[i - block.row_start] = row_sum;
-      // zero fill
-      // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
-      for (int j = block.col_start + block.col_size;
-           j < block_p.col_start + block_p.col_size;
-           ++j) {
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = 0;
-      }
-    }
-  } else {
-    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      int buf_idx = i - block.row_start;
-      memcpy(
-          out + buf_idx * BaseType::blockColSize(),
-          smat_ + i * ld_ + block.col_start,
-          block.col_size * sizeof(T));
-      // zero fill
-      for (int j = block.col_size; j < block_p.col_size; ++j) {
-        out[buf_idx * BaseType::blockColSize() + j] = 0;
-      }
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      __m256i sum_v = _mm256_setzero_si256();
-      __m256i one_epi16_v = _mm256_set1_epi16(1);
-      __m256i one_epi8_v = _mm256_set1_epi8(1);
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size / 32 * 32;
-           j += 32) {
-        __m256i src_v = _mm256_loadu_si256(
-            reinterpret_cast<__m256i const*>(smat_ + i * ld_ + j));
-        sum_v = _mm256_add_epi32(
-            sum_v,
-            _mm256_madd_epi16(
-                _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
-      }
-      for (int j = block.col_start + block.col_size / 32 * 32;
-           j < block.col_start + block.col_size;
-           ++j) {
-        row_sum += smat_[i * ld_ + j];
-      }
-      // alignas(64) std::array<int32_t, 8> temp;
-      alignas(64) std::int32_t temp[8];
-      //_mm256_store_si256(reinterpret_cast<__m256i*>(temp.data()), sum_v);
-      _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-      for (int k = 0; k < 8; ++k) {
-        row_sum += temp[k];
-      }
-      row_offset_buf[i - block.row_start] = row_sum;
+    transpose_simd(
+        block.col_size,
+        block.row_size,
+        smat_ + block.col_start * ld_ + block.row_start,
+        ld_,
+        smat_transposed,
+        block.col_size);
+  }
+  const float* smat_temp =
+      tr ? smat_transposed : smat_ + block.row_start * ld_ + block.col_start;
+  int32_t ld_temp = tr ? block.col_size : ld_;
+
+  static_assert(
+      std::is_same<T, uint8_t>::value,
+      "PackAWithQuantRowOffset<T, accT>::pack only works for T == uint8_t");
+
+  // Only scale and zero points are used in QuantizeAvx2
+  TensorQuantizationParams qparams;
+  qparams.scale = scale_;
+  qparams.zero_point = zero_pt_;
+
+  for (int i = 0; i < block.row_size; ++i) {
+    QuantizeAvx2(
+        smat_temp + i * ld_temp,
+        out + i * BaseType::blockColSize(),
+        block.col_size,
+        qparams);
+    int32_t row_sum = row_offset_acc ? row_offset_buf[i] : 0;
+    row_sum += reduceAvx2(out + i * BaseType::blockColSize(), block.col_size);
+    row_offset_buf[i] = row_sum;
+
+    // zero fill
+    // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
+    for (int j = block.col_start + block.col_size; j < block_p.col_size; ++j) {
+      out[i * BaseType::blockColSize() + j] = 0;
     }
   }
 }
 
 template <typename T, typename accT>
-int32_t PackAWithRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
+int32_t PackAWithQuantRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
   int32_t block_row_id = r / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
@@ -173,7 +157,7 @@ int32_t PackAWithRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
 }
 
 template <typename T, typename accT>
-void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
+void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(std::string name) {
   std::cout << name << ":"
             << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
@@ -195,14 +179,13 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
 }
 
 template <typename T, typename accT>
-int PackAWithRowOffset<T, accT>::rowOffsetBufferSize() {
+int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize() {
   if (cpuinfo_initialize()) {
     if (cpuinfo_has_x86_avx512f()) {
       return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     } else if (cpuinfo_has_x86_avx2()) {
       return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     } else {
-      // TODO: Have default slower path
       assert(0 && "unsupported architecture");
       return -1;
     }
@@ -211,7 +194,6 @@ int PackAWithRowOffset<T, accT>::rowOffsetBufferSize() {
   }
 }
 
-template class PackAWithRowOffset<uint8_t, int32_t>;
-template class PackAWithRowOffset<uint8_t, int16_t>;
+template class PackAWithQuantRowOffset<uint8_t, int32_t>;
 
 } // namespace fbgemm

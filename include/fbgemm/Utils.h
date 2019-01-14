@@ -7,6 +7,8 @@
 #pragma once
 #include <string>
 #include <type_traits>
+#include "FbgemmBuild.h"
+#include "UtilsAvx2.h"
 
 namespace fbgemm {
 
@@ -37,29 +39,10 @@ enum class inst_set_t { anyarch, avx2, avx512 };
 enum class impl_type_t { ref, opt };
 
 /**
- * @brief A struct to represent a block of a matrix.
- */
-struct block_type_t {
-  int row_start;
-  int row_size;
-  int col_start;
-  int col_size;
-
-  std::string toString() const {
-    std::string out = "";
-    out += "row start:" + std::to_string(row_start) + ", ";
-    out += "row size:" + std::to_string(row_size) + ", ";
-    out += "col start:" + std::to_string(col_start) + ", ";
-    out += "col size:" + std::to_string(col_size);
-    return out;
-  }
-};
-
-/**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
 template <typename T>
-int compare_buffers(
+FBGEMM_API int compare_buffers(
     const T* ref,
     const T* test,
     int m,
@@ -93,35 +76,5 @@ void transpose_simd(
     int ld_src,
     float* dst,
     int ld_dst);
-
-namespace internal {
-
-/**
- * @brief Transpose a matrix using Intel AVX2.
- *
- * This is called if the code is running on a CPU with Intel AVX2 support.
- */
-void transpose_8x8(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
-
-/**
- * @brief Transpose a matrix using Intel AVX512.
- *
- * This is called if the code is running on a CPU with Intel AVX512 support.
- */
-void transpose_16x16(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
-
-} // namespace internal
 
 } // namespace fbgemm

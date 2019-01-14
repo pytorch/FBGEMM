@@ -37,18 +37,34 @@ enum class BenchmarkType {
 
 void performance_test() {
   vector<vector<int>> shapes = {
-      // m, n, k
-      {64, 68, 17},      {60, 128, 64},     {25088, 256, 64},
-      {25088, 64, 64},   {25088, 64, 576},  {25088, 64, 256},
+    // NOTE: clang-format wants to use a different formatting but the current
+    // formatting should be easier to read.
+    // m, n, k
+    {64, 68, 17},
+    {60, 128, 64},
 
-      {6272, 512, 256},  {6272, 128, 256},  {6272, 128, 1152},
-      {6272, 512, 128},  {6272, 128, 512},
+    {25088, 256, 64},
+    {25088, 64, 64},
+    {25088, 64, 576},
+    {25088, 64, 256},
 
-      {1568, 1024, 512}, {1568, 256, 512},  {1568, 256, 2304},
-      {1568, 1024, 256}, {1568, 256, 1024},
+    {6272, 512, 256},
+    {6272, 128, 256},
+    {6272, 128, 1152},
+    {6272, 512, 128},
+    {6272, 128, 512},
 
-      {392, 2048, 1024}, {392, 512, 1024},  {392, 512, 4608},
-      {392, 2048, 512},  {392, 512, 2048},
+    {1568, 1024, 512},
+    {1568, 256, 512},
+    {1568, 256, 2304},
+    {1568, 1024, 256},
+    {1568, 256, 1024},
+
+    {392, 2048, 1024},
+    {392, 512, 1024},
+    {392, 512, 4608},
+    {392, 2048, 512},
+    {392, 512, 2048},
   };
   bool flush = true;
   std::vector<char> llc;
@@ -84,29 +100,26 @@ void performance_test() {
     int n = shape[1];
     int k = shape[2];
 
-    float alpha = 1.f, beta = 0.f;
-    aligned_vector<float> Afp32(m * k, 0.0f);
-    aligned_vector<uint8_t> Aint8(m * k, 0);
+    float alpha = 1.0f, beta = 0.0f;
+    aligned_vector<uint8_t> Aint8(m * k);
+    aligned_vector<int8_t> Bint8(k * n);
 
-    aligned_vector<float> Bfp32(k * n, 0.0f);
-    aligned_vector<int8_t> Bint8(k * n, 0);
-
-    aligned_vector<float> Cfp32_mkl(m * n, 0.0f);
+    aligned_vector<float> Cfp32_mkl(m * n);
     // just used for result comparisons
-    aligned_vector<int32_t> Cint32_mkl(m * n, 0.0f);
+    aligned_vector<int32_t> Cint32_mkl(Cfp32_mkl.size());
     // requantize results
-    aligned_vector<uint8_t> Cint8_mkl(m * n, 0.0f);
-    aligned_vector<int32_t> Cint32_fb(m * n, 0.0f);
-    aligned_vector<uint8_t> Cint8_fb(m * n, 0.0f);
+    aligned_vector<uint8_t> Cint8_mkl(Cfp32_mkl.size());
+    aligned_vector<int32_t> Cint32_fb(Cfp32_mkl.size());
+    aligned_vector<uint8_t> Cint8_fb(Cfp32_mkl.size());
 
     // A matrix
-    randFill(Afp32, 0, 50);
+    randFill<uint8_t>(Aint8, 0, 50);
     int32_t Aint8_zero_point = 43;
-    for (auto i = 0; i < Afp32.size(); ++i) {
-      Aint8[i] = static_cast<uint8_t>(Afp32[i]);
-    }
+    aligned_vector<float> Afp32(Aint8.begin(), Aint8.end());
 
-    randFill(Bfp32, -8, 8);
+    randFill<int8_t>(Bint8, -8, 8);
+    aligned_vector<int8_t> Bint8_copy(Bint8);
+    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
     double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
     double ttot = 0.0;
@@ -147,9 +160,7 @@ void performance_test() {
     cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
          << nops / ttot << endl;
 
-    for (auto i = 0; i < Cfp32_mkl.size(); ++i) {
-      Cint32_mkl[i] = static_cast<int32_t>(Cfp32_mkl[i]);
-    }
+    Cint32_mkl.assign(Cfp32_mkl.begin(), Cfp32_mkl.end());
 #endif
 
     for (BenchmarkType bench_type :
@@ -163,23 +174,19 @@ void performance_test() {
                                   bench_type == BenchmarkType::REQUANTIZATION)
           ? 0
           : -30;
-      for (auto i = 0; i < Bfp32.size(); ++i) {
-        Bint8[i] = static_cast<int8_t>(Bfp32[i]);
-      }
 
       // computing column offset
-      vector<int32_t> col_offsets;
-      col_offsets.resize(n);
+      vector<int32_t> col_offsets(n);
+      Bint8 = Bint8_copy;
       col_offsets_with_zero_pt_s8acc32_ref(
-          k, n, n, Bint8.data(), Bint8_zero_point, col_offsets.data());
+          k, n, n, Bint8.data(), &Bint8_zero_point, col_offsets.data(), n);
 
-      vector<int32_t> row_offsets;
-      row_offsets.resize(m);
+      vector<int32_t> row_offsets(m);
 
       row_offsets_u8acc32_ref(m, k, k, Aint8.data(), row_offsets.data());
 
       float C_multiplier =
-          (bench_type == BenchmarkType::BARE_BONE) ? 1 : 0.1234;
+          (bench_type == BenchmarkType::BARE_BONE) ? 1.0f : 0.1234f;
       int32_t C_zero_pt = (bench_type == BenchmarkType::BARE_BONE) ? 0 : 5;
 
       // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
@@ -219,63 +226,14 @@ void performance_test() {
           n,
           Cint32_mkl.data(),
           Cint8_mkl.data(),
-          C_multiplier,
+          &C_multiplier,
           C_zero_pt,
           Aint8_zero_point,
-          Bint8_zero_point,
+          &Bint8_zero_point,
           row_offsets.data(),
           col_offsets.data(),
-          nullptr); // bias
-
-      vector<int32_t> row_offset_buf;
-      row_offset_buf.resize(
-          PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
-
-      PackAMatrix<uint8_t, int16_t> packA(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          1,
-          Aint8_zero_point);
-      PackAWithRowOffset<uint8_t, int16_t> packAWithRowOffset(
-          matrix_op_t::NoTranspose,
-          m,
-          k,
-          Aint8.data(),
-          k,
-          nullptr,
-          1,
-          Aint8_zero_point,
-          row_offset_buf.data());
-
-      PackBMatrix<int8_t, int16_t> packedB(
-          matrix_op_t::NoTranspose, k, n, Bint8.data(), n);
-
-      // no-op output process objects
-      DoNothing<int32_t, int32_t> doNothing32BitObj;
-      memCopy<> memcopyObj(doNothing32BitObj);
-
-      // spmdm -> requantization -> nothing
-      // construct an output processing pipeline in reverse order
-      // i.e. last output operation first
-      // Last operation should always be DoNothing with
-      // correct input and output type.
-      DoNothing<> doNothingObj{};
-      // Requantization back to int8
-      ReQuantizeOutput<false> reqObj(
-          doNothingObj,
-          C_multiplier,
-          C_zero_pt,
-          Aint8_zero_point,
-          Bint8_zero_point,
-          bench_type == BenchmarkType::REQUANTIZATION
-              ? nullptr
-              : packAWithRowOffset.getRowOffsetBuffer(),
-          col_offsets.data(),
-          nullptr);
+          nullptr, // bias
+          n); // ncols per quant group
 
       CompressedSparseColumn B_csc(k, n);
 
@@ -285,40 +243,35 @@ void performance_test() {
       default_random_engine eng;
       binomial_distribution<> per_col_nnz_dist(k, density);
 
-      vector<int> row_indices(k);
+      if (bench_type == BenchmarkType::EVERYTHING) {
+        vector<int> row_indices(k);
 
-      int total_nnz = 0;
-      for (int j = 0; j < n; ++j) {
-        B_csc.ColPtr()[j] = total_nnz;
+        int total_nnz = 0;
+        for (int j = 0; j < n; ++j) {
+          B_csc.ColPtr()[j] = total_nnz;
 
-        int nnz_of_j = per_col_nnz_dist(eng);
-        total_nnz += nnz_of_j;
+          int nnz_of_j = per_col_nnz_dist(eng);
+          total_nnz += nnz_of_j;
 
-        iota(row_indices.begin(), row_indices.end(), 0);
-        shuffle(row_indices.begin(), row_indices.end(), eng);
-        sort(row_indices.begin(), row_indices.begin() + nnz_of_j);
+          iota(row_indices.begin(), row_indices.end(), 0);
+          shuffle(row_indices.begin(), row_indices.end(), eng);
+          sort(row_indices.begin(), row_indices.begin() + nnz_of_j);
 
-        for (int kidx = 0; kidx < nnz_of_j; ++kidx) {
-          B_csc.RowIdx().push_back(row_indices[kidx]);
-          // put the current B value
-          B_csc.Values().push_back(Bint8[row_indices[kidx] * n + j]);
-          // make current B value zero
-          Bint8[row_indices[kidx] * n + j] = 0;
-          // std::cout << "(" << row_indices[kidx] << ", " << j << ")" <<
-          // endl;
+          for (int kidx = 0; kidx < nnz_of_j; ++kidx) {
+            B_csc.RowIdx().push_back(row_indices[kidx]);
+            // put the current B value
+            B_csc.Values().push_back(Bint8[row_indices[kidx] * n + j]);
+            // make current B value zero
+            Bint8[row_indices[kidx] * n + j] = 0;
+            // std::cout << "(" << row_indices[kidx] << ", " << j << ")" <<
+            // endl;
+          }
         }
+        B_csc.ColPtr()[n] = total_nnz;
       }
-      B_csc.ColPtr()[n] = total_nnz;
 
-      // the top most (first) operation in the output processing
-      // pipeline is spmdm
-      // outType = final output type after fullly processing through pipeline
-      // inType = initial input type at the first call to the whole pipeline
-      DoSpmdmOnInpBuffer<
-          ReQuantizeOutput<false>::outType,
-          int32_t,
-          ReQuantizeOutput<false>>
-          spmdmObj(reqObj, Aint8.data(), k, B_csc);
+      PackBMatrix<int8_t, int16_t> packedB(
+          matrix_op_t::NoTranspose, k, n, Bint8.data(), n);
 
       // printMatrix(matrix_op_t::NoTranspose,
       // Cint32_mkl.data(), m, n, n, "C mkl");
@@ -334,52 +287,112 @@ void performance_test() {
 #endif
         llc_flush(llc);
         begin = chrono::high_resolution_clock::now();
-        switch (bench_type) {
-          case BenchmarkType::BARE_BONE:
-            fbgemmPacked(
-                packA,
-                packedB,
-                Cint32_fb.data(),
-                Cint32_fb.data(),
-                n,
-                memcopyObj,
-                0,
-                1);
-            break;
-          case BenchmarkType::REQUANTIZATION:
-            fbgemmPacked(
-                packA,
-                packedB,
-                Cint8_fb.data(),
-                Cint32_fb.data(),
-                n,
-                reqObj,
-                0,
-                1);
-            break;
-          case BenchmarkType::ROW_OFFSET_AND_REQUANTIZATION:
-            fbgemmPacked(
-                packAWithRowOffset,
-                packedB,
-                Cint8_fb.data(),
-                Cint32_fb.data(),
-                n,
-                reqObj,
-                0,
-                1);
-            break;
-          case BenchmarkType::EVERYTHING:
-            fbgemmPacked(
-                packAWithRowOffset,
-                packedB,
-                Cint8_fb.data(),
-                Cint32_fb.data(),
-                n,
-                spmdmObj,
-                0,
-                1);
-            break;
-        };
+
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+        {
+          vector<int32_t> row_offset_buf(
+              PackAWithRowOffset<uint8_t, int16_t>::rowOffsetBufferSize());
+
+          PackAMatrix<uint8_t, int16_t> packA(
+              matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, 1);
+          PackAWithRowOffset<uint8_t, int16_t> packAWithRowOffset(
+              matrix_op_t::NoTranspose,
+              m,
+              k,
+              Aint8.data(),
+              k,
+              nullptr,
+              1,
+              row_offset_buf.data());
+
+          // no-op output process objects
+          DoNothing<int32_t, int32_t> doNothing32BitObj;
+          memCopy<> memcopyObj(doNothing32BitObj);
+
+          // spmdm -> requantization -> nothing
+          // construct an output processing pipeline in reverse order
+          // i.e. last output operation first
+          // Last operation should always be DoNothing with
+          // correct input and output type.
+          DoNothing<> doNothingObj{};
+          // Requantization back to int8
+          ReQuantizeOutput<false> reqObj(
+              doNothingObj,
+              &C_multiplier,
+              C_zero_pt,
+              Aint8_zero_point,
+              &Bint8_zero_point,
+              bench_type == BenchmarkType::REQUANTIZATION
+                  ? nullptr
+                  : packAWithRowOffset.getRowOffsetBuffer(),
+              col_offsets.data(),
+              nullptr,
+              n);
+
+          // the top most (first) operation in the output processing
+          // pipeline is spmdm
+          // outType = final output type after fullly processing through
+          // pipeline; inType = initial input type at the first call to the
+          // whole pipeline
+          DoSpmdmOnInpBuffer<
+              ReQuantizeOutput<false>::outType,
+              int32_t,
+              ReQuantizeOutput<false>>
+              spmdmObj(reqObj, Aint8.data(), k, B_csc);
+
+          int num_threads = fbgemm_get_num_threads();
+          int tid = fbgemm_get_thread_num();
+          // printf ( "tid: %d, num_threads: %d\n", tid, num_threads );
+          switch (bench_type) {
+            case BenchmarkType::BARE_BONE:
+              fbgemmPacked(
+                  packA,
+                  packedB,
+                  Cint32_fb.data(),
+                  Cint32_fb.data(),
+                  n,
+                  memcopyObj,
+                  tid,
+                  num_threads);
+              break;
+            case BenchmarkType::REQUANTIZATION:
+              fbgemmPacked(
+                  packA,
+                  packedB,
+                  Cint8_fb.data(),
+                  Cint32_fb.data(),
+                  n,
+                  reqObj,
+                  tid,
+                  num_threads);
+              break;
+            case BenchmarkType::ROW_OFFSET_AND_REQUANTIZATION:
+              fbgemmPacked(
+                  packAWithRowOffset,
+                  packedB,
+                  Cint8_fb.data(),
+                  Cint32_fb.data(),
+                  n,
+                  reqObj,
+                  tid,
+                  num_threads);
+              break;
+            case BenchmarkType::EVERYTHING:
+              fbgemmPacked(
+                  packAWithRowOffset,
+                  packedB,
+                  Cint8_fb.data(),
+                  Cint32_fb.data(),
+                  n,
+                  spmdmObj,
+                  tid,
+                  num_threads);
+              break;
+          };
+        }
+
         end = chrono::high_resolution_clock::now();
 
         if (i >= NWARMUP) {
@@ -432,7 +445,11 @@ void performance_test() {
 
 int main() {
 #ifdef _OPENMP
-  omp_set_num_threads(1);
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
 #endif
   performance_test();
   return 0;

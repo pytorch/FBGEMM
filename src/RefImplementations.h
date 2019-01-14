@@ -19,7 +19,7 @@ namespace fbgemm {
  * int32 multiplier
  * @params bias can be nullptr
  */
-void requantize_u8acc32_ref(
+FBGEMM_API void requantize_u8acc32_ref(
     int M,
     int N,
     int ld,
@@ -39,27 +39,33 @@ void requantize_u8acc32_ref(
  * @brief Reference implementation of requantization step.
  * float multiplier
  * @params bias can be nullptr
+ * @params ncols_per_quant_group the number of columns share the same
+ *         quantization parameter.
+ *         ncols_per_quant_group == N : per-tensor quantization
+ *         ncols_per_quant_group == N / groups : per-group quantization
+ *         ncols_per_quant_group == 1 : per-channel quantization
  */
-void requantize_u8acc32_ref(
+FBGEMM_API void requantize_u8acc32_ref(
     int M,
     int N,
     int ld,
     const std::int32_t* inp,
     std::uint8_t* out,
-    float C_multiplier,
+    const float* C_multiplier,
     std::int32_t C_zero_point,
     std::int32_t A_zero_point,
-    std::int32_t B_zero_point,
+    const std::int32_t* B_zero_point,
     const std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
+    int ncols_per_quant_group,
     bool fuse_relu = false);
 
 /**
  * @brief Reference implementation of matrix multiply with uint8 for A,
  * int8 for B, and 32-bit accumulation.
  */
-void matmul_u8i8acc32_ref(
+FBGEMM_API void matmul_u8i8acc32_ref(
     int M,
     int N,
     int K,
@@ -74,7 +80,7 @@ void matmul_u8i8acc32_ref(
  * @brief Reference implementation of matrix multiply with uint 8 for A,
  * int8 for B, and 16-bit accumulation.
  */
-void matmul_u8i8acc16_ref(
+void FBGEMM_API matmul_u8i8acc16_ref(
     int M,
     int N,
     int K,
@@ -90,7 +96,7 @@ void matmul_u8i8acc16_ref(
  * @brief Reference implementation of matrix multiply with fp32 (single
  * precision) floating point number.
  */
-void matmul_fp_ref(
+void FBGEMM_API matmul_fp_ref(
     int M,
     int N,
     int K,
@@ -104,7 +110,7 @@ void matmul_fp_ref(
 /**
  * @brief Reference implementation to compute row_offsets (sums of rows of A).
  */
-void row_offsets_u8acc32_ref(
+FBGEMM_API void row_offsets_u8acc32_ref(
     int M,
     int K,
     int ld,
@@ -114,14 +120,18 @@ void row_offsets_u8acc32_ref(
 /**
  * @brief Reference implementation to compute adjusted col_offsets (sum of
  * columns of B and adjusted with B_zero_point)
+ *
+ * @params ncols_per_quant_group see ncols_per_quant_group in
+ *         requantize_u8acc32_ref
  */
-void col_offsets_with_zero_pt_s8acc32_ref(
+FBGEMM_API void col_offsets_with_zero_pt_s8acc32_ref(
     int K,
     int N,
     int ld,
     const std::int8_t* Bint8,
-    std::int32_t B_zero_point,
-    std::int32_t* col_offsets);
+    const std::int32_t* B_zero_point,
+    std::int32_t* col_offsets,
+    int ncols_per_quant_group);
 
 /**
  * @brief Reference implementation of SPMDM (sparse matrix times dense matrix).
@@ -130,7 +140,7 @@ void col_offsets_with_zero_pt_s8acc32_ref(
  *               A[:,g*(A.ncols/groups):(g+1)*(A.ncols/groups)] sub-matrix with
  *               B[:,g*(B.ncols/groups):(g+1)*(B.ncols/groups)] sub-matrix .
  */
-void spmdm_ref(
+FBGEMM_API void spmdm_ref(
     int M,
     const std::uint8_t* A,
     int lda,
@@ -151,14 +161,14 @@ int32_t clip_16bit(int32_t x);
  * The filters B are assumed to be in RSCK format.
  * The output C is assumed to be in NHoWoC format.
  */
-void conv_ref(
+FBGEMM_API void conv_ref(
     const conv_param_t<>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
     const std::int8_t* B,
     std::int32_t* C);
 
-void conv3d_ref(
+FBGEMM_API void conv3d_ref(
     const conv_param_t<3>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
@@ -166,11 +176,19 @@ void conv3d_ref(
     std::int32_t* C);
 
 /*
+ * @brief Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
+ */
+FBGEMM_API void transposeConvWeights(
+    const conv_param_t<>& conv_p,
+    const std::int8_t* src,
+    std::int8_t* dest);
+
+/*
  * @brief Reference implementation of im2col operation.
  * The input A is assumed to be in NHiWiC format.
  * The output A is assumed to be in NHoWoRSC format.
  */
-void im2col_ref(
+FBGEMM_API void im2col_ref(
     const conv_param_t<>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
@@ -181,7 +199,7 @@ void im2col_ref(
  * The input A is assumed to be in NTiHiWiC format.
  * The output A is assumed to be in NToHoWoK0K1K2C format.
  */
-void im2col3d_ref(
+FBGEMM_API void im2col3d_ref(
     const conv_param_t<3>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
@@ -191,7 +209,7 @@ void im2col3d_ref(
  * @brief Reference implementation of depthwise convolution with a 3x3 filter
  * and padding size 1.
  */
-void depthwise_3x3_pad_1_ref(
+FBGEMM_API void depthwise_3x3_pad_1_ref(
     int N,
     int H,
     int W,
@@ -208,7 +226,7 @@ void depthwise_3x3_pad_1_ref(
  * and padding size 1, followed by requantization. (the same scaling factors and
  * zero points for each channel).
  */
-void depthwise_3x3_pad_1_ref(
+FBGEMM_API void depthwise_3x3_pad_1_ref(
     int N,
     int H,
     int W,
@@ -230,7 +248,7 @@ void depthwise_3x3_pad_1_ref(
  * and padding size 1, followed by requantization. (different scaling factors
  * and zero points for each channel).
  */
-void depthwise_3x3_per_channel_quantization_pad_1_ref(
+FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1_ref(
     int N,
     int H,
     int W,
@@ -251,7 +269,7 @@ void depthwise_3x3_per_channel_quantization_pad_1_ref(
  * @brief Reference implementation of 3D depthwise convolution with a 3x3x3
  * filter and padding size 1.
  */
-void depthwise_3x3x3_pad_1_ref(
+FBGEMM_API void depthwise_3x3x3_pad_1_ref(
     int N,
     int T,
     int H,
@@ -269,7 +287,7 @@ void depthwise_3x3x3_pad_1_ref(
  * @brief Reference implementation of 3D depthwise convolution with a 3x3x3
  * filter and padding size 1, followed by requantization.
  */
-void depthwise_3x3x3_pad_1_ref(
+FBGEMM_API void depthwise_3x3x3_pad_1_ref(
     int N,
     int T,
     int H,
@@ -283,6 +301,25 @@ void depthwise_3x3x3_pad_1_ref(
     std::int32_t B_zero_point,
     const std::int8_t* B,
     float C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const std::int32_t* bias);
+
+FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1_ref(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const std::int8_t* B,
+    const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
     const std::int32_t* col_offsets,
