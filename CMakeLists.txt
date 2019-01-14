@@ -34,12 +34,14 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC32.cc
                 src/GenerateKernelU8S8S32ACC32Avx512.cc
+                src/GroupwiseConvAcc32Avx2.cc
                 src/PackAMatrix.cc
                 src/PackAWithIm2Col.cc
                 src/PackBMatrix.cc
                 src/PackMatrix.cc
                 src/PackAWithQuantRowOffset.cc
                 src/PackAWithRowOffset.cc
+                src/PackWeightMatrixForGConv.cc
                 src/QuantUtils.cc
                 src/RefImplementations.cc
                 src/Utils.cc)

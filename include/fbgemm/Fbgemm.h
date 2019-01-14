@@ -453,6 +453,56 @@ class FBGEMM_API PackBMatrix final
 };
 
 /**
+ * @brief Matrix packed for direct group convolution.
+ *        The source matrix is already quantized. Default accumulation
+ *        type is int32.
+ */
+template <typename T, typename accT = std::int32_t, int SPATIAL_DIM = 2>
+class FBGEMM_API PackWeightMatrixForGConv {
+ public:
+  using This = PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>;
+  using inpType = T;
+  using accType = accT;
+
+  PackWeightMatrixForGConv() = delete; // no default constructor
+
+  /**
+   * @params pmat if nullptr, a buffer is allocated and owned by this class.
+   *
+   */
+  PackWeightMatrixForGConv(
+      matrix_op_t trans,
+      const conv_param_t<SPATIAL_DIM>& conv_param,
+      const inpType* sdata,
+      inpType* pdata = nullptr);
+
+  /**
+   * @brief Packs a block of source matrix into pmat buffer.
+   */
+  void pack();
+
+  /**
+   * @brief Return packed data
+   */
+  inpType* getBuf() {
+    return pdata_;
+  }
+
+  ~PackWeightMatrixForGConv() {
+    if (bufAllocatedHere_) {
+      free(pdata_);
+    }
+  }
+
+ private:
+  matrix_op_t trans_;
+  const conv_param_t<SPATIAL_DIM> conv_param_;
+  const T* sdata_;
+  T* pdata_;
+  bool bufAllocatedHere_;
+};
+
+/**
  * @brief Matrix packed for the first input matrix in GEMM (usually activation),
  *        and row offsets used for requantization is computed during packing.
  *        Im2col is fused with packing here. The source matrix is already
@@ -1106,6 +1156,35 @@ FBGEMM_API void fbgemmPacked(
     int num_threads);
 
 /**
+ * @brief Perform small-channels-per-group groupwise convolution
+ *
+ */
+
+template <
+    typename packed_W,
+    typename outType,
+    typename processOutputType,
+    int SPATIAL_DIM = 2>
+FBGEMM_API void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    std::int32_t* outBuffer,
+    const processOutputType& outProcess,
+    int thread_id,
+    int num_threads);
+/**
+ * @return Size of row offset buffer in number of elements needed for
+ * fbgemmGroupwiseConv
+ */
+template <int SPATIAL_DIM = 2>
+FBGEMM_API int rowOffsetBufferSizeGConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param);
+
+/**
  * @brief Perform depthwise separable convolution
  */
 template <
@@ -1120,6 +1199,12 @@ void convDepthwiseSeparable(
     packingBMatrix& packed_1x1,
     outT* out,
     const processOutputType& output);
+
+/**
+ * @brief Is this groupwise convolution supported?
+ */
+template <int SPATIAL_DIM>
+FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 /**
  * @brief Allocate __size bytes of uninitialized storage whose alignment is

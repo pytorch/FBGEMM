@@ -176,6 +176,14 @@ FBGEMM_API void conv3d_ref(
     std::int32_t* C);
 
 /*
+ * @brief Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
+ */
+FBGEMM_API void transposeConvWeights(
+    const conv_param_t<>& conv_p,
+    const std::int8_t* src,
+    std::int8_t* dest);
+
+/*
  * @brief Reference implementation of im2col operation.
  * The input A is assumed to be in NHiWiC format.
  * The output A is assumed to be in NHoWoRSC format.
