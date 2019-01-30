@@ -122,8 +122,22 @@ void performance_test() {
           C_ref.data(),
           n);
 #endif
-      cblas_gemm_compute(
-          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, C_fb.data());
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+        cblas_gemm_compute(
+            matrix_op_t::NoTranspose,
+            m,
+            A.data(),
+            Bp,
+            beta,
+            C_fb.data(),
+            tid,
+            num_threads);
+      }
 
 #if defined(USE_MKL) || defined(USE_BLAS)
       // Compare results
@@ -201,8 +215,25 @@ void performance_test() {
       }
 
       t_begin = chrono::system_clock::now();
-      cblas_gemm_compute(
-          matrix_op_t::NoTranspose, m, A.data(), Bp, beta, C_fb.data());
+
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+
+        cblas_gemm_compute(
+            matrix_op_t::NoTranspose,
+            m,
+            A.data(),
+            Bp,
+            beta,
+            C_fb.data(),
+            tid,
+            num_threads);
+      }
+
       t_end = chrono::system_clock::now();
 
       if (it >= 0) {

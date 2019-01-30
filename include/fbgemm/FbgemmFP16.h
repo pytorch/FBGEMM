@@ -192,14 +192,9 @@ class PackedGemmMatrixFP16 {
       const float* A,
       const PackedGemmMatrixFP16& Bp,
       const float beta,
-      float* C);
-  friend void cblas_gemm_compute(
-      const matrix_op_t transa,
-      const int m,
-      const float* A,
-      const PackedGemmMatrixFP16& Bp,
-      const float beta,
-      float* C);
+      float* C,
+      int thread_id,
+      int num_threads);
 };
 
 /**
@@ -211,13 +206,7 @@ extern void cblas_gemm_compute(
     const float* A,
     const PackedGemmMatrixFP16& Bp,
     const float beta,
-    float* C);
-extern void cblas_gemm_compute(
-    const matrix_op_t transa,
-    const int m,
-    const float* A,
-    const PackedGemmMatrixFP16& Bp,
-    const float beta,
-    float* C);
-
+    float* C,
+    int thread_id = 0,
+    int num_threads = 1);
 }; // namespace fbgemm

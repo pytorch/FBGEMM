@@ -6,6 +6,10 @@
  */
 #include <random>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <gtest/gtest.h>
 
 #include "TestUtils.h"
@@ -97,7 +101,17 @@ TEST_P(FBGemmFP16Test, Test) {
 
     // fbgemm fp16
     PackedGemmMatrixFP16 Bp(btrans, k, n, alpha, B.data());
-    cblas_gemm_compute(atrans, m, A.data(), Bp, beta, C.data());
+
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+    {
+      int num_threads = fbgemm_get_num_threads();
+      int tid = fbgemm_get_thread_num();
+
+      cblas_gemm_compute(
+          atrans, m, A.data(), Bp, beta, C.data(), tid, num_threads);
+    }
 
     // correctness check
     for (int i = 0; i < m; ++i) {
