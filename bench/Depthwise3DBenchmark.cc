@@ -27,6 +27,14 @@ using namespace std;
 using namespace fbgemm;
 
 int main() {
+#ifdef _OPENMP
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
+#endif
+
   // Depthwise is memory BW bound so we want to flush LLC.
   bool flush = true;
   std::vector<char> llc;
