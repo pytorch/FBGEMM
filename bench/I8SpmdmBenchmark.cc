@@ -25,6 +25,14 @@ using namespace std;
 using namespace fbgemm;
 
 int main() {
+#ifdef _OPENMP
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
+#endif
+
   const vector<array<int, 3>> shapes = {
       //   M,    N,    K
       {1024, 1024, 1024},
