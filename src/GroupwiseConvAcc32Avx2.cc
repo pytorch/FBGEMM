@@ -1374,9 +1374,9 @@ void fbgemmGroupwiseConv(
         internal::transpose_8x8(
             conv_param.IN_DIM[0] * conv_param.IN_DIM[1],
             8,
-            (const float*)rowOffsetBuf,
+            reinterpret_cast<const float*>(rowOffsetBuf),
             8,
-            (float*)rowOffsetTrDest,
+            reinterpret_cast<float*>(rowOffsetTrDest),
             conv_param.IN_DIM[0] * conv_param.IN_DIM[1]);
         int gLimit = gOuter + 8;
         for (int g = gOuter; g < gLimit; g += 2) {
@@ -1429,9 +1429,9 @@ void fbgemmGroupwiseConv(
               assert(0 && "unsupported architecure");
             }
           } // j loop
-        }
-      }
-    }
+        } // g loop
+      } // gOuter loop
+    } // i loop
   } else {
     // for the not supported cases, just execute the naive C implementation
     conv_ref(
