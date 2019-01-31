@@ -500,7 +500,12 @@ void performance_test() {
 
 int main() {
 #ifdef _OPENMP
-  omp_set_num_threads(1);
+  // TODO: enable once fbgemmGroupwiseConv support multi-threading
+  /*// Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {*/
+    omp_set_num_threads(1);
+  /*}*/
 #endif
   performance_test();
   return 0;
