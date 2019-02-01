@@ -1321,12 +1321,14 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
   return fn;
 }
 
+namespace {
+
 template <
     typename packed_W,
     typename outType,
     typename processOutputType,
     int SPATIAL_DIM>
-void fbgemmGroupwiseConv(
+void fbgemmGroupwiseConvBase_(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
     std::int32_t a_zero_point,
@@ -1345,11 +1347,11 @@ void fbgemmGroupwiseConv(
   int K_per_G = conv_param.OC / G;
   int C_per_G = conv_param.IC / G;
   int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
+  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest =
-      rowOffsetBuf + 8 * conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+  int32_t* rowOffsetTrDest = rowOffsetBuf + 8 * ih_iw;
   if (fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param)) {
     assert(G % 8 == 0);
     // generate convolution kernel
@@ -1359,8 +1361,7 @@ void fbgemmGroupwiseConv(
     jit_rowoffset_kernel_fp fpRowoffset =
         getOrCreateRowOffsetKernel(conv_param, a_zero_point);
     for (int i = 0; i < MB; ++i) {
-      const uint8_t* actStartBatch = activations +
-          i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * conv_param.IC;
+      const uint8_t* actStartBatch = activations + i * ih_iw * conv_param.IC;
       for (int gOuter = 0; gOuter < G; gOuter += 8) {
         // for C_per_G == 4 and K_per_G == 4, row offset is calcualted for 8
         // groups at a time The result is row offsets in the format IH*IW x G
@@ -1372,12 +1373,12 @@ void fbgemmGroupwiseConv(
             rowOffsetBuf);
         // Transpose to get row offsets in the format G x IH*IW
         internal::transpose_8x8(
-            conv_param.IN_DIM[0] * conv_param.IN_DIM[1],
+            ih_iw,
             8,
             reinterpret_cast<const float*>(rowOffsetBuf),
             8,
             reinterpret_cast<float*>(rowOffsetTrDest),
-            conv_param.IN_DIM[0] * conv_param.IN_DIM[1]);
+            ih_iw);
         int gLimit = gOuter + 8;
         for (int g = gOuter; g < gLimit; g += 2) {
           int32_t* currOutBuf =
@@ -1396,18 +1397,14 @@ void fbgemmGroupwiseConv(
           for (int j = 0; j < 2; ++j) {
             // calculateRowOffsets(
             // conv_param, actStartGroup, rowOffsetBuf, a_zero_point, j);
-            int32_t* rowOffsetForCurG = rowOffsetTrDest +
-                ((g - gOuter) + j) * conv_param.IN_DIM[0] *
-                    conv_param.IN_DIM[1];
+            int32_t* rowOffsetForCurG =
+                rowOffsetTrDest + ((g - gOuter) + j) * ih_iw;
             // compare_buffers(rowOffsetBuf, rowOffsetForCurG,
             // conv_param.IN_DIM[0]*conv_param.IN_DIM[1], 1, 1, 100);
 
             // outProcess expects rowOffsetBuf to contain row offsets for the
             // current group
-            memcpy(
-                rowOffsetBuf,
-                rowOffsetForCurG,
-                conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * sizeof(int32_t));
+            memcpy(rowOffsetBuf, rowOffsetForCurG, ih_iw * sizeof(int32_t));
 
             if (cpuinfo_has_x86_avx512f()) {
               // Currently use avx2 code
@@ -1458,6 +1455,221 @@ void fbgemmGroupwiseConv(
       }
     }
   }
+}
+
+}
+
+template <
+    typename packed_W,
+    typename outType,
+    typename processOutputType,
+    int SPATIAL_DIM>
+void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    int32_t* outBuffer,
+    const processOutputType& outProcess,
+    int thread_id,
+    int num_threads) {
+  return fbgemmGroupwiseConvBase_<
+      packed_W,
+      outType,
+      processOutputType,
+      SPATIAL_DIM>(
+      conv_param,
+      activations,
+      a_zero_point,
+      rowOffsetBuf,
+      packed_weights,
+      out,
+      outBuffer,
+      outProcess,
+      thread_id,
+      num_threads);
+}
+
+template <
+    typename packed_W,
+    typename outType,
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    int SPATIAL_DIM>
+void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    int32_t* outBuffer,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    int thread_id,
+    int num_threads) {
+  typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN> processOutputType;
+  if (!fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param) ||
+      (!cpuinfo_has_x86_avx512f() && !cpuinfo_has_x86_avx2())) {
+    return fbgemmGroupwiseConvBase_<
+        packed_W,
+        outType,
+        processOutputType,
+        SPATIAL_DIM>(
+        conv_param,
+        activations,
+        a_zero_point,
+        rowOffsetBuf,
+        packed_weights,
+        out,
+        outBuffer,
+        outProcess,
+        thread_id,
+        num_threads);
+  }
+
+  int MB = conv_param.MB;
+  int H = conv_param.OUT_DIM[0];
+  int W = conv_param.OUT_DIM[1];
+  int G = conv_param.G;
+  int K_per_G = conv_param.OC / G;
+  int C_per_G = conv_param.IC / G;
+  int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
+  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+
+  static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
+
+  int32_t* rowOffsetTrDest = rowOffsetBuf + 8 * ih_iw;
+  assert(G % 8 == 0);
+  // generate convolution kernel
+  jit_conv_kernel_fp fpConv =
+      getOrCreateConvKernel<>(conv_param, a_zero_point);
+  // generate row offset kernel
+  jit_rowoffset_kernel_fp fpRowoffset =
+      getOrCreateRowOffsetKernel(conv_param, a_zero_point);
+  for (int i = 0; i < MB; ++i) {
+    const uint8_t* actStartBatch = activations + i * ih_iw * conv_param.IC;
+    for (int gOuter = 0; gOuter < G; gOuter += 8) {
+      // for C_per_G == 4 and K_per_G == 4, row offset is calcualted for 8
+      // groups at a time The result is row offsets in the format IH*IW x G
+      fpRowoffset(
+          actStartBatch + gOuter * C_per_G,
+          a_zero_point,
+          H,
+          W,
+          rowOffsetBuf);
+      // Transpose to get row offsets in the format G x IH*IW
+      internal::transpose_8x8(
+          ih_iw,
+          8,
+          reinterpret_cast<const float*>(rowOffsetBuf),
+          8,
+          reinterpret_cast<float*>(rowOffsetTrDest),
+          ih_iw);
+      int gLimit = gOuter + 8;
+      for (int g = gOuter; g < gLimit; g += 2) {
+        int32_t* currOutBuf = outBuffer + (g - gOuter) * K_per_G;
+        const uint8_t* actStartGroup = actStartBatch + g * C_per_G;
+
+        fpConv(
+            actStartGroup,
+            packed_weights.getBuf() + g * K_per_G * C_per_G,
+            currOutBuf,
+            a_zero_point,
+            H,
+            W);
+      }
+
+      bool b_symmetric =
+          outProcess.getBZeroPoint()[0] == 0 || rowOffsetBuf == nullptr;
+
+      requantizationParams_t r = {a_zero_point,
+                                  outProcess.getBZeroPoint(),
+                                  outProcess.getCZeroPoint(),
+                                  outProcess.getCMultiplier(),
+                                  rowOffsetBuf,
+                                  outProcess.getColOffsets(),
+                                  outProcess.getBias(),
+                                  outProcess.getNCols(),
+                                  G};
+
+      const std::int32_t* inp = outBuffer;
+      block_type_t block{i * oh_ow, oh_ow, gOuter * K_per_G, 8 * K_per_G};
+      int ld_out = K_per_G * G;
+      int ld_in = K_per_G * G;
+
+      if (a_zero_point == 0) {
+        if (b_symmetric) {
+          if (outProcess.getBias() == nullptr) {
+            requantizeOutputProcessingGConv4Avx2<
+                true,
+                true,
+                Q_GRAN,
+                false,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          } else {
+            requantizeOutputProcessingGConv4Avx2<
+                true,
+                true,
+                Q_GRAN,
+                true,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          }
+        } else {
+          if (outProcess.getBias() == nullptr) {
+            requantizeOutputProcessingGConv4Avx2<
+                true,
+                false,
+                Q_GRAN,
+                false,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          } else {
+            requantizeOutputProcessingGConv4Avx2<
+                true,
+                false,
+                Q_GRAN,
+                true,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          }
+        }
+      } else {
+        if (b_symmetric) {
+          if (outProcess.getBias() == nullptr) {
+            requantizeOutputProcessingGConv4Avx2<
+                false,
+                true,
+                Q_GRAN,
+                false,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          } else {
+            requantizeOutputProcessingGConv4Avx2<
+                false,
+                true,
+                Q_GRAN,
+                true,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          }
+        } else {
+          if (outProcess.getBias() == nullptr) {
+            requantizeOutputProcessingGConv4Avx2<
+                false,
+                false,
+                Q_GRAN,
+                false,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          } else {
+            requantizeOutputProcessingGConv4Avx2<
+                false,
+                false,
+                Q_GRAN,
+                true,
+                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+          }
+        }
+      }
+    } // gOuter loop
+  } // i loop
 }
 
 jit_rowoffset_kernel_fp getOrCreateRowOffsetKernel(

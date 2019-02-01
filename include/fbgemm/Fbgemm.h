@@ -1024,6 +1024,25 @@ class FBGEMM_API ReQuantizeOutput {
       int ld_out,
       int ld_in) const;
 
+  const float* getCMultiplier() const {
+    return C_multiplier_;
+  }
+  const std::int32_t getCZeroPoint() const {
+    return C_zero_point_;
+  }
+  const std::int32_t* getBZeroPoint() const {
+    return Bq_zero_point_;
+  }
+  const std::int32_t* getColOffsets() const {
+    return q_col_offsets_;
+  }
+  const std::int32_t* getBias() const {
+    return bias_;
+  }
+  const std::uint32_t getNCols() const {
+    return ncols_;
+  }
+
  private:
   nextOPType& nextop_;
   const float* C_multiplier_;
@@ -1176,6 +1195,25 @@ FBGEMM_API void fbgemmGroupwiseConv(
     const processOutputType& outProcess,
     int thread_id,
     int num_threads);
+
+template <
+    typename packed_W,
+    typename outType,
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    int SPATIAL_DIM = 2>
+FBGEMM_API void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    std::int32_t* outBuffer,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    int thread_id,
+    int num_threads);
+
 /**
  * @return Size of row offset buffer in number of elements needed for
  * fbgemmGroupwiseConv
