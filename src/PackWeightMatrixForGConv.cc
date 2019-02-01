@@ -42,10 +42,10 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
  * Let IC_per_G be number of input channels per group and OC_per_G be number of
  * output channels per group.
  *
- * For IC_per_G  == 4 && OC_per_G == 4 optimized
+ * For IC_per_G == 4 && OC_per_G == 4 optimized
  * kernel works on 2 groups at a time hence input channels for g and g+1 group
- * are laid out sequentially for each output channel, i.e., the layout is R S
- * (G/2) K (2C)
+ * are laid out sequentially for each output channel, i.e., the layout is (G/2)
+ * R S K (2C) and K (2C) is in each 32B vector.
  * We work on two groups at a time to fully utilize the avx2 SIMD width of
  * 256-bits.
  *
@@ -78,7 +78,7 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
                   : sdata_
                         [(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k];
               pdata_
-                  [((((r * S + s) * (G / 2) + (g / 2)) * OC_per_G + k) * 2 +
+                  [(((((g / 2) * R + r) * S + s) * OC_per_G + k) * 2 +
                     (g % 2)) *
                        IC_per_G +
                    c] = b;

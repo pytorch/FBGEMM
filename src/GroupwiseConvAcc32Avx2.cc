@@ -185,7 +185,7 @@ void GenConvKernel<int32_t>::genForLoadingWeights<inst_set_t::avx2>(
           WRegs_avx2_[r * S_ + s],
           x86::dword_ptr(
               wghts_R_,
-              (r * S_ + s) * G_ * K_per_G_ * C_per_G_ * sizeof(int8_t)));
+              (r * S_ + s) * 2 * K_per_G_ * C_per_G_ * sizeof(int8_t)));
     }
   }
 }
@@ -1387,7 +1387,8 @@ void fbgemmGroupwiseConvBase_(
 
           fpConv(
               actStartGroup,
-              packed_weights.getBuf() + g * K_per_G * C_per_G,
+              packed_weights.getBuf() +
+                  g * conv_param.K[0] * conv_param.K[1] * K_per_G * C_per_G,
               currOutBuf,
               a_zero_point,
               H,
@@ -1574,7 +1575,8 @@ void fbgemmGroupwiseConv(
 
         fpConv(
             actStartGroup,
-            packed_weights.getBuf() + g * K_per_G * C_per_G,
+            packed_weights.getBuf() +
+                g * conv_param.K[0] * conv_param.K[1] * K_per_G * C_per_G,
             currOutBuf,
             a_zero_point,
             H,
