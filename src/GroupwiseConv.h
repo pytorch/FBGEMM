@@ -169,6 +169,10 @@ class GenConvKernel {
   template <inst_set_t instSet>
   void gen8BitSum(asmjit::X86Emitter* a, asmjit::X86Ymm aReg);
 
+  // Use scratchReg1_ and tmpReg1Avx2_ internally
+  template <inst_set_t instSet>
+  void genZeroPtSum(asmjit::X86Emitter* a, int multiplier);
+
   template <inst_set_t instSet>
   void genForTopEdgeRowoffset(asmjit::X86Emitter* a);
 
