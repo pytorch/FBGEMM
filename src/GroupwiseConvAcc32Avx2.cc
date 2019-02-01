@@ -793,7 +793,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
     for (int s = 0; s < S_; ++s) {
       int w_in = -W_PAD_ + s;
       if (h_in >= 0 && w_in >= 0) {
-        a->vmovaps(
+        a->vmovups(
             actRegAvx2_,
             x86::dword_ptr(
                 in_acts_R_, scratchReg1_, 0, w_in * C_ * sizeof(uint8_t)));
@@ -831,7 +831,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
         W_R_,
         static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_,
           x86::dword_ptr(
               in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
@@ -877,7 +877,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
       a->sub(scratchReg2_, static_cast<asmjit::Imm>(R_ - W_PAD_ - s));
       a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
       a->add(scratchReg1_, scratchReg2_);
-      a->vmovaps(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      a->vmovups(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
       gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
     }
     if (!isZeroPointZero_) {
@@ -918,7 +918,7 @@ void GenConvKernel<int32_t>::genForLeftEdgeRowoffset<inst_set_t::avx2>(
       }
     }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_,
           x86::dword_ptr(
               in_acts_R_,
@@ -980,7 +980,7 @@ void GenConvKernel<int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
       a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
-      a->vmovaps(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      a->vmovups(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
       gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
       a->add(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     }
@@ -1041,7 +1041,7 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
       }
     }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_,
           x86::dword_ptr(
               in_acts_R_,
@@ -1083,7 +1083,7 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   for (int r = 0; r < R_ - W_PAD_; ++r) {
     // int h_in = H_-2*H_PAD_ + r;
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_,
           x86::dword_ptr(
               in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
@@ -1131,7 +1131,7 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_ - H_PAD_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_,
           x86::dword_ptr(
               in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
@@ -1195,7 +1195,7 @@ void GenConvKernel<int32_t>::genRowoffsetCore<inst_set_t::avx2>(
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
+      a->vmovups(
           actRegAvx2_, x86::dword_ptr(in_acts_R_, s * C_ * sizeof(uint8_t)));
       gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
     }
