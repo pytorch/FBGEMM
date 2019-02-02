@@ -142,32 +142,38 @@ class GenConvKernel {
   gen8bitFMA(asmjit::X86Emitter* a, asmjit::X86Ymm aReg, asmjit::X86Ymm wReg);
 
   template <inst_set_t instSet>
-  void genForLoadingWeights(asmjit::X86Emitter* a);
+  void genForLoadingWeights(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
   void genConstForPermutations(asmjit::X86Emitter* a);
 
   template <inst_set_t instSet>
-  void genForTopEdge(asmjit::X86Emitter* a);
+  void genForTopEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForLeftEdge(asmjit::X86Emitter* a);
+  void genForLeftEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForRightEdge(asmjit::X86Emitter* a);
+  void genForRightEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForBottomEdge(asmjit::X86Emitter* a);
+  void genForBottomEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genCoreInsts(asmjit::X86Emitter* a);
+  void genCoreInsts(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void storeResult(asmjit::X86Emitter* a, int offset = 0);
+  void storeResult(asmjit::X86Emitter* a);
 
   // for Rowoffset kernel
+  // Add 4 consecutive numbers of 32 uint8 and emit 8 32-bit
   template <inst_set_t instSet>
-  void gen8BitSum(asmjit::X86Emitter* a, asmjit::X86Ymm aReg);
+  void gen8BitSumX4(asmjit::X86Emitter* a, asmjit::X86Ymm aReg);
+
+  // Add 8 consecutive numbers of 64 uint8 and emit 8 32-bit
+  template <inst_set_t instSet>
+  void
+  gen8BitSumX8(asmjit::X86Emitter* a, asmjit::X86Ymm aReg, asmjit::X86Ymm bReg);
 
   // Use scratchReg1_ and tmpReg1Avx2_ internally
   template <inst_set_t instSet>
