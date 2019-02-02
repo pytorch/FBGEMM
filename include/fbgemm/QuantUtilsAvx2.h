@@ -85,8 +85,9 @@ template <
     bool B_SYMMETRIC,
     QuantizationGranularity Q_GRAN,
     bool HAS_BIAS,
-    bool FUSE_RELU>
-FBGEMM_API void requantizeOutputProcessingGConv4Avx2(
+    bool FUSE_RELU,
+    int C_PER_G>
+FBGEMM_API void requantizeOutputProcessingGConvAvx2(
     std::uint8_t* out,
     const std::int32_t* inp,
     const block_type_t& block,
