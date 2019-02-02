@@ -1027,7 +1027,7 @@ class FBGEMM_API ReQuantizeOutput {
   const float* getCMultiplier() const {
     return C_multiplier_;
   }
-  const std::int32_t getCZeroPoint() const {
+  std::int32_t getCZeroPoint() const {
     return C_zero_point_;
   }
   const std::int32_t* getBZeroPoint() const {
@@ -1039,7 +1039,7 @@ class FBGEMM_API ReQuantizeOutput {
   const std::int32_t* getBias() const {
     return bias_;
   }
-  const std::uint32_t getNCols() const {
+  std::uint32_t getNCols() const {
     return ncols_;
   }
 
