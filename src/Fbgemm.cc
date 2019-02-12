@@ -360,31 +360,35 @@ template void fbgemmPacked(
 
 ////////////////////////////////////////////////////////////////////////////////
 // DoSpmdmOnInpBuffer
-#define INSTANTIATE_BASE(RELU, Q_GRAN)                                    \
-  template void fbgemmPacked(                                             \
-      PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& \
-          packA,                                                          \
-      PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,   \
-      uint8_t* C,                                                         \
-      int32_t* C_buffer,                                                  \
-      uint32_t ldc,                                                       \
-      const DoSpmdmOnInpBuffer<                                           \
-          uint8_t,                                                        \
-          int32_t,                                                        \
-          ReQuantizeOutput<RELU, Q_GRAN>>& outProcess,                    \
-      int thread_id,                                                      \
+#define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN)                          \
+  template void fbgemmPacked(                                           \
+      PackMatrix<PACK_A<uint8_t, int16_t>, uint8_t, int16_t>& packA,    \
+      PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB, \
+      uint8_t* C,                                                       \
+      int32_t* C_buffer,                                                \
+      uint32_t ldc,                                                     \
+      const DoSpmdmOnInpBuffer<                                         \
+          uint8_t,                                                      \
+          int32_t,                                                      \
+          ReQuantizeOutput<RELU, Q_GRAN>>& outProcess,                  \
+      int thread_id,                                                    \
       int num_threads);
 
-#define INSTANTIATE_Q_GRANS(RELU)                          \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-INSTANTIATE_Q_GRANS(false);
-INSTANTIATE_Q_GRANS(true);
+#define INSTANTIATE_RELU(PACK_A)      \
+  INSTANTIATE_Q_GRANS(PACK_A, false); \
+  INSTANTIATE_Q_GRANS(PACK_A, true);
+
+INSTANTIATE_RELU(PackAMatrix);
+INSTANTIATE_RELU(PackAWithRowOffset);
 
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
+#undef INSTANTIATE_RELU
 
 #define INSTANTIATE_BASE(RELU, Q_GRAN)                                        \
   template void fbgemmPacked(                                                 \
