@@ -763,12 +763,17 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 0])),
               _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 1]),
               1);
-        } else {
-          assert(C_PER_G == 8);
+        } else if (C_PER_G == 8) {
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets
                                     [(i - block.row_start) * 8 +
                                      (j - block.col_start) / (VLEN * 4) * 4]);
+        } else {
+          assert(C_PER_G == 16);
+          row_offset_v =
+              _mm256_set1_epi32(r.row_offsets
+                                    [(i - block.row_start) * 8 +
+                                     (j - block.col_start) / (VLEN * 4) * 2]);
         }
         __m256i B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[0]);
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -781,10 +786,14 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
                 1);
-          } else {
+          } else if (C_PER_G == 8) {
             B_zero_point_v = _mm256_set1_epi32(
                 r.B_zero_point
                     [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4]);
+          } else {
+            B_zero_point_v = _mm256_set1_epi32(
+                r.B_zero_point
+                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2]);
           }
         }
         row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
@@ -799,12 +808,17 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 2])),
               _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 3]),
               1);
-        } else {
+        } else if (C_PER_G == 8) {
           // + 1 here is for group 1
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
                   [(i - block.row_start) * 8 +
                    (j - block.col_start) / (VLEN * 4) * 4 + 1]);
+        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v =
+              _mm256_set1_epi32(r.row_offsets
+                                    [(i - block.row_start) * 8 +
+                                     (j - block.col_start) / (VLEN * 4) * 2]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           B_zero_point_v = _mm256_loadu_si256(
@@ -816,14 +830,16 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx + 2])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 3]),
                 1);
-          } else {
+          } else if (C_PER_G == 8) {
             B_zero_point_v = _mm256_set1_epi32(
                 r.B_zero_point
                     [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
                      1]);
           }
         }
-        row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
+        if (C_PER_G != 16 || Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
+        }
         y_v = _mm256_sub_epi32(y_v, row_offset_v);
 
         // Groups 4 and 5 when C_PER_G == 4
@@ -834,11 +850,16 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 4])),
               _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 5]),
               1);
-        } else {
+        } else if (C_PER_G == 8) {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
                   [(i - block.row_start) * 8 +
                    (j - block.col_start) / (VLEN * 4) * 4 + 2]);
+        } else {
+          row_offset_v = _mm256_set1_epi32(
+              r.row_offsets
+                  [(i - block.row_start) * 8 +
+                   (j - block.col_start) / (VLEN * 4) * 2 + 1]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           B_zero_point_v = _mm256_loadu_si256(
@@ -850,11 +871,16 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx + 4])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 5]),
                 1);
-          } else {
+          } else if (C_PER_G == 8) {
             B_zero_point_v = _mm256_set1_epi32(
                 r.B_zero_point
                     [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
                      2]);
+          } else {
+            B_zero_point_v = _mm256_set1_epi32(
+                r.B_zero_point
+                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2 +
+                     1]);
           }
         }
         row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
@@ -868,11 +894,16 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 6])),
               _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 7]),
               1);
-        } else {
+        } else if (C_PER_G == 8) {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
                   [(i - block.row_start) * 8 +
                    (j - block.col_start) / (VLEN * 4) * 4 + 3]);
+        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_set1_epi32(
+              r.row_offsets
+                  [(i - block.row_start) * 8 +
+                   (j - block.col_start) / (VLEN * 4) * 2 + 1]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           B_zero_point_v = _mm256_loadu_si256(
@@ -884,14 +915,16 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx + 6])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 7]),
                 1);
-          } else {
+          } else if (C_PER_G == 8) {
             B_zero_point_v = _mm256_set1_epi32(
                 r.B_zero_point
                     [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
                      3]);
           }
         }
-        row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
+        if (C_PER_G != 16 || Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
+        }
         w_v = _mm256_sub_epi32(w_v, row_offset_v);
       }
       if (HAS_BIAS) {
@@ -966,7 +999,7 @@ void requantizeOutputProcessingGConvAvx2(
               _mm_set1_ps(r.C_multiplier[quant_param_idx + 7]),
               1);
           w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
-        } else {
+        } else if (C_PER_G == 8) {
           multiplier_v = _mm256_set1_ps(
               r.C_multiplier
                   [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4]);
@@ -988,6 +1021,19 @@ void requantizeOutputProcessingGConvAvx2(
               r.C_multiplier
                   [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
                    3]);
+          w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
+        } else {
+          multiplier_v = _mm256_set1_ps(
+              r.C_multiplier
+                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2]);
+          x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+          y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
+
+          multiplier_v = _mm256_set1_ps(
+              r.C_multiplier
+                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2 +
+                   1]);
+          z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
           w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
         }
       } else {
@@ -1065,30 +1111,38 @@ void requantizeOutputProcessingGConvAvx2(
   } // i loop
 }
 
-#define INSTANTIATE_REQUANTIZE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU)            \
-  template void                                                             \
-  requantizeOutputProcessingAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU>(         \
-      uint8_t * out,                                                        \
-      const int32_t* inp,                                                   \
-      const block_type_t& block,                                            \
-      int ld_out,                                                           \
-      int ld_in,                                                            \
-      const requantizationParams_t& r);                                     \
-  template void                                                             \
-  requantizeOutputProcessingGConvAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 4>( \
-      uint8_t * out,                                                        \
-      const int32_t* inp,                                                   \
-      const block_type_t& block,                                            \
-      int ld_out,                                                           \
-      int ld_in,                                                            \
-      const requantizationParams_t& r);                                     \
-  template void                                                             \
-  requantizeOutputProcessingGConvAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 8>( \
-      uint8_t * out,                                                        \
-      const int32_t* inp,                                                   \
-      const block_type_t& block,                                            \
-      int ld_out,                                                           \
-      int ld_in,                                                            \
+#define INSTANTIATE_REQUANTIZE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU)             \
+  template void                                                              \
+  requantizeOutputProcessingAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU>(          \
+      uint8_t * out,                                                         \
+      const int32_t* inp,                                                    \
+      const block_type_t& block,                                             \
+      int ld_out,                                                            \
+      int ld_in,                                                             \
+      const requantizationParams_t& r);                                      \
+  template void                                                              \
+  requantizeOutputProcessingGConvAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 4>(  \
+      uint8_t * out,                                                         \
+      const int32_t* inp,                                                    \
+      const block_type_t& block,                                             \
+      int ld_out,                                                            \
+      int ld_in,                                                             \
+      const requantizationParams_t& r);                                      \
+  template void                                                              \
+  requantizeOutputProcessingGConvAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 8>(  \
+      uint8_t * out,                                                         \
+      const int32_t* inp,                                                    \
+      const block_type_t& block,                                             \
+      int ld_out,                                                            \
+      int ld_in,                                                             \
+      const requantizationParams_t& r);                                      \
+  template void                                                              \
+  requantizeOutputProcessingGConvAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 16>( \
+      uint8_t * out,                                                         \
+      const int32_t* inp,                                                    \
+      const block_type_t& block,                                             \
+      int ld_out,                                                            \
+      int ld_in,                                                             \
       const requantizationParams_t& r);
 
 #define INSTANTIATE_A_SYM(B_SYM, Q_GRAN, BIAS, RELU)      \
