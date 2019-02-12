@@ -39,7 +39,7 @@ using jit_rowoffset_kernel_fp = void (*)(
 template <typename accT = int32_t>
 class GenConvKernel {
  public:
-  GenConvKernel(const conv_param_t<>& conv_param, std::int32_t zero_point)
+  GenConvKernel(const conv_param_t<>& conv_param, std::int32_t a_zero_point)
       : WRegs_avx2_{x86::ymm0,
                     x86::ymm1,
                     x86::ymm2,
@@ -74,11 +74,7 @@ class GenConvKernel {
     // vector width in elements; Each element is int8 or uint8
     VLEN_ = vectorWidth_ / 8;
 
-    if (zero_point == 0) {
-      isZeroPointZero_ = true;
-    } else {
-      isZeroPointZero_ = false;
-    }
+    isAZeroPointZero_ = a_zero_point == 0;
 
     G_ = conv_param.G;
     K_per_G_ = conv_param.OC / conv_param.G;
@@ -105,7 +101,7 @@ class GenConvKernel {
     fileName += "_S-" + std::to_string(S_);
     fileName += "_PADH-" + std::to_string(H_PAD_);
     fileName += "_PADW-" + std::to_string(W_PAD_);
-    fileName += "_isZeroPointZero-" + std::to_string(isZeroPointZero_);
+    fileName += "_isZeroPointZero-" + std::to_string(isAZeroPointZero_);
     if (rowOffsetKernel) {
       fileName += "_rowOffset";
     }
@@ -261,7 +257,7 @@ class GenConvKernel {
   asmjit::X86Gp scratchReg2_;
 
   // Other parameters
-  bool isZeroPointZero_;
+  bool isAZeroPointZero_;
 
   // current conv parameters
   int G_; ///< Number of groups
