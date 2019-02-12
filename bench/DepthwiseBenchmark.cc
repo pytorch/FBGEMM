@@ -240,59 +240,6 @@ int main() {
             stride_w,
             A_zero_point,
             A.data(),
-            Bp,
-            C.data(),
-            tid,
-            num_threads);
-      }
-      t_end = chrono::system_clock::now();
-      if (i >= NWARMUP) {
-        double dt = chrono::duration<double>(t_end - t_begin).count();
-        ttot += dt;
-      }
-    }
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int g = 0; g < G; ++g) {
-            int32_t expected = C_ref[((n * H_OUT + h) * W_OUT + w) * G + g];
-            int32_t actual = C[((n * H_OUT + h) * W_OUT + w) * G + g];
-            if (expected != actual) {
-              cerr << "Depthwise 3x3 results differ at (" << n << ", " << h
-                   << ", " << w << ", " << g << "). expected " << expected
-                   << " actual " << actual << endl;
-              return -1;
-            }
-            assert(expected == actual);
-          }
-        }
-      }
-    }
-
-    // Report performance
-    printf("N = %d G = %d H = %d W = %d stride = %d\n", N, G, H, W, stride_h);
-    printf("GB/s = %f Gops/s = %f\n", bytes / ttot / 1e9, ops / ttot / 1e9);
-
-    ttot = 0;
-    for (int i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush();
-
-      t_begin = chrono::system_clock::now();
-#pragma omp parallel
-      {
-        int num_threads = fbgemm_get_num_threads();
-        int tid = fbgemm_get_thread_num();
-        depthwise_3x3_pad_1(
-            N,
-            H,
-            W,
-            G,
-            stride_h,
-            stride_w,
-            A_zero_point,
-            A.data(),
             B_zero_point,
             Bp,
             C_multiplier,
