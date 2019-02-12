@@ -34,8 +34,12 @@ void requantize_u8acc32_ref(
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
       int32_t raw = inp[i * ld + j];
-      raw -= A_zero_point * col_offsets[j];
-      raw -= B_zero_point * row_offsets[i];
+      if (A_zero_point) {
+        raw -= A_zero_point * col_offsets[j];
+      }
+      if (B_zero_point) {
+        raw -= B_zero_point * row_offsets[i];
+      }
       if (bias) {
         raw += bias[j];
       }
@@ -69,7 +73,9 @@ void requantize_u8acc32_ref(
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
       int32_t raw = inp[i * ld + j];
-      raw -= A_zero_point * col_offsets[j];
+      if (A_zero_point) {
+        raw -= A_zero_point * col_offsets[j];
+      }
       raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
       if (bias) {
         raw += bias[j];
