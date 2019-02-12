@@ -175,6 +175,28 @@ class GenConvKernel {
   void
   gen8BitSumX8(asmjit::X86Emitter* a, asmjit::X86Ymm aReg, asmjit::X86Ymm bReg);
 
+  // Add 16 consecutive numbers of 128 uint8 and emit 8 32-bit
+  template <inst_set_t instSet>
+  void gen8BitSumX16(
+      asmjit::X86Emitter* a,
+      asmjit::X86Ymm aReg,
+      asmjit::X86Ymm bReg,
+      asmjit::X86Ymm cReg,
+      asmjit::X86Ymm dReg);
+
+  // Generate instruction sequence that loads 8-bit values and sum them up.
+  // Depending on C_per_G_, this function dispatches to gen8BitSumX4/8/16
+  // This function assumes in_acts_R_ has the base pointer to activation,
+  // scratchReg1_ has a variable offset, and act_offset has the final immediate
+  // offset.
+  // Internally, actRegAvx2_, stPermRegAvx2_, WRegs_avx2_[0, 1], tmpReg1Avx2_,
+  // and resultRegAvx2_ are used.
+  template <inst_set_t instSet>
+  void gen8BitSum(
+      asmjit::X86Emitter* a,
+      int act_offset,
+      bool use_scratch_reg1 = true);
+
   // Use scratchReg1_ and tmpReg1Avx2_ internally
   template <inst_set_t instSet>
   void genZeroPtSum(asmjit::X86Emitter* a, int multiplier);

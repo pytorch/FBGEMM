@@ -198,7 +198,7 @@ FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
   int K_per_G = conv_p.OC / conv_p.G;
 
   return (SPATIAL_DIM == 2) && (C_per_G == K_per_G) &&
-      (C_per_G == 4 || C_per_G == 8) && (conv_p.G % 8 == 0) &&
+      (C_per_G == 4 || C_per_G == 8 || C_per_G == 16) && (conv_p.G % 8 == 0) &&
       (conv_p.K[0] == conv_p.K[1]) && (conv_p.K[0] == 3) &&
       (conv_p.pad[0] == 1) && (conv_p.pad[1] == 1) &&
       (conv_p.pad[0] == conv_p.pad[2]) && (conv_p.pad[1] == conv_p.pad[3]) &&
