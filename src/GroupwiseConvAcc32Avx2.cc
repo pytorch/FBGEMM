@@ -1610,7 +1610,7 @@ void fbgemmGroupwiseConvBase_(
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest = rowOffsetBuf + 8 * ih_iw;
+  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
   if (fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param)) {
     assert(G % 8 == 0);
     // generate convolution kernel
@@ -1624,16 +1624,22 @@ void fbgemmGroupwiseConvBase_(
       for (int gOuter = 0; gOuter < G; gOuter += 8) {
         // row offset is calcualted for 8 groups at a time.
         // The result is row offsets in the format IH*IW x G
-        fpRowoffset(
-            actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
-        // Transpose to get row offsets in the format G x IH*IW
-        internal::transpose_8x8(
-            ih_iw,
-            8,
-            reinterpret_cast<const float*>(rowOffsetBuf),
-            8,
-            reinterpret_cast<float*>(rowOffsetTrDest),
-            ih_iw);
+        if (rowOffsetBuf) {
+          fpRowoffset(
+              actStartBatch + gOuter * C_per_G,
+              a_zero_point,
+              H,
+              W,
+              rowOffsetBuf);
+          // Transpose to get row offsets in the format G x IH*IW
+          internal::transpose_8x8(
+              ih_iw,
+              8,
+              reinterpret_cast<const float*>(rowOffsetBuf),
+              8,
+              reinterpret_cast<float*>(rowOffsetTrDest),
+              ih_iw);
+        }
         int gLimit = gOuter + 8;
         // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
         // of AVX2), and we need multiple groups if a group has not enough
@@ -1665,7 +1671,9 @@ void fbgemmGroupwiseConvBase_(
             // calculateRowOffsets(
             // conv_param, actStartGroup, rowOffsetBuf, a_zero_point, j);
             int32_t* rowOffsetForCurG =
-                rowOffsetTrDest + ((g - gOuter) + j) * ih_iw;
+                rowOffsetTrDest
+                ? rowOffsetTrDest + ((g - gOuter) + j) * ih_iw
+                : nullptr;
             // compare_buffers(rowOffsetBuf, rowOffsetForCurG,
             // conv_param.IN_DIM[0]*conv_param.IN_DIM[1], 1, 1, 100);
 
@@ -1706,13 +1714,16 @@ void fbgemmGroupwiseConvBase_(
         outBuffer);
     for (int i = 0; i < conv_param.MB; ++i) {
       for (int g = 0; g < conv_param.G; ++g) {
-        calculateRowOffsets(
-            conv_param,
-            activations +
-                i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * conv_param.IC,
-            rowOffsetBuf,
-            a_zero_point,
-            g);
+        if (rowOffsetBuf) {
+          calculateRowOffsets(
+              conv_param,
+              activations +
+                  i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] *
+                      conv_param.IC,
+              rowOffsetBuf,
+              a_zero_point,
+              g);
+        }
         outProcess.template f<inst_set_t::anyarch>(
             out,
             outBuffer + i * oh_ow * conv_param.OC + g * K_per_G,
@@ -1808,7 +1819,7 @@ void fbgemmGroupwiseConv(
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest = rowOffsetBuf + 8 * ih_iw;
+  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
   assert(G % 8 == 0);
   // generate convolution kernel
   jit_conv_kernel_fp fpConv =
@@ -1819,18 +1830,20 @@ void fbgemmGroupwiseConv(
   for (int i = 0; i < MB; ++i) {
     const uint8_t* actStartBatch = activations + i * ih_iw * conv_param.IC;
     for (int gOuter = 0; gOuter < G; gOuter += 8) {
-      // row offset is calcualted for 8 groups at a time.
-      // The result is row offsets in the format IH*IW x G
-      fpRowoffset(
-          actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
-      // Transpose to get row offsets in the format G x IH*IW
-      internal::transpose_8x8(
-          ih_iw,
-          8,
-          reinterpret_cast<const float*>(rowOffsetBuf),
-          8,
-          reinterpret_cast<float*>(rowOffsetTrDest),
-          ih_iw);
+      if (rowOffsetBuf && outProcess.getBZeroPoint()) {
+        // row offset is calcualted for 8 groups at a time.
+        // The result is row offsets in the format IH*IW x G
+        fpRowoffset(
+            actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
+        // Transpose to get row offsets in the format G x IH*IW
+        internal::transpose_8x8(
+            ih_iw,
+            8,
+            reinterpret_cast<const float*>(rowOffsetBuf),
+            8,
+            reinterpret_cast<float*>(rowOffsetTrDest),
+            ih_iw);
+      }
       int gLimit = gOuter + 8;
       // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
       // of AVX2), and we need multiple groups if a group has not enough
@@ -1858,8 +1871,9 @@ void fbgemmGroupwiseConv(
         } // k loop
       } // g loop
 
-      bool b_symmetric =
-          outProcess.getBZeroPoint()[0] == 0 || rowOffsetBuf == nullptr;
+      bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+                          outProcess.getBZeroPoint()[0] == 0) ||
+          rowOffsetBuf == nullptr;
 
       requantizationParams_t r = {a_zero_point,
                                   outProcess.getBZeroPoint(),

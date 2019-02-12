@@ -1177,6 +1177,7 @@ FBGEMM_API void fbgemmPacked(
 /**
  * @brief Perform small-channels-per-group groupwise convolution
  *
+ * @params rowOffsetBuf nullptr if B uses symmetric quantization
  */
 
 template <
@@ -1196,6 +1197,9 @@ FBGEMM_API void fbgemmGroupwiseConv(
     int thread_id,
     int num_threads);
 
+/**
+ * @params rowOffsetBuf nullptr if B uses symmetric quantization
+ */
 template <
     typename packed_W,
     typename outType,
