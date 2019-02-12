@@ -81,7 +81,9 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
-        raw -= Aq_zero_point_ * q_col_offsets_[j];
+        if (Aq_zero_point_) {
+          raw -= Aq_zero_point_ * q_col_offsets_[j];
+        }
         int Bq_zero_point_idx;
         if (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
@@ -225,7 +227,9 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
       inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
-      raw -= Aq_zero_point_ * q_col_offsets_[j];
+      if (Aq_zero_point_) {
+        raw -= Aq_zero_point_ * q_col_offsets_[j];
+      }
       int Bq_zero_point_idx;
       if (Q_GRAN == QuantizationGranularity::TENSOR) {
         Bq_zero_point_idx = 0;
