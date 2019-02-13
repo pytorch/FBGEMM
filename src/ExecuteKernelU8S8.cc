@@ -53,6 +53,10 @@ ExecuteKernel<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx512>::NCB;
+    nrSize_ = PackingTraits<
+        int8_t,
+        typename packingAMatrix::accType,
+        inst_set_t::avx512>::NR;
   } else if (cpuinfo_has_x86_avx2()) {
     mbSize_ = PackingTraits<
         int8_t,
@@ -62,6 +66,10 @@ ExecuteKernel<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx2>::NCB;
+    nrSize_ = PackingTraits<
+        int8_t,
+        typename packingAMatrix::accType,
+        inst_set_t::avx2>::NR;
   } else {
     assert(0 && "unsupported architecure");
   }
@@ -125,6 +133,27 @@ void ExecuteKernel<
 #endif
 
   for (int jb = 0; jb < bColBlocks; ++jb) {
+    if (jb == bColBlocks - 1) {
+      int nc = ((packedB_.lastBcol() - 1) / nrSize_ + 1) * nrSize_;
+      if (nc != nbSize_) {
+        if (cpuinfo_initialize()) {
+          if (cpuinfo_has_x86_avx512f()) {
+            fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+          } else if (cpuinfo_has_x86_avx2()) {
+            fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+          } else {
+            // TODO: Have default slower path
+            assert(0 && "unsupported architecture");
+            return;
+          }
+        } else {
+          throw std::runtime_error("Failed to initialize cpuinfo!");
+        }
+      }
+    }
+
     bBuf = packedB_.getBuf(jb, kBlock);
     // prefetch addr of the next packed block of B matrix
     bBuf_pf = packedB_.getBuf(jb == bColBlocks - 1 ? jb : jb + 1, kBlock);
