@@ -52,7 +52,8 @@ class GenConvKernel {
     // vector width in bits
     if (cpuinfo_initialize()) {
       if (cpuinfo_has_x86_avx512f()) {
-        vectorWidth_ = 512;
+        // TODO: change this to 512 once we have avx512f version
+        vectorWidth_ = 256;
       } else if (cpuinfo_has_x86_avx2()) {
         vectorWidth_ = 256;
       } else {
