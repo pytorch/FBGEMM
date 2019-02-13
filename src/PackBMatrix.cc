@@ -115,8 +115,8 @@ void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
             << "[" << BaseType::blockRowSize() << ", "
             << BaseType::blockColSize() << "]" << std::endl;
 
-  T* out = BaseType::getBuf() +
-      this->packedBufferSize(this->numPackedRows(), this->numPackedCols());
+  T* out = BaseType::getBuf();
+
   for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
     auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
                                                   : BaseType::blockRowSize();
