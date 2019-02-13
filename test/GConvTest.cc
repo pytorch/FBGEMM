@@ -37,8 +37,12 @@ namespace {
 class fbgemmGConvAcc32Test
     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
 class fbgemmGConvAcc32WithQuantGranularityTest
-    : public testing::TestWithParam<
-          tuple<matrix_op_t, matrix_op_t, QuantizationGranularity>> {};
+    : public testing::TestWithParam<tuple<
+          matrix_op_t,
+          matrix_op_t,
+          QuantizationGranularity,
+          bool,
+          bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -54,7 +58,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Values(matrix_op_t::NoTranspose),
         ::testing::ValuesIn(transposeVals),
-        ::testing::ValuesIn(qGranularityVals)));
+        ::testing::ValuesIn(qGranularityVals),
+        ::testing::Bool(), // A symmetric
+        ::testing::Bool())); // B symmetric
 /**
  * @brief Shapes for unit test.
  */
@@ -104,7 +110,8 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
   vector<conv_param_t<>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   QuantizationGranularity q_granularity;
-  tie(atrans, btrans, q_granularity) = GetParam();
+  bool a_symmetric, b_symmetric;
+  tie(atrans, btrans, q_granularity, a_symmetric, b_symmetric) = GetParam();
 
   for (auto conv_p : shapes) {
     int R = conv_p.K[0];
@@ -132,7 +139,7 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
     aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size(), 0);
 
     randFill<uint8_t>(Aint8, 0, 5);
-    int32_t Aint8_zero_point = 4;
+    int32_t Aint8_zero_point = a_symmetric ? 0 : 4;
 
     randFill<int8_t>(Bint8, -4, 4);
 
@@ -148,7 +155,11 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
 
     aligned_vector<int32_t> Bint8_zero_point(
         G * OC_per_G / ncols_per_quant_group);
-    randFill(Bint8_zero_point, -3, -1);
+    if (b_symmetric) {
+      randFill(Bint8_zero_point, -3, -1);
+    } else {
+      randFill(Bint8_zero_point, 0, 0);
+    }
 
     // matrix dimensions after im2col for each GEMM.
     // For each group, there is one GEMM of the following dimensions
@@ -231,7 +242,7 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
             C_zero_pt,
             Aint8_zero_point,
             Bint8_zero_point.data(),
-            row_offset_buf.data(),
+            Bint8_zero_point[0] ? row_offset_buf.data() : nullptr,
             col_offsets.data(),
             nullptr,
             G * NDim,
@@ -241,14 +252,13 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
             conv_p,
             Aint8.data(),
             Aint8_zero_point,
-            row_offset_buf.data(),
+            Bint8_zero_point[0] ? row_offset_buf.data() : nullptr,
             packedWeights,
             Cint8_fb.data(),
             Cint32_fb.data(),
             reqObj,
             tid,
             num_threads);
-
       } else if (q_granularity == QuantizationGranularity::GROUP) {
         ReQuantizeOutput<false, QuantizationGranularity::GROUP> reqObj(
             doNothingObj,
