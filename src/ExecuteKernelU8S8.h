@@ -71,6 +71,7 @@ class ExecuteKernel<
                     ///< multiple of N.
   int mbSize_; ///< block size in the m dimension.
   int nbSize_; ///< block size in the n dimension.
+  int nrSize_; ///< register size in the n dimension.
 };
 
 } // namespace fbgemm

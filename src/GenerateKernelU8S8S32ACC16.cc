@@ -151,6 +151,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
   // code_.setLogger(&logger);
 
   constexpr int kBlock = PackingTraits<int8_t, int16_t, inst_set_t::avx2>::KCB;
+  constexpr int nBlock = PackingTraits<int8_t, int16_t, inst_set_t::avx2>::NCB;
   constexpr int mRegBlockSize =
       PackingTraits<int8_t, int16_t, inst_set_t::avx2>::MR;
   // constexpr int nRegBlockSize =
@@ -237,8 +238,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     // update buffer_B address for next k iteration
     a->add(
-        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
-    // a->add(B_pf, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
+        buffer_B,
+        static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
+    // a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
+    // sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(Loopk);
@@ -285,8 +288,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     // update buffer_B address for next k iteration
     a->add(
-        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
-    // a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
+        buffer_B,
+        static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
+    // a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
+    // sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(LoopkRem);
