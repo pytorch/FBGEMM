@@ -135,24 +135,6 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
     Packed3x3ConvMatrix Bp(K, B.data());
 
     depthwise_3x3_pad_1(
-        N, H, W, K, stride_h, stride_w, A_zero_point, A.data(), Bp, C.data());
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < K; ++k) {
-            int32_t expected = C_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
-            int32_t actual = C[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual)
-                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
-          }
-        }
-      }
-    }
-
-    depthwise_3x3_pad_1(
         N,
         H,
         W,
@@ -264,41 +246,6 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
         bias.data());
 
     Packed3x3x3ConvMatrix Bp(K, B.data());
-
-    depthwise_3x3x3_pad_1(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
-        Bp,
-        C.data());
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int t = 0; t < T_OUT; ++t) {
-        for (int h = 0; h < H_OUT; ++h) {
-          for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < K; ++k) {
-              int32_t expected =
-                  C_ref[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              int32_t actual =
-                  C[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              ASSERT_EQ(expected, actual)
-                  << "Depthwise 3x3 results differ at (" << n << ", " << t
-                  << ", " << h << ", " << w << ", " << k << ") " << shape[0]
-                  << " " << shape[1] << " " << shape[2] << " " << shape[3]
-                  << " " << shape[4] << " " << shape[5];
-            }
-          } // w
-        } // h
-      } // t
-    } // n
 
     depthwise_3x3x3_pad_1(
         N,
