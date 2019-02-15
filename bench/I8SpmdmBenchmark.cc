@@ -76,7 +76,7 @@ int main() {
 #endif
 
   for (const auto& shape : shapes) {
-    for (float density : {0.0001f, 0.001f, 0.01f, 0.1f, 1.0f}) {
+    for (float density : {0.00001f, 0.0001f, 0.001f, 0.01f, 0.1f, 1.0f}) {
       for (bool accumulation : {false, true}) {
         int M = shape[0];
         int N = shape[1];
