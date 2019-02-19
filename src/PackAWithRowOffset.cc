@@ -91,22 +91,18 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   int32_t* row_offset_buf = getRowOffsetBuffer();
   if (tr) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+      int buf_idx = i - block.row_start;
+      int32_t row_sum = row_offset_acc ? row_offset_buf[buf_idx] : 0;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-        T val = smat_[i + ld_ * j];
+        T val = smat_[i + j * ld_];
         row_sum += val;
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = val;
+        out[buf_idx * BaseType::blockColSize() + (j - block.col_start)] = val;
       }
-      row_offset_buf[i - block.row_start] = row_sum;
+      row_offset_buf[buf_idx] = row_sum;
       // zero fill
       // Please see the comment in PackAMatrix.cc on zero vs zero_pt fill.
-      for (int j = block.col_start + block.col_size;
-           j < block_p.col_start + block_p.col_size;
-           ++j) {
-        out[(i - block.row_start) * BaseType::blockColSize() +
-            (j - block.col_start)] = 0;
+      for (int j = block.col_size; j < block_p.col_size; ++j) {
+        out[buf_idx * BaseType::blockColSize() + j] = 0;
       }
     }
   } else {
@@ -124,10 +120,9 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
       for (int j = block.col_size; j < block_p.col_size; ++j) {
         out[buf_idx * BaseType::blockColSize() + j] = 0;
       }
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+      int32_t row_sum = row_offset_acc ? row_offset_buf[buf_idx] : 0;
       row_sum += reduceAvx2(smat_ + i * ld_ + block.col_start, block.col_size);
-      row_offset_buf[i - block.row_start] = row_sum;
+      row_offset_buf[buf_idx] = row_sum;
     }
   }
 }
