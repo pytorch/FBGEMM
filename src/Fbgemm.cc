@@ -144,7 +144,6 @@ void fbgemmPacked(
         exeKernelObj(
             packA,
             packB,
-            0,
             C,
             C_buffer,
             ldc,
