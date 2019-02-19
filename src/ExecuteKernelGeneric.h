@@ -35,7 +35,6 @@ class ExecuteKernel : public CodeGenBase<
           packingBMatrix,
           typename packingBMatrix::inpType,
           typename packingBMatrix::accType>& packB,
-      int32_t kBlock,
       cT* matC,
       typename packingBMatrix::accType* C_buffer,
       int32_t ldc,
@@ -54,7 +53,6 @@ class ExecuteKernel : public CodeGenBase<
       packingBMatrix,
       typename packingBMatrix::inpType,
       typename packingBMatrix::accType>& packedB_; ///< Packed matrix B.
-  int32_t kBlock_; ///< Block ID in the k dimension.
   cT* matC_; ///< Output for matrix C.
   typename packingAMatrix::accType*
       C_buffer_; ///< the accumulation buffer for matrix C.

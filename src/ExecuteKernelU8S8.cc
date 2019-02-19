@@ -28,7 +28,6 @@ ExecuteKernel<
             PackBMatrix<int8_t, typename packingAMatrix::accType>,
             int8_t,
             typename packingAMatrix::accType>& packB,
-        int32_t kBlock,
         cT* matC,
         int32_t* C_buffer,
         int32_t ldc,
@@ -37,7 +36,6 @@ ExecuteKernel<
         int num_threads)
     : packedA_(packA),
       packedB_(packB),
-      kBlock_(kBlock),
       matC_(matC),
       C_buffer_(C_buffer),
       ldc_(ldc),
