@@ -45,7 +45,7 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     fbgemmu8s8acc32WithQuantGranularityTest,
     ::testing::Combine(
-        ::testing::Values(matrix_op_t::NoTranspose),
+        ::testing::ValuesIn(transposeVals),
         ::testing::ValuesIn(transposeVals),
         ::testing::Bool(),
         ::testing::ValuesIn(qGranularityVals)));
@@ -54,7 +54,7 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     fbgemmu8s8acc32Test,
     ::testing::Combine(
-        ::testing::Values(matrix_op_t::NoTranspose),
+        ::testing::ValuesIn(transposeVals),
         ::testing::ValuesIn(transposeVals),
         ::testing::Bool()));
 
@@ -167,9 +167,6 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
         // as lda.
         int n_adjusted = n;
         if (test_ld) {
-          assert(
-              atrans == matrix_op_t::NoTranspose &&
-              "This case is not handled yet");
           if (btrans == matrix_op_t::NoTranspose) {
             n_adjusted = std::max(n / 2, 1);
           }
@@ -239,6 +236,12 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
               ncols_per_quant_group);
         }
 
+        if (atrans == matrix_op_t::Transpose) {
+          aligned_vector<uint8_t> Aint8_temp(Aint8.size());
+          transpose_matrix(m, k, Aint8.data(), k, Aint8_temp.data(), m);
+          Aint8 = Aint8_temp;
+        }
+
         PackBMatrix<int8_t> packedBN(
             btrans,
             k,
@@ -256,14 +259,13 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
               PackAWithRowOffset<uint8_t>::rowOffsetBufferSize());
 
           PackAWithRowOffset<uint8_t> packAN(
-              matrix_op_t::NoTranspose,
+              atrans,
               m,
               k,
               Aint8.data(),
-              k,
+              (atrans == matrix_op_t::Transpose) ? m : k,
               nullptr,
-              groups,
-              row_offset_buf.data());
+              groups);
 
           int num_threads = fbgemm_get_num_threads();
           int tid = fbgemm_get_thread_num();
@@ -411,9 +413,6 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       // as lda.
       int n_adjusted = n;
       if (test_ld) {
-        assert(
-            atrans == matrix_op_t::NoTranspose &&
-            "This case is not handled yet");
         if (btrans == matrix_op_t::NoTranspose) {
           n_adjusted = std::max(n / 2, 1);
         }
@@ -479,6 +478,12 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
             Cfp32_ref.data() + g * n_adjusted);
       }
 
+      if (atrans == matrix_op_t::Transpose) {
+        aligned_vector<float> Afp32_temp(Afp32.size());
+        transpose_matrix(m, k, Afp32.data(), k, Afp32_temp.data(), m);
+        Afp32 = Afp32_temp;
+      }
+
       PackBMatrix<int8_t> packedBN(
           btrans,
           k,
@@ -496,16 +501,18 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
             PackAWithQuantRowOffset<uint8_t>::rowOffsetBufferSize());
 
         PackAWithQuantRowOffset<uint8_t> packAN(
-            matrix_op_t::NoTranspose,
+            atrans,
             m,
             k,
             Afp32.data(),
-            k,
+            (atrans == matrix_op_t::Transpose) ? m : k,
             nullptr, /*buffer for packed matrix*/
             Aint8_scale,
             Aint8_zero_point,
             groups,
-            row_offset_buf.data());
+            // This is just to test row_offset_buf = nullptr with at least
+            // one configuration.
+            groups == 3 ? nullptr : row_offset_buf.data());
 
         int num_threads = fbgemm_get_num_threads();
         int tid = fbgemm_get_thread_num();
@@ -650,12 +657,15 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
       // as lda.
       int n_adjusted = n;
       if (test_ld) {
-        assert(
-            atrans == matrix_op_t::NoTranspose &&
-            "This case is not handled yet");
         if (btrans == matrix_op_t::NoTranspose) {
           n_adjusted = std::max(n / 2, 1);
         }
+      }
+
+      if (atrans == matrix_op_t::Transpose) {
+        aligned_vector<uint8_t> Aint8_temp(Aint8.size());
+        transpose_matrix(m, k, Aint8.data(), k, Aint8_temp.data(), m);
+        Aint8 = Aint8_temp;
       }
 
       if (btrans == matrix_op_t::Transpose) {
@@ -701,7 +711,13 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
       {
         // A zero point and row offset not required
         PackAMatrix<uint8_t> packAN(
-            matrix_op_t::NoTranspose, m, k, Aint8.data(), k, nullptr, groups);
+            atrans,
+            m,
+            k,
+            Aint8.data(),
+            (atrans == matrix_op_t::Transpose) ? m : k,
+            nullptr,
+            groups);
 
         DoNothing<int32_t, int32_t> doNothingObj{};
         memCopy<> outputProcObj(doNothingObj);

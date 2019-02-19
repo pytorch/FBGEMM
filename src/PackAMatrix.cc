@@ -62,10 +62,12 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
   bool tr = (trans_ == matrix_op_t::Transpose);
   T* out = BaseType::getBuf();
   if (tr) {
+    // TODO: should print warning because this path is not optimized yet
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      int buf_idx = i - block.row_start;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         T val = smat_[i + j * ld_];
-        out[addr(i, j) - addr(block.row_start, block.col_start)] = val;
+        out[buf_idx * BaseType::blockColSize() + (j - block.col_start)] = val;
       }
       // zero fill
       // Please note that we zero fill, not zero_pt fill, because for
@@ -99,10 +101,8 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
       //
       // and requantization with numElements(A) = 3 will produce the same
       // answer (-4.8).
-      for (int j = block.col_start + block.col_size;
-           j < block_p.col_start + block_p.col_size;
-           ++j) {
-        out[addr(i, j) - addr(block.row_start, block.col_start)] = 0;
+      for (int j = block.col_size; j < block_p.col_size; ++j) {
+        out[buf_idx * BaseType::blockColSize() + j] = 0;
       }
     }
   } else {
