@@ -21,8 +21,9 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const T* sdata,
     inpType* pmat,
-    int32_t zero_pt,
-    int32_t* row_offset)
+    int32_t a_zero_pt,
+    int32_t* row_offset,
+    bool b_symmetric)
     : PackMatrix<PackAWithIm2Col<T, accT, SPATIAL_DIM>, T, accT>(
           conv_p.MB *
               std::accumulate(
@@ -40,7 +41,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
           conv_p.G),
       conv_p_(conv_p),
       sdata_(sdata),
-      zero_pt_(zero_pt) {
+      a_zero_pt_(a_zero_pt) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
   if (cpuinfo_has_x86_avx512f()) {
@@ -70,13 +71,15 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
         fbgemmAlignedAlloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
     // aligned_alloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
-  if (row_offset) {
-    rowOffsetAllocatedHere = false;
-    row_offset_ = row_offset;
-  } else {
-    rowOffsetAllocatedHere = true;
-    row_offset_ = static_cast<int32_t*>(
-        fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(int32_t)));
+  if (!b_symmetric) {
+    if (row_offset) {
+      rowOffsetAllocatedHere = false;
+      row_offset_ = row_offset;
+    } else {
+      rowOffsetAllocatedHere = true;
+      row_offset_ = static_cast<int32_t*>(
+          fbgemmAlignedAlloc(64, BaseType::brow_ * sizeof(int32_t)));
+    }
   }
 }
 
@@ -115,20 +118,35 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       "PackAWithIm2Col<T, accT>::pack only works for T == uint8_t");
   if (point_wise) {
     int32_t ld = this->numCols();
-    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      int buf_idx = i - block.row_start;
-      memcpy(
-          out + buf_idx * BaseType::blockColSize(),
-          sdata_ + i * ld + block.col_start,
-          block.col_size * sizeof(T));
-      // zero fill
-      for (int j = block.col_size; j < block_p.col_size; ++j) {
-        out[buf_idx * BaseType::blockColSize() + j] = 0;
+    if (row_offset_buf) {
+      for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+        int buf_idx = i - block.row_start;
+        memcpy(
+            out + buf_idx * BaseType::blockColSize(),
+            sdata_ + i * ld + block.col_start,
+            block.col_size * sizeof(T));
+        // zero fill
+        for (int j = block.col_size; j < block_p.col_size; ++j) {
+          out[buf_idx * BaseType::blockColSize() + j] = 0;
+        }
+        int32_t row_sum =
+            row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+        row_sum +=
+            reduceAvx2(sdata_ + i * ld + block.col_start, block.col_size);
+        row_offset_buf[i - block.row_start] = row_sum;
       }
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      row_sum += reduceAvx2(sdata_ + i * ld + block.col_start, block.col_size);
-      row_offset_buf[i - block.row_start] = row_sum;
+    } else {
+      for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+        int buf_idx = i - block.row_start;
+        memcpy(
+            out + buf_idx * BaseType::blockColSize(),
+            sdata_ + i * ld + block.col_start,
+            block.col_size * sizeof(T));
+        // zero fill
+        for (int j = block.col_size; j < block_p.col_size; ++j) {
+          out[buf_idx * BaseType::blockColSize() + j] = 0;
+        }
+      }
     }
 
     return;
@@ -168,7 +186,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           std::memset(
               out + (i - block.row_start) * BaseType::blockColSize() +
                   (j_blk_start - block.col_start),
-              zero_pt_,
+              a_zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
@@ -220,7 +238,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
               &out
                   [(i - block.row_start) * BaseType::blockColSize() +
                    (j_blk_start - block.col_start)],
-              zero_pt_,
+              a_zero_pt_,
               sizeof(T) * (j_blk_end - j_blk_start));
         } else {
           std::memcpy(
@@ -252,11 +270,13 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                (block.col_start + block.col_size)));
     }
 
-    // TODO: skip row_offset computation when B_zero_point is 0
-    int32_t row_sum = row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-    row_sum += reduceAvx2(
-        out + (i - block.row_start) * this->blockColSize(), block.col_size);
-    row_offset_buf[i - block.row_start] = row_sum;
+    if (row_offset_buf) {
+      int32_t row_sum =
+          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+      row_sum += reduceAvx2(
+          out + (i - block.row_start) * this->blockColSize(), block.col_size);
+      row_offset_buf[i - block.row_start] = row_sum;
+    }
   } // for each i
 }
 

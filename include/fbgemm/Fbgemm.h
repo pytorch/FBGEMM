@@ -524,13 +524,15 @@ class FBGEMM_API PackAWithIm2Col
    *                    buffer and owns it. Otherwise, this class doesn't own
    *                    the buffer. The buffer will be populated when pack
    *                    function is called.
+   * @params b_symmetric if true we skip row offset computation
    */
   PackAWithIm2Col(
       const conv_param_t<SPATIAL_DIM>& conv_param,
       const T* sdata,
       inpType* pmat = nullptr,
-      std::int32_t zero_pt = 0,
-      std::int32_t* row_offset = nullptr);
+      std::int32_t a_zero_pt = 0,
+      std::int32_t* row_offset = nullptr,
+      bool b_symmetric = false);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -578,9 +580,9 @@ class FBGEMM_API PackAWithIm2Col
  private:
   const conv_param_t<SPATIAL_DIM> conv_p_;
   const T* sdata_;
-  std::int32_t zero_pt_;
-  std::int32_t* row_offset_;
-  bool rowOffsetAllocatedHere;
+  std::int32_t a_zero_pt_;
+  std::int32_t* row_offset_{nullptr};
+  bool rowOffsetAllocatedHere{false};
   std::int32_t row_interleave_B_;
 };
 
