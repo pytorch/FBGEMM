@@ -30,13 +30,15 @@ vector<QuantizationGranularity> qGranularityVals{
 
 namespace {
 class fbgemmIm2colTest
-    : public testing::TestWithParam<QuantizationGranularity> {};
+    : public testing::TestWithParam<tuple<QuantizationGranularity, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     fbgemmIm2colTest,
-    ::testing::ValuesIn(qGranularityVals));
+    ::testing::Combine(
+        ::testing::ValuesIn(qGranularityVals),
+        ::testing::Bool()));
 
 // From Faster-RCNN with ShuffleNet
 static vector<conv_param_t<>> shapes = {
@@ -52,7 +54,7 @@ static vector<conv_param_t<>> shapes = {
 };
 
 template <typename ACC_T, QuantizationGranularity Q_GRAN>
-static void Im2colTest() {
+static void Im2colTest(bool b_symmetric) {
   for (auto conv_p : shapes) {
     for (int groups : {1, 4}) {
       if (conv_p.IC % groups != 0 || conv_p.OC % groups != 0) {
@@ -88,6 +90,9 @@ static void Im2colTest() {
         Aint8_zero_point = 4;
         randFill<int8_t>(Bint8, -4, 4);
         randFill(Bint8_zero_point, -3, -1);
+      }
+      if (b_symmetric) {
+        randFill(Bint8_zero_point, 0, 0);
       }
 
       aligned_vector<float> C_multiplier(Bint8_zero_point.size());
@@ -169,7 +174,8 @@ static void Im2colTest() {
             Aint8.data(),
             nullptr,
             Aint8_zero_point,
-            row_offset_buf.data());
+            row_offset_buf.data(),
+            b_symmetric);
 
         DoNothing<> doNothingObj{};
         ReQuantizeOutput<false, Q_GRAN> outputProcObj(
@@ -223,24 +229,28 @@ static void Im2colTest() {
 }
 
 TEST_P(fbgemmIm2colTest, Acc32Test) {
-  QuantizationGranularity q_granularity = GetParam();
+  QuantizationGranularity q_granularity;
+  bool b_symmetric;
+  tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
-    Im2colTest<int32_t, QuantizationGranularity::TENSOR>();
+    Im2colTest<int32_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
-    Im2colTest<int32_t, QuantizationGranularity::GROUP>();
+    Im2colTest<int32_t, QuantizationGranularity::GROUP>(b_symmetric);
   } else {
-    Im2colTest<int32_t, QuantizationGranularity::OUT_CHANNEL>();
+    Im2colTest<int32_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
 }
 
 TEST_P(fbgemmIm2colTest, Acc16Test) {
-  QuantizationGranularity q_granularity = GetParam();
+  QuantizationGranularity q_granularity;
+  bool b_symmetric;
+  tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
-    Im2colTest<int16_t, QuantizationGranularity::TENSOR>();
+    Im2colTest<int16_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
-    Im2colTest<int16_t, QuantizationGranularity::GROUP>();
+    Im2colTest<int16_t, QuantizationGranularity::GROUP>(b_symmetric);
   } else {
-    Im2colTest<int16_t, QuantizationGranularity::OUT_CHANNEL>();
+    Im2colTest<int16_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
 }
 
@@ -453,7 +463,10 @@ void SConvTest() {
 }
 
 TEST_P(fbgemmIm2colTest, SConvTest) {
-  QuantizationGranularity q_granularity = GetParam();
+  QuantizationGranularity q_granularity;
+  bool b_symmetric;
+  tie(q_granularity, b_symmetric) = GetParam();
+  // b_symmetric ignored for now
   if (q_granularity == QuantizationGranularity::TENSOR) {
     SConvTest<QuantizationGranularity::TENSOR>();
   } else if (q_granularity == QuantizationGranularity::GROUP) {
@@ -539,7 +552,7 @@ static vector<conv_param_t<3>> shapes_3d = {
 };
 
 template <typename ACC_T, QuantizationGranularity Q_GRAN>
-static void Im2col3DTest() {
+static void Im2col3DTest(bool b_symmetric) {
   for (auto conv_p : shapes_3d) {
     for (int groups : {1, 4}) {
       if (conv_p.IC % groups != 0 || conv_p.OC % groups != 0) {
@@ -577,6 +590,9 @@ static void Im2col3DTest() {
         Aint8_zero_point = 4;
         randFill<int8_t>(Bint8, -4, 4);
         randFill(Bint8_zero_point, -3, -1);
+      }
+      if (b_symmetric) {
+        randFill(Bint8_zero_point, 0, 0);
       }
 
       aligned_vector<float> C_multiplier(Bint8_zero_point.size());
@@ -659,7 +675,8 @@ static void Im2col3DTest() {
             Aint8.data(),
             nullptr,
             Aint8_zero_point,
-            row_offset_buf.data());
+            row_offset_buf.data(),
+            b_symmetric);
 
         DoNothing<> doNothingObj{};
         ReQuantizeOutput<false, Q_GRAN> outputProcObj(
@@ -719,23 +736,27 @@ static void Im2col3DTest() {
 }
 
 TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
-  QuantizationGranularity q_granularity = GetParam();
+  QuantizationGranularity q_granularity;
+  bool b_symmetric;
+  tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
-    Im2col3DTest<int32_t, QuantizationGranularity::TENSOR>();
+    Im2col3DTest<int32_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
-    Im2col3DTest<int32_t, QuantizationGranularity::GROUP>();
+    Im2col3DTest<int32_t, QuantizationGranularity::GROUP>(b_symmetric);
   } else {
-    Im2col3DTest<int32_t, QuantizationGranularity::OUT_CHANNEL>();
+    Im2col3DTest<int32_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
 }
 
 TEST_P(fbgemmIm2colTest, 3DAcc16Test) {
-  QuantizationGranularity q_granularity = GetParam();
+  QuantizationGranularity q_granularity;
+  bool b_symmetric;
+  tie(q_granularity, b_symmetric) = GetParam();
   if (q_granularity == QuantizationGranularity::TENSOR) {
-    Im2col3DTest<int16_t, QuantizationGranularity::TENSOR>();
+    Im2col3DTest<int16_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
-    Im2col3DTest<int16_t, QuantizationGranularity::GROUP>();
+    Im2col3DTest<int16_t, QuantizationGranularity::GROUP>(b_symmetric);
   } else {
-    Im2col3DTest<int16_t, QuantizationGranularity::OUT_CHANNEL>();
+    Im2col3DTest<int16_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
 }
