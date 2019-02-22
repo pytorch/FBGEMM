@@ -61,6 +61,8 @@ PackBMatrix<T, accT>::PackBMatrix(
 template <typename T, typename accT>
 void PackBMatrix<T, accT>::pack(const block_type_t& block) {
   assert((BaseType::blockRowSize() % row_interleave_) == 0);
+  assert((block.row_start % BaseType::blockRowSize()) == 0);
+  assert((block.col_start % BaseType::blockColSize()) == 0);
 
   BaseType::packedBlock(block);
   bool tr = (trans_ == matrix_op_t::Transpose);
@@ -68,10 +70,39 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
     T* out = BaseType::getBuf() +
         g * this->packedBufferSize(block.row_size, block.col_size);
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      int r_offset = ((i / BaseType::blockRowSize()) * BaseType::blockCols()) *
+              (BaseType::blockRowSize() * BaseType::blockColSize()) +
+          (i % BaseType::blockRowSize() / row_interleave_) *
+              BaseType::blockColSize() * row_interleave_ +
+          i % row_interleave_;
+
+      int c_start_offset = (block.col_start / BaseType::blockColSize()) *
+              BaseType::blockRowSize() * BaseType::blockColSize() +
+          (block.col_start % BaseType::blockColSize()) * row_interleave_;
+
+      int c_idx_offset = 0;
+      int c_blk_offset = 0;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
+        // int c_offset = (j / BaseType::blockColSize()) *
+        //         BaseType::blockRowSize() * BaseType::blockColSize() +
+        //     (j % BaseType::blockColSize()) * row_interleave_;
+        // 1. Loop invariant hoisting (move block offset calculation out of
+        // inner loop); 2. Strength reduction (change modulus in inner loop to
+        // an increment + rollover).
+        int c_offset = c_start_offset +
+            c_blk_offset * BaseType::blockRowSize() * BaseType::blockColSize() +
+            c_idx_offset * row_interleave_;
+
+        int out_idx = r_offset + c_offset;
         T val = tr ? smat_[i + (g * block.col_size + j) * ld_]
                    : smat_[(g * block.row_size + i) * ld_ + j];
-        out[addr(i, j)] = tconv(val, out[addr(i, j)]);
+        out[out_idx] = val;
+
+        c_idx_offset++;
+        if (c_idx_offset == BaseType::blockColSize()) {
+          c_idx_offset = 0;
+          c_blk_offset++;
+        }
       }
     }
     // fill the remaining with zero.
@@ -80,8 +111,18 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
          i < (block.row_start + block.row_size + row_interleave_ - 1) /
              row_interleave_ * row_interleave_;
          ++i) {
+      int r_offset = ((i / BaseType::blockRowSize()) * BaseType::blockCols()) *
+              (BaseType::blockRowSize() * BaseType::blockColSize()) +
+          (i % BaseType::blockRowSize() / row_interleave_) *
+              BaseType::blockColSize() * row_interleave_ +
+          i % row_interleave_;
       for (int j = block.col_start; j < block.col_start + block.col_size; j++) {
-        out[addr(i, j)] = tconv(0, out[addr(i, j)]);
+        int c_offset = (j / BaseType::blockColSize()) *
+                BaseType::blockRowSize() * BaseType::blockColSize() +
+            (j % BaseType::blockColSize()) * row_interleave_;
+
+        int out_idx = r_offset + c_offset;
+        out[out_idx] = 0;
       }
     }
   } // for each group
