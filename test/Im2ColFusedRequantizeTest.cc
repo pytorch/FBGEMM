@@ -51,6 +51,8 @@ static vector<conv_param_t<>> shapes = {
     conv_param_t<>(2, 32, 16, {16, 14}, 4, {3, 3}, {1, 1}, {0, 0, 0, 0}),
     conv_param_t<>(1, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
     conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
+    // first layer of resnet50
+    conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
 };
 
 template <typename ACC_T, QuantizationGranularity Q_GRAN>
