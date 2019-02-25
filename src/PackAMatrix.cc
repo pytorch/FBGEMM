@@ -44,7 +44,11 @@ PackAMatrix<T, accT>::PackAMatrix(
         "groups = " + std::to_string(groups) +
         " does not divide numCols = " + std::to_string(BaseType::numCols()));
   }
-  if (!pmat) {
+  if (pmat) {
+    BaseType::buf_ = pmat;
+  }
+  else {
+    BaseType::bufAllocatedHere_ = true;
     BaseType::buf_ = (T*)fbgemmAlignedAlloc(
         64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
   }
