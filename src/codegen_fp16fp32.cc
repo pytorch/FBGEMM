@@ -47,25 +47,40 @@ int main() {
       {2,
        "AVX2",
        {
-           {1, 1, 0},
-           {2, 1, 0},
-           {3, 1, 0},
-           {4, 1, 0},
-           {5, 1, 0},
-           {6, 1, 0},
-           {7, 1, 0},
-           {8, 1, 0},
-           {9, 1, 0},
-           {10, 1, 0},
-           {11, 1, 0},
-           {12, 1, 0},
-           {13, 1, 0},
-           {14, 1, 0},
+           // 4x3 register layout
+           // {1, 3, 0},
+           // {2, 3, 0},
+           // {3, 3, 0},
+           // {4, 3, 0},
+
+           // 6x2 register layout
+           {1, 2, 0},
+           {2, 2, 0},
+           {3, 2, 0},
+           {4, 2, 0},
+           {5, 2, 0},
+           {6, 2, 0},
+
+           // 14x1 register layout
+           // {1, 1, 0},
+           // {2, 1, 0},
+           // {3, 1, 0},
+           // {4, 1, 0},
+           // {5, 1, 0},
+           // {6, 1, 0},
+           // {7, 1, 0},
+           // {8, 1, 0},
+           // {9, 1, 0},
+           // {10, 1, 0},
+           // {11, 1, 0},
+           // {12, 1, 0},
+           // {13, 1, 0},
+           // {14, 1, 0},
        }}};
 
   // open all files
   ofstream srcfile;
-  srcfile.open("FbgemmFP16UKernelsAvx2.cc");
+  srcfile.open("FbgemmFP16UKernelsAvx2_2.cc");
   srcfile
       << "/*\n"
          " * Copyright (c) Facebook, Inc. and its affiliates.\n"
@@ -73,14 +88,14 @@ int main() {
          " * This source code is licensed under the BSD-style license found in the\n"
          " * LICENSE file in the root directory of this source tree.\n"
          " */\n";
-  srcfile << "#include \"FbgemmFP16UKernelsAvx2.h\"\n\n";
+  srcfile << "#include \"FbgemmFP16UKernelsAvx2_2.h\"\n\n";
   srcfile << "namespace fbgemm {\n\n";
   if (iaca) {
     srcfile << "#include \"iacaMarks.h\"\n";
   }
 
   ofstream hdrfile;
-  hdrfile.open("FbgemmFP16UKernelsAvx2.h");
+  hdrfile.open("FbgemmFP16UKernelsAvx2_2.h");
   hdrfile
       << "/*\n"
          " * Copyright (c) Facebook, Inc. and its affiliates.\n"
@@ -159,7 +174,6 @@ int main() {
 
               string vAtmp = "ymm" + to_string(last_free_ymmreg++);
               // produce register block of B col
-              assert(ukernel_shape[k][1] == 1);
               vector<string> vBcol(ukernel_shape[k][1]);
 
               for (auto c = 0; c < ukernel_shape[k][1]; c++) {
@@ -228,82 +242,50 @@ int main() {
 
               srcfile << "\n";
 
-              if (ukernel_shape[k][0] <= 13) {
-                addi(srcfile, "vcvtph2ps ymm15, XMMWORD PTR [r10 + 0]");
-                addi(srcfile, "mov r11, 16");
-              } else {
-                addi(srcfile, "mov r11, 0");
-              }
-
               srcfile << "\n";
               string label = "loop_inner%=";
               addi(srcfile, label + ":");
               srcfile << "\n";
 
-              if (ukernel_shape[k][0] <= 13) {
-                auto a_offset = 0, unroll_factor = 2;
-                for (auto u = 0; u < unroll_factor; u++) {
-                  string breg = (u == 0) ? "ymm14" : "ymm15";
-                  string breg_rev = (u == 0) ? "ymm15" : "ymm14";
-
-                  addi(
-                      srcfile,
-                      "vcvtph2ps " + breg + ",XMMWORD PTR [r10 + r11 + " +
-                          to_string(u * 16) + "]");
-                  addi(srcfile, "inc r14");
-                  for (auto r = 0; r < vCtile.size(); r++) {
-                    addi(
-                        srcfile,
-                        "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" +
-                            to_string(a_offset) + "]");
-                    addi(
-                        srcfile,
-                        "vfmadd231ps " + vCtile[r][0] + "," + breg_rev + "," +
-                            vAtmp);
-                    if (u == 1 && r == vCtile.size() / 2)
-                      addi(srcfile, "add r11, 32");
-                    a_offset += 4;
-                  }
-                  if (u < unroll_factor - 1) {
-                    addi(srcfile, "cmp r14, r8");
-                    addi(srcfile, "jge " + exitlabel);
-                  }
-                }
-
-                addi(srcfile, "add r9," + to_string(a_offset));
-                addi(srcfile, "cmp r14, r8");
-                addi(srcfile, "jl " + label);
-
-                srcfile << "\n";
-
-                addi(srcfile, exitlabel + ":");
-              } else {
+              for (int c = 0; c < vCtile[0].size(); c++) {
                 addi(
                     srcfile,
-                    "vcvtph2ps " + vBcol[0] + ",XMMWORD PTR [r10 + r11]");
-                for (auto r = 0; r < vCtile.size(); r++) {
-                  addi(
-                      srcfile,
-                      "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" +
-                          to_string(4 * r) + "]");
-                  addi(
-                      srcfile,
-                      "vfmadd231ps " + vCtile[r][0] + "," + vBcol[0] + "," +
-                          vAtmp);
-                }
-
-                addi(
-                    srcfile,
-                    "add r9," + to_string(4 * ukernel_shape[k][0]),
-                    fixedA); // move A ptr
-                addi(srcfile, "add r11, 16");
-
-                addi(srcfile, "inc r14");
-                addi(srcfile, "cmp r14, r8");
-                addi(srcfile, "jl " + label);
+                    "vcvtph2ps " + vBcol[c] + ",XMMWORD PTR [r10 + " +
+                        to_string(16 * c) + "]");
               }
 
-              addi(srcfile, "add r10, rsi");
+              for (int r = 0; r < vCtile.size(); r++) {
+                addi(
+                    srcfile,
+                    "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" +
+                        to_string(4 * r) + "]");
+                for (int c = 0; c < vCtile[0].size(); c++) {
+                  addi(
+                      srcfile,
+                      "vfmadd231ps " + vCtile[r][c] + "," + vBcol[c] + "," +
+                          vAtmp);
+                }
+              }
+
+              addi(
+                  srcfile,
+                  "add r9," + to_string(4 * ukernel_shape[k][0]),
+                  fixedA); // move A ptr
+
+              addi(
+                  srcfile,
+                  "add r10," + to_string(16 * ukernel_shape[k][1]),
+                  fixedA); // move A ptr
+
+              addi(srcfile, "inc r14");
+              addi(srcfile, "cmp r14, r8");
+              addi(srcfile, "jl " + label);
+
+              srcfile << "\n";
+
+              addi(srcfile, exitlabel + ":");
+
+              // addi(srcfile, "add r10, rsi");
               srcfile << "\n";
 
               // end marker
