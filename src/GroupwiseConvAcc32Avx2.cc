@@ -1681,7 +1681,7 @@ void fbgemmGroupwiseConvBase_(
             // current group
             memcpy(rowOffsetBuf, rowOffsetForCurG, ih_iw * sizeof(int32_t));
 
-            if (cpuinfo_has_x86_avx512f()) {
+            if (fbgemmHasAvx512Support()) {
               // Currently use avx2 code
               outProcess.template f<inst_set_t::avx2>(
                   out,
@@ -1689,7 +1689,7 @@ void fbgemmGroupwiseConvBase_(
                   {i * oh_ow, oh_ow, (g + j) * K_per_G, K_per_G},
                   K_per_G * G,
                   K_per_G * G);
-            } else if (cpuinfo_has_x86_avx2()) {
+            } else if (fbgemmHasAvx2Support()) {
               outProcess.template f<inst_set_t::avx2>(
                   out,
                   currOutBuf + j * K_per_G,
@@ -1790,7 +1790,7 @@ void fbgemmGroupwiseConv(
   typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN> processOutputType;
 
   if (!fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param) ||
-      (!cpuinfo_has_x86_avx512f() && !cpuinfo_has_x86_avx2())) {
+      (!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
     return fbgemmGroupwiseConvBase_<
         packed_W,
         outType,
@@ -2150,7 +2150,7 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   // row offset buffer should be a able to hold row offsets for however
   // number of groups we process at a time.
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       int bufferSize = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
       int C_per_G = conv_param.IC / conv_param.G;
       int K_per_G = conv_param.OC / conv_param.G;
@@ -2160,7 +2160,7 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
       } else {
         return conv_param.G * bufferSize;
       }
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       int bufferSize = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
       int C_per_G = conv_param.IC / conv_param.G;
       int K_per_G = conv_param.OC / conv_param.G;

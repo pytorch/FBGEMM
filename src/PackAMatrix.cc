@@ -25,12 +25,12 @@ PackAMatrix<T, accT>::PackAMatrix(
       trans_(trans),
       smat_(smat),
       ld_(ld) {
-  if (cpuinfo_has_x86_avx512f()) {
+  if (fbgemmHasAvx512Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
     row_interleave_B_ =
         PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (cpuinfo_has_x86_avx2()) {
+  } else if (fbgemmHasAvx2Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
     row_interleave_B_ =

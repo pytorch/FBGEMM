@@ -77,4 +77,14 @@ void transpose_simd(
     float* dst,
     int ld_dst);
 
+/**
+ * @brief Are we running on a AVX512 supported cpu?
+ */
+FBGEMM_API bool fbgemmHasAvx512Support();
+
+/**
+ * @brief Are we running on a AVX2 supported cpu?
+ */
+FBGEMM_API bool fbgemmHasAvx2Support();
+
 } // namespace fbgemm
