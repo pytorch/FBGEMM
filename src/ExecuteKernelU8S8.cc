@@ -42,7 +42,7 @@ ExecuteKernel<
       outputProcess_(outputProcess),
       thread_id_(thread_id),
       num_threads_(num_threads) {
-  if (cpuinfo_has_x86_avx512f()) {
+  if (fbgemmHasAvx512Support()) {
     mbSize_ = PackingTraits<
         int8_t,
         typename packingAMatrix::accType,
@@ -55,7 +55,7 @@ ExecuteKernel<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx512>::NR;
-  } else if (cpuinfo_has_x86_avx2()) {
+  } else if (fbgemmHasAvx2Support()) {
     mbSize_ = PackingTraits<
         int8_t,
         typename packingAMatrix::accType,
@@ -101,14 +101,14 @@ void ExecuteKernel<
   typename BaseType::jit_micro_kernel_fp fn;
 
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       fn = BaseType::template getOrCreate<inst_set_t::avx512>(
           accum,
           packed_rows_A,
           packedB_.blockColSize(),
           packedA_.numPackedCols(),
           nbSize_);
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       fn = BaseType::template getOrCreate<inst_set_t::avx2>(
           accum,
           packed_rows_A,
@@ -135,10 +135,10 @@ void ExecuteKernel<
       int nc = ((packedB_.lastBcol() - 1) / nrSize_ + 1) * nrSize_;
       if (nc != nbSize_) {
         if (cpuinfo_initialize()) {
-          if (cpuinfo_has_x86_avx512f()) {
+          if (fbgemmHasAvx512Support()) {
             fn = BaseType::template getOrCreate<inst_set_t::avx512>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
-          } else if (cpuinfo_has_x86_avx2()) {
+          } else if (fbgemmHasAvx2Support()) {
             fn = BaseType::template getOrCreate<inst_set_t::avx2>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
           } else {
@@ -203,7 +203,7 @@ void ExecuteKernel<
       int32_t nSize =
           C_buffer_start == C_tile_ ? jb * nbSize_ : packedB_.numCols();
       if (nSize) {
-        if (cpuinfo_has_x86_avx512f()) {
+        if (fbgemmHasAvx512Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
@@ -212,7 +212,7 @@ void ExecuteKernel<
               {row_start_A, packed_rows_A, NDim * group, nSize},
               ldc_,
               ldc_);
-        } else if (cpuinfo_has_x86_avx2()) {
+        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_buffer_row_start,
@@ -228,7 +228,7 @@ void ExecuteKernel<
       if (C_buffer_start == C_tile_) {
         // When C_tile_ scratchpad was used to avoid accessing memory past
         // C_buffer_ .
-        if (cpuinfo_has_x86_avx512f()) {
+        if (fbgemmHasAvx512Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
@@ -240,7 +240,7 @@ void ExecuteKernel<
                packedB_.lastBcol()},
               ldc_,
               leadingDim);
-        } else if (cpuinfo_has_x86_avx2()) {
+        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_tile_,

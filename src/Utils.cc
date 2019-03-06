@@ -179,9 +179,9 @@ void transpose_simd(
     int ld_dst) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       internal::transpose_16x16(M, N, src, ld_src, dst, ld_dst);
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       internal::transpose_8x8(M, N, src, ld_src, dst, ld_dst);
     } else {
       transpose_ref(M, N, src, ld_src, dst, ld_dst);
@@ -190,6 +190,16 @@ void transpose_simd(
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+}
+
+bool fbgemmHasAvx512Support() {
+  return (
+      cpuinfo_has_x86_avx512f() && cpuinfo_has_x86_avx512bw() &&
+      cpuinfo_has_x86_avx512dq() && cpuinfo_has_x86_avx512vl());
+}
+
+bool fbgemmHasAvx2Support() {
+  return (cpuinfo_has_x86_avx2());
 }
 
 } // namespace fbgemm

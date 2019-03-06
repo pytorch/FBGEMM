@@ -51,10 +51,10 @@ class GenConvKernel {
                     x86::ymm8} {
     // vector width in bits
     if (cpuinfo_initialize()) {
-      if (cpuinfo_has_x86_avx512f()) {
+      if (fbgemmHasAvx512Support()) {
         // TODO: change this to 512 once we have avx512f version
         vectorWidth_ = 256;
-      } else if (cpuinfo_has_x86_avx2()) {
+      } else if (fbgemmHasAvx2Support()) {
         vectorWidth_ = 256;
       } else {
         // TODO: Have default path

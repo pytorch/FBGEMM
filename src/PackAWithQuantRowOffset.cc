@@ -42,12 +42,12 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
       row_offset_(row_offset) {
   rowOffsetAllocatedHere = false;
 
-  if (cpuinfo_has_x86_avx512f()) {
+  if (fbgemmHasAvx512Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
     row_interleave_B_ =
         PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (cpuinfo_has_x86_avx2()) {
+  } else if (fbgemmHasAvx2Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
     row_interleave_B_ =
@@ -181,9 +181,9 @@ void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(std::string name) {
 template <typename T, typename accT>
 int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize() {
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     } else {
       assert(0 && "unsupported architecture");

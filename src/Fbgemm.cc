@@ -48,7 +48,7 @@ void fbgemmPacked(
 
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       MCB = PackingTraits<
           typename packingAMatrix::inpType,
           typename packingAMatrix::accType,
@@ -61,7 +61,7 @@ void fbgemmPacked(
           typename packingAMatrix::inpType,
           typename packingAMatrix::accType,
           inst_set_t::avx512>::MR;
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       MCB = PackingTraits<
           typename packingAMatrix::inpType,
           typename packingAMatrix::accType,
