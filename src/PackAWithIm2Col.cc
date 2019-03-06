@@ -44,12 +44,12 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
       a_zero_pt_(a_zero_pt) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
-  if (cpuinfo_has_x86_avx512f()) {
+  if (fbgemmHasAvx512Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
     row_interleave_B_ =
         PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (cpuinfo_has_x86_avx2()) {
+  } else if (fbgemmHasAvx2Support()) {
     BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
     row_interleave_B_ =
@@ -461,9 +461,9 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
 template <typename T, typename accT, int SPATIAL_DIM>
 int PackAWithIm2Col<T, accT, SPATIAL_DIM>::rowOffsetBufferSize() {
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
     } else {
       // TODO: Have default slower path
