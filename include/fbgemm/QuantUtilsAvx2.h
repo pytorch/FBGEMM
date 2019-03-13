@@ -95,4 +95,18 @@ FBGEMM_API void requantizeOutputProcessingGConvAvx2(
     int ld_in,
     const requantizationParams_t& r);
 
+template <
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    QuantizationGranularity Q_GRAN,
+    bool HAS_BIAS,
+    bool FUSE_RELU>
+FBGEMM_API void requantizeForFloatAvx2(
+    float* out,
+    const std::int32_t* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in,
+    const requantizationForFloatParams_t& r);
+
 } // namespace fbgemm
