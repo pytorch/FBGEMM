@@ -76,8 +76,21 @@ void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 10;
 
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+  cout << "WARNING: the timer may be inaccurate when used by multiple threads."
+       << endl;
+  cout << "M, "
+       << "N, "
+       << "K, "
+       << "Packing (ms), "
+       << "Kernel (ms), "
+       << "Postprocessing (ms), "
+       << "Total (ms), "
+       << "GOPs" << endl;
+#else
   cout << setw(7) << "M, " << setw(7) << "N, " << setw(7) << "K, " << setw(18)
        << "Type, " << setw(5) << "GOPS" << endl;
+#endif
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
   for (auto shape : shapes) {
@@ -203,7 +216,23 @@ void performance_test() {
 
     ttot = 0;
     type = "FBGEMM_i8_acc32";
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+    double total_packing_time = 0.0;
+    double total_computing_time = 0.0;
+    double total_kernel_time = 0.0;
+    double total_postprocessing_time = 0.0;
+    double total_run_time = 0.0;
+#endif
+
     for (auto i = 0; i < NWARMUP + NITER; ++i) {
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+      packing_time = 0.0;
+      computing_time = 0.0;
+      kernel_time = 0.0;
+      postprocessing_time = 0.0;
+      run_time = 0.0;
+#endif
+
       llc_flush(llc);
       start = chrono::high_resolution_clock::now();
       fbgemmPacked(
@@ -220,6 +249,13 @@ void performance_test() {
       if (i >= NWARMUP) {
         auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
         ttot += dur.count();
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+        total_packing_time += packing_time;
+        total_computing_time += computing_time;
+        total_kernel_time += kernel_time;
+        total_postprocessing_time += postprocessing_time;
+        total_run_time += run_time;
+#endif
       }
     }
     ((volatile char*)(llc.data()));
@@ -237,6 +273,12 @@ void performance_test() {
     // row_offsets.size(), 5);
     // printMatrix(matrix_op_t::NoTranspose, Cfp32_fb.data(),
     // m, n, n, "C fb fp32");
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+    cout << total_packing_time / (double)NITER / 1e6 << ", "
+         << total_kernel_time / (double)NITER / 1e6 << ", "
+         << total_postprocessing_time / (double)NITER / 1e6 << ", "
+         << total_run_time / (double)NITER / 1e6 << ", ";
+#endif
     cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
          << setw(16) << type << ", " << setw(5) << fixed << setw(5)
          << setprecision(1) << nops / ttot << endl;

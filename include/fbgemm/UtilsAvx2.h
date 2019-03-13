@@ -56,4 +56,19 @@ struct requantizationParams_t {
   int groups;
 };
 
+/**
+ * @brief A struct to represent all the parameters for requantizing for floats.
+ */
+struct requantizationForFloatParams_t {
+  std::int32_t A_zero_point;
+  const std::int32_t* B_zero_point;
+  float A_scale;
+  const float* B_scale;
+  const std::int32_t* row_offsets;
+  const std::int32_t* col_offsets;
+  const float* bias;
+  std::uint32_t ncols;
+  int groups;
+};
+
 } // namespace fbgemm
