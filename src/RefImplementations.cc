@@ -6,6 +6,8 @@
  */
 #include "RefImplementations.h"
 
+#include "fbgemm/Types.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -165,6 +167,43 @@ void matmul_fp_ref(
     }
   }
 }
+
+void cblas_sgemm_ref(
+    const matrix_op_t transa,
+    const matrix_op_t transb,
+    const int m,
+    const int n,
+    const int k,
+    float alpha,
+    const float* Afp32,
+    int lda,
+    const float* Bfp32,
+    int ldb,
+    float beta,
+    float* Cfp32,
+    int ldc
+    ) {
+  for (int i = 0; i < m; ++i) {
+    for (int j = 0; j < n; ++j) {
+      float sum = 0;
+      for (int p = 0; p < k; ++p) {
+        float a =
+            (transa == matrix_op_t::NoTranspose ? Afp32[i * lda + p]
+                                                : Afp32[p * lda + i]);
+        float b =
+            (transb == matrix_op_t::NoTranspose ? Bfp32[p * ldb + j]
+                                                : Bfp32[j * ldb + p]);
+        sum += a * b;
+      }
+      if (beta == 0) {
+        Cfp32[i * ldc + j] = alpha * sum;
+      } else {
+        Cfp32[i * ldc + j] = alpha * sum + beta * Cfp32[i * ldc + j];
+      }
+    }
+  }
+}
+
 
 void row_offsets_u8acc32_ref(
     int M,

@@ -108,6 +108,25 @@ void FBGEMM_API matmul_fp_ref(
     float* Cfp32);
 
 /**
+ * @brief Reference implementation of cblas_sgemm in MKL/BLAS.
+ */
+void FBGEMM_API cblas_sgemm_ref(
+    const matrix_op_t transa,
+    const matrix_op_t transb,
+    const int m,
+    const int n,
+    const int k,
+    float alpha,
+    const float* Afp32,
+    int lda,
+    const float* Bfp32,
+    int ldb,
+    float beta,
+    float* Cfp32,
+    int ldc
+    );
+
+/**
  * @brief Reference implementation to compute row_offsets (sums of rows of A).
  */
 FBGEMM_API void row_offsets_u8acc32_ref(
