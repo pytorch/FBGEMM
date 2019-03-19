@@ -149,10 +149,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
   code_.init(rt_.getCodeInfo());
   asmjit::X86Assembler assembler(&code_);
   asmjit::X86Emitter* a = assembler.asEmitter();
-  // ToDo: Dump in a file for debugging
-  // code dumping/logging
-  // asmjit::FileLogger logger(stderr);
-  // code_.setLogger(&logger);
+#if defined(FBGEMM_LOG_CODE)
+  // generated code logging
+  FILE* codeLogfile =
+      fopen(getCodeLoggingFile<inst_set_t::avx2>(accum, mc, nc).c_str(), "w");
+  asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
+  if (codeLogger) {
+    code_.setLogger(codeLogger);
+  }
+#endif
 
   constexpr int kBlock = PackingTraits<int8_t, int32_t, inst_set_t::avx2>::KCB;
   constexpr int nBlock = PackingTraits<int8_t, int32_t, inst_set_t::avx2>::NCB;
@@ -328,6 +333,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     return nullptr;
   }
   codeCache_[kernelSig] = fn;
+
+#if defined(FBGEMM_LOG_CODE)
+  fclose(codeLogfile);
+  delete codeLogger;
+#endif
+
   return fn;
 }
 

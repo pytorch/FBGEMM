@@ -8,8 +8,10 @@
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <map>
+#include <string>
 #include <tuple>
 #include "fbgemm/Fbgemm.h"
+/*#define FBGEMM_LOG_CODE 1*/
 
 namespace fbgemm {
 
@@ -125,6 +127,32 @@ class CodeGenBase {
       asmjit::X86Gp ldcReg,
       bool accum,
       int leadingDimCRegAssign = 4);
+
+  /**
+   * @brief Generate filename to dump generated code
+   * (debug-only)
+   */
+  template <inst_set_t instSet>
+  std::string getCodeLoggingFile(bool accum, int mc, int nc) {
+    std::string fileName = "gemm_";
+    if (std::is_same<accT, std::int16_t>::value) {
+      fileName += "acc16_";
+    } else if (std::is_same<accT, std::int32_t>::value) {
+      fileName += "acc32_";
+    } else {
+      fileName += "unknown_";
+    }
+    fileName += "accum-" + std::to_string(accum);
+    fileName += "_MC-" + std::to_string(mc);
+    fileName += "_NC-" + std::to_string(nc);
+    if (instSet == inst_set_t::avx512) {
+      fileName += "_avx512";
+    } else if (instSet == inst_set_t::avx2) {
+      fileName += "_avx2";
+    }
+    fileName += ".txt";
+    return fileName;
+  }
 
  private:
   asmjit::X86Ymm
