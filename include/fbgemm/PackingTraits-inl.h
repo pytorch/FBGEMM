@@ -17,29 +17,30 @@
  * VLEN: the vector length of one SIMD register. For avx2, VLEN = 256; For
  * avx512, VLEN = 512.
  *
- * NR: the register blocking parameters for N dimension. NR columns of
- * interleaved rows of int8 (singed or unsigned) should fit into one SIMD
- * register. Basically, NR = VLEN / 8 / ROW_INTERLEAVE (8 is the bit length for
- * int8 (signed or unsigned).
+ * NR: the register blocking parameters for N dimension. The total registers
+ * used in N dimension for C accumulations are NR * ROW_INTERLEAVE * 8 (int8) /
+ * VLEN.
  *
- * MR: the register blocking parameters for M dimension. MR is the total number
- * of SIMD registers used for M dimension of registers used for accumulation C.
- * This indicates the number of vpbroadcastw instructions for A.
+ * MR: the register blocking parameters for M dimension. The total number of
+ * registers used in M dimension for C accumulations is MR.  This indicates the
+ * number of vpbroadcastw instructions for A.
  *
- * NCB: the cache blocking parameters for N dimension. NCB needs to be a
- * multiple of NR. The total register on N dimension of registers used for
- * accumulation C should be NCB/NR.
- *
- * (MR) * (NCB/NR): the number of registers used for accumulation C. (MR) *
- * (NCB/NR) should be less than the total register number (avx2 has 16 ymm
- * registers; avx512 has 32 zmm registers). (MR) * (NCB/NR) should be as large
- * as possible to increase the register utilization.
- *
- * KCB: the cache blocking parameters for K dimension.
+ * (MR) * (NR * ROW_INTERLEAVE * 8 (int8) / VLEN): the number of registers used
+ * for C accumulations. This number should be less than the maximum registers we
+ * can use for C accumulations (A max of 12 out of 16 ymm registers for avx2; a
+ * max of 28 out of 32 zmm registers for avx512 ). The remaining are used for A
+ * matrix loading, B matrix loading and as temp registers. C accumulation
+ * registers should be as large as possible to increase the register
+ * utilization.
  *
  * MCB: the cache blocking parameters for M dimension. MCB needs to be a
  * multiple of MR.
  *
+ * NCB: the cache blocking parameters for N dimension. NCB needs to be a
+ * multiple of NR.
+ *
+ * KCB: the cache blocking parameters for K dimension. KCB needs to be a
+ * multiple of ROW_INTERLEAVE.
  */
 
 /**
@@ -185,20 +186,21 @@ struct PackingTraits<
     std::int16_t,
     inst_set_t::avx512,
     typename std::enable_if<is_8bit<T>::value>::type> {
-  static constexpr int MR{6}; ///< Register block for M dimension
+  static constexpr int MR{7}; ///< Register block for M dimension
   static constexpr int NR{
-      32}; ///< Register block for N dimension;
-           ///< NR = VLEN/8/ROW_INTERLEAVE = 512 / 8 / 2 = 32.
-           ///< Total registers used for N dimension: NCB/NR.
-           ///< Here we use 6 x 4 zmm register blocking for
-           ///< the registers used for accumulation C.
+      128}; ///< Register block for N dimension;
+            ///< Must be a multiple of 32 because 32*ROW_INTERLEAVE int8
+            ///< elements completely fill a 512-bit wide vector. Total registers
+            ///< used for N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
+            ///< NR*ROW_INTERLEAVE*8/VLEN zmm registers
+            ///< for C accumulations.
 
   static constexpr int ROW_INTERLEAVE{
       2}; ///< 2 rows are interleaved to use vpmaddubsw instruction for packing
           ///< B matrix.
 
   static constexpr int MCB{
-      60}; ///< Cache block for M dimension (multiple of MR).
+      56}; ///< Cache block for M dimension (multiple of MR).
   static constexpr int NCB{
       128}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
