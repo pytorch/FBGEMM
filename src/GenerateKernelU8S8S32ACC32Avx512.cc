@@ -101,6 +101,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     if (i != 0) {
       a->add(C_Offset, ldcReg);
     }
+    else {
+      a->mov(C_Offset, static_cast<asmjit::Imm>(0));
+    }
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
         a->vpaddd(
@@ -154,10 +157,20 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       PackingTraits<int8_t, int32_t, inst_set_t::avx512>::NCB;
   constexpr int mRegBlockSize =
       PackingTraits<int8_t, int32_t, inst_set_t::avx512>::MR;
+  constexpr int nRegBlockSize =
+      PackingTraits<int8_t, int32_t, inst_set_t::avx512>::NR;
   constexpr int row_interleave =
       PackingTraits<int8_t, int32_t, inst_set_t::avx512>::ROW_INTERLEAVE;
+
   assert(kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
-  // assert(mc <= 12 && "mc must be <= 12 (available registers constraint)");
+  assert(nc % nRegBlockSize == 0 && "nc must be a multiple of NR");
+  int maxMRegs = mRegBlockSize;
+  int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
+  assert(
+      maxMRegs * maxNRegs <= 28 &&
+      "MR*(NR*ROW_INTERLEAVE*8/512) \
+        must be <= 28(available registers constraint)");
+
   int mRegBlocks = mc / mRegBlockSize;
   int mRegBlocksRem = mc % mRegBlockSize;
 
@@ -181,7 +194,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       asmjit::Utils::mask(0, 1, 2, 3, 4, 5, 6, 7) |
           asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
   ffi.setDirtyRegs(
-      asmjit::X86Reg::kKindGp, asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14));
+      asmjit::X86Reg::kKindGp,
+      asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
 
   asmjit::FuncArgsMapper args(&func);
   args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
@@ -194,14 +208,16 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   asmjit::FuncUtils::emitProlog(a, layout);
   asmjit::FuncUtils::allocArgs(a, layout, args);
 
-  asmjit::Label Loopk = a->newLabel();
   asmjit::Label LoopMBlocks = a->newLabel();
+  asmjit::Label LoopNBlocks = a->newLabel();
+  asmjit::Label Loopk = a->newLabel();
 
   asmjit::X86Gp buffer_B_saved = a->gpzRef(10);
   asmjit::X86Gp C_Offset = a->gpzRef(11);
   asmjit::X86Gp B_pf_saved = a->gpzRef(12);
   asmjit::X86Gp iIdx = a->gpzRef(13);
-  asmjit::X86Gp kIdx = a->gpzRef(14);
+  asmjit::X86Gp jIdx = a->gpzRef(14);
+  asmjit::X86Gp kIdx = a->gpzRef(15);
   // asmjit::X86Gp B_pf = a->gpzRef(8);
 
   asmjit::X86Zmm oneReg = x86::zmm29;
@@ -212,19 +228,23 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   a->vpternlogd(oneReg, oneReg, oneReg, 0xff);
   a->vpsrlw(oneReg, oneReg, 15);
   a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
-  a->mov(C_Offset, 0);
 
-  int colRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
+  // save B_buffer address
+  a->mov(buffer_B_saved, buffer_B);
+  a->mov(B_pf_saved, B_pf);
+
+  int currColRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
+  int colRegs = std::min(currColRegs, maxNRegs);
   if (mRegBlocks > 0) {
     // move 0 to iteration variables
     a->mov(iIdx, 0);
 
-    // save B_buffer address
-    a->mov(buffer_B_saved, buffer_B);
-    a->mov(B_pf_saved, B_pf);
-
     a->bind(LoopMBlocks);
     a->inc(iIdx);
+    a->mov(jIdx, 0);
+
+    a->bind(LoopNBlocks);
+    a->inc(jIdx);
 
     int rowRegs = mRegBlockSize;
 
@@ -262,15 +282,38 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     storeCRegs<inst_set_t::avx512>(
         a, rowRegs, colRegs, C_Offset, ldcReg, accum, colRegs);
 
-    // increment A for next block
+    // reset A
     a->sub(buffer_A, kSize);
+
+    // B for next block
+    a->mov(buffer_B, buffer_B_saved);
+    // using C_Offset as temp reg
+    a->imul(
+        C_Offset,
+        jIdx,
+        static_cast<asmjit::Imm>(
+            nRegBlockSize * row_interleave * sizeof(int8_t)));
+    a->add(buffer_B, C_Offset);
+    a->mov(B_pf, B_pf_saved);
+    a->add(B_pf, C_Offset);
+
+    // increment C for next B block
+    a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));
+
+    int jLoopTrips = currColRegs / maxNRegs;
+    a->cmp(jIdx, jLoopTrips);
+    a->jl(LoopNBlocks);
+
+    // increment A for next block
     a->add(
         buffer_A, static_cast<asmjit::Imm>((rowRegs)*kBlock * sizeof(uint8_t)));
 
-    // increment C for next block
+    // increment C for next A block
+    a->sub(
+        CBase,
+        static_cast<asmjit::Imm>(jLoopTrips * nRegBlockSize * sizeof(int32_t)));
     a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs));
     a->add(CBase, C_Offset);
-    a->mov(C_Offset, 0);
 
     // reset B
     a->mov(buffer_B, buffer_B_saved);
@@ -280,8 +323,13 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   }
   // generate code for remainder
   if (mRegBlocksRem > 0) {
+    asmjit::Label LoopNRem = a->newLabel();
     asmjit::Label LoopkRem = a->newLabel();
     int rowRegs = mRegBlocksRem;
+
+    a->mov(jIdx, 0);
+    a->bind(LoopNRem);
+    a->inc(jIdx);
 
     // init C registers
     initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, colRegs);
@@ -311,9 +359,31 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     a->cmp(kIdx, kSize);
     a->jl(LoopkRem);
 
+    // reset A
+    a->sub(buffer_A, kSize);
+
+    // B for next block
+    // using C_Offset as temp reg
+    a->imul(
+        C_Offset,
+        jIdx,
+        static_cast<asmjit::Imm>(
+            nRegBlockSize * row_interleave * sizeof(int8_t)));
+    a->mov(buffer_B, buffer_B_saved);
+    a->add(buffer_B, C_Offset);
+    a->mov(B_pf, B_pf_saved);
+    a->add(B_pf, C_Offset);
+
     // store C matrix
     storeCRegs<inst_set_t::avx512>(
         a, rowRegs, colRegs, C_Offset, ldcReg, accum, colRegs);
+
+    // increment C for next B block
+    a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));
+
+    int jLoopTrips = currColRegs / maxNRegs;
+    a->cmp(jIdx, jLoopTrips);
+    a->jl(LoopNRem);
   }
 
   asmjit::FuncUtils::emitEpilog(a, layout);
