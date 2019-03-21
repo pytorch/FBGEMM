@@ -51,10 +51,10 @@ ExecuteKernel<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx512>::NCB;
-    nrSize_ = PackingTraits<
+    nrMinSize_ = PackingTraits<
         int8_t,
         typename packingAMatrix::accType,
-        inst_set_t::avx512>::NR;
+        inst_set_t::avx512>::NR_MIN;
   } else if (fbgemmHasAvx2Support()) {
     mbSize_ = PackingTraits<
         int8_t,
@@ -64,7 +64,7 @@ ExecuteKernel<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx2>::NCB;
-    nrSize_ = PackingTraits<
+    nrMinSize_ = PackingTraits<
         int8_t,
         typename packingAMatrix::accType,
         inst_set_t::avx2>::NR;
@@ -132,7 +132,7 @@ void ExecuteKernel<
 
   for (int jb = 0; jb < bColBlocks; ++jb) {
     if (jb == bColBlocks - 1) {
-      int nc = ((packedB_.lastBcol() - 1) / nrSize_ + 1) * nrSize_;
+      int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
         if (cpuinfo_initialize()) {
           if (fbgemmHasAvx512Support()) {
