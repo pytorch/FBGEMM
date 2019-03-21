@@ -186,7 +186,7 @@ struct PackingTraits<
     std::int16_t,
     inst_set_t::avx512,
     typename std::enable_if<is_8bit<T>::value>::type> {
-  static constexpr int MR{7}; ///< Register block for M dimension
+  static constexpr int MR{6}; ///< Register block for M dimension
   static constexpr int NR{
       128}; ///< Register block for N dimension;
             ///< Must be a multiple of 32 because 32*ROW_INTERLEAVE int8
@@ -200,7 +200,7 @@ struct PackingTraits<
           ///< B matrix.
 
   static constexpr int MCB{
-      56}; ///< Cache block for M dimension (multiple of MR).
+      60}; ///< Cache block for M dimension (multiple of MR).
   static constexpr int NCB{
       128}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.

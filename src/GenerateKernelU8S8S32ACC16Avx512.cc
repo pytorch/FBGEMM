@@ -54,13 +54,20 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
 
   asmjit::X86Zmm tmpReg = x86::zmm30;
 
+  // We start allocating BRegs from zmm27 and then allocate zmm26 and so on.
+  for (int j = 0; j < colRegs; ++j) {
+    a->vmovups(
+        AllRegs_avx512_[27 - j],
+        x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
+  }
+
   for (int i = 0; i < rowRegs; ++i) {
     // broadcast A
     a->vpbroadcastw(
         AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
     for (int j = 0; j < colRegs; ++j) {
       a->vpmaddubsw(
-          tmpReg, AReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
+          tmpReg, AReg, AllRegs_avx512_[27-j]);
       a->vpaddsw(
           CRegs_avx512_[i * leadingDimCRegAssign + j],
           tmpReg,
@@ -160,9 +167,9 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
   int maxMRegs = mRegBlockSize;
   int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
   assert(
-      maxMRegs * maxNRegs <= 28 &&
+      maxMRegs * maxNRegs <= 24 &&
       "MR*(NR*ROW_INTERLEAVE*8/512) \
-      must be <= 28(available registers constraint)");
+      must be <= 24(available registers constraint)");
 
   int mRegBlocks = mc / mRegBlockSize;
   int mRegBlocksRem = mc % mRegBlockSize;
