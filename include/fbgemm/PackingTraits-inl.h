@@ -152,23 +152,24 @@ struct PackingTraits<
     std::int32_t,
     inst_set_t::avx512,
     typename std::enable_if<is_8bit<T>::value>::type> {
-  static constexpr int MR{28}; ///< Register block for M dimension.
+  static constexpr int MR{14}; ///< Register block for M dimension.
   static constexpr int NR{
-      16}; ///< Register block for N dimension.
-           ///< NR = VLEN/8/ROW_INTERLEAVE = 512 / 8 / 4 = 16.
-           ///< Total registers used for N dimension: NCB/NR.
-           ///< Here we use 28 x 1 zmm register blocking for
-           ///< the registers used for accumulation C.
+      32}; ///< Register block for N dimension.
+           ///< Must be a multiple of 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector. Total registers used for
+           ///< N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
+           ///< NR*ROW_INTERLEAVE*8/VLEN zmm registers
+           ///< for C accumulations.
 
   static constexpr int ROW_INTERLEAVE{
       4}; ///< 4 rows are interleaved to use vpmaddubsw instruction for packing
           ///< B matrix.
 
   static constexpr int MCB{
-      140}; ///< Cache block for M dimension (multiple of MR).
+      56}; ///< Cache block for M dimension (multiple of MR).
   static constexpr int NCB{
-      16}; ///< Cache block for N dimension (multiple of NR).
-  static constexpr int KCB{512}; ///< Cache block for K dimension.
+      32}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{256}; ///< Cache block for K dimension.
 };
 
 /**
