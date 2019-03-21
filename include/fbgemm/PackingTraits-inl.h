@@ -154,6 +154,10 @@ struct PackingTraits<
     inst_set_t::avx512,
     typename std::enable_if<is_8bit<T>::value>::type> {
   static constexpr int MR{14}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{
+      16}; ///< Minimum register block for N dimension.
+           ///< 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector.
   static constexpr int NR{
       32}; ///< Register block for N dimension.
            ///< Must be a multiple of 16 because 16*ROW_INTERLEAVE int8 elements
@@ -187,6 +191,10 @@ struct PackingTraits<
     inst_set_t::avx512,
     typename std::enable_if<is_8bit<T>::value>::type> {
   static constexpr int MR{6}; ///< Register block for M dimension
+  static constexpr int NR_MIN{
+      32}; ///< Minimum register block for N dimension;
+           ///< 32 because 32*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector.
   static constexpr int NR{
       128}; ///< Register block for N dimension;
             ///< Must be a multiple of 32 because 32*ROW_INTERLEAVE int8
