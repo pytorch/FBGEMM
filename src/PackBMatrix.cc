@@ -10,6 +10,160 @@
 #include <iostream>
 #include "fbgemm/Fbgemm.h"
 
+/*
+ * We pass in weights for Fully-connected and Convolution layers as B matrix.
+ * Since weights are constant during inference, B matrix is constant
+ * during inference so it's packed once and used multiple times. The code in
+ * this file takes care of fully packing B matrix. Fully packing means dividing
+ * the whole B matrix into blocks and storing all the blocks in the packed
+ * buffer instead of just 1 or some blocks.
+ *
+ * Packing refers to the rearranging of B elements to make it suitable to the
+ * way we access B in the inner compute kernel.
+ *
+ * Packing of B is dependent on three parameters: KCB, NCB and ROW_INTERLEAVE.
+ *
+ * Note 1: B is assumed to be in row-major format with K
+ * rows and N columns, i.e., the following B matrix with 3 rows and 5 columns
+ *
+ *    B Matrix:
+ *    b00 b01 b02 b03 b04
+ *    b10 b11 b12 b13 b14
+ *    b20 b21 b22 b23 b24
+ *
+ * is layed out in the memory as follows:
+ *
+ *    B layout in memory (row major):
+ *    b00 b01 b02 b03 b04 b10 b11 b12 b13 b14 b20 b21 b22 b23 b24
+ *
+ * Note 2: KCB is always restricted/expected to be a multiple of ROW_INTERLEAVE
+ * and thus it's minimum value is equal to ROW_INTERLEAVE.
+ *
+ * Note 3: ROW_INTERLEAVE is 2 for when we accumulate into 16-bits and 4 for
+ * when we accumulate into 32-bits.
+ *
+ * Note 4: Minimum value of NCB is such that the number of bits in
+ * NCB*ROW_INTERLEAVE elements at the very minimum is equal to the vector length
+ * (i.e., 256 for avx2 and 512 for avx512).
+ *
+ * Minimum NCB value for int8 data type:
+ *            avx2     avx512
+ *    acc16   16       32
+ *    acc32   8        16
+ *
+ * Packing examples:
+ * Let us assume KCB=4, NCB=6 and ROW_INTERLEAVE=4 for the following examples.
+ * To keep things manageable in the examples, NCB is 6 which is less than the
+ * minimum value allowed for NCB as per the table above.
+ *
+ * * * * * * * * * * * * * * * * * * * *
+ *
+ * Example 1:
+ *    Original B is an 8x4 matrix as follows:
+ *    b00 b01 b02 b03
+ *    b10 b11 b12 b13
+ *    b20 b21 b22 b23
+ *    b30 b31 b32 b33
+ *    b40 b41 b42 b43
+ *    b50 b51 b52 b53
+ *    b60 b61 b62 b63
+ *    b70 b71 b72 b73
+ *
+ * Packed matrix has 2 tiles along rows and 1 tile along columns. So
+ * allocated/needed memory for B buffer is (2*4)*(1*6) elements.
+ *
+ * Packed B matrix looks like as follows:
+ *
+ * b00 b10 b20 b30 b01 b11 b21 b31 b02 b12 b22 b32 b03 b13 b23 b33 x x x x x \
+ * x x x | b40 b50 b60 b70 b41 b51 b61 b71 b42 b52 b62 b72 b43 b53 b63 b73 x x \
+ * x x x x x x
+ *
+ *    ROW_INTERLEAVE rows are mixed with columns and layed out sequentially.
+ *
+ *    ("x" indicates uninitialized locations)
+ *    ("|" indicates start of the next block; A block here refers to KCB*NCB
+ *     elements.)
+ *    ("\" indicates that the elements continue on the next line)
+ *    (block 1 of size KCB*NCB directly follows block 0 of the same size)
+ *
+ * * * * * * * * * * * * * * * * * * * *
+ *
+ * Example 2:
+ *    Original B is a 3x4 matrix as follows:
+ *    b00 b01 b02 b03
+ *    b10 b11 b12 b13
+ *    b20 b21 b22 b23
+ *
+ * Packed matrix has 1 tile along rows and 1 tile along columns. So
+ * allocated/needed memory for B buffer is (1*4)*(1*6) elements.
+ *
+ * Packed B matrix looks like as follows:
+ *
+ * b00 b10 b20 0 b01 b11 b21 0 b02 b12 b22 0 b03 b13 b23 0 x x x x x x x x
+ *
+ * If a tile along rows has less than ROW_INTERLEAVE rows, interleaved elements
+ * are zero initialized.
+ *
+ * * * * * * * * * * * * * * * * * * * *
+ *
+ * Example 3:
+ *    Original B is a 5x4 matrix as follows:
+ *    b00 b01 b02 b03
+ *    b10 b11 b12 b13
+ *    b20 b21 b22 b23
+ *    b30 b31 b32 b33
+ *    b40 b41 b42 b43
+ *
+ * Packed matrix has 2 tiles along rows and 1 tile along columns. So
+ * allocated/needed memory for B buffer is (2*4)*(1*6) elements.
+ *
+ * Packed B matrix looks like as follows:
+ *
+ * b00 b10 b20 b30 b01 b11 b21 b31 b02 b12 b22 b32 b03 b13 b23 b33 x x x x x \
+ * x x x b40 0 0 0 b41 0 0 0 b42 0 0 0 b43 0 0 0 x x x x x x x x
+ *
+ * * * * * * * * * * * * * * * * * * * *
+ *
+ * Example 4:
+ *    Original B is a 4x7 matrix as follows:
+ *    b00 b01 b02 b03 b04 b05 b06
+ *    b10 b11 b12 b13 b14 b15 b16
+ *    b20 b21 b22 b23 b24 b25 b26
+ *    b30 b31 b32 b33 b34 b35 b36
+ *
+ * Packed matrix has 1 tile along rows and 2 tiles along columns. So
+ * allocated/needed memory for B buffer is (1*4)*(2*6) elements.
+ *
+ * Packed B matrix looks like as follows:
+ *
+ * b00 b10 b20 b30 b01 b11 b21 b31 b02 b12 b22 b32 b03 b13 b23 b33 b04 b14
+ * b24 b34 b05 b15 b25 b35 | b06 b16 b26 b36 x x x x x x x x x x x x x x x x x \
+ * x x x
+ *
+ * * * * * * * * * * * * * * * * * * * *
+ *
+ * Example 5:
+ *    Original B is a 5x7 matrix as follows:
+ *    b00 b01 b02 b03 b04 b05 b06
+ *    b10 b11 b12 b13 b14 b15 b16
+ *    b20 b21 b22 b23 b24 b25 b26
+ *    b30 b31 b32 b33 b34 b35 b36
+ *    b40 b41 b42 b43 b44 b45 b46
+ *
+ * Packed matrix has 2 tiles along rows and 2 tiles along columns. So
+ * allocated/needed memory for B buffer is (2*4)*(2*6) elements.
+ *
+ * Packed B matrix looks like as follows:
+ *
+ * b00 b10 b20 b30 b01 b11 b21 b31 b02 b12 b22 b32 b03 b13 b23 b33 b04 b14 \
+ * b24 b34 b05 b15 b25 b35 | b06 b16 b26 b36 x x x x x x x x x x x x x x x x x \
+ * x x x | b40 0 0 0 b41 0 0 0 b42 0 0 0 b43 0 0 0 b44 0 0 0 b45 0 0 0 | b46 0 \
+ * 0 0 x x x x x x x x x x x x
+ *
+ * The kernel expects the B matrix to be packed in the way mentioned above for
+ * correct operation.
+ */
+
 namespace fbgemm {
 
 template <typename T, typename accT>
