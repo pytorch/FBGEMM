@@ -36,7 +36,8 @@ void fbgemmPacked(
     uint32_t ldc,
     const processOutputType& outProcess,
     int thread_id,
-    int num_threads) {
+    int num_threads,
+    const BlockingFactors* blocking_params) {
   static_assert(
       std::is_same<
           typename packingAMatrix::accType,
@@ -48,36 +49,43 @@ void fbgemmPacked(
 
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512Support()) {
-      MCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::MCB;
-      KCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::KCB;
-      MR = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::MR;
-    } else if (fbgemmHasAvx2Support()) {
-      MCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::MCB;
-      KCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::KCB;
-      MR = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::MR;
+    if (blocking_params) {
+      MCB = blocking_params->MCB;
+      KCB = blocking_params->KCB;
+      MR = blocking_params->MR;
     } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecture");
-      return;
+      if (fbgemmHasAvx512Support()) {
+        MCB = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512>::MCB;
+        KCB = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512>::KCB;
+        MR = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512>::MR;
+      } else if (fbgemmHasAvx2Support()) {
+        MCB = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx2>::MCB;
+        KCB = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx2>::KCB;
+        MR = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx2>::MR;
+
+      } else {
+        // TODO: Have default slower path
+        assert(0 && "unsupported architecture");
+        return;
+      }
     }
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -149,7 +157,8 @@ void fbgemmPacked(
             ldc,
             outProcess,
             thread_id,
-            num_threads);
+            num_threads,
+            blocking_params);
     for (int i = i_begin; i < i_end; i += MCB) { // i is the element index
       mc = std::min(i_end - i, MCB);
       for (int kb = 0; kb < kBlocks; ++kb) { // kb is the block index
@@ -209,7 +218,7 @@ template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
 template bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
 bool fbgemmSupportedCPU() {
-  return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
+  return (cpuinfo_initialize() && fbgemmHasAvx2Support());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -223,7 +232,8 @@ bool fbgemmSupportedCPU() {
       uint32_t ldc,                                                 \
       const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
       int thread_id,                                                \
-      int num_threads);
+      int num_threads,                                              \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                          \
   INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
@@ -258,7 +268,8 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       uint32_t ldc,                                                 \
       const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
       int thread_id,                                                \
-      int num_threads);
+      int num_threads,                                              \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
   INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
@@ -293,7 +304,8 @@ INSTANTIATE_RELU(int16_t);
       uint32_t ldc,                                                     \
       const ReQuantizeForFloat<RELU, Q_GRAN>& outProcess,               \
       int thread_id,                                                    \
-      int num_threads);
+      int num_threads,                                                  \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
   INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
@@ -323,7 +335,8 @@ INSTANTIATE_RELU(PackAWithQuantRowOffset);
       uint32_t ldc,                                                 \
       const ReQuantizeForFloat<RELU, Q_GRAN>& outProcess,           \
       int thread_id,                                                \
-      int num_threads);
+      int num_threads,                                              \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
   INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
@@ -355,7 +368,8 @@ template void fbgemmPacked(
     uint32_t ldc,
     const ReQuantizeForFloat<false>& outProcess,
     int thread_id,
-    int num_threads);
+    int num_threads,
+    const BlockingFactors* blocking_params);
 
 ////////////////////////////////////////////////////////////////////////////////
 // DoSpmdmOnInpBuffer
@@ -371,7 +385,8 @@ template void fbgemmPacked(
           int32_t,                                                      \
           ReQuantizeOutput<RELU, Q_GRAN>>& outProcess,                  \
       int thread_id,                                                    \
-      int num_threads);
+      int num_threads,                                                  \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
   INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
@@ -401,7 +416,8 @@ INSTANTIATE_RELU(PackAWithRowOffset);
           int32_t,                                                            \
           ReQuantizeOutput<RELU, Q_GRAN>>& outProcess,                        \
       int thread_id,                                                          \
-      int num_threads);
+      int num_threads,                                                        \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(RELU)                          \
   INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
@@ -423,7 +439,8 @@ template void fbgemmPacked(
     const DoSpmdmOnInpBuffer<float, int32_t, ReQuantizeForFloat<false>>&
         outProcess,
     int thread_id,
-    int num_threads);
+    int num_threads,
+    const BlockingFactors* blocking_params);
 
 ////////////////////////////////////////////////////////////////////////////////
 // memCopy
@@ -436,7 +453,8 @@ template void fbgemmPacked(
       uint32_t ldc,                                                 \
       const memCopy<>& outProcess,                                  \
       int thread_id,                                                \
-      int num_threads);
+      int num_threads,                                              \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_ACC_T(PACK_A)   \
   INSTANTIATE_BASE(PACK_A, int32_t) \
@@ -460,7 +478,8 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       uint32_t ldc,                                                 \
       const memCopy<>& outProcess,                                  \
       int thread_id,                                                \
-      int num_threads);
+      int num_threads,                                              \
+      const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T) \
   INSTANTIATE_BASE(ACC_T, 2);          \
@@ -481,7 +500,8 @@ template void fbgemmPacked(
     uint32_t ldc,
     const memCopy<>& outProcess,
     int thread_id,
-    int num_threads);
+    int num_threads,
+    const BlockingFactors* blocking_params);
 
 template void fbgemmPacked(
     PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>& packA,
@@ -491,6 +511,8 @@ template void fbgemmPacked(
     uint32_t ldc,
     const DoNothing<int32_t, int32_t>& outProcess,
     int thread_id,
-    int num_threads);
+    int num_threads,
+    const BlockingFactors* blocking_params);
+
 
 } // namespace fbgemm

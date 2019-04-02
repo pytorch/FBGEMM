@@ -39,8 +39,9 @@ class CodeGenBase {
   /**
    * @brief Constructor for initializing AVX2/AVX512 registers.
    */
-  CodeGenBase()
-      : CRegs_avx2_{x86::ymm0,
+  CodeGenBase(const BlockingFactors* params = nullptr)
+      : blocking_params(params),
+        CRegs_avx2_{x86::ymm0,
                     x86::ymm1,
                     x86::ymm2,
                     x86::ymm3,
@@ -136,12 +137,21 @@ class CodeGenBase {
       bool accum,
       int leadingDimCRegAssign = 4);
 
+  const BlockingFactors* blocking_params;
   /**
    * @brief Generate filename to dump generated code
    * (debug-only)
    */
   template <inst_set_t instSet>
-  std::string getCodeLoggingFile(bool accum, int mc, int nc) {
+  std::string getCodeLoggingFile(
+      bool accum,
+      int mc,
+      int nc,
+      int NCB,
+      int KCB,
+      int MR,
+      int NR,
+      int NR_MIN) {
     std::string fileName = "gemm_";
     if (std::is_same<accT, std::int16_t>::value) {
       fileName += "acc16_";
@@ -153,6 +163,11 @@ class CodeGenBase {
     fileName += "accum-" + std::to_string(accum);
     fileName += "_MC-" + std::to_string(mc);
     fileName += "_NC-" + std::to_string(nc);
+    fileName += "_NCB-" + std::to_string(NCB);
+    fileName += "_NCB-" + std::to_string(KCB);
+    fileName += "_MR-" + std::to_string(MR);
+    fileName += "_NR-" + std::to_string(NR);
+    fileName += "_NR_MIN-" + std::to_string(NR_MIN);
     if (instSet == inst_set_t::avx512) {
       fileName += "_avx512";
     } else if (instSet == inst_set_t::avx2) {
@@ -174,7 +189,10 @@ class CodeGenBase {
   int VLEN_; ///< Vector width in elements.
   static thread_local asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
   static thread_local asmjit::CodeHolder code_; ///< JIT Code Holder for asmjit.
-  static thread_local std::map<std::tuple<bool, int, int>, jit_micro_kernel_fp>
+  // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr, nr_min
+  static thread_local std::map<
+      std::tuple<bool, int, int, int, int, int, int, int>,
+      jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 };
 

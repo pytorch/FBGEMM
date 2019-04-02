@@ -174,23 +174,36 @@ PackBMatrix<T, accT>::PackBMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int groups)
-    : PackMatrix<PackBMatrix<T, accT>, T, accT>(nRow, nCol, pmat, groups),
+    int groups,
+    const BlockingFactors* params)
+    : PackMatrix<PackBMatrix<T, accT>, T, accT>(
+          nRow,
+          nCol,
+          pmat,
+          groups,
+          params),
       trans_(trans),
       smat_(smat),
       ld_(ld) {
-  if (fbgemmHasAvx512Support()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
-    row_interleave_ =
-        PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (fbgemmHasAvx2Support()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::NCB;
-    row_interleave_ = PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+  if (params) {
+      BaseType::brow_ = params->KCB;
+      BaseType::bcol_ = params->NCB;
+      row_interleave_ = params->ROW_INTERLEAVE;
   } else {
-    // Error
-    assert(0 && "unknown architecure");
+    if (fbgemmHasAvx512Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
+      row_interleave_ =
+          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx2Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::NCB;
+      row_interleave_ =
+          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    } else {
+      // Error
+      assert(0 && "unknown architecure");
+    }
   }
   if (BaseType::numRows() % groups != 0) {
     throw std::runtime_error(
