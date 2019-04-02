@@ -98,7 +98,8 @@ class PackMatrix {
       std::int32_t rows,
       std::int32_t cols,
       inpType* pmat,
-      int groups = 1);
+      int groups = 1,
+      const BlockingFactors* params = nullptr);
 
   /**
    * @return true usually when the matrix is constant matrix (e.g., weight
@@ -124,7 +125,10 @@ class PackMatrix {
    * client code can use this function to query how big the buffer used for
    * packing should be.
    */
-  static int packedBufferSize(int rows = 0, int cols = 0);
+  static int packedBufferSize(
+      int rows = 0,
+      int cols = 0,
+      const BlockingFactors* params = nullptr);
 
   /**
    * @return Pointer to a buffer containing row offset results. Some packing
@@ -281,6 +285,8 @@ class PackMatrix {
   std::int32_t nbrow_; ///< the number of blocks along rows
   std::int32_t nbcol_; ///< the number of blocks along columns
   bool bufAllocatedHere_;
+  const BlockingFactors*
+      blocking_params; ///< MCB, KCB, NCB, MR, NR, NR_MIN, ROW_INTERLEAVE;
 
  private:
   std::int32_t nrows_, ncols_;
@@ -312,7 +318,8 @@ class FBGEMM_API PackAMatrix final
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      int groups = 1);
+      int groups = 1,
+      const BlockingFactors* params = nullptr);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -393,7 +400,8 @@ class FBGEMM_API PackBMatrix final
       const inpType* smat,
       std::int32_t ld,
       inpType* pmat = nullptr,
-      int groups = 1);
+      int groups = 1,
+      const BlockingFactors* params = nullptr);
 
   /**
    * Weight matrices are usually constant so worth pre-packing.
@@ -532,7 +540,8 @@ class FBGEMM_API PackAWithIm2Col
       inpType* pmat = nullptr,
       std::int32_t a_zero_pt = 0,
       std::int32_t* row_offset = nullptr,
-      bool b_symmetric = false);
+      bool b_symmetric = false,
+      const BlockingFactors* params = nullptr);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -569,7 +578,8 @@ class FBGEMM_API PackAWithIm2Col
   /**
    * @return Size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize();
+  static int rowOffsetBufferSize(
+      const BlockingFactors* params = nullptr);
 
   ~PackAWithIm2Col() {
     if (rowOffsetAllocatedHere) {
@@ -615,7 +625,8 @@ class FBGEMM_API PackAWithRowOffset final
       std::uint32_t ld,
       inpType* pmat = nullptr,
       int groups = 1,
-      std::int32_t* row_offset = nullptr);
+      std::int32_t* row_offset = nullptr,
+      const BlockingFactors* params = nullptr);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -658,7 +669,8 @@ class FBGEMM_API PackAWithRowOffset final
   /**
    * @return size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize();
+  static int rowOffsetBufferSize(
+      const BlockingFactors* params = nullptr);
 
   ~PackAWithRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -706,7 +718,8 @@ class FBGEMM_API PackAWithQuantRowOffset final
       float scale = 1.0f,
       std::int32_t zero_pt = 0,
       int groups = 1,
-      std::int32_t* row_offset = nullptr);
+      std::int32_t* row_offset = nullptr,
+      const BlockingFactors* params = nullptr);
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -749,7 +762,8 @@ class FBGEMM_API PackAWithQuantRowOffset final
   /**
    * @return Size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize();
+  static int rowOffsetBufferSize(
+      const BlockingFactors* params = nullptr);
 
   ~PackAWithQuantRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -1174,7 +1188,8 @@ FBGEMM_API void fbgemmPacked(
     std::uint32_t ldc,
     const processOutputType& outProcess,
     int thread_id,
-    int num_threads);
+    int num_threads,
+    const BlockingFactors* blocking_params = nullptr);
 
 /**
  * @brief Perform small-channels-per-group groupwise convolution

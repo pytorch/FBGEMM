@@ -33,8 +33,11 @@ ExecuteKernel<
         int32_t ldc,
         const processOutputType& outputProcess,
         int thread_id,
-        int num_threads)
-    : packedA_(packA),
+        int num_threads,
+        const BlockingFactors* params)
+    : CodeGenBase<uint8_t, int8_t, int32_t, typename packingAMatrix::accType>(
+          params),
+      packedA_(packA),
       packedB_(packB),
       matC_(matC),
       C_buffer_(C_buffer),
@@ -42,34 +45,41 @@ ExecuteKernel<
       outputProcess_(outputProcess),
       thread_id_(thread_id),
       num_threads_(num_threads) {
-  if (fbgemmHasAvx512Support()) {
-    mbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx512>::MCB;
-    nbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx512>::NCB;
-    nrMinSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx512>::NR_MIN;
-  } else if (fbgemmHasAvx2Support()) {
-    mbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx2>::MCB;
-    nbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx2>::NCB;
-    nrMinSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx2>::NR;
+  if (params) {
+    mbSize_ = params->MCB;
+    nbSize_ = params->NCB;
+    nrMinSize_ = params->NR_MIN;
+    nrSize_ = params->NR;
   } else {
-    assert(0 && "unsupported architecure");
+    if (fbgemmHasAvx512Support()) {
+      mbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::MCB;
+      nbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::NCB;
+      nrMinSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::NR_MIN;
+    } else if (fbgemmHasAvx2Support()) {
+      mbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::MCB;
+      nbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::NCB;
+      nrMinSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::NR;
+    } else {
+      assert(0 && "unsupported architecure");
+    }
   }
   C_tile_ = new int32_t[mbSize_ * nbSize_];
 }
