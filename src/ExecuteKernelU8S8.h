@@ -44,7 +44,8 @@ class ExecuteKernel<
       int32_t ldc,
       const processOutputType& outputProcess,
       int thread_id,
-      int num_threads);
+      int num_threads,
+      const BlockingFactors* params = nullptr);
   void execute(int kBlock);
 
   ~ExecuteKernel() {
@@ -70,6 +71,7 @@ class ExecuteKernel<
   int mbSize_; ///< block size in the m dimension.
   int nbSize_; ///< block size in the n dimension.
   int nrMinSize_; ///< minimum register size in the n dimension.
+  int nrSize_; ///< register size in the n dimension.
 };
 
 } // namespace fbgemm

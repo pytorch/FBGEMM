@@ -40,7 +40,8 @@ class ExecuteKernel : public CodeGenBase<
       int32_t ldc,
       const processOutputType& outputProcess,
       int thread_id,
-      int num_threads);
+      int num_threads,
+      const BlockingFactors* params = nullptr);
   void execute(int kBlock);
 
  private:

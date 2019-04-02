@@ -87,4 +87,63 @@ FBGEMM_API bool fbgemmHasAvx512Support();
  */
 FBGEMM_API bool fbgemmHasAvx2Support();
 
+/**
+ * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
+ *
+ * This structure is optional. If not used, the default values for these
+ * parameters are picked up from PackingTraits-inl.h. Please see this
+ * file for details on these parameters.
+ */
+struct FBGEMM_API BlockingFactors {
+  int MR;
+  int NR;
+  int NR_MIN;
+  int ROW_INTERLEAVE;
+  int MCB;
+  int KCB;
+  int NCB;
+};
+
+template <typename accT = std::int32_t>
+FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
+  constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
+  constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
+
+  if (is_32bit) {
+    if (param->ROW_INTERLEAVE != 4)
+      return false;
+
+    if (fbgemmHasAvx512Support()) {
+      if (param->NR != 16)
+        return false;
+    } else if (fbgemmHasAvx2Support()) {
+      if (param->NR != 8)
+        return false;
+    }
+  } else if (is_16bit) {
+    if (param->ROW_INTERLEAVE != 2)
+      return false;
+
+    if (fbgemmHasAvx512Support()) {
+      if (param->NR != 32)
+        return false;
+    } else if (fbgemmHasAvx2Support()) {
+      if (param->NR != 16)
+        return false;
+    }
+  }
+
+  if (param->MCB % param->MR)
+    return false;
+  if (param->NCB % param->NR)
+    return false;
+  if (fbgemmHasAvx512Support()) {
+    if (param->MR * (param->NCB / param->NR) > 24)
+      return false;
+  } else if (fbgemmHasAvx2Support()) {
+    if (param->MR * (param->NCB / param->NR) > 16)
+      return false;
+  }
+  return true;
+}
 } // namespace fbgemm
