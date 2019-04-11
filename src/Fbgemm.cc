@@ -211,7 +211,7 @@ FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       (conv_p.pad[0] == 1) && (conv_p.pad[1] == 1) &&
       (conv_p.pad[0] == conv_p.pad[2]) && (conv_p.pad[1] == conv_p.pad[3]) &&
       (conv_p.dilation[0] == 1) && (conv_p.dilation[0] == conv_p.dilation[1]) &&
-      (conv_p.stride[0] == 1) && (conv_p.stride[0] == conv_p.stride[1]);
+      (conv_p.stride[0] <= 2) && (conv_p.stride[0] == conv_p.stride[1]);
 }
 
 template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);

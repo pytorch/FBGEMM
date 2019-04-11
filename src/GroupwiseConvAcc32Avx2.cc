@@ -28,12 +28,14 @@ template <typename accT>
 thread_local asmjit::CodeHolder GenConvKernel<accT>::code_;
 
 template <typename accT>
-thread_local std::map<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
-    GenConvKernel<accT>::codeCache_;
+thread_local std::
+    map<std::tuple<bool, int, int, int, int, int, int>, jit_conv_kernel_fp>
+        GenConvKernel<accT>::codeCache_;
 
 template <typename accT>
-thread_local std::map<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
-    GenConvKernel<accT>::codeCacheRowOffset_;
+thread_local std::
+    map<std::tuple<bool, int, int, int, int, int, int>, jit_rowoffset_kernel_fp>
+        GenConvKernel<accT>::codeCacheRowOffset_;
 
 namespace x86 = asmjit::x86;
 
@@ -43,42 +45,53 @@ void calculateRowOffsets(
     int32_t* rowOffsetBuf,
     int32_t a_zero_point,
     int groupNum) {
-  int H = conv_param.OUT_DIM[0];
-  int W = conv_param.OUT_DIM[1];
+  int H_IN = conv_param.IN_DIM[0];
+  int W_IN = conv_param.IN_DIM[1];
+  int H_OUT = conv_param.OUT_DIM[0];
+  int W_OUT = conv_param.OUT_DIM[1];
+
   int G = conv_param.G;
   int C_per_G = conv_param.IC / conv_param.G;
   int H_PAD = conv_param.pad[0];
   int W_PAD = conv_param.pad[1];
   // calculate row offset
-  for (int h = 0; h < H; ++h) {
-    for (int w = 0; w < W; ++w) {
+  for (int h = 0; h < H_OUT; ++h) {
+    for (int w = 0; w < W_OUT; ++w) {
       int32_t sum = 0;
       for (int r = 0; r < conv_param.K[0]; ++r) {
-        int h_in = -H_PAD + h + r;
+        int h_in = -H_PAD + h * conv_param.stride[0] + r;
         for (int s = 0; s < conv_param.K[1]; ++s) {
-          int w_in = -W_PAD + w + s;
+          int w_in = -W_PAD + w * conv_param.stride[1] + s;
           for (int c = 0; c < C_per_G; ++c) {
-            if (h_in < 0 || h_in >= H || w_in < 0 || w_in >= W) {
+            if (h_in < 0 || h_in >= H_IN || w_in < 0 || w_in >= W_IN) {
               sum += a_zero_point;
             } else {
-              sum +=
-                  activations[((h_in * W + w_in) * G + groupNum) * C_per_G + c];
+              sum += activations
+                  [((h_in * W_IN + w_in) * G + groupNum) * C_per_G + c];
             }
           }
         }
       }
-      rowOffsetBuf[h * W + w] = sum;
+      rowOffsetBuf[h * W_OUT + w] = sum;
     }
   }
 }
 
-tuple<bool, int, int, int> getKernelSig(
+tuple<bool, int, int, int, int, int, int> getKernelSig(
     const conv_param_t<>& conv_param,
     bool isAZeroPointZero) {
   int C_per_G = conv_param.IC / conv_param.G;
   int K_per_G = conv_param.OC / conv_param.G;
-  auto kernelSig =
-      std::make_tuple(isAZeroPointZero, conv_param.G, C_per_G, K_per_G);
+  int bottom_edge_width = internal::getBottomEdgeWidth_(conv_param);
+  int right_edge_width = internal::getRightEdgeWidth_(conv_param);
+  auto kernelSig = std::make_tuple(
+      isAZeroPointZero,
+      conv_param.G,
+      C_per_G,
+      K_per_G,
+      conv_param.stride[0],
+      bottom_edge_width,
+      right_edge_width);
   return kernelSig;
 }
 
@@ -397,6 +410,9 @@ template <>
 template <>
 void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
     asmjit::X86Emitter* a, int c_offset) {
+  // Save the original in_acts_R_ in row_offset_R_
+  a->mov(row_offset_R_, in_acts_R_);
+
   // top-left corner code
   if (c_offset == 0) {
     // zero out the results register
@@ -409,7 +425,7 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
     if (h_in >= 0) {
       a->imul(
           scratchReg1_,
-          W_R_,
+          W_in_R_,
           static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     }
     for (int s = 0; s < S_; ++s) {
@@ -443,8 +459,10 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
 
   // top edge excluding corners
+  a->imul(scratchReg2_, W_in_R_, C_);
   asmjit::Label LoopTopEdge = a->newLabel();
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  a->mov(loopR1_, W_out_R_);
+  a->sub(loopR1_, left_edge_width_ + right_edge_width_);
   a->bind(LoopTopEdge);
   // zero out
   if (c_offset == 0) {
@@ -459,18 +477,14 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
       }
     }
   }
+  a->mov(scratchReg1_, 0);
   for (int r = H_PAD_; r < R_; ++r) {
-    int h_in = -H_PAD_ + r;
-    a->imul(
-        scratchReg1_,
-        W_R_,
-        static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = 0; s < S_; ++s) {
       if (C_per_G_ == 4) {
         a->vbroadcastsd(
             actRegAvx2_,
             x86::dword_ptr(
-                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+                in_acts_R_, scratchReg1_, 0, (stride_ - W_PAD_ + s) * C_));
       } else {
         a->vbroadcastss(
             actRegAvx2_,
@@ -478,77 +492,71 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
                 in_acts_R_,
                 scratchReg1_,
                 0,
-                (s * C_ + c_offset) * sizeof(uint8_t)));
+                (stride_ - W_PAD_ + s) * C_ + c_offset));
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
+    a->add(scratchReg1_, scratchReg2_);
   }
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
 
   storeResult<inst_set_t::avx2>(a);
 
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->mov(loopR1_, W_R_);
-  a->sub(loopR1_, static_cast<asmjit::Imm>(W_PAD_));
-  a->inc(loopR2_);
-  a->cmp(loopR2_, loopR1_);
-  a->jl(LoopTopEdge);
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->sub(
-      scratchReg2_,
-      static_cast<asmjit::Imm>(2 * W_PAD_ * C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg2_);
+  a->dec(loopR1_);
+  a->jg(LoopTopEdge);
+  // Restore the original in_acts_R_
+  a->mov(in_acts_R_, row_offset_R_);
 
   // top-right corner code
-
-  // zero out
-  if (c_offset == 0) {
-    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  } else {
-    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
-  }
-  if (!isAZeroPointZero_) {
-    for (int r = 0; r < H_PAD_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8bitFMA<inst_set_t::avx2>(
-            a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
-      }
-    }
-  }
-  for (int r = H_PAD_; r < R_; ++r) {
-    int h_in = -H_PAD_ + r;
-    for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->imul(
-          scratchReg1_,
-          W_R_,
-          static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
-      a->mov(scratchReg2_, W_R_);
-      a->sub(scratchReg2_, static_cast<asmjit::Imm>(R_ - W_PAD_ - s));
-      a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-      a->add(scratchReg1_, scratchReg2_);
-      if (C_per_G_ == 4) {
-        a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
-      } else {
-        a->vbroadcastss(
-            actRegAvx2_,
-            x86::word_ptr(
-                in_acts_R_, scratchReg1_, 0, c_offset * sizeof(uint8_t)));
-      }
-      gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
+  if (right_edge_width_ > 0) {
+    // zero out
+    if (c_offset == 0) {
+      a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+    } else {
+      a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
     }
     if (!isAZeroPointZero_) {
-      for (int s = S_ - W_PAD_; s < S_; ++s) {
-        gen8bitFMA<inst_set_t::avx2>(
-            a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
+      for (int r = 0; r < H_PAD_; ++r) {
+        for (int s = 0; s < S_; ++s) {
+          gen8bitFMA<inst_set_t::avx2>(
+              a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
+        }
       }
     }
+    for (int r = H_PAD_; r < R_; ++r) {
+      int h_in = -H_PAD_ + r;
+      a->imul(scratchReg1_, W_in_R_, (h_in + 1) * C_);
+      for (int s = 0; s < S_ - W_PAD_; ++s) {
+        if (C_per_G_ == 4) {
+          a->vbroadcastsd(
+              actRegAvx2_,
+              x86::dword_ptr(
+                  in_acts_R_, scratchReg1_, 0, (W_PAD_ + s - S_) * C_));
+        } else {
+          a->vbroadcastss(
+              actRegAvx2_,
+              x86::word_ptr(
+                  in_acts_R_,
+                  scratchReg1_,
+                  0,
+                  (W_PAD_ + s - S_) * C_ + c_offset));
+        }
+        gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
+      }
+      if (!isAZeroPointZero_) {
+        for (int s = S_ - W_PAD_; s < S_; ++s) {
+          gen8bitFMA<inst_set_t::avx2>(
+              a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
+        }
+      }
+    }
+    storeResult<inst_set_t::avx2>(a);
+    a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
   }
-  storeResult<inst_set_t::avx2>(a);
-  a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
 
   // reset output activation pointer
-  a->imul(scratchReg1_, W_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->imul(scratchReg1_, W_out_R_, K_ * sizeof(int32_t));
   a->sub(out_acts_R_, scratchReg1_);
 }
 
@@ -556,22 +564,29 @@ template <>
 template <>
 void GenConvKernel<int32_t>::genForLeftEdge<inst_set_t::avx2>(
     asmjit::X86Emitter* a, int c_offset) {
+  // Save the original in_acts_R_ in row_offset_R_
+  a->mov(row_offset_R_, in_acts_R_);
+
+  a->imul(scratchReg1_, W_in_R_, (top_edge_width_ * stride_ - H_PAD_) * C_);
+  a->add(in_acts_R_, scratchReg1_);
+
+  a->imul(scratchReg2_, W_in_R_, C_);
+
   // left edge excluding corners
   asmjit::Label LoopLeftEdge = a->newLabel();
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+  // loopR1_ corresponds to the output row
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
+  a->imul(loopR2_, W_out_R_, K_ * sizeof(int32_t));
   a->bind(LoopLeftEdge);
-  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->add(out_acts_R_, scratchReg2_);
+  a->add(out_acts_R_, loopR2_);
   if (c_offset == 0) {
     // zero out
     a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   } else {
     a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
   }
-  a->mov(scratchReg1_, loopR1_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->mov(scratchReg1_, 0);
   for (int r = 0; r < R_; ++r) {
     if (!isAZeroPointZero_) {
       for (int s = 0; s < W_PAD_; ++s) {
@@ -599,41 +614,56 @@ void GenConvKernel<int32_t>::genForLeftEdge<inst_set_t::avx2>(
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
+  }
+  for (int i = 0; i < stride_; ++i) {
+    a->add(in_acts_R_, scratchReg2_);
   }
   storeResult<inst_set_t::avx2>(a);
 
-  a->inc(loopR1_);
-  a->mov(loopR2_, H_R_);
-  a->sub(loopR2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->cmp(loopR1_, loopR2_);
-  a->jl(LoopLeftEdge);
+  a->dec(loopR1_);
+  a->jg(LoopLeftEdge);
 
   // reset output activation pointer
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg2_, W_R_);
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, top_edge_width_ + bottom_edge_width_);
+  a->imul(scratchReg2_, W_out_R_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
   a->sub(out_acts_R_, scratchReg2_);
+
+  // reset input activation pointer
+  a->mov(in_acts_R_, row_offset_R_);
 }
 
 template <>
 template <>
 void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
     asmjit::X86Emitter* a, int c_offset) {
+  // Save the original in_acts_R_ in row_offset_R_
+  a->mov(row_offset_R_, in_acts_R_);
+
+  a->imul(scratchReg1_, W_in_R_, (top_edge_width_ * stride_ - H_PAD_) * C_);
+  a->imul(scratchReg2_, W_out_R_, stride_ * C_);
+  a->add(scratchReg1_, scratchReg2_);
+  a->add(in_acts_R_, scratchReg1_);
+
   // right edge excluding corners
   asmjit::Label LoopRightEdge = a->newLabel();
 
-  // output pointer to the right edge
+  // move output pointer to the top right edge
   // (W_ + W_ - 1)*K_*sizeof(int32_t)
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, 2);
-  a->sub(scratchReg2_, 1);
+  a->mov(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, top_edge_width_ + 1);
+  a->sub(scratchReg2_, right_edge_width_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
   a->add(out_acts_R_, scratchReg2_);
 
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+  a->imul(scratchReg2_, W_in_R_, C_);
+
+  // loopR1_ corresponds to the output row
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
+  a->imul(loopR2_, W_out_R_, K_ * sizeof(int32_t));
   a->bind(LoopRightEdge);
   if (c_offset == 0) {
     // zero out
@@ -641,27 +671,28 @@ void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
   } else {
     a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
   }
-  a->mov(scratchReg1_, loopR1_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
 
-  a->mov(scratchReg2_, W_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * W_PAD_));
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->add(scratchReg1_, scratchReg2_);
+  a->mov(scratchReg1_, 0);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
       if (C_per_G_ == 4) {
-        a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s - right_edge_width_ * stride_ - W_PAD_) * C_));
       } else {
         a->vbroadcastss(
             actRegAvx2_,
             x86::word_ptr(
-                in_acts_R_, scratchReg1_, 0, c_offset * sizeof(uint8_t)));
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s - right_edge_width_ * stride_ - W_PAD_) * C_ + c_offset));
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
-      a->add(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     }
     if (!isAZeroPointZero_) {
       for (int s = S_ - W_PAD_; s < S_; ++s) {
@@ -670,39 +701,37 @@ void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
       }
     }
 
-    a->sub(
-        scratchReg1_,
-        static_cast<asmjit::Imm>((S_ - W_PAD_) * C_ * sizeof(uint8_t)));
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
+  }
+  for (int i = 0; i < stride_; ++i) {
+    a->add(in_acts_R_, scratchReg2_);
   }
 
   // storeResult<inst_set_t::avx2>(a, (W_+W_-1)*K_*sizeof(int32_t));
   storeResult<inst_set_t::avx2>(a);
 
-  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->add(out_acts_R_, scratchReg2_);
-  a->mov(loopR2_, H_R_);
-  a->sub(loopR2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->inc(loopR1_);
-  a->cmp(loopR1_, loopR2_);
-  a->jl(LoopRightEdge);
+  a->add(out_acts_R_, loopR2_);
+
+  a->dec(loopR1_);
+  a->jg(LoopRightEdge);
 
   // reset base
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, 2);
-  a->sub(scratchReg2_, 1);
+  a->mov(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, top_edge_width_ + 1);
+  a->sub(scratchReg2_, right_edge_width_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
   a->sub(out_acts_R_, scratchReg2_);
 
-  // reset loop increments
-  //(H_ - 2*H_PAD_)*W_*K_*sizeof(int32_t)
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg2_, W_R_);
+  //(H_out - 2*H_PAD_)*W_*K_*sizeof(int32_t)
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, top_edge_width_ + bottom_edge_width_);
+  a->imul(scratchReg2_, W_out_R_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
   a->sub(out_acts_R_, scratchReg2_);
-  // a->sub(out_acts_R_, (H_ - 2*H_PAD_)*W_*K_*sizeof(int32_t));
+  // a->sub(out_acts_R_, (H_out - 2*H_PAD_)*W_out*K_*sizeof(int32_t));
+
+  // reset input activation pointer
+  a->mov(in_acts_R_, row_offset_R_);
 }
 
 template <>
@@ -710,11 +739,11 @@ template <>
 void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
     asmjit::X86Emitter* a, int c_offset) {
   // bottom-left corner
-  // we updating the last row
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  // we are updating the last row
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, bottom_edge_width_);
+  a->imul(scratchReg1_, scratchReg2_, K_ * sizeof(int32_t));
+  a->imul(scratchReg1_, W_out_R_);
   a->add(out_acts_R_, scratchReg1_);
   if (c_offset == 0) {
     // zero out
@@ -722,11 +751,18 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   } else {
     a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
   }
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg1_, W_R_);
+
+  // adjust input pointer
+  a->imul(scratchReg1_, scratchReg2_, stride_);
+  a->sub(scratchReg1_, H_PAD_);
+  a->imul(scratchReg1_, W_in_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, scratchReg1_);
+  // Save the original in_acts_R_ after adjustment in row_offset_R_
+  a->mov(row_offset_R_, in_acts_R_);
+
   for (int r = 0; r < R_ - H_PAD_; ++r) {
+    a->imul(scratchReg1_, W_in_R_, static_cast<asmjit::Imm>(r * C_));
     if (!isAZeroPointZero_) {
       for (int s = 0; s < W_PAD_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
@@ -753,8 +789,6 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-    a->add(scratchReg1_, scratchReg2_);
   }
   if (!isAZeroPointZero_) {
     for (int r = R_ - H_PAD_; r < R_; ++r) {
@@ -770,8 +804,10 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
 
   // bottom edge excluding corners
+  a->imul(scratchReg2_, W_in_R_, static_cast<asmjit::Imm>(C_));
   asmjit::Label LoopBottomEdge = a->newLabel();
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  a->mov(loopR1_, W_out_R_);
+  a->sub(loopR1_, left_edge_width_ + right_edge_width_);
   a->bind(LoopBottomEdge);
   if (c_offset == 0) {
     // zero out
@@ -779,18 +815,15 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   } else {
     a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
   }
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  for (int r = 0; r < R_ - W_PAD_; ++r) {
+  a->mov(scratchReg1_, 0);
+  for (int r = 0; r < R_ - H_PAD_; ++r) {
     // int h_in = H_-2*H_PAD_ + r;
     for (int s = 0; s < S_; ++s) {
       if (C_per_G_ == 4) {
         a->vbroadcastsd(
             actRegAvx2_,
             x86::dword_ptr(
-                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+                in_acts_R_, scratchReg1_, 0, (stride_ - W_PAD_ + s) * C_));
       } else {
         a->vbroadcastss(
             actRegAvx2_,
@@ -798,81 +831,11 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
                 in_acts_R_,
                 scratchReg1_,
                 0,
-                (s * C_ + c_offset) * sizeof(uint8_t)));
+                (stride_ - W_PAD_ + s) * C_ + c_offset));
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
-  }
-
-  if (!isAZeroPointZero_) {
-    for (int r = R_ - W_PAD_; r < R_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8bitFMA<inst_set_t::avx2>(
-            a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
-      }
-    }
-  }
-
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  // storeResult<inst_set_t::avx2>(a, ((H_-1)*W_+1)*K_*sizeof(int32_t));
-  storeResult<inst_set_t::avx2>(a);
-
-  a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->inc(loopR2_);
-  a->mov(loopR1_, W_R_);
-  a->sub(loopR1_, static_cast<asmjit::Imm>(W_PAD_));
-  a->cmp(loopR2_, loopR1_);
-  a->jl(LoopBottomEdge);
-  a->mov(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * W_PAD_));
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg1_);
-  // a->sub(in_acts_R_, (W_ - 2*W_PAD_)*C_*sizeof(uint8_t));
-  // a->sub(out_acts_R_, (W_ - 2*W_PAD_)*K_*sizeof(int32_t));
-
-  // bottom-right corner
-  if (c_offset == 0) {
-    // zero out
-    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  } else {
-    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
-  }
-  // input start point
-  // ((H_-(R_-H_PAD_))*W_+(W_-(S_-W_PAD_)))*C_*sizeof(uint8_t)
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(R_ - H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->add(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(S_ - W_PAD_));
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  for (int r = 0; r < R_ - H_PAD_; ++r) {
-    for (int s = 0; s < S_ - W_PAD_; ++s) {
-      if (C_per_G_ == 4) {
-        a->vbroadcastsd(
-            actRegAvx2_,
-            x86::dword_ptr(
-                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
-      } else {
-        a->vbroadcastss(
-            actRegAvx2_,
-            x86::word_ptr(
-                in_acts_R_,
-                scratchReg1_,
-                0,
-                (s * C_ + c_offset) * sizeof(uint8_t)));
-      }
-      gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
-    }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-    a->add(scratchReg1_, scratchReg2_);
-    if (!isAZeroPointZero_) {
-      for (int s = S_ - W_PAD_; s < S_; ++s) {
-        gen8bitFMA<inst_set_t::avx2>(
-            a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
-      }
-    }
   }
 
   if (!isAZeroPointZero_) {
@@ -884,16 +847,88 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
     }
   }
 
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
+  // storeResult<inst_set_t::avx2>(a, ((H_-1)*W_+1)*K_*sizeof(int32_t));
   storeResult<inst_set_t::avx2>(a);
-  // storeResult<inst_set_t::avx2>(a, ((H_-1)*W_+W_-1)*K_*sizeof(int32_t));
+
+  a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->dec(loopR1_);
+  a->jg(LoopBottomEdge);
+  // Restore the original in_acts_R_
+  a->mov(in_acts_R_, row_offset_R_);
+
+  // bottom-right corner
+  if (right_edge_width_ > 0) {
+    if (c_offset == 0) {
+      // zero out
+      a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+    } else {
+      a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+    }
+    // input start point
+    a->mov(scratchReg1_, W_out_R_);
+    a->imul(scratchReg1_, stride_);
+    a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+    a->imul(scratchReg2_, W_in_R_, C_ * sizeof(uint8_t));
+
+    for (int r = 0; r < R_ - H_PAD_; ++r) {
+      for (int s = 0; s < S_ - W_PAD_; ++s) {
+        if (C_per_G_ == 4) {
+          a->vbroadcastsd(
+              actRegAvx2_,
+              x86::dword_ptr(
+                  in_acts_R_,
+                  scratchReg1_,
+                  0,
+                  (s - right_edge_width_ * stride_ - W_PAD_) * C_));
+        } else {
+          a->vbroadcastss(
+              actRegAvx2_,
+              x86::word_ptr(
+                  in_acts_R_,
+                  scratchReg1_,
+                  0,
+                  (s - right_edge_width_ * stride_ - W_PAD_) * C_ + c_offset));
+        }
+        gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
+      }
+      a->add(scratchReg1_, scratchReg2_);
+      if (!isAZeroPointZero_) {
+        for (int s = S_ - W_PAD_; s < S_; ++s) {
+          gen8bitFMA<inst_set_t::avx2>(
+              a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
+        }
+      }
+    }
+
+    if (!isAZeroPointZero_) {
+      for (int r = R_ - H_PAD_; r < R_; ++r) {
+        for (int s = 0; s < S_; ++s) {
+          gen8bitFMA<inst_set_t::avx2>(
+              a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
+        }
+      }
+    }
+
+    storeResult<inst_set_t::avx2>(a);
+    // storeResult<inst_set_t::avx2>(a, ((H_-1)*W_+W_-1)*K_*sizeof(int32_t));
+    a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  } // right_edge_width_ > 0
+
+  // reset input pointer
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, bottom_edge_width_);
+  a->imul(scratchReg1_, scratchReg2_, stride_);
+  a->sub(scratchReg1_, H_PAD_);
+  a->imul(scratchReg1_, W_in_R_);
+  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->sub(in_acts_R_, scratchReg1_);
+
   // reset output pointer
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, W_R_);
-  a->add(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->sub(out_acts_R_, scratchReg1_);
+  a->imul(scratchReg2_, W_out_R_);
+  a->add(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->sub(out_acts_R_, scratchReg2_);
 }
 
 template <>
@@ -904,20 +939,30 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
   asmjit::Label LoopH = a->newLabel();
   asmjit::Label LoopW = a->newLabel();
   // base for output
-  a->mov(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg2_, W_R_);
-  a->add(scratchReg2_, static_cast<asmjit::Imm>(W_PAD_));
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->imul(scratchReg2_, W_out_R_, top_edge_width_);
+  a->add(scratchReg2_, left_edge_width_);
+  a->imul(scratchReg2_, K_ * sizeof(int32_t));
   a->add(out_acts_R_, scratchReg2_);
 
-  a->mov(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(W_PAD_));
+  // base for input
+  if (stride_ > 1) {
+    a->imul(scratchReg1_, W_in_R_, top_edge_width_ * stride_ - H_PAD_);
+    a->imul(scratchReg1_, C_);
+    a->add(in_acts_R_, scratchReg1_);
 
-  // H loop
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+    // Save the original in_acts_R_ in row_offset_R_
+    a->mov(row_offset_R_, in_acts_R_);
+  }
+
+  a->imul(scratchReg2_, W_in_R_, C_ * sizeof(uint8_t));
+
+  // H loop w.r.t. output image
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
   a->bind(LoopH);
-  // W loop
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  // W loop w.r.t. output image
+  a->mov(loopR2_, W_out_R_);
+  a->sub(loopR2_, left_edge_width_ + right_edge_width_);
   a->bind(LoopW);
   if (c_offset == 0) {
     // zero out
@@ -930,25 +975,27 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
     for (int s = 0; s < S_; ++s) {
       if (C_per_G_ == 4) {
         a->vbroadcastsd(
-            actRegAvx2_, x86::dword_ptr(in_acts_R_, s * C_ * sizeof(uint8_t)));
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_, (left_edge_width_ * stride_ - W_PAD_ + s) * C_));
       } else {
         a->vbroadcastss(
             actRegAvx2_,
-            x86::word_ptr(in_acts_R_, (s * C_ + c_offset) * sizeof(uint8_t)));
+            x86::word_ptr(
+                in_acts_R_,
+                ((left_edge_width_ * stride_ - W_PAD_ + s) * C_ + c_offset)));
       }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
     // advance input pointer by one row
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(in_acts_R_, scratchReg2_);
   }
   // rewind input pointer
-  a->imul(
-      scratchReg2_, W_R_, static_cast<asmjit::Imm>(R_ * C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg2_);
+  a->imul(scratchReg1_, W_in_R_, R_ * C_ * sizeof(uint8_t));
+  a->sub(in_acts_R_, scratchReg1_);
   // a->add(scratchReg1_, C_*sizeof(uint8_t));
-  // advance input pointer by one pixel
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  // advance input pointer by one output pixel
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
 
   // storeResult<inst_set_t::avx2>(a, (W_+1)*K_*sizeof(int32_t));
   storeResult<inst_set_t::avx2>(a);
@@ -956,44 +1003,62 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
   // advance output pointer by one pixel
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
 
-  a->inc(loopR2_);
-  a->cmp(loopR2_, scratchReg1_);
-  a->jl(LoopW);
-  // add (W_ - 2*W_PAD_)*C_*sizeof(uint8_t) and subtract W_*C_*sizeof(uint8_t)
-  a->add(
-      in_acts_R_, static_cast<asmjit::Imm>(2 * W_PAD_ * C_ * sizeof(uint8_t)));
+  a->dec(loopR2_);
+  a->jg(LoopW);
+  if (stride_ == 1) {
+    a->add(in_acts_R_, (left_edge_width_ + bottom_edge_width_) * C_);
+  } else {
+    a->imul(scratchReg1_, W_in_R_, stride_ * C_);
+    a->add(row_offset_R_, scratchReg1_);
+    a->mov(in_acts_R_, row_offset_R_);
+  }
   // a->sub(in_acts_R_, (W_ - 2*W_PAD_)*C_*sizeof(uint8_t));
   // a->add(in_acts_R_, W_*C_*sizeof(uint8_t));
   // advance output pointer by padding size
   a->add(
-      out_acts_R_, static_cast<asmjit::Imm>(2 * W_PAD_ * K_ * sizeof(int32_t)));
+      out_acts_R_,
+      (left_edge_width_ + right_edge_width_) * K_ * sizeof(int32_t));
   // a->sub(out_acts_R_, (W_ - 2*W_PAD_)*K_*sizeof(int32_t));
   // a->add(out_acts_R_, W_*K_*sizeof(int32_t));
 
-  a->inc(loopR1_);
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->cmp(loopR1_, scratchReg2_);
-  a->jl(LoopH);
+  a->dec(loopR1_);
+  a->jg(LoopH);
 
+  // Now, loopR1 has the number of output rows we processed
   if (c_offset + 4 < C_per_G_) {
+    a->mov(loopR1_, H_out_R_);
+    a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
+
     // reset input pointer
-    // scratchReg2_ = W_R_ * C_ * (H_R_ - 2 * H_PAD_)
-    a->mov(scratchReg2_, H_R_);
-    a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
-    a->imul(scratchReg2_, W_R_);
-    a->imul(scratchReg2_, C_);
-    a->sub(in_acts_R_, scratchReg2_);
+    a->imul(scratchReg2_, loopR1_, stride_ * C_);
+    // NOTE: 3-operand form a->imul(scratchReg2_, scratchReg2_, W_in_R_) doesn't
+    // work because it requires the 3rd operand to be an immediate.
+    a->imul(scratchReg2_, W_in_R_);
+    if (stride_ == 1) {
+      a->sub(in_acts_R_, scratchReg2_);
+    } else {
+      a->sub(row_offset_R_, scratchReg2_);
+      a->mov(in_acts_R_, row_offset_R_);
+
+      a->imul(scratchReg1_, W_in_R_, top_edge_width_ * stride_ - H_PAD_);
+      a->imul(scratchReg1_, C_);
+      a->sub(in_acts_R_, scratchReg1_);
+    }
 
     // reset output pointer
     assert(K_ == C_);
-    a->imul(scratchReg2_, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    if (stride_ == 1 && 2 * H_PAD_ - R_ == -1) {
+      a->imul(scratchReg2_, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    } else {
+      assert(stride_ == 2);
+      a->imul(scratchReg2_, loopR1_, C_ * sizeof(int32_t));
+      a->imul(scratchReg2_, W_out_R_);
+    }
     a->sub(out_acts_R_, scratchReg2_);
 
-    a->mov(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
-    a->imul(scratchReg2_, W_R_);
-    a->add(scratchReg2_, static_cast<asmjit::Imm>(W_PAD_));
-    a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+    a->imul(scratchReg2_, W_out_R_, top_edge_width_);
+    a->add(scratchReg2_, left_edge_width_);
+    a->imul(scratchReg2_, K_ * sizeof(int32_t));
     a->sub(out_acts_R_, scratchReg2_);
   }
 }
@@ -1022,9 +1087,10 @@ jit_conv_kernel_fp GenConvKernel<int32_t>::getOrCreate<inst_set_t::avx2>(
   wghts_R_ = a->zsi();
   out_acts_R_ = a->zdx();
   a_zero_pt_R_ = a->zcx();
-  H_R_ = a->gpzRef(8);
-  W_R_ = a->gpzRef(9);
+  H_out_R_ = a->gpzRef(8); // We get H_in but will convert to H_out soon
+  W_in_R_ = a->gpzRef(9);
   row_offset_R_ = a->gpzRef(10);
+  W_out_R_ = a->gpzRef(11);
 
   // register for temporary use
   scratchReg1_ = a->gpzRef(12);
@@ -1049,7 +1115,8 @@ jit_conv_kernel_fp GenConvKernel<int32_t>::getOrCreate<inst_set_t::avx2>(
       asmjit::X86Reg::kKindGp, asmjit::Utils::mask(10, 11, 12, 13, 14, 15));
 
   asmjit::FuncArgsMapper args(&func);
-  args.assignAll(in_acts_R_, wghts_R_, out_acts_R_, a_zero_pt_R_, H_R_, W_R_);
+  args.assignAll(
+      in_acts_R_, wghts_R_, out_acts_R_, a_zero_pt_R_, H_out_R_, W_in_R_);
 
   args.updateFrameInfo(ffi);
 
@@ -1070,19 +1137,41 @@ jit_conv_kernel_fp GenConvKernel<int32_t>::getOrCreate<inst_set_t::avx2>(
 
   genConstForPermutations<inst_set_t::avx2>(a);
 
+  // compute H_out_R_ and W_out_R_
+  // h_out = (h_in + 2*pad - kernel) / stride + 1
+  a->mov(W_out_R_, W_in_R_);
+  if (stride_ > 1 || 2 * W_PAD_ - S_ != -1) {
+    assert(stride_ == 2);
+    a->add(H_out_R_, 2 * H_PAD_ - R_);
+    a->shr(H_out_R_, 1);
+    a->add(H_out_R_, 1);
+
+    a->add(W_out_R_, 2 * W_PAD_ - S_);
+    a->shr(W_out_R_, 1);
+    a->add(W_out_R_, 1);
+  }
+
+  // The invariants of gen* functions used in the following c-loop is that
+  // they should preserve that both the input and output pointer points to the
+  // first pixel of input and output image.
+
   // Work on 4 input channels at a time.
   // The minimum unit should be 4 because instruction sequence in gen8bitFMA
   // reduces 4 inputs.
   // We can't work on more than 4 input channels because of we can't put too
-  // many weights in register (we need R S K 4 / 32 registers to store weights
-  // for 4 input channels).
+  // many weights in register (we need R S K 4 / 32 registers to store
+  // weights for 4 input channels).
   for (int c = 0; c < C_per_G_; c += 4) {
     genForLoadingWeights<inst_set_t::avx2>(a, c);
 
     genForTopEdge<inst_set_t::avx2>(a, c);
     genForLeftEdge<inst_set_t::avx2>(a, c);
-    genForRightEdge<inst_set_t::avx2>(a, c);
-    genForBottomEdge<inst_set_t::avx2>(a, c);
+    if (right_edge_width_ > 0) {
+      genForRightEdge<inst_set_t::avx2>(a, c);
+    }
+    if (bottom_edge_width_ > 0) {
+      genForBottomEdge<inst_set_t::avx2>(a, c);
+    }
 
     genCoreInsts<inst_set_t::avx2>(a, c);
   }
@@ -1110,6 +1199,9 @@ template <>
 template <>
 void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
     asmjit::X86Emitter* a) {
+  // Save the original in_acts_R_ in wghts_R_
+  a->mov(wghts_R_, in_acts_R_);
+
   // top-left corner code
   // zero out the results register
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
@@ -1120,7 +1212,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
     int h_in = -H_PAD_ + r;
     a->imul(
         scratchReg1_,
-        W_R_,
+        W_in_R_,
         static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = W_PAD_; s < S_; ++s) {
       int w_in = -W_PAD_ + s;
@@ -1135,70 +1227,57 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
   a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
 
   // top edge excluding corners
+  a->imul(scratchReg2_, W_in_R_, C_);
   asmjit::Label LoopTopEdge = a->newLabel();
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  a->mov(loopR1_, W_out_R_);
+  a->sub(loopR1_, left_edge_width_ + right_edge_width_);
   a->bind(LoopTopEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
     genZeroPtSum<inst_set_t::avx2>(a, H_PAD_ * S_);
   }
+  a->mov(scratchReg1_, 0);
   for (int r = H_PAD_; r < R_; ++r) {
-    int h_in = -H_PAD_ + r;
-    a->imul(
-        scratchReg1_,
-        W_R_,
-        static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = 0; s < S_; ++s) {
-      gen8BitSum<inst_set_t::avx2>(a, s * C_);
+      gen8BitSum<inst_set_t::avx2>(a, (stride_ - W_PAD_ + s) * C_);
     }
+    a->add(scratchReg1_, scratchReg2_);
   }
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
 
   // store results
   storeResultRowoffset<inst_set_t::avx2>(a);
 
   a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->mov(loopR1_, W_R_);
-  a->sub(loopR1_, static_cast<asmjit::Imm>(W_PAD_));
-  a->inc(loopR2_);
-  a->cmp(loopR2_, loopR1_);
-  a->jl(LoopTopEdge);
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->sub(
-      scratchReg2_,
-      static_cast<asmjit::Imm>(2 * W_PAD_ * C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg2_);
+  a->dec(loopR1_);
+  a->jg(LoopTopEdge);
+  // Restore the original in_acts_R_
+  a->mov(in_acts_R_, wghts_R_);
 
   // top-right corner code
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  if (!isAZeroPointZero_) {
-    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
-  }
-  for (int r = H_PAD_; r < R_; ++r) {
-    int h_in = -H_PAD_ + r;
-    for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->imul(
-          scratchReg1_,
-          W_R_,
-          static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
-      a->mov(scratchReg2_, W_R_);
-      a->sub(scratchReg2_, static_cast<asmjit::Imm>(R_ - W_PAD_ - s));
-      a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-      a->add(scratchReg1_, scratchReg2_);
-      gen8BitSum<inst_set_t::avx2>(a, 0);
+  if (right_edge_width_ > 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+    if (!isAZeroPointZero_) {
+      genZeroPtSum<inst_set_t::avx2>(
+          a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
     }
+    for (int r = H_PAD_; r < R_; ++r) {
+      int h_in = -H_PAD_ + r;
+      a->imul(scratchReg1_, W_in_R_, (h_in + 1) * C_);
+      for (int s = 0; s < S_ - W_PAD_; ++s) {
+        gen8BitSum<inst_set_t::avx2>(a, (W_PAD_ + s - S_) * C_);
+      }
+    }
+
+    // store results
+    storeResultRowoffset<inst_set_t::avx2>(a);
+    a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
   }
-
-  // store results
-  storeResultRowoffset<inst_set_t::avx2>(a);
-
-  a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
 
   // reset output pointer
-  a->imul(scratchReg1_, W_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+  a->imul(scratchReg1_, W_out_R_, 8 * sizeof(int32_t));
   a->sub(row_offset_R_, scratchReg1_);
 }
 
@@ -1206,113 +1285,127 @@ template <>
 template <>
 void GenConvKernel<int32_t>::genForLeftEdgeRowoffset<inst_set_t::avx2>(
     asmjit::X86Emitter* a) {
+  // Save the original in_acts_R_ in wghts_R_
+  a->mov(wghts_R_, in_acts_R_);
+
+  a->imul(scratchReg1_, W_in_R_, (top_edge_width_ * stride_ - H_PAD_) * C_);
+  a->add(in_acts_R_, scratchReg1_);
+
+  a->imul(scratchReg2_, W_in_R_, C_);
+
   // left edge excluding corners
   asmjit::Label LoopLeftEdge = a->newLabel();
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+  // loopR1_ corresponds to the output row
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
+  a->imul(loopR2_, W_out_R_, 8 * sizeof(int32_t));
   a->bind(LoopLeftEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
     genZeroPtSum<inst_set_t::avx2>(a, R_ * W_PAD_);
   }
-  a->mov(scratchReg1_, loopR1_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->mov(scratchReg1_, 0);
   for (int r = 0; r < R_; ++r) {
     for (int s = W_PAD_; s < S_; ++s) {
       gen8BitSum<inst_set_t::avx2>(a, (s - W_PAD_) * C_);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+    a->imul(scratchReg2_, W_in_R_, C_);
     a->add(scratchReg1_, scratchReg2_);
   }
+  for (int i = 0; i < stride_; ++i) {
+    a->add(in_acts_R_, scratchReg2_);
+  }
 
-  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->add(row_offset_R_, scratchReg2_);
+  a->add(row_offset_R_, loopR2_);
   storeResultRowoffset<inst_set_t::avx2>(a);
 
-  a->inc(loopR1_);
-  a->mov(loopR2_, H_R_);
-  a->sub(loopR2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->cmp(loopR1_, loopR2_);
-  a->jl(LoopLeftEdge);
+  a->dec(loopR1_);
+  a->jg(LoopLeftEdge);
 
   // reset output pointer
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg2_, W_R_);
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, bottom_edge_width_ + top_edge_width_);
+  a->imul(scratchReg2_, W_out_R_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
   a->sub(row_offset_R_, scratchReg2_);
+
+  // reset input pointer
+  a->mov(in_acts_R_, wghts_R_);
 }
 
 template <>
 template <>
 void GenConvKernel<int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
     asmjit::X86Emitter* a) {
+  // Save the original in_acts_R_ in wghts_R_
+  a->mov(wghts_R_, in_acts_R_);
+
+  a->imul(scratchReg1_, W_in_R_, (top_edge_width_ * stride_ - H_PAD_) * C_);
+  a->imul(scratchReg2_, W_out_R_, stride_ * C_);
+  a->add(scratchReg1_, scratchReg2_);
+  a->add(in_acts_R_, scratchReg1_);
+
   // right edge excluding corners
   asmjit::Label LoopRightEdge = a->newLabel();
 
   // output pointer to the right edge
   // (W_ + W_ - 1)*8*sizeof(int32_t)
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, 2);
-  a->sub(scratchReg2_, 1);
+  a->mov(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, top_edge_width_ + 1);
+  a->sub(scratchReg2_, right_edge_width_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
   a->add(row_offset_R_, scratchReg2_);
 
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+  a->imul(scratchReg2_, W_in_R_, C_ * sizeof(uint8_t));
+
+  // loopR1_ corresponds to the output row
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
+  a->imul(loopR2_, W_out_R_, 8 * sizeof(int32_t));
   a->bind(LoopRightEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
     genZeroPtSum<inst_set_t::avx2>(a, R_ * W_PAD_);
   }
-  a->mov(scratchReg1_, loopR1_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
 
-  a->mov(scratchReg2_, W_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * W_PAD_));
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->add(scratchReg1_, scratchReg2_);
+  a->mov(scratchReg1_, 0);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      gen8BitSum<inst_set_t::avx2>(a, 0);
-      a->add(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+      gen8BitSum<inst_set_t::avx2>(
+          a, (s - right_edge_width_ * stride_ - W_PAD_) * C_);
     }
 
-    a->sub(
-        scratchReg1_,
-        static_cast<asmjit::Imm>((S_ - W_PAD_) * C_ * sizeof(uint8_t)));
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
+  }
+  for (int i = 0; i < stride_; ++i) {
+    a->add(in_acts_R_, scratchReg2_);
   }
 
   storeResultRowoffset<inst_set_t::avx2>(a);
 
-  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->add(row_offset_R_, scratchReg2_);
-  a->mov(loopR2_, H_R_);
-  a->sub(loopR2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->inc(loopR1_);
-  a->cmp(loopR1_, loopR2_);
-  a->jl(LoopRightEdge);
+  a->add(row_offset_R_, loopR2_);
+  a->dec(loopR1_);
+  a->jg(LoopRightEdge);
 
   // reset base
-  a->mov(scratchReg2_, W_R_);
-  a->imul(scratchReg2_, 2);
-  a->sub(scratchReg2_, 1);
+  a->mov(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, top_edge_width_ + 1);
+  a->sub(scratchReg2_, right_edge_width_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
   a->sub(row_offset_R_, scratchReg2_);
 
   // reset increments done in the loop
   //(H_ - 2*H_PAD_)*W_*8*sizeof(int32_t)
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg2_, W_R_);
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, top_edge_width_ + bottom_edge_width_);
+  a->imul(scratchReg2_, W_out_R_);
   a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
   a->sub(row_offset_R_, scratchReg2_);
+
+  // reset input pointer
+  a->mov(in_acts_R_, wghts_R_);
 }
 
 template <>
@@ -1320,102 +1413,107 @@ template <>
 void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
     asmjit::X86Emitter* a) {
   // bottom-left corner
+  // we updating the last row
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, bottom_edge_width_);
+  a->imul(scratchReg1_, scratchReg2_, 8 * sizeof(int32_t));
+  a->imul(scratchReg1_, W_out_R_);
+  a->add(row_offset_R_, scratchReg1_);
+
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
     genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
   }
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg1_, W_R_);
+  // adjust input pointer
+  a->imul(scratchReg1_, scratchReg2_, stride_);
+  a->sub(scratchReg1_, H_PAD_);
+  a->imul(scratchReg1_, W_in_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, scratchReg1_);
+  // Save the original in_acts_R_ after adjustment in wghts_R_
+  a->mov(wghts_R_, in_acts_R_);
+
   for (int r = 0; r < R_ - H_PAD_; ++r) {
+    a->imul(scratchReg1_, W_in_R_, static_cast<asmjit::Imm>(r * C_));
     for (int s = W_PAD_; s < S_; ++s) {
       gen8BitSum<inst_set_t::avx2>(a, (s - W_PAD_) * C_);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-    a->add(scratchReg1_, scratchReg2_);
   }
 
-  // we updating the last row
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->add(row_offset_R_, scratchReg1_);
   storeResultRowoffset<inst_set_t::avx2>(a);
   a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
 
   // bottom edge excluding corners
+  a->imul(scratchReg2_, W_in_R_, static_cast<asmjit::Imm>(C_));
   asmjit::Label LoopBottomEdge = a->newLabel();
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  a->mov(loopR1_, W_out_R_);
+  a->sub(loopR1_, left_edge_width_ + right_edge_width_);
   a->bind(LoopBottomEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
     genZeroPtSum<inst_set_t::avx2>(a, H_PAD_ * S_);
   }
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  for (int r = 0; r < R_ - W_PAD_; ++r) {
+  a->mov(scratchReg1_, 0);
+  for (int r = 0; r < R_ - H_PAD_; ++r) {
     // int h_in = H_-2*H_PAD_ + r;
     for (int s = 0; s < S_; ++s) {
-      gen8BitSum<inst_set_t::avx2>(a, s * C_);
+      gen8BitSum<inst_set_t::avx2>(a, (stride_ - W_PAD_ + s) * C_);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
   }
 
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
   // storeResult<inst_set_t::avx2>(a, ((H_-1)*W_+1)*8*sizeof(int32_t));
   storeResultRowoffset<inst_set_t::avx2>(a);
 
   a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->inc(loopR2_);
-  a->mov(loopR1_, W_R_);
-  a->sub(loopR1_, static_cast<asmjit::Imm>(W_PAD_));
-  a->cmp(loopR2_, loopR1_);
-  a->jl(LoopBottomEdge);
-  a->mov(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * W_PAD_));
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg1_);
-  // a->sub(in_acts_R_, (W_ - 2*W_PAD_)*C_*sizeof(uint8_t));
-  // a->sub(out_acts_R_, (W_ - 2*W_PAD_)*8*sizeof(int32_t));
+  a->dec(loopR1_);
+  a->jg(LoopBottomEdge);
+  // Restore the original in_acts_R_
+  a->mov(in_acts_R_, wghts_R_);
 
   // bottom-right corner
+  if (right_edge_width_ > 0) {
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   if (!isAZeroPointZero_) {
-    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
+    genZeroPtSum<inst_set_t::avx2>(
+        a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
   }
   // input start point
-  // ((H_-(R_-H_PAD_))*W_+(W_-(S_-W_PAD_)))*C_*sizeof(uint8_t)
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(R_ - H_PAD_));
-  a->imul(scratchReg1_, W_R_);
-  a->add(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(S_ - W_PAD_));
+  a->mov(scratchReg1_, W_out_R_);
+  a->imul(scratchReg1_, stride_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->imul(scratchReg2_, W_in_R_, C_ * sizeof(uint8_t));
+
   for (int r = 0; r < R_ - H_PAD_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      gen8BitSum<inst_set_t::avx2>(a, s * C_);
+      gen8BitSum<inst_set_t::avx2>(
+          a, (s - right_edge_width_ * stride_ - W_PAD_) * C_);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
   }
 
   storeResultRowoffset<inst_set_t::avx2>(a);
+  a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+  } // right_edge_width_ > 0
+
+  // reset input pointer
+  a->mov(scratchReg2_, H_out_R_);
+  a->sub(scratchReg2_, bottom_edge_width_);
+  a->imul(scratchReg1_, scratchReg2_, stride_);
+  a->sub(scratchReg1_, H_PAD_);
+  a->imul(scratchReg1_, W_in_R_);
+  a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->sub(in_acts_R_, scratchReg1_);
+
   // reset output pointer
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, W_R_);
-  a->add(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
-  a->sub(row_offset_R_, scratchReg1_);
+  a->imul(scratchReg2_, W_out_R_);
+  a->add(scratchReg2_, W_out_R_);
+  a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+  a->sub(row_offset_R_, scratchReg2_);
 }
 
 template <>
@@ -1428,20 +1526,31 @@ void GenConvKernel<int32_t>::genRowoffsetCore<inst_set_t::avx2>(
   asmjit::Label LoopH = a->newLabel();
   asmjit::Label LoopW = a->newLabel();
   // base for output
-  a->mov(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->imul(scratchReg2_, W_R_);
-  a->add(scratchReg2_, static_cast<asmjit::Imm>(W_PAD_));
-  a->imul(scratchReg2_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+  a->imul(scratchReg2_, W_out_R_, top_edge_width_);
+  a->add(scratchReg2_, left_edge_width_);
+  a->imul(scratchReg2_, 8 * sizeof(int32_t));
   a->add(row_offset_R_, scratchReg2_);
 
-  a->mov(scratchReg1_, W_R_);
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(W_PAD_));
+  // base for input
+  if (stride_ > 1) {
+    a->imul(scratchReg1_, W_in_R_, top_edge_width_ * stride_ - H_PAD_);
+    a->add(scratchReg1_, left_edge_width_ * stride_ - W_PAD_);
+    a->imul(scratchReg1_, C_);
+    a->add(in_acts_R_, scratchReg1_);
+
+    // Save the original in_acts_R_ in wghts_R_
+    a->mov(wghts_R_, in_acts_R_);
+  }
+
+  a->imul(scratchReg2_, W_in_R_, C_ * sizeof(uint8_t));
 
   // H loop
-  a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
+  a->mov(loopR1_, H_out_R_);
+  a->sub(loopR1_, top_edge_width_ + bottom_edge_width_);
   a->bind(LoopH);
   // W loop
-  a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
+  a->mov(loopR2_, W_out_R_);
+  a->sub(loopR2_, left_edge_width_ + right_edge_width_);
   a->bind(LoopW);
 
   // zero out
@@ -1450,31 +1559,30 @@ void GenConvKernel<int32_t>::genRowoffsetCore<inst_set_t::avx2>(
     for (int s = 0; s < S_; ++s) {
       gen8BitSum<inst_set_t::avx2>(a, s * C_, false /*use_scratch_reg1*/);
     }
-    a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(in_acts_R_, scratchReg2_);
   }
-  a->imul(
-      scratchReg2_, W_R_, static_cast<asmjit::Imm>(R_ * C_ * sizeof(uint8_t)));
-  a->sub(in_acts_R_, scratchReg2_);
+  a->imul(scratchReg1_, W_in_R_, R_ * C_ * sizeof(uint8_t));
+  a->sub(in_acts_R_, scratchReg1_);
   // store results
   storeResultRowoffset<inst_set_t::avx2>(a);
 
-  a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
+  a->add(in_acts_R_, static_cast<asmjit::Imm>(stride_ * C_ * sizeof(uint8_t)));
   a->add(row_offset_R_, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
 
-  a->inc(loopR2_);
-  a->cmp(loopR2_, scratchReg1_);
-  a->jl(LoopW);
-  a->add(
-      in_acts_R_, static_cast<asmjit::Imm>(2 * W_PAD_ * C_ * sizeof(uint8_t)));
+  a->dec(loopR2_);
+  a->jg(LoopW);
+  if (stride_ == 1) {
+    a->add(in_acts_R_, (left_edge_width_ + bottom_edge_width_) * C_);
+  } else {
+    a->imul(scratchReg1_, W_in_R_, stride_ * C_);
+    a->add(wghts_R_, scratchReg1_);
+    a->mov(in_acts_R_, wghts_R_);
+  }
   a->add(
       row_offset_R_,
-      static_cast<asmjit::Imm>(2 * W_PAD_ * 8 * sizeof(int32_t)));
-  a->inc(loopR1_);
-  a->mov(scratchReg2_, H_R_);
-  a->sub(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
-  a->cmp(loopR1_, scratchReg2_);
-  a->jl(LoopH);
+      (left_edge_width_ + right_edge_width_) * 8 * sizeof(int32_t));
+  a->dec(loopR1_);
+  a->jg(LoopH);
 }
 
 template <>
@@ -1500,9 +1608,11 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
   // arguments to the function created
   in_acts_R_ = a->zdi();
   a_zero_pt_R_ = a->zsi();
-  H_R_ = a->zdx();
-  W_R_ = a->zcx();
+  H_out_R_ = a->zdx(); // we get H_in initially but will convert to H_out soon
+  W_in_R_ = a->zcx();
   row_offset_R_ = a->gpzRef(8);
+  wghts_R_ = a->gpzRef(9);
+  W_out_R_ = a->gpzRef(10);
 
   // register for temporary use
   scratchReg1_ = a->gpzRef(12);
@@ -1526,7 +1636,7 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
       asmjit::X86Reg::kKindGp, asmjit::Utils::mask(10, 11, 12, 13, 14, 15));
 
   asmjit::FuncArgsMapper args(&func);
-  args.assignAll(in_acts_R_, a_zero_pt_R_, H_R_, W_R_, row_offset_R_);
+  args.assignAll(in_acts_R_, a_zero_pt_R_, H_out_R_, W_in_R_, row_offset_R_);
 
   args.updateFrameInfo(ffi);
 
@@ -1554,10 +1664,29 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
   // we set ymm10 to contain 8-bit 1s
   createVector8BitOne<inst_set_t::avx2>(a);
 
+  // compute H_out_R_ and W_out_R_
+  // h_out = (h_in + 2*pad - kernel) / stride + 1
+  a->mov(W_out_R_, W_in_R_);
+  if (stride_ > 1 || 2 * W_PAD_ - S_ != -1) {
+    assert(stride_ == 2);
+    a->add(H_out_R_, 2 * H_PAD_ - R_);
+    a->shr(H_out_R_, 1);
+    a->add(H_out_R_, 1);
+
+    a->add(W_out_R_, 2 * W_PAD_ - S_);
+    a->shr(W_out_R_, 1);
+    a->add(W_out_R_, 1);
+  }
+
   genForTopEdgeRowoffset<inst_set_t::avx2>(a);
   genForLeftEdgeRowoffset<inst_set_t::avx2>(a);
-  genForRightEdgeRowoffset<inst_set_t::avx2>(a);
-  genForBottomEdgeRowoffset<inst_set_t::avx2>(a);
+
+  if (right_edge_width_ > 0) {
+    genForRightEdgeRowoffset<inst_set_t::avx2>(a);
+  }
+  if (bottom_edge_width_ > 0) {
+    genForBottomEdgeRowoffset<inst_set_t::avx2>(a);
+  }
 
   genRowoffsetCore<inst_set_t::avx2>(a);
 
@@ -1600,18 +1729,19 @@ void fbgemmGroupwiseConvBase_(
     int num_threads) {
 
   int MB = conv_param.MB;
-  int H = conv_param.OUT_DIM[0];
-  int W = conv_param.OUT_DIM[1];
+  int H_in = conv_param.IN_DIM[0];
+  int W_in = conv_param.IN_DIM[1];
   int G = conv_param.G;
   int K_per_G = conv_param.OC / G;
   int C_per_G = conv_param.IC / G;
   int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
-  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+  int ih_iw = H_in * W_in;
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
   if (fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param)) {
+    int32_t* rowOffsetTrDest =
+        rowOffsetBuf ? rowOffsetBuf + 8 * oh_ow : nullptr;
     assert(G % 8 == 0);
     // generate convolution kernel
     jit_conv_kernel_fp fpConv =
@@ -1628,17 +1758,17 @@ void fbgemmGroupwiseConvBase_(
           fpRowoffset(
               actStartBatch + gOuter * C_per_G,
               a_zero_point,
-              H,
-              W,
+              H_in,
+              W_in,
               rowOffsetBuf);
           // Transpose to get row offsets in the format G x IH*IW
           internal::transpose_8x8(
-              ih_iw,
+              oh_ow,
               8,
               reinterpret_cast<const float*>(rowOffsetBuf),
               8,
               reinterpret_cast<float*>(rowOffsetTrDest),
-              ih_iw);
+              oh_ow);
         }
         int gLimit = gOuter + 8;
         // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
@@ -1662,8 +1792,8 @@ void fbgemmGroupwiseConvBase_(
                     (g * (C_per_G / 4) * k0 * k1 * K_per_G + k) * 4,
                 currOutBuf + k,
                 a_zero_point,
-                H,
-                W);
+                H_in,
+                W_in);
           } // k loop
 
           // Output processing should be called for each group
@@ -1672,14 +1802,14 @@ void fbgemmGroupwiseConvBase_(
             // conv_param, actStartGroup, rowOffsetBuf, a_zero_point, j);
             int32_t* rowOffsetForCurG =
                 rowOffsetTrDest
-                ? rowOffsetTrDest + ((g - gOuter) + j) * ih_iw
+                ? rowOffsetTrDest + ((g - gOuter) + j) * oh_ow
                 : nullptr;
             // compare_buffers(rowOffsetBuf, rowOffsetForCurG,
             // conv_param.IN_DIM[0]*conv_param.IN_DIM[1], 1, 1, 100);
 
             // outProcess expects rowOffsetBuf to contain row offsets for the
             // current group
-            memcpy(rowOffsetBuf, rowOffsetForCurG, ih_iw * sizeof(int32_t));
+            memcpy(rowOffsetBuf, rowOffsetForCurG, oh_ow * sizeof(int32_t));
 
             if (fbgemmHasAvx512Support()) {
               // Currently use avx2 code
@@ -1809,17 +1939,17 @@ void fbgemmGroupwiseConv(
   }
 
   int MB = conv_param.MB;
-  int H = conv_param.OUT_DIM[0];
-  int W = conv_param.OUT_DIM[1];
+  int H_in = conv_param.IN_DIM[0];
+  int W_in = conv_param.IN_DIM[1];
   int G = conv_param.G;
   int K_per_G = conv_param.OC / G;
   int C_per_G = conv_param.IC / G;
   int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
-  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+  int ih_iw = H_in * W_in;
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
+  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * oh_ow : nullptr;
   assert(G % 8 == 0);
   // generate convolution kernel
   jit_conv_kernel_fp fpConv =
@@ -1834,15 +1964,19 @@ void fbgemmGroupwiseConv(
         // row offset is calcualted for 8 groups at a time.
         // The result is row offsets in the format IH*IW x G
         fpRowoffset(
-            actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
+            actStartBatch + gOuter * C_per_G,
+            a_zero_point,
+            H_in,
+            W_in,
+            rowOffsetBuf);
         // Transpose to get row offsets in the format G x IH*IW
         internal::transpose_8x8(
-            ih_iw,
+            oh_ow,
             8,
             reinterpret_cast<const float*>(rowOffsetBuf),
             8,
             reinterpret_cast<float*>(rowOffsetTrDest),
-            ih_iw);
+            oh_ow);
       }
       int gLimit = gOuter + 8;
       // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
@@ -1866,8 +2000,8 @@ void fbgemmGroupwiseConv(
                   (g * (C_per_G / 4) * k0 * k1 * K_per_G + k) * 4,
               currOutBuf + k,
               a_zero_point,
-              H,
-              W);
+              H_in,
+              W_in);
         } // k loop
       } // g loop
 

@@ -61,6 +61,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(qGranularityVals),
         ::testing::Bool(), // A symmetric
         ::testing::Bool())); // B symmetric
+
 /**
  * @brief Shapes for unit test.
  */
@@ -69,15 +70,23 @@ static vector<conv_param_t<>> GetShapes_() {
       // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
       // pad_b, pad_r}
       conv_param_t<>(1, 32, 32, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 64, 64, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
       conv_param_t<>(1, 32, 32, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 128, 128, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // This line is not optimized and will fallback to slow path
       conv_param_t<>(1, 8, 8, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
       conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // the line below is from resnext101-32x4d
-      conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 256, 256, {48, 56}, 16, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // The lines below are from resnext101-32x4d
       conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+
+      // Test strided convs
+      conv_param_t<>(1, 32, 32, {7, 7}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 64, 64, {7, 8}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 64, 64, {8, 7}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 128, 128, {8, 8}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
 
       // The following lines are commented to reduce test time but still valid
       // when we want more extensive testings.
@@ -158,9 +167,9 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
     aligned_vector<int32_t> Bint8_zero_point(
         G * OC_per_G / ncols_per_quant_group);
     if (b_symmetric) {
-      randFill(Bint8_zero_point, -3, -1);
-    } else {
       randFill(Bint8_zero_point, 0, 0);
+    } else {
+      randFill(Bint8_zero_point, -3, -1);
     }
 
     // matrix dimensions after im2col for each GEMM.
@@ -285,7 +294,6 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
             reqObj,
             tid,
             num_threads);
-
       } else {
         ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL> reqObj(
             doNothingObj,

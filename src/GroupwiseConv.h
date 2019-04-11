@@ -36,6 +36,56 @@ using jit_rowoffset_kernel_fp = void (*)(
     int32_t width,
     int32_t* row_offset);
 
+namespace internal {
+
+template <int SPATIAL_DIM>
+int getPrologueEdgeWidth_(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    int dim) {
+  return (conv_param.pad[dim] + conv_param.stride[dim] - 1) /
+      conv_param.stride[dim];
+}
+
+/**
+ * @return number of top-most rows (in output image) need padding
+ */
+int getTopEdgeWidth_(const conv_param_t<>& conv_param) {
+  return getPrologueEdgeWidth_(conv_param, 0);
+}
+
+/**
+ * @return number of left-most rows (in output image) need padding
+ */
+int getLeftEdgeWidth_(const conv_param_t<>& conv_param) {
+  return getPrologueEdgeWidth_(conv_param, 1);
+}
+
+template <int SPATIAL_DIM>
+int getEpilogueEdgeWidth_(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    int dim) {
+  return (conv_param.IN_DIM[dim] + conv_param.pad[dim] +
+          conv_param.pad[SPATIAL_DIM + dim] - conv_param.K[dim]) /
+      conv_param.stride[dim] -
+      (conv_param.IN_DIM[dim] + conv_param.pad[dim] - conv_param.K[dim]) /
+      conv_param.stride[dim];
+}
+
+/**
+ * @return number of bottom-most rows (in output image) need padding
+ */
+int getBottomEdgeWidth_(const conv_param_t<>& conv_param) {
+  return getEpilogueEdgeWidth_(conv_param, 0);
+}
+
+/**
+ * @return number of right-most columns (in output image) need padding
+ */
+int getRightEdgeWidth_(const conv_param_t<>& conv_param) {
+  return getEpilogueEdgeWidth_(conv_param, 1);
+}
+}
+
 template <typename accT = int32_t>
 class GenConvKernel {
  public:
@@ -84,10 +134,13 @@ class GenConvKernel {
     C_ = conv_param.IC;
     R_ = conv_param.K[0];
     S_ = conv_param.K[1];
-    H_ = conv_param.OUT_DIM[0];
-    W_ = conv_param.OUT_DIM[1];
     H_PAD_ = conv_param.pad[0];
     W_PAD_ = conv_param.pad[1];
+    stride_ = conv_param.stride[0];
+    top_edge_width_ = internal::getTopEdgeWidth_(conv_param);
+    bottom_edge_width_ = internal::getBottomEdgeWidth_(conv_param);
+    left_edge_width_ = internal::getLeftEdgeWidth_(conv_param);
+    right_edge_width_ = internal::getRightEdgeWidth_(conv_param);
 
     assert(fbgemmOptimizedGConv(conv_param));
   }
@@ -102,6 +155,9 @@ class GenConvKernel {
     fileName += "_S-" + std::to_string(S_);
     fileName += "_PADH-" + std::to_string(H_PAD_);
     fileName += "_PADW-" + std::to_string(W_PAD_);
+    fileName += "_STRIDE-" + std::to_string(stride_);
+    fileName += "_BOTW-" + std::to_string(bottom_edge_width_);
+    fileName += "_RIGHTW-" + std::to_string(right_edge_width_);
     fileName += "_isZeroPointZero-" + std::to_string(isAZeroPointZero_);
     if (rowOffsetKernel) {
       fileName += "_rowOffset";
@@ -144,6 +200,8 @@ class GenConvKernel {
   template <inst_set_t instSet>
   void genConstForPermutations(asmjit::X86Emitter* a);
 
+  // NOTE: currently only works for top_edge_width_ == 1 and left_edge_width_ ==
+  // 1
   template <inst_set_t instSet>
   void genForTopEdge(asmjit::X86Emitter* a, int c_offset);
 
@@ -221,12 +279,15 @@ class GenConvKernel {
 
   static thread_local asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
   static thread_local asmjit::CodeHolder code_; ///< JIT Code Holder for asmjit.
+  // The key tuple has isAZeroPointZero, G, C_per_G, K_per_G, stride,
+  // bottom_edge_width, right_edge_width
   static thread_local std::
-      map<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
+      map<std::tuple<bool, int, int, int, int, int, int>, jit_conv_kernel_fp>
           codeCache_; ///< JIT Code Cache for reuse.
-  static thread_local std::
-      map<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
-          codeCacheRowOffset_; ///< JIT Code Cache for row offset kernel.
+  static thread_local std::map<
+      std::tuple<bool, int, int, int, int, int, int>,
+      jit_rowoffset_kernel_fp>
+      codeCacheRowOffset_; ///< JIT Code Cache for row offset kernel.
 
  private:
   int vectorWidth_; ///< Vector width in bits.
@@ -247,8 +308,10 @@ class GenConvKernel {
   asmjit::X86Gp wghts_R_;
   asmjit::X86Gp out_acts_R_;
   asmjit::X86Gp a_zero_pt_R_;
-  asmjit::X86Gp H_R_;
-  asmjit::X86Gp W_R_;
+  asmjit::X86Gp H_out_R_;
+  asmjit::X86Gp W_out_R_;
+  asmjit::X86Gp W_in_R_;
+  // H_out_R_ is computed on the fly
   asmjit::X86Gp row_offset_R_;
 
   // Used registers
@@ -268,10 +331,13 @@ class GenConvKernel {
   int C_per_G_; ///< Number of input channels per group
   int R_; ///< Filter/Kernel height
   int S_; ///< Filter/Kernel width
-  int H_;
-  int W_;
+  int stride_; ///< stride (assume the same stride for h and w)
   int H_PAD_; ///< Padding for height (top and bottom)
   int W_PAD_; ///< Padding for width (left and right)
+  int top_edge_width_; ///< number of top-most rows need padding
+  int bottom_edge_width_; ///< number of bottom-most rows need padding
+  int left_edge_width_; ///< number of left-most columns need padding
+  int right_edge_width_; ///< number of right-most columns need padding
 };
 
 } // namespace fbgemm
