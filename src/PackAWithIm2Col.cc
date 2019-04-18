@@ -46,11 +46,19 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
       a_zero_pt_(a_zero_pt) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
 
   if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
       BaseType::brow_ = params->MCB;
       BaseType::bcol_ = params->KCB;
       row_interleave_B_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
     if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
@@ -470,19 +478,19 @@ template <typename T, typename accT, int SPATIAL_DIM>
 int PackAWithIm2Col<T, accT, SPATIAL_DIM>::rowOffsetBufferSize(
     const BlockingFactors* params) {
   if (cpuinfo_initialize()) {
-    if (params){
+    if (params) {
       return params->MCB;
     } else {
-    if (fbgemmHasAvx512Support()) {
-          return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    } else if (fbgemmHasAvx2Support()) {
+      if (fbgemmHasAvx512Support()) {
+        return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
+      } else if (fbgemmHasAvx2Support()) {
         return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
       } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecture");
-      return -1;
+        // TODO: Have default slower path
+        assert(0 && "unsupported architecture");
+        return -1;
+      }
     }
-  }
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }

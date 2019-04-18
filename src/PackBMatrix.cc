@@ -185,10 +185,18 @@ PackBMatrix<T, accT>::PackBMatrix(
       trans_(trans),
       smat_(smat),
       ld_(ld) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
       BaseType::brow_ = params->KCB;
       BaseType::bcol_ = params->NCB;
       row_interleave_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
     if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;

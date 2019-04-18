@@ -42,6 +42,9 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
       scale_(scale),
       zero_pt_(zero_pt),
       row_offset_(row_offset) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   rowOffsetAllocatedHere = false;
   if (params) {
     if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
