@@ -1789,6 +1789,9 @@ void fbgemmGroupwiseConv(
     int num_threads) {
   typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN> processOutputType;
 
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   if (!fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param) ||
       (!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
     return fbgemmGroupwiseConvBase_<

@@ -45,11 +45,19 @@ ExecuteKernel<
       outputProcess_(outputProcess),
       thread_id_(thread_id),
       num_threads_(num_threads) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   if (params) {
-    mbSize_ = params->MCB;
-    nbSize_ = params->NCB;
-    nrMinSize_ = params->NR_MIN;
-    nrSize_ = params->NR;
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      mbSize_ = params->MCB;
+      nbSize_ = params->NCB;
+      nrMinSize_ = params->NR_MIN;
+      nrSize_ = params->NR;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
     if (fbgemmHasAvx512Support()) {
       mbSize_ = PackingTraits<
@@ -110,28 +118,24 @@ void ExecuteKernel<
 
   typename BaseType::jit_micro_kernel_fp fn;
 
-  if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512Support()) {
-      fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-          accum,
-          packed_rows_A,
-          packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
-    } else if (fbgemmHasAvx2Support()) {
-      fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-          accum,
-          packed_rows_A,
-          packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecture");
-      return;
-    }
+  if (fbgemmHasAvx512Support()) {
+    fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+        accum,
+        packed_rows_A,
+        packedB_.blockColSize(),
+        packedA_.numPackedCols(),
+        nbSize_);
+  } else if (fbgemmHasAvx2Support()) {
+    fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+        accum,
+        packed_rows_A,
+        packedB_.blockColSize(),
+        packedA_.numPackedCols(),
+        nbSize_);
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    // TODO: Have default slower path
+    assert(0 && "unsupported architecture");
+    return;
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -144,20 +148,16 @@ void ExecuteKernel<
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
-        if (cpuinfo_initialize()) {
-          if (fbgemmHasAvx512Support()) {
-            fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
-          } else if (fbgemmHasAvx2Support()) {
-            fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
-          } else {
-            // TODO: Have default slower path
-            assert(0 && "unsupported architecture");
-            return;
-          }
+        if (fbgemmHasAvx512Support()) {
+          fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+        } else if (fbgemmHasAvx2Support()) {
+          fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
         } else {
-          throw std::runtime_error("Failed to initialize cpuinfo!");
+          // TODO: Have default slower path
+          assert(0 && "unsupported architecture");
+          return;
         }
       }
     }

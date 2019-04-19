@@ -33,11 +33,19 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
     int rows,
     int cols,
     const BlockingFactors* params) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   int MCB, KCB, NCB;
   if (params) {
-    MCB = params->MCB;
-    NCB = params->NCB;
-    KCB = params->KCB;
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      MCB = params->MCB;
+      NCB = params->NCB;
+      KCB = params->KCB;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
     if (fbgemmHasAvx512Support()) {
       MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;

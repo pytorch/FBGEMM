@@ -50,9 +50,11 @@ void fbgemmPacked(
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (blocking_params) {
-      MCB = blocking_params->MCB;
-      KCB = blocking_params->KCB;
-      MR = blocking_params->MR;
+      if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+        MCB = blocking_params->MCB;
+        KCB = blocking_params->KCB;
+        MR = blocking_params->MR;
+      }
     } else {
       if (fbgemmHasAvx512Support()) {
         MCB = PackingTraits<

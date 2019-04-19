@@ -176,7 +176,7 @@ void Quantize<uint8_t>(
     uint8_t* dst,
     int len,
     const TensorQuantizationParams& qparams) {
-  bool avx2_support = fbgemmHasAvx2Support();
+  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();
   bool fma_support = cpuinfo_has_x86_fma3();
   if (avx2_support && fma_support && qparams.precision == 8) {
     // fast path
@@ -221,7 +221,8 @@ void Requantize<uint8_t>(
     uint8_t* dst,
     const int len,
     const RequantizationParams& params) {
-  if (params.target_qparams.precision == 8 && fbgemmHasAvx2Support()) {
+  if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
+      fbgemmHasAvx2Support()) {
     RequantizeAvx2(src, dst, len, params);
   } else {
     for (int i = 0; i < len; ++i) {
@@ -237,7 +238,7 @@ void RequantizeFixedPoint(
     int len,
     const RequantizationParams& params) {
   if (std::is_same<T, uint8_t>::value && params.target_qparams.precision == 8 &&
-      fbgemmHasAvx2Support()) {
+      cpuinfo_initialize() && fbgemmHasAvx2Support()) {
     RequantizeFixedPointAvx2(src, dst, len, params);
   } else {
     for (int i = 0; i < len; ++i) {
@@ -267,7 +268,8 @@ void RequantizeFixedPoint<uint8_t>(
     uint8_t* dst,
     const int len,
     const RequantizationParams& params) {
-  if (params.target_qparams.precision == 8 && fbgemmHasAvx2Support()) {
+  if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
+      fbgemmHasAvx2Support()) {
     RequantizeFixedPointAvx2(src, dst, len, params);
   } else {
     for (int i = 0; i < len; ++i) {

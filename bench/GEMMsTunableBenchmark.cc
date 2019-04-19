@@ -291,6 +291,8 @@ int main(int /* unused */, char** /* unused */) {
       assert(0 && "architecture not supported");
       return 0;
     }
+  } else {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
   }
 
   set<vector<int>> incorrect_configs;

@@ -142,16 +142,17 @@ void RequantizeAvx2(
     int len,
     const RequantizationParams& params) {
   DoNothing<> doNothingObj{};
+  int32_t Bq_zero_point[] = { 0 };
   ReQuantizeOutput<false /* FUSE_RELU */> requantizeObj(
       doNothingObj,
       &params.real_multiplier,
       params.target_qparams.zero_point,
-      0,
-      nullptr,
-      nullptr,
-      nullptr,
-      nullptr,
-      len);
+      0, // Aq_zero_point
+      Bq_zero_point, // Bq_zero_point
+      nullptr, // row_offsets
+      nullptr, // col_offsets
+      nullptr, // bias
+      len); // ncol
   requantizeObj.f<inst_set_t::avx2>(dst, src, {0, 1, 0, len}, 0, 0);
 }
 
