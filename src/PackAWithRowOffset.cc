@@ -36,11 +36,19 @@ PackAWithRowOffset<T, accT>::PackAWithRowOffset(
       smat_(smat),
       ld_(ld),
       row_offset_(row_offset) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   rowOffsetAllocatedHere = false;
   if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
       BaseType::brow_ = params->MCB;
       BaseType::bcol_ = params->KCB;
       row_interleave_B_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
     if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
@@ -179,19 +187,19 @@ template <typename T, typename accT>
 int PackAWithRowOffset<T, accT>::rowOffsetBufferSize(
     const BlockingFactors* params) {
   if (cpuinfo_initialize()) {
-    if (params){
+    if (params) {
       return params->MCB;
     } else {
-    if (fbgemmHasAvx512Support()) {
+      if (fbgemmHasAvx512Support()) {
         return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
       } else if (fbgemmHasAvx2Support()) {
         return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecture");
-      return -1;
+      } else {
+        // TODO: Have default slower path
+        assert(0 && "unsupported architecture");
+        return -1;
+      }
     }
-  }
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
