@@ -4,17 +4,8 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   #Download Googletest framework from github if
   #GOOGLETEST_SOURCE_DIR is not specified.
   if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
-    message(STATUS "Downloading googletest to
-      ${FBGEMM_THIRDPARTY_DIR}/googletest
-      (define GOOGLETEST_SOURCE_DIR to avoid it)")
-    configure_file("${FBGEMM_SOURCE_DIR}/cmake/modules/DownloadGTEST.cmake"
-      "${FBGEMM_BINARY_DIR}/googletest-download/CMakeLists.txt")
-    execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
-      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/googletest-download")
-    execute_process(COMMAND "${CMAKE_COMMAND}" --build .
-      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/googletest-download")
-    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_THIRDPARTY_DIR}/googletest" CACHE STRING
-      "googletest source directory")
+    set(GOOGLETEST_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/googletest" CACHE STRING
+      "googletest source directory from submodules")
   endif()
 
   #build Googletest framework
