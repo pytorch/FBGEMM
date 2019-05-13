@@ -51,8 +51,7 @@ is **on**. Turn it off by setting FBGEMM\_BUILD\_TESTS to off.
 You can download [asmjit][1], [cpuinfo][2], [googletest][3] and set
 ASMJIT\_SRC\_DIR, CPUINFO\_SRC\_DIR, GOOGLETEST\_SOURCE\_DIR respectively for
 cmake to find these libraries. If any of these variables is not set, cmake will
-try to download that missing library in a folder called third\_party in the
-build directory and build it using the downloaded source code.
+build the git submodules found in the third\_party directory.
 
 FBGEMM, in general, does not have any dependency on Intel MKL. However, for
 performance comparison, some benchmarks use MKL functions. If MKL is found or
@@ -63,6 +62,8 @@ not found, the benchmarks are not built.
 General build instructions are as follows:
 
 ```
+git clone --recursive https://github.com/pytorch/FBGEMM.git
+cd FBGEMM
 mkdir build && cd build
 cmake ..
 make
