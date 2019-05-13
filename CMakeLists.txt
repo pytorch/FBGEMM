@@ -106,8 +106,16 @@ target_compile_options(fbgemm_avx512 PRIVATE
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
-    set(ASMJIT_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/asmjit" CACHE STRING
-      "asmjit source directory from submodules")
+    message(STATUS "Downloading asmjit to ${FBGEMM_THIRDPARTY_DIR}/asmjit
+      (define ASMJIT_SRC_DIR to avoid it)")
+    configure_file("${FBGEMM_SOURCE_DIR}/cmake/modules/DownloadASMJIT.cmake"
+      "${FBGEMM_BINARY_DIR}/asmjit-download/CMakeLists.txt")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/asmjit-download")
+    execute_process(COMMAND "${CMAKE_COMMAND}" --build .
+      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/asmjit-download")
+    set(ASMJIT_SRC_DIR "${FBGEMM_THIRDPARTY_DIR}/asmjit" CACHE STRING
+      "asmjit source directory")
   endif()
 
   #build asmjit
@@ -119,8 +127,16 @@ endif()
 if(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
   if(NOT DEFINED CPUINFO_SOURCE_DIR)
-    set(CPUINFO_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/cpuinfo" CACHE STRING
-      "cpuinfo source directory from submodules")
+    message(STATUS "Downloading cpuinfo to ${FBGEMM_THIRDPARTY_DIR}/cpuinfo
+    (define CPUINFO_SOURCE_DIR to avoid it)")
+    configure_file("${FBGEMM_SOURCE_DIR}/cmake/modules/DownloadCPUINFO.cmake"
+      "${FBGEMM_BINARY_DIR}/cpuinfo-download/CMakeLists.txt")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/cpuinfo-download")
+    execute_process(COMMAND "${CMAKE_COMMAND}" --build .
+      WORKING_DIRECTORY "${FBGEMM_BINARY_DIR}/cpuinfo-download")
+    set(CPUINFO_SOURCE_DIR "${FBGEMM_THIRDPARTY_DIR}/cpuinfo" CACHE STRING
+      "cpuinfo source directory")
   endif()
 
   #build cpuinfo
