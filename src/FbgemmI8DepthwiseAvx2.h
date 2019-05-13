@@ -54,6 +54,8 @@ FBGEMM_API void depthwise_3x3_pad_1(
 /**
  * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
  * This version is fused with requantization.
+ *
+ * @col_offsets nullptr if col_offsets are folded into bias
  */
 FBGEMM_API void depthwise_3x3_pad_1(
     int N,
@@ -78,6 +80,8 @@ FBGEMM_API void depthwise_3x3_pad_1(
 /**
  * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
  * This version is fused with requantization and uses per-channel quantization.
+ *
+ * @col_offsets nullptr if col_offsets are folded into bias
  */
 FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
     int N,
@@ -115,6 +119,9 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     int thread_id = 0,
     int num_threads = 1);
 
+/**
+ * @col_offsets nullptr if col_offsets are folded into bias
+ */
 FBGEMM_API void depthwise_3x3x3_pad_1(
     int N,
     int T,
@@ -137,6 +144,9 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     int thread_id = 0,
     int num_threads = 1);
 
+/**
+ * @col_offsets nullptr if col_offsets are folded into bias
+ */
 FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     int N,
     int T,

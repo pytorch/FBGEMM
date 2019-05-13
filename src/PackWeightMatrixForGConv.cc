@@ -42,16 +42,17 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
  * Let IC_per_G be number of input channels per group and OC_per_G be number of
  * output channels per group.
  *
- * For IC_per_G  == 4 && OC_per_G == 4 optimized
+ * For IC_per_G == 4 && OC_per_G == 4 optimized
  * kernel works on 2 groups at a time hence input channels for g and g+1 group
- * are laid out sequentially for each output channel, i.e., the layout is R S
- * (G/2) K (2C)
+ * are laid out sequentially for each output channel, i.e., the layout is (G/2)
+ * R S K (2C) and K (2C) is in each 32B vector.
  * We work on two groups at a time to fully utilize the avx2 SIMD width of
  * 256-bits.
  *
  * For IC_per_G == 8, 16, 32 && OC_per_G == 8, 16, 32 there is no need to work
  * on 2 groups at a time and full SIMD width can be efficiently utilized even
  * while working on 1 group at a time.
+ * In this case, the layout is G (C/4) R S K 4
  */
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
@@ -77,11 +78,21 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
                         [(((g * OC_per_G + k) * R + r) * S + s) * IC_per_G + c]
                   : sdata_
                         [(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k];
-              pdata_
-                  [((((r * S + s) * (G / 2) + (g / 2)) * OC_per_G + k) * 2 +
-                    (g % 2)) *
-                       IC_per_G +
-                   c] = b;
+              if (IC_per_G == 4) {
+                // For IC_per_G == 4, we need to work on 2 groups at a time
+                pdata_
+                    [(((((g / 2) * R + r) * S + s) * OC_per_G + k) * 2 +
+                      (g % 2)) *
+                         IC_per_G +
+                     c] = b;
+              } else {
+                pdata_
+                    [((((g * (IC_per_G / 4) + (c / 4)) * R + r) * S + s) *
+                          OC_per_G +
+                      k) *
+                         4 +
+                     (c % 4)] = b;
+              }
             }
           }
         }

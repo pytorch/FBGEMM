@@ -68,7 +68,20 @@ static vector<vector<int>> shapes = {
   {   1,    8,   4,   4, 1, },
 };
 
-TEST(FBGemmDepthWiseTest, Test3x3) {
+namespace {
+class FBGemmDepthWiseTest
+    : public testing::TestWithParam<tuple<bool, bool>> {};
+} // namespace
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    FBGemmDepthWiseTest,
+    ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+TEST_P(FBGemmDepthWiseTest, Test3x3) {
+  bool a_symmetric, b_symmetric;
+  tie(a_symmetric, b_symmetric) = GetParam();
+
   for (auto shape : shapes) {
     int N = shape[0];
     int K = shape[1];
@@ -86,10 +99,10 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
     aligned_vector<int32_t> C_ref(N * H_OUT * W_OUT * K), C(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
-    int32_t A_zero_point = 43;
+    int32_t A_zero_point = a_symmetric ? 0 : 43;
 
     randFill<int8_t>(B, -16, 16);
-    int32_t B_zero_point = 5;
+    int32_t B_zero_point = b_symmetric ? 0 : 5;
 
     depthwise_3x3_pad_1_ref(
         N,
@@ -135,24 +148,6 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
     Packed3x3ConvMatrix Bp(K, B.data());
 
     depthwise_3x3_pad_1(
-        N, H, W, K, stride_h, stride_w, A_zero_point, A.data(), Bp, C.data());
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < K; ++k) {
-            int32_t expected = C_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
-            int32_t actual = C[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual)
-                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
-          }
-        }
-      }
-    }
-
-    depthwise_3x3_pad_1(
         N,
         H,
         W,
@@ -166,7 +161,7 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
         C_multiplier,
         C_zero_point,
         C_uint8.data(),
-        col_offsets.data(),
+        a_symmetric ? nullptr : col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
         0,
@@ -190,8 +185,15 @@ TEST(FBGemmDepthWiseTest, Test3x3) {
   } // for each shape
 } // Test3x3
 
-TEST(FBGemmDepthWiseTest, Test3x3x3) {
-  for (auto shape : shapes_3d) {
+TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
+  bool a_symmetric, b_symmetric;
+  tie(a_symmetric, b_symmetric) = GetParam();
+
+  // 3x3x3 tests take a long time so for a symmetric quantization, we only
+  // test with 2 shapes.
+  for (auto shape : a_symmetric || b_symmetric
+           ? vector<vector<int>>(shapes_3d.cbegin(), shapes_3d.cbegin() + 2)
+           : shapes_3d) {
     int N = shape[0];
     int K = shape[1];
     int T = shape[2];
@@ -213,7 +215,7 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
         C(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
-    int32_t A_zero_point = 43;
+    int32_t A_zero_point = a_symmetric ? 0 : 43;
 
     randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
@@ -276,41 +278,6 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
         stride_w,
         A_zero_point,
         A.data(),
-        Bp,
-        C.data());
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int t = 0; t < T_OUT; ++t) {
-        for (int h = 0; h < H_OUT; ++h) {
-          for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < K; ++k) {
-              int32_t expected =
-                  C_ref[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              int32_t actual =
-                  C[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              ASSERT_EQ(expected, actual)
-                  << "Depthwise 3x3 results differ at (" << n << ", " << t
-                  << ", " << h << ", " << w << ", " << k << ") " << shape[0]
-                  << " " << shape[1] << " " << shape[2] << " " << shape[3]
-                  << " " << shape[4] << " " << shape[5];
-            }
-          } // w
-        } // h
-      } // t
-    } // n
-
-    depthwise_3x3x3_pad_1(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
         B_zero_point,
         Bp,
         C_multiplier,
@@ -330,8 +297,8 @@ TEST(FBGemmDepthWiseTest, Test3x3x3) {
             for (int k = 0; k < K; ++k) {
               int32_t expected = C_uint8_ref
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              int32_t actual =
-                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+              int32_t actual = C_uint8
+                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
               EXPECT_EQ(expected, actual)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
@@ -396,8 +363,6 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
       int32_t minimum = *min_element(C_ref_k_begin, C_ref_k_end);
       int32_t maximum = *max_element(C_ref_k_begin, C_ref_k_end);
       C_multiplier[k] = 255. / (maximum - minimum);
-      cerr << "k " << k << " minimum " << minimum << " maximum " << maximum
-           << " multiplier " << C_multiplier[k] << endl;
     }
     int32_t C_zero_point = 5;
 
@@ -523,8 +488,6 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
       int32_t minimum = *min_element(C_ref_k_begin, C_ref_k_end);
       int32_t maximum = *max_element(C_ref_k_begin, C_ref_k_end);
       C_multiplier[k] = 255. / (maximum - minimum);
-      cerr << "k " << k << " minimum " << minimum << " maximum " << maximum
-           << " multiplier " << C_multiplier[k] << endl;
     }
     int32_t C_zero_point = 5;
 

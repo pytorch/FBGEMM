@@ -17,7 +17,7 @@ thread_local asmjit::CodeHolder CodeGenBase<TA, TB, TC, accT>::code_;
 
 template <typename TA, typename TB, typename TC, typename accT>
 thread_local std::map<
-    std::tuple<bool, int, int>,
+    std::tuple<bool, int, int, int, int, int, int, int>,
     typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
     CodeGenBase<TA, TB, TC, accT>::codeCache_;
 
@@ -136,27 +136,70 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     int32_t nc,
     int32_t kc,
     int32_t /* unused */) {
-  auto kernelSig = std::make_tuple(accum, mc, nc);
+  std::tuple<bool, int, int, int, int, int, int, int> kernelSig;
+  int kBlock;
+  int nBlock;
+  int mRegBlockSize;
+  int nRegBlockSize;
+  int nRegBlockSizeMin;
+  int row_interleave;
+
+  if (blocking_params) {
+    kBlock = blocking_params->KCB;
+    nBlock = blocking_params->NCB;
+    mRegBlockSize = blocking_params->MR;
+    nRegBlockSize = blocking_params->NR;
+    nRegBlockSizeMin = blocking_params->NR_MIN;
+    row_interleave = blocking_params->ROW_INTERLEAVE;
+  } else {
+    kBlock = PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::KCB;
+    nBlock = PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::NCB;
+    mRegBlockSize = PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::MR;
+    nRegBlockSize = PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::NR;
+    nRegBlockSizeMin =
+        PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::NR_MIN;
+    row_interleave =
+        PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::ROW_INTERLEAVE;
+  }
+
+  kernelSig = std::make_tuple(
+      accum,
+      mc,
+      nc,
+      nBlock,
+      kBlock,
+      mRegBlockSize,
+      nRegBlockSize,
+      nRegBlockSizeMin);
+
   if (codeCache_.find(kernelSig) != codeCache_.end()) {
     return codeCache_[kernelSig];
   }
-
   code_.reset(false);
   code_.init(rt_.getCodeInfo());
   asmjit::X86Assembler assembler(&code_);
   asmjit::X86Emitter* a = assembler.asEmitter();
-  // ToDo: Dump in a file for debugging
-  // code dumping/logging
-  // asmjit::FileLogger logger(stderr);
-  // code_.setLogger(&logger);
 
-  constexpr int kBlock = PackingTraits<int8_t, int16_t, inst_set_t::avx2>::KCB;
-  constexpr int mRegBlockSize =
-      PackingTraits<int8_t, int16_t, inst_set_t::avx2>::MR;
-  // constexpr int nRegBlockSize =
-  // PackingTraits<int8_t, int16_t, inst_set_t::avx2>::NR;
-  constexpr int row_interleave =
-      PackingTraits<int8_t, int16_t, inst_set_t::avx2>::ROW_INTERLEAVE;
+#if defined(FBGEMM_LOG_CODE)
+  // generated code logging
+  FILE* codeLogfile = fopen(
+      getCodeLoggingFile<inst_set_t::avx2>(
+          accum,
+          mc,
+          nc,
+          nBlock,
+          kBlock,
+          mRegBlockSize,
+          nRegBlockSize,
+          nRegBlockSizeMin)
+          .c_str(),
+      "w");
+  asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
+  if (codeLogger) {
+    code_.setLogger(codeLogger);
+  }
+#endif
+
   int mRegBlocks = mc / mRegBlockSize;
   int mRegBlocksRem = mc % mRegBlockSize;
   assert(kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
@@ -237,8 +280,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     // update buffer_B address for next k iteration
     a->add(
-        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
-    // a->add(B_pf, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
+        buffer_B,
+        static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
+    // a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
+    // sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(Loopk);
@@ -285,8 +330,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
 
     // update buffer_B address for next k iteration
     a->add(
-        buffer_B, static_cast<asmjit::Imm>(VLEN_ * colRegs * sizeof(int8_t)));
-    // a->add(B_pf, VLEN_ * colRegs * sizeof(int8_t));
+        buffer_B,
+        static_cast<asmjit::Imm>(nBlock * row_interleave * sizeof(int8_t)));
+    // a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
+    // sizeof(int8_t)));
 
     a->cmp(kIdx, kSize);
     a->jl(LoopkRem);
@@ -304,6 +351,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     return nullptr;
   }
   codeCache_[kernelSig] = fn;
+
+#if defined(FBGEMM_LOG_CODE)
+  fclose(codeLogfile);
+  delete codeLogger;
+#endif
+
   return fn;
 }
 

@@ -77,11 +77,13 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
-  if (instSet == inst_set_t::anyarch) {
+  if (instSet == inst_set_t::anyarch || !std::is_same<outT, uint8_t>::value) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
-        raw -= Aq_zero_point_ * q_col_offsets_[j];
+        if (Aq_zero_point_) {
+          raw -= Aq_zero_point_ * q_col_offsets_[j];
+        }
         int Bq_zero_point_idx;
         if (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
@@ -109,88 +111,84 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       }
     }
   } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
-    if (std::is_same<outT, uint8_t>::value) {
-      bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
-                          Bq_zero_point_[0] == 0) ||
-          q_row_offsets_ == nullptr;
+    bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+                        Bq_zero_point_[0] == 0) ||
+        q_row_offsets_ == nullptr;
 
-      requantizationParams_t r = {Aq_zero_point_,
-                                  Bq_zero_point_,
-                                  C_zero_point_,
-                                  C_multiplier_,
-                                  q_row_offsets_,
-                                  q_col_offsets_,
-                                  bias_,
-                                  ncols_,
-                                  groups_};
+    requantizationParams_t r = {Aq_zero_point_,
+                                Bq_zero_point_,
+                                C_zero_point_,
+                                C_multiplier_,
+                                q_row_offsets_,
+                                q_col_offsets_,
+                                bias_,
+                                ncols_,
+                                groups_};
 
-      if (Aq_zero_point_ == 0) {
-        if (b_symmetric) {
-          if (bias_ == nullptr) {
-            requantizeOutputProcessingAvx2<
-                true,
-                true,
-                Q_GRAN,
-                false,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          } else {
-            requantizeOutputProcessingAvx2<true, true, Q_GRAN, true, FUSE_RELU>(
-                out, inp, block, ld_out, ld_in, r);
-          }
+    if (Aq_zero_point_ == 0) {
+      if (b_symmetric) {
+        if (bias_ == nullptr) {
+          requantizeOutputProcessingAvx2<
+              true,
+              true,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
         } else {
-          if (bias_ == nullptr) {
-            requantizeOutputProcessingAvx2<
-                true,
-                false,
-                Q_GRAN,
-                false,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          } else {
-            requantizeOutputProcessingAvx2<
-                true,
-                false,
-                Q_GRAN,
-                true,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          }
+          requantizeOutputProcessingAvx2<true, true, Q_GRAN, true, FUSE_RELU>(
+              out, inp, block, ld_out, ld_in, r);
         }
       } else {
-        if (b_symmetric) {
-          if (bias_ == nullptr) {
-            requantizeOutputProcessingAvx2<
-                false,
-                true,
-                Q_GRAN,
-                false,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          } else {
-            requantizeOutputProcessingAvx2<
-                false,
-                true,
-                Q_GRAN,
-                true,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          }
+        if (bias_ == nullptr) {
+          requantizeOutputProcessingAvx2<
+              true,
+              false,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
         } else {
-          if (bias_ == nullptr) {
-            requantizeOutputProcessingAvx2<
-                false,
-                false,
-                Q_GRAN,
-                false,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          } else {
-            requantizeOutputProcessingAvx2<
-                false,
-                false,
-                Q_GRAN,
-                true,
-                FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
-          }
+          requantizeOutputProcessingAvx2<
+              true,
+              false,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
         }
       }
     } else {
-      assert(0 && "Not supported yet");
+      if (b_symmetric) {
+        if (bias_ == nullptr) {
+          requantizeOutputProcessingAvx2<
+              false,
+              true,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeOutputProcessingAvx2<
+              false,
+              true,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        }
+      } else {
+        if (bias_ == nullptr) {
+          requantizeOutputProcessingAvx2<
+              false,
+              false,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeOutputProcessingAvx2<
+              false,
+              false,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        }
+      }
     }
   } else {
     assert(0 && "Not supported yet");
@@ -222,31 +220,119 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
-      inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
-      raw -= Aq_zero_point_ * q_col_offsets_[j];
-      int Bq_zero_point_idx;
-      if (Q_GRAN == QuantizationGranularity::TENSOR) {
-        Bq_zero_point_idx = 0;
-      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-        Bq_zero_point_idx = g;
-      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-        Bq_zero_point_idx = j;
-      } else {
-        assert(false && "unknown quantization granularity");
-      }
-      raw -= q_row_offsets_[i - block.row_start] *
-          Bq_zero_point_[Bq_zero_point_idx];
-      float res = raw * Aq_scale_ * Bq_scale_[Bq_zero_point_idx];
-      if (bias_) {
-        res += bias_[j];
-      }
-      out[i * ld_out + j] = res;
-      if (FUSE_RELU) {
-        out[i * ld_out + j] = std::max<outT>(0.0f, out[i * ld_out + j]);
+  if (instSet == inst_set_t::anyarch || !std::is_same<outT, float>::value) {
+    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
+        inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
+        if (Aq_zero_point_) {
+          raw -= Aq_zero_point_ * q_col_offsets_[j];
+        }
+        int Bq_zero_point_idx;
+        if (Q_GRAN == QuantizationGranularity::TENSOR) {
+          Bq_zero_point_idx = 0;
+        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          Bq_zero_point_idx = g;
+        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          Bq_zero_point_idx = j;
+        } else {
+          assert(false && "unknown quantization granularity");
+        }
+        if (q_row_offsets_) {
+          raw -= q_row_offsets_[i - block.row_start] *
+              Bq_zero_point_[Bq_zero_point_idx];
+        }
+        float res = raw * Aq_scale_ * Bq_scale_[Bq_zero_point_idx];
+        if (bias_) {
+          res += bias_[j];
+        }
+        out[i * ld_out + j] = res;
+        if (FUSE_RELU) {
+          out[i * ld_out + j] = std::max<outT>(0.0f, out[i * ld_out + j]);
+        }
       }
     }
+  } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
+    bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+                        Bq_zero_point_[0] == 0) ||
+        q_row_offsets_ == nullptr;
+
+    requantizationForFloatParams_t r = {Aq_zero_point_,
+                                        Bq_zero_point_,
+                                        Aq_scale_,
+                                        Bq_scale_,
+                                        q_row_offsets_,
+                                        q_col_offsets_,
+                                        bias_,
+                                        ncols_,
+                                        groups_};
+
+    if (Aq_zero_point_ == 0) {
+      if (b_symmetric) {
+        if (bias_ == nullptr) {
+          requantizeForFloatAvx2<
+              true,
+              true,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeForFloatAvx2<true, true, Q_GRAN, true, FUSE_RELU>(
+              out, inp, block, ld_out, ld_in, r);
+        }
+      } else {
+        if (bias_ == nullptr) {
+          requantizeForFloatAvx2<
+              true,
+              false,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeForFloatAvx2<
+              true,
+              false,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        }
+      }
+    } else {
+      if (b_symmetric) {
+        if (bias_ == nullptr) {
+          requantizeForFloatAvx2<
+              false,
+              true,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeForFloatAvx2<
+              false,
+              true,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        }
+      } else {
+        if (bias_ == nullptr) {
+          requantizeForFloatAvx2<
+              false,
+              false,
+              Q_GRAN,
+              false,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        } else {
+          requantizeForFloatAvx2<
+              false,
+              false,
+              Q_GRAN,
+              true,
+              FUSE_RELU>(out, inp, block, ld_out, ld_in, r);
+        }
+      }
+    }
+  } else {
+    assert(0 && "Not supported yet");
   }
 
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);

@@ -39,7 +39,7 @@ using jit_rowoffset_kernel_fp = void (*)(
 template <typename accT = int32_t>
 class GenConvKernel {
  public:
-  GenConvKernel(const conv_param_t<>& conv_param, std::int32_t zero_point)
+  GenConvKernel(const conv_param_t<>& conv_param, std::int32_t a_zero_point)
       : WRegs_avx2_{x86::ymm0,
                     x86::ymm1,
                     x86::ymm2,
@@ -51,9 +51,10 @@ class GenConvKernel {
                     x86::ymm8} {
     // vector width in bits
     if (cpuinfo_initialize()) {
-      if (cpuinfo_has_x86_avx512f()) {
-        vectorWidth_ = 512;
-      } else if (cpuinfo_has_x86_avx2()) {
+      if (fbgemmHasAvx512Support()) {
+        // TODO: change this to 512 once we have avx512f version
+        vectorWidth_ = 256;
+      } else if (fbgemmHasAvx2Support()) {
         vectorWidth_ = 256;
       } else {
         // TODO: Have default path
@@ -74,11 +75,7 @@ class GenConvKernel {
     // vector width in elements; Each element is int8 or uint8
     VLEN_ = vectorWidth_ / 8;
 
-    if (zero_point == 0) {
-      isZeroPointZero_ = true;
-    } else {
-      isZeroPointZero_ = false;
-    }
+    isAZeroPointZero_ = a_zero_point == 0;
 
     G_ = conv_param.G;
     K_per_G_ = conv_param.OC / conv_param.G;
@@ -105,7 +102,7 @@ class GenConvKernel {
     fileName += "_S-" + std::to_string(S_);
     fileName += "_PADH-" + std::to_string(H_PAD_);
     fileName += "_PADW-" + std::to_string(W_PAD_);
-    fileName += "_isZeroPointZero-" + std::to_string(isZeroPointZero_);
+    fileName += "_isZeroPointZero-" + std::to_string(isAZeroPointZero_);
     if (rowOffsetKernel) {
       fileName += "_rowOffset";
     }
@@ -142,32 +139,64 @@ class GenConvKernel {
   gen8bitFMA(asmjit::X86Emitter* a, asmjit::X86Ymm aReg, asmjit::X86Ymm wReg);
 
   template <inst_set_t instSet>
-  void genForLoadingWeights(asmjit::X86Emitter* a);
+  void genForLoadingWeights(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
   void genConstForPermutations(asmjit::X86Emitter* a);
 
   template <inst_set_t instSet>
-  void genForTopEdge(asmjit::X86Emitter* a);
+  void genForTopEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForLeftEdge(asmjit::X86Emitter* a);
+  void genForLeftEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForRightEdge(asmjit::X86Emitter* a);
+  void genForRightEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genForBottomEdge(asmjit::X86Emitter* a);
+  void genForBottomEdge(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void genCoreInsts(asmjit::X86Emitter* a);
+  void genCoreInsts(asmjit::X86Emitter* a, int c_offset);
 
   template <inst_set_t instSet>
-  void storeResult(asmjit::X86Emitter* a, int offset = 0);
+  void storeResult(asmjit::X86Emitter* a);
 
   // for Rowoffset kernel
+  // Add 4 consecutive numbers of 32 uint8 and emit 8 32-bit
   template <inst_set_t instSet>
-  void gen8BitSum(asmjit::X86Emitter* a, asmjit::X86Ymm aReg);
+  void gen8BitSumX4(asmjit::X86Emitter* a, asmjit::X86Ymm aReg);
+
+  // Add 8 consecutive numbers of 64 uint8 and emit 8 32-bit
+  template <inst_set_t instSet>
+  void
+  gen8BitSumX8(asmjit::X86Emitter* a, asmjit::X86Ymm aReg, asmjit::X86Ymm bReg);
+
+  // Add 16 consecutive numbers of 128 uint8 and emit 8 32-bit
+  template <inst_set_t instSet>
+  void gen8BitSumX16(
+      asmjit::X86Emitter* a,
+      asmjit::X86Ymm aReg,
+      asmjit::X86Ymm bReg,
+      asmjit::X86Ymm cReg,
+      asmjit::X86Ymm dReg);
+
+  // Generate instruction sequence that loads 8-bit values and sum them up.
+  // Depending on C_per_G_, this function dispatches to gen8BitSumX4/8/16
+  // This function assumes in_acts_R_ has the base pointer to activation,
+  // scratchReg1_ has a variable offset, and act_offset has the final immediate
+  // offset.
+  // Internally, actRegAvx2_, stPermRegAvx2_, WRegs_avx2_[0, 1], tmpReg1Avx2_,
+  // and resultRegAvx2_ are used.
+  template <inst_set_t instSet>
+  void gen8BitSum(
+      asmjit::X86Emitter* a,
+      int act_offset,
+      bool use_scratch_reg1 = true);
+
+  // Use scratchReg1_ and tmpReg1Avx2_ internally
+  template <inst_set_t instSet>
+  void genZeroPtSum(asmjit::X86Emitter* a, int multiplier);
 
   template <inst_set_t instSet>
   void genForTopEdgeRowoffset(asmjit::X86Emitter* a);
@@ -229,7 +258,7 @@ class GenConvKernel {
   asmjit::X86Gp scratchReg2_;
 
   // Other parameters
-  bool isZeroPointZero_;
+  bool isAZeroPointZero_;
 
   // current conv parameters
   int G_; ///< Number of groups

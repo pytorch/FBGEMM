@@ -28,33 +28,48 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
     float scale,
     int32_t zero_pt,
     int groups,
-    int32_t* row_offset)
+    int32_t* row_offset,
+    const BlockingFactors* params)
     : PackMatrix<PackAWithQuantRowOffset<T, accT>, T, accT>(
           nRow,
           nCol,
           pmat,
-          groups),
+          groups,
+          params),
       trans_(trans),
       smat_(smat),
       ld_(ld),
       scale_(scale),
       zero_pt_(zero_pt),
       row_offset_(row_offset) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   rowOffsetAllocatedHere = false;
-
-  if (cpuinfo_has_x86_avx512f()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
-    row_interleave_B_ =
-        PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (cpuinfo_has_x86_avx2()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
-    row_interleave_B_ =
-        PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+  if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      BaseType::brow_ = params->MCB;
+      BaseType::bcol_ = params->KCB;
+      row_interleave_B_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
-    // TODO: Have default slower path
-    assert(0 && "unknown architecure");
+    if (fbgemmHasAvx512Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
+      row_interleave_B_ =
+          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx2Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
+      row_interleave_B_ =
+          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unknown architecure");
+    }
   }
   if (BaseType::numCols() % groups != 0) {
     throw std::runtime_error(
@@ -179,15 +194,20 @@ void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(std::string name) {
 }
 
 template <typename T, typename accT>
-int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize() {
+int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize(
+    const BlockingFactors* params) {
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
-      return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    } else if (cpuinfo_has_x86_avx2()) {
-      return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+    if (params) {
+      return params->MCB;
     } else {
-      assert(0 && "unsupported architecture");
-      return -1;
+      if (fbgemmHasAvx512Support()) {
+        return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
+      } else if (fbgemmHasAvx2Support()) {
+        return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+      } else {
+        assert(0 && "unsupported architecture");
+        return -1;
+      }
     }
   } else {
     throw std::runtime_error("Failed to initialize cpuinfo!");

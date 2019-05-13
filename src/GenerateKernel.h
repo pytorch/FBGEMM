@@ -8,8 +8,10 @@
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <map>
+#include <string>
 #include <tuple>
 #include "fbgemm/Fbgemm.h"
+/*#define FBGEMM_LOG_CODE 1*/
 
 namespace fbgemm {
 
@@ -37,8 +39,9 @@ class CodeGenBase {
   /**
    * @brief Constructor for initializing AVX2/AVX512 registers.
    */
-  CodeGenBase()
-      : CRegs_avx2_{x86::ymm0,
+  CodeGenBase(const BlockingFactors* params = nullptr)
+      : blocking_params(params),
+        CRegs_avx2_{x86::ymm0,
                     x86::ymm1,
                     x86::ymm2,
                     x86::ymm3,
@@ -57,12 +60,20 @@ class CodeGenBase {
             x86::zmm15, x86::zmm16, x86::zmm17, x86::zmm18, x86::zmm19,
             x86::zmm20, x86::zmm21, x86::zmm22, x86::zmm23, x86::zmm24,
             x86::zmm25, x86::zmm26, x86::zmm27,
-        } {
+        },
+        AllRegs_avx512_{x86::zmm0,  x86::zmm1,  x86::zmm2,  x86::zmm3,
+                        x86::zmm4,  x86::zmm5,  x86::zmm6,  x86::zmm7,
+                        x86::zmm8,  x86::zmm9,  x86::zmm10, x86::zmm11,
+                        x86::zmm12, x86::zmm13, x86::zmm14, x86::zmm15,
+                        x86::zmm16, x86::zmm17, x86::zmm18, x86::zmm19,
+                        x86::zmm20, x86::zmm21, x86::zmm22, x86::zmm23,
+                        x86::zmm24, x86::zmm25, x86::zmm26, x86::zmm27,
+                        x86::zmm28, x86::zmm29, x86::zmm30, x86::zmm31} {
     // vector width in bits
     if (cpuinfo_initialize()) {
-      if (cpuinfo_has_x86_avx512f()) {
+      if (fbgemmHasAvx512Support()) {
         vectorWidth_ = 512;
-      } else if (cpuinfo_has_x86_avx2()) {
+      } else if (fbgemmHasAvx2Support()) {
         vectorWidth_ = 256;
       } else {
         // TODO: Have default path
@@ -126,16 +137,62 @@ class CodeGenBase {
       bool accum,
       int leadingDimCRegAssign = 4);
 
+  const BlockingFactors* blocking_params;
+  /**
+   * @brief Generate filename to dump generated code
+   * (debug-only)
+   */
+  template <inst_set_t instSet>
+  std::string getCodeLoggingFile(
+      bool accum,
+      int mc,
+      int nc,
+      int NCB,
+      int KCB,
+      int MR,
+      int NR,
+      int NR_MIN) {
+    std::string fileName = "gemm_";
+    if (std::is_same<accT, std::int16_t>::value) {
+      fileName += "acc16_";
+    } else if (std::is_same<accT, std::int32_t>::value) {
+      fileName += "acc32_";
+    } else {
+      fileName += "unknown_";
+    }
+    fileName += "accum-" + std::to_string(accum);
+    fileName += "_MC-" + std::to_string(mc);
+    fileName += "_NC-" + std::to_string(nc);
+    fileName += "_NCB-" + std::to_string(NCB);
+    fileName += "_NCB-" + std::to_string(KCB);
+    fileName += "_MR-" + std::to_string(MR);
+    fileName += "_NR-" + std::to_string(NR);
+    fileName += "_NR_MIN-" + std::to_string(NR_MIN);
+    if (instSet == inst_set_t::avx512) {
+      fileName += "_avx512";
+    } else if (instSet == inst_set_t::avx2) {
+      fileName += "_avx2";
+    }
+    fileName += ".txt";
+    return fileName;
+  }
+
  private:
   asmjit::X86Ymm
       CRegs_avx2_[12]; ///< AVX2 ymm registers for C in the micro-kernel.
   asmjit::X86Zmm
       CRegs_avx512_[28]; ///< AVX512 zmm registers for C in the micro-kernel.
+  asmjit::X86Zmm
+      AllRegs_avx512_[32]; ///< all AVX512 zmm registers.
+
   int vectorWidth_; ///< Vector width in bits.
   int VLEN_; ///< Vector width in elements.
   static thread_local asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
   static thread_local asmjit::CodeHolder code_; ///< JIT Code Holder for asmjit.
-  static thread_local std::map<std::tuple<bool, int, int>, jit_micro_kernel_fp>
+  // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr, nr_min
+  static thread_local std::map<
+      std::tuple<bool, int, int, int, int, int, int, int>,
+      jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 };
 

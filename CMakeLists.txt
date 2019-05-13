@@ -75,6 +75,8 @@ set(FBGEMM_AVX2_SRCS
 set(FBGEMM_AVX512_SRCS src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
+                          include/fbgemm/FbgemmBuild.h
+                          include/fbgemm/FbgemmFP16.h
                           include/fbgemm/OutputProcessing-inl.h
                           include/fbgemm/PackingTraits-inl.h
                           include/fbgemm/QuantUtils.h
@@ -98,7 +100,8 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
 target_compile_options(fbgemm_avx2 PRIVATE
   "-m64" "-mavx2" "-mfma" "-masm=intel")
 target_compile_options(fbgemm_avx512 PRIVATE
-  "-m64" "-mavx2" "-mfma" "-mavx512f" "-masm=intel")
+  "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
+  "-mavx512vl" "-masm=intel")
 
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.

@@ -20,31 +20,54 @@ PackAMatrix<T, accT>::PackAMatrix(
     const T* smat,
     int32_t ld,
     inpType* pmat,
-    int groups)
-    : PackMatrix<PackAMatrix<T, accT>, T, accT>(nRow, nCol, pmat, groups),
+    int groups,
+    const BlockingFactors* params)
+    : PackMatrix<PackAMatrix<T, accT>, T, accT>(
+          nRow,
+          nCol,
+          pmat,
+          groups,
+          params),
       trans_(trans),
       smat_(smat),
       ld_(ld) {
-  if (cpuinfo_has_x86_avx512f()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
-    row_interleave_B_ =
-        PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-  } else if (cpuinfo_has_x86_avx2()) {
-    BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-    BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
-    row_interleave_B_ =
-        PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      BaseType::brow_ = params->MCB;
+      BaseType::bcol_ = params->KCB;
+      row_interleave_B_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
-    // TODO: Have default slower path
-    assert(0 && "unsupported architecure");
+    if (fbgemmHasAvx512Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
+      row_interleave_B_ =
+          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx2Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
+      row_interleave_B_ =
+          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   }
   if (BaseType::numCols() % groups != 0) {
     throw std::runtime_error(
         "groups = " + std::to_string(groups) +
         " does not divide numCols = " + std::to_string(BaseType::numCols()));
   }
-  if (!pmat) {
+  if (pmat) {
+    BaseType::buf_ = pmat;
+  } else {
+    BaseType::bufAllocatedHere_ = true;
     BaseType::buf_ = (T*)fbgemmAlignedAlloc(
         64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
   }
@@ -62,10 +85,12 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
   bool tr = (trans_ == matrix_op_t::Transpose);
   T* out = BaseType::getBuf();
   if (tr) {
+    // TODO: should print warning because this path is not optimized yet
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      int buf_idx = i - block.row_start;
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         T val = smat_[i + j * ld_];
-        out[addr(i, j) - addr(block.row_start, block.col_start)] = val;
+        out[buf_idx * BaseType::blockColSize() + (j - block.col_start)] = val;
       }
       // zero fill
       // Please note that we zero fill, not zero_pt fill, because for
@@ -99,10 +124,8 @@ void PackAMatrix<T, accT>::pack(const block_type_t& block) {
       //
       // and requantization with numElements(A) = 3 will produce the same
       // answer (-4.8).
-      for (int j = block.col_start + block.col_size;
-           j < block_p.col_start + block_p.col_size;
-           ++j) {
-        out[addr(i, j) - addr(block.row_start, block.col_start)] = 0;
+      for (int j = block.col_size; j < block_p.col_size; ++j) {
+        out[buf_idx * BaseType::blockColSize() + j] = 0;
       }
     }
   } else {

@@ -74,11 +74,11 @@ void calculateRowOffsets(
 
 tuple<bool, int, int, int> getKernelSig(
     const conv_param_t<>& conv_param,
-    bool isZeroPointZero) {
+    bool isAZeroPointZero) {
   int C_per_G = conv_param.IC / conv_param.G;
   int K_per_G = conv_param.OC / conv_param.G;
   auto kernelSig =
-      std::make_tuple(isZeroPointZero, conv_param.G, C_per_G, K_per_G);
+      std::make_tuple(isAZeroPointZero, conv_param.G, C_per_G, K_per_G);
   return kernelSig;
 }
 
@@ -148,7 +148,7 @@ void GenConvKernel<int32_t>::genConstForPermutations<inst_set_t::avx2>(
   // Permute to put 1st group to lower 128-bit and 2nd group in upper
   // 128-bit.
   // load 7, 5, 3, 1, 6, 4, 2, 0 in a 64-bit reg
-  a->mov(permute_const_reg, 0x0705030106040200);
+  a->mov(permute_const_reg, static_cast<asmjit::Imm>(0x0705030106040200));
   a->movq(const_reg_xmm, permute_const_reg);
   // Zero extend 8 packed 8-bit integers in the low 8 bytes of const_reg_xmm to
   // 8 packed 32-bit integers in stPermRegAvx2_
@@ -158,11 +158,12 @@ void GenConvKernel<int32_t>::genConstForPermutations<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<int32_t>::storeResult<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    int offset) {
-  // store with permutation
-  a->vpermd(resultRegAvx2_, stPermRegAvx2_, resultRegAvx2_);
-  a->vmovups(x86::dword_ptr(out_acts_R_, offset), resultRegAvx2_);
+    asmjit::X86Emitter* a) {
+  if (C_per_G_ == 4) {
+    // store with permutation
+    a->vpermd(resultRegAvx2_, stPermRegAvx2_, resultRegAvx2_);
+  }
+  a->vmovups(x86::dword_ptr(out_acts_R_), resultRegAvx2_);
 }
 
 template <>
@@ -171,21 +172,49 @@ void GenConvKernel<int32_t>::storeResultRowoffset<inst_set_t::avx2>(
     asmjit::X86Emitter* a,
     int offset) {
   // store
-  a->vmovups(x86::dword_ptr(row_offset_R_, offset), resultRegAvx2_);
+  if (C_per_G_ == 4) {
+    a->vmovups(x86::dword_ptr(row_offset_R_, offset), resultRegAvx2_);
+  } else if (C_per_G_ == 8) {
+    // need to permute because vphaddd is used in gen8BitSumX8
+    // 11 01 10 00 = 0xd8
+    a->vpermq(resultRegAvx2_, resultRegAvx2_, static_cast<asmjit::Imm>(0xd8));
+    a->vmovups(x86::dword_ptr(row_offset_R_, offset), resultRegAvx2_);
+  } else {
+    assert(C_per_G_ == 16);
+    // need to permute because vphaddd is used in gen8BitSumX16
+    // a[0:4] = a[0] + ... + a[15], a[4:8] = b[0] + ... + b[15]
+    // a[8:12] = a[16] + ... + a[31], a[12:16] = b[16] + ... + b[31]
+    a->vpermq(resultRegAvx2_, resultRegAvx2_, static_cast<asmjit::Imm>(0xd8));
+    // 11 01 10 00 = 0xd8
+    // a[0:4] = a[0] + ... + a[15], a[4:8] = a[16] + ... + a[31]
+    // a[8:12] = b[0] + ... + b[16], a[12:16] = b[16] + ... + b[31]
+    a->vpshufd(resultRegAvx2_, resultRegAvx2_, static_cast<asmjit::Imm>(0xd8));
+    a->vmovups(x86::dword_ptr(row_offset_R_, offset), resultRegAvx2_);
+  }
 }
 
 template <>
 template <>
 void GenConvKernel<int32_t>::genForLoadingWeights<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // load weights
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
-          WRegs_avx2_[r * S_ + s],
-          x86::dword_ptr(
-              wghts_R_,
-              (r * S_ + s) * G_ * K_per_G_ * C_per_G_ * sizeof(int8_t)));
+      if (C_per_G_ == 4) {
+        a->vmovaps(
+            WRegs_avx2_[r * S_ + s],
+            x86::dword_ptr(
+                wghts_R_,
+                (r * S_ + s) * 2 * K_per_G_ * C_per_G_ * sizeof(int8_t)));
+      } else {
+        // C_per_G == 8 or 16
+        a->vmovaps(
+            WRegs_avx2_[r * S_ + s],
+            x86::dword_ptr(
+                wghts_R_,
+                (((c_offset / 4) * R_ + r) * S_ + s) * K_per_G_ * 4 *
+                    sizeof(int8_t)));
+      }
     }
   }
 }
@@ -203,7 +232,7 @@ void GenConvKernel<int32_t>::gen8bitFMA<inst_set_t::avx2>(
 
 template <>
 template <>
-void GenConvKernel<int32_t>::gen8BitSum<inst_set_t::avx2>(
+void GenConvKernel<int32_t>::gen8BitSumX4<inst_set_t::avx2>(
     asmjit::X86Emitter* a,
     asmjit::X86Ymm aReg) {
   a->vpmaddubsw(tmpReg1Avx2_, aReg, oneReg8BitAvx2_);
@@ -213,11 +242,168 @@ void GenConvKernel<int32_t>::gen8BitSum<inst_set_t::avx2>(
 
 template <>
 template <>
+void GenConvKernel<int32_t>::gen8BitSumX8<inst_set_t::avx2>(
+    asmjit::X86Emitter* a,
+    asmjit::X86Ymm aReg,
+    asmjit::X86Ymm bReg) {
+  a->vxorps(tmpReg1Avx2_, tmpReg1Avx2_, tmpReg1Avx2_);
+  // Let a[0] denote 0th (LSB) 8-bit of aReg
+  // After vpsadbw, a[0:2] = a[0] + ... + a[7]
+  // a[8:10] = a[8] + ... + a[16]
+  // a[16:18] = a[16] + ... + a[24]
+  // a[24:26] = a[24] + ... + a[32]
+  a->vpsadbw(aReg, aReg, tmpReg1Avx2_);
+  a->vpsadbw(bReg, bReg, tmpReg1Avx2_);
+  // After vphadd, a[0:4] = a[0] + ... + a[7], a[4:8] = a[8] + ... + b[15]
+  // a[8:12] = b[0] + ... + b[7], a[12:16] = b[8] + ... + b[15]
+  // ...
+  a->vphaddd(aReg, aReg, bReg);
+  a->vpaddd(resultRegAvx2_, aReg, resultRegAvx2_);
+}
+
+template <>
+template <>
+void GenConvKernel<int32_t>::gen8BitSumX16<inst_set_t::avx2>(
+    asmjit::X86Emitter* a,
+    asmjit::X86Ymm aReg,
+    asmjit::X86Ymm bReg,
+    asmjit::X86Ymm cReg,
+    asmjit::X86Ymm dReg) {
+  a->vxorps(tmpReg1Avx2_, tmpReg1Avx2_, tmpReg1Avx2_);
+  // After vpsadbw, a[0:2] = a[0] + ... + a[7]
+  // a[8:10] = a[8] + ... + a[15]
+  // a[16:18] = a[16] + ... + a[23]
+  // a[24:26] = a[24] + ... + a[31]
+  a->vpsadbw(aReg, aReg, tmpReg1Avx2_);
+  // 11 01 10 00 = 0xd8
+  // a[0:4] = a[0] + ... + a[7], a[4:8] = a[8] + ... + a[15]
+  // a[8:16] = zeros
+  a->vpshufd(aReg, aReg, static_cast<asmjit::Imm>(0xd8));
+  a->vpsadbw(bReg, bReg, tmpReg1Avx2_);
+  // 10 00 11 01 = 0x8d
+  // b[0:8] = zeros
+  // b[8:12] = b[0] + ... + b[7], b[12:16] = b[8] + ... + b[15]
+  a->vpshufd(bReg, bReg, static_cast<asmjit::Imm>(0x8d));
+  // a[0:4] = a[0] + ... + a[7], a[4:8] = a[8] + ... + a[15]
+  // a[8:12] = b[0] + ... + b[7], a[12:16] + b[8] + ... + b[15]
+  a->vpaddd(aReg, aReg, bReg);
+
+  // After vpsadbw, c[0:4] = c[0] + ... + c[7]
+  // c[8:12] = c[8] + ... + c[15]
+  // c[16:20] = c[16] + ... + c[23]
+  // c[24:28] = c[24] + ... + c[31]
+  a->vpsadbw(cReg, cReg, tmpReg1Avx2_);
+  // 11 01 10 00 = 0xd8
+  // c[0:4] = c[0] + ... + c[7], c[4:8] = c[8] + ... + c[15]
+  // c[8:16] = zeros
+  a->vpshufd(cReg, cReg, static_cast<asmjit::Imm>(0xd8));
+  a->vpsadbw(dReg, dReg, tmpReg1Avx2_);
+  // 10 00 11 01 = 0x8d
+  // d[0:8] = zeros
+  // d[8:12] = d[0] + ... + d[7], d[12:16] = d[8] + ... + d[15]
+  a->vpshufd(dReg, dReg, static_cast<asmjit::Imm>(0x8d));
+  // c[0:4] = c[0] + ... + c[7], c[4:8] = c[8] + ... + c[15]
+  // c[8:12] = d[0] + ... + d[7], c[12:16] + d[8] + ... + d[15]
+  a->vpaddd(cReg, cReg, dReg);
+
+  // a[0:4] = a[0] + ... + a[15], a[4:8] = b[0] + ... + b[15]
+  // a[8:12] = c[0] + ... + c[15], a[12:16] = d[0] + ... + d[15]
+  a->vphaddd(aReg, aReg, cReg);
+
+  a->vpaddd(resultRegAvx2_, aReg, resultRegAvx2_);
+}
+
+template <>
+template <>
+void GenConvKernel<int32_t>::gen8BitSum<inst_set_t::avx2>(
+    asmjit::X86Emitter* a,
+    int act_offset,
+    bool use_scratch_reg1 /*=true*/) {
+  if (use_scratch_reg1) {
+    a->vmovups(
+        actRegAvx2_,
+        x86::dword_ptr(
+            in_acts_R_, scratchReg1_, 0, act_offset * sizeof(uint8_t)));
+  } else {
+    a->vmovups(
+        actRegAvx2_, x86::dword_ptr(in_acts_R_, act_offset * sizeof(uint8_t)));
+  }
+  if (C_per_G_ == 4) {
+    gen8BitSumX4<inst_set_t::avx2>(a, actRegAvx2_);
+  } else {
+    if (use_scratch_reg1) {
+      a->vmovups(
+          stPermRegAvx2_,
+          x86::dword_ptr(
+              in_acts_R_,
+              scratchReg1_,
+              0,
+              (act_offset + VLEN_) * sizeof(uint8_t)));
+    } else {
+      a->vmovups(
+          stPermRegAvx2_,
+          x86::dword_ptr(in_acts_R_, (act_offset + VLEN_) * sizeof(uint8_t)));
+    }
+    if (C_per_G_ == 8) {
+      gen8BitSumX8<inst_set_t::avx2>(a, actRegAvx2_, stPermRegAvx2_);
+    } else {
+      assert(C_per_G_ == 16);
+      if (use_scratch_reg1) {
+        a->vmovups(
+            WRegs_avx2_[0],
+            x86::dword_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (act_offset + 2 * VLEN_) * sizeof(uint8_t)));
+        a->vmovups(
+            WRegs_avx2_[1],
+            x86::dword_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (act_offset + 3 * VLEN_) * sizeof(uint8_t)));
+      } else {
+        a->vmovups(
+            WRegs_avx2_[0],
+            x86::dword_ptr(
+                in_acts_R_, (act_offset + 2 * VLEN_) * sizeof(uint8_t)));
+        a->vmovups(
+            WRegs_avx2_[1],
+            x86::dword_ptr(
+                in_acts_R_, (act_offset + 3 * VLEN_) * sizeof(uint8_t)));
+      }
+      gen8BitSumX16<inst_set_t::avx2>(
+          a, actRegAvx2_, stPermRegAvx2_, WRegs_avx2_[0], WRegs_avx2_[1]);
+    } // C_per_G_ != 8
+  } // C_per_G_ != 4
+}
+
+template <>
+template <>
+void GenConvKernel<int32_t>::genZeroPtSum<inst_set_t::avx2>(
+    asmjit::X86Emitter* a,
+    int multiplier) {
+  a->mov(scratchReg1_, static_cast<asmjit::Imm>(multiplier));
+  // tmpReg1Avx2_ also uses xmm11
+  asmjit::X86Xmm const_reg_xmm = x86::xmm11;
+  a->movq(const_reg_xmm, scratchReg1_);
+  a->vpbroadcastd(tmpReg1Avx2_, const_reg_xmm);
+  a->vpmulld(tmpReg1Avx2_, zeroPTRegAvx2_, tmpReg1Avx2_);
+  a->vpaddd(resultRegAvx2_, tmpReg1Avx2_, resultRegAvx2_);
+}
+
+template <>
+template <>
 void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // top-left corner code
-  // zero out the results register
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (c_offset == 0) {
+    // zero out the results register
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   for (int r = 0; r < R_; ++r) {
     int h_in = -H_PAD_ + r;
     if (h_in >= 0) {
@@ -229,13 +415,23 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
     for (int s = 0; s < S_; ++s) {
       int w_in = -W_PAD_ + s;
       if (h_in >= 0 && w_in >= 0) {
-        a->vbroadcastsd(
-            actRegAvx2_,
-            x86::dword_ptr(
-                in_acts_R_, scratchReg1_, 0, w_in * C_ * sizeof(uint8_t)));
+        if (C_per_G_ == 4) {
+          a->vbroadcastsd(
+              actRegAvx2_,
+              x86::dword_ptr(
+                  in_acts_R_, scratchReg1_, 0, w_in * C_ * sizeof(uint8_t)));
+        } else {
+          a->vbroadcastss(
+              actRegAvx2_,
+              x86::word_ptr(
+                  in_acts_R_,
+                  scratchReg1_,
+                  0,
+                  (w_in * C_ + c_offset) * sizeof(uint8_t)));
+        }
         gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
       } else {
-        if (!isZeroPointZero_) {
+        if (!isAZeroPointZero_) {
           gen8bitFMA<inst_set_t::avx2>(
               a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
         }
@@ -251,8 +447,12 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
   a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
   a->bind(LoopTopEdge);
   // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  if (!isZeroPointZero_) {
+  if (c_offset == 0) {
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
+  if (!isAZeroPointZero_) {
     for (int r = 0; r < H_PAD_; ++r) {
       for (int s = 0; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(a, zeroPTRegAvx2_, WRegs_avx2_[s]);
@@ -266,10 +466,20 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
         W_R_,
         static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = 0; s < S_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
   }
@@ -293,8 +503,12 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
   // top-right corner code
 
   // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  if (!isZeroPointZero_) {
+  if (c_offset == 0) {
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
+  if (!isAZeroPointZero_) {
     for (int r = 0; r < H_PAD_; ++r) {
       for (int s = 0; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
@@ -313,10 +527,17 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
       a->sub(scratchReg2_, static_cast<asmjit::Imm>(R_ - W_PAD_ - s));
       a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
       a->add(scratchReg1_, scratchReg2_);
-      a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_, scratchReg1_, 0, c_offset * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
-    if (!isZeroPointZero_) {
+    if (!isAZeroPointZero_) {
       for (int s = S_ - W_PAD_; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
             a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
@@ -334,40 +555,53 @@ void GenConvKernel<int32_t>::genForTopEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<int32_t>::genForLeftEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // left edge excluding corners
   asmjit::Label LoopLeftEdge = a->newLabel();
   a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
   a->bind(LoopLeftEdge);
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->add(out_acts_R_, scratchReg2_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   a->mov(scratchReg1_, loopR1_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
   a->imul(scratchReg1_, W_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_; ++r) {
-    if (!isZeroPointZero_) {
+    if (!isAZeroPointZero_) {
       for (int s = 0; s < W_PAD_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
             a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
       }
     }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_,
-              scratchReg1_,
-              0,
-              (s - W_PAD_) * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s - W_PAD_) * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                ((s - W_PAD_) * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
   }
-
-  a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->add(out_acts_R_, scratchReg2_);
   storeResult<inst_set_t::avx2>(a);
 
   a->inc(loopR1_);
@@ -387,7 +621,7 @@ void GenConvKernel<int32_t>::genForLeftEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // right edge excluding corners
   asmjit::Label LoopRightEdge = a->newLabel();
 
@@ -401,8 +635,12 @@ void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
 
   a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
   a->bind(LoopRightEdge);
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   a->mov(scratchReg1_, loopR1_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
   a->imul(scratchReg1_, W_R_);
@@ -414,11 +652,18 @@ void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
   a->add(scratchReg1_, scratchReg2_);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_, scratchReg1_, 0, c_offset * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
       a->add(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     }
-    if (!isZeroPointZero_) {
+    if (!isAZeroPointZero_) {
       for (int s = S_ - W_PAD_; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
             a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
@@ -463,35 +708,55 @@ void GenConvKernel<int32_t>::genForRightEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // bottom-left corner
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  // we updating the last row
+  a->mov(scratchReg1_, H_R_);
+  a->sub(scratchReg1_, 1);
+  a->imul(scratchReg1_, W_R_);
+  a->imul(scratchReg1_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+  a->add(out_acts_R_, scratchReg1_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   a->mov(scratchReg1_, H_R_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
   a->imul(scratchReg1_, W_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_ - H_PAD_; ++r) {
-    if (!isZeroPointZero_) {
+    if (!isAZeroPointZero_) {
       for (int s = 0; s < W_PAD_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
             a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
       }
     }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_,
-              scratchReg1_,
-              0,
-              (s - W_PAD_) * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s - W_PAD_) * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                ((s - W_PAD_) * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
   }
-  if (!isZeroPointZero_) {
+  if (!isAZeroPointZero_) {
     for (int r = R_ - H_PAD_; r < R_; ++r) {
       for (int s = 0; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
@@ -500,12 +765,6 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
     }
   }
 
-  // we updating the last row
-  a->mov(scratchReg1_, H_R_);
-  a->sub(scratchReg1_, 1);
-  a->imul(scratchReg1_, W_R_);
-  a->imul(scratchReg1_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
-  a->add(out_acts_R_, scratchReg1_);
   // storeResult<inst_set_t::avx2>(a, (H_-1)*W_*K_*sizeof(int32_t));
   storeResult<inst_set_t::avx2>(a);
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
@@ -514,8 +773,12 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   asmjit::Label LoopBottomEdge = a->newLabel();
   a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
   a->bind(LoopBottomEdge);
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   a->mov(scratchReg1_, H_R_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
   a->imul(scratchReg1_, W_R_);
@@ -523,17 +786,27 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   for (int r = 0; r < R_ - W_PAD_; ++r) {
     // int h_in = H_-2*H_PAD_ + r;
     for (int s = 0; s < S_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
   }
 
-  if (!isZeroPointZero_) {
+  if (!isAZeroPointZero_) {
     for (int r = R_ - W_PAD_; r < R_; ++r) {
       for (int s = 0; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
@@ -560,8 +833,12 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   // a->sub(out_acts_R_, (W_ - 2*W_PAD_)*K_*sizeof(int32_t));
 
   // bottom-right corner
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   // input start point
   // ((H_-(R_-H_PAD_))*W_+(W_-(S_-W_PAD_)))*C_*sizeof(uint8_t)
   a->mov(scratchReg1_, H_R_);
@@ -572,15 +849,25 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_ - H_PAD_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_,
+            x86::dword_ptr(
+                in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(
+                in_acts_R_,
+                scratchReg1_,
+                0,
+                (s * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
-    if (!isZeroPointZero_) {
+    if (!isAZeroPointZero_) {
       for (int s = S_ - W_PAD_; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
             a, zeroPTRegAvx2_, WRegs_avx2_[r * S_ + s]);
@@ -588,7 +875,7 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
     }
   }
 
-  if (!isZeroPointZero_) {
+  if (!isAZeroPointZero_) {
     for (int r = R_ - H_PAD_; r < R_; ++r) {
       for (int s = 0; s < S_; ++s) {
         gen8bitFMA<inst_set_t::avx2>(
@@ -612,7 +899,7 @@ void GenConvKernel<int32_t>::genForBottomEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    asmjit::X86Emitter* a, int c_offset) {
   // main compute
   asmjit::Label LoopH = a->newLabel();
   asmjit::Label LoopW = a->newLabel();
@@ -632,27 +919,41 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
   // W loop
   a->mov(loopR2_, static_cast<asmjit::Imm>(W_PAD_));
   a->bind(LoopW);
-  // zero out
-  a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (c_offset == 0) {
+    // zero out
+    a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  } else {
+    a->vmovups(resultRegAvx2_, x86::dword_ptr(out_acts_R_));
+  }
   // compute on all filters
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_; ++s) {
-      a->vbroadcastsd(
-          actRegAvx2_, x86::dword_ptr(in_acts_R_, s * C_ * sizeof(uint8_t)));
+      if (C_per_G_ == 4) {
+        a->vbroadcastsd(
+            actRegAvx2_, x86::dword_ptr(in_acts_R_, s * C_ * sizeof(uint8_t)));
+      } else {
+        a->vbroadcastss(
+            actRegAvx2_,
+            x86::word_ptr(in_acts_R_, (s * C_ + c_offset) * sizeof(uint8_t)));
+      }
       gen8bitFMA<inst_set_t::avx2>(a, actRegAvx2_, WRegs_avx2_[r * S_ + s]);
     }
+    // advance input pointer by one row
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(in_acts_R_, scratchReg2_);
   }
+  // rewind input pointer
   a->imul(
       scratchReg2_, W_R_, static_cast<asmjit::Imm>(R_ * C_ * sizeof(uint8_t)));
   a->sub(in_acts_R_, scratchReg2_);
   // a->add(scratchReg1_, C_*sizeof(uint8_t));
+  // advance input pointer by one pixel
   a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
 
   // storeResult<inst_set_t::avx2>(a, (W_+1)*K_*sizeof(int32_t));
   storeResult<inst_set_t::avx2>(a);
 
+  // advance output pointer by one pixel
   a->add(out_acts_R_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
 
   a->inc(loopR2_);
@@ -663,6 +964,7 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
       in_acts_R_, static_cast<asmjit::Imm>(2 * W_PAD_ * C_ * sizeof(uint8_t)));
   // a->sub(in_acts_R_, (W_ - 2*W_PAD_)*C_*sizeof(uint8_t));
   // a->add(in_acts_R_, W_*C_*sizeof(uint8_t));
+  // advance output pointer by padding size
   a->add(
       out_acts_R_, static_cast<asmjit::Imm>(2 * W_PAD_ * K_ * sizeof(int32_t)));
   // a->sub(out_acts_R_, (W_ - 2*W_PAD_)*K_*sizeof(int32_t));
@@ -673,6 +975,27 @@ void GenConvKernel<int32_t>::genCoreInsts<inst_set_t::avx2>(
   a->sub(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
   a->cmp(loopR1_, scratchReg2_);
   a->jl(LoopH);
+
+  if (c_offset + 4 < C_per_G_) {
+    // reset input pointer
+    // scratchReg2_ = W_R_ * C_ * (H_R_ - 2 * H_PAD_)
+    a->mov(scratchReg2_, H_R_);
+    a->sub(scratchReg2_, static_cast<asmjit::Imm>(2 * H_PAD_));
+    a->imul(scratchReg2_, W_R_);
+    a->imul(scratchReg2_, C_);
+    a->sub(in_acts_R_, scratchReg2_);
+
+    // reset output pointer
+    assert(K_ == C_);
+    a->imul(scratchReg2_, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    a->sub(out_acts_R_, scratchReg2_);
+
+    a->mov(scratchReg2_, static_cast<asmjit::Imm>(H_PAD_));
+    a->imul(scratchReg2_, W_R_);
+    a->add(scratchReg2_, static_cast<asmjit::Imm>(W_PAD_));
+    a->imul(scratchReg2_, static_cast<asmjit::Imm>(K_ * sizeof(int32_t)));
+    a->sub(out_acts_R_, scratchReg2_);
+  }
 }
 
 template <>
@@ -741,20 +1064,28 @@ jit_conv_kernel_fp GenConvKernel<int32_t>::getOrCreate<inst_set_t::avx2>(
   loopR1_ = a->gpzRef(14);
   loopR2_ = a->gpzRef(15);
 
-  if (!isZeroPointZero_) {
+  if (!isAZeroPointZero_) {
     setToZeroPt<inst_set_t::avx2>(a, zeroPTRegAvx2_);
   }
 
-  genForLoadingWeights<inst_set_t::avx2>(a);
-
   genConstForPermutations<inst_set_t::avx2>(a);
 
-  genForTopEdge<inst_set_t::avx2>(a);
-  genForLeftEdge<inst_set_t::avx2>(a);
-  genForRightEdge<inst_set_t::avx2>(a);
-  genForBottomEdge<inst_set_t::avx2>(a);
+  // Work on 4 input channels at a time.
+  // The minimum unit should be 4 because instruction sequence in gen8bitFMA
+  // reduces 4 inputs.
+  // We can't work on more than 4 input channels because of we can't put too
+  // many weights in register (we need R S K 4 / 32 registers to store weights
+  // for 4 input channels).
+  for (int c = 0; c < C_per_G_; c += 4) {
+    genForLoadingWeights<inst_set_t::avx2>(a, c);
 
-  genCoreInsts<inst_set_t::avx2>(a);
+    genForTopEdge<inst_set_t::avx2>(a, c);
+    genForLeftEdge<inst_set_t::avx2>(a, c);
+    genForRightEdge<inst_set_t::avx2>(a, c);
+    genForBottomEdge<inst_set_t::avx2>(a, c);
+
+    genCoreInsts<inst_set_t::avx2>(a, c);
+  }
 
   asmjit::FuncUtils::emitEpilog(a, layout);
 
@@ -764,7 +1095,7 @@ jit_conv_kernel_fp GenConvKernel<int32_t>::getOrCreate<inst_set_t::avx2>(
     std::cout << "Error: in fn add" << std::endl;
     return nullptr;
   }
-  auto kernelSig = getKernelSig(conv_param, isZeroPointZero_);
+  auto kernelSig = getKernelSig(conv_param, isAZeroPointZero_);
   codeCache_[kernelSig] = fn;
 
 #if defined(FBGEMM_LOG_CODE)
@@ -782,29 +1113,21 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
   // top-left corner code
   // zero out the results register
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  for (int r = 0; r < R_; ++r) {
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
+  }
+  for (int r = H_PAD_; r < R_; ++r) {
     int h_in = -H_PAD_ + r;
-    if (h_in >= 0) {
-      a->imul(
-          scratchReg1_,
-          W_R_,
-          static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
-    }
-    for (int s = 0; s < S_; ++s) {
+    a->imul(
+        scratchReg1_,
+        W_R_,
+        static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
+    for (int s = W_PAD_; s < S_; ++s) {
       int w_in = -W_PAD_ + s;
-      if (h_in >= 0 && w_in >= 0) {
-        a->vmovaps(
-            actRegAvx2_,
-            x86::dword_ptr(
-                in_acts_R_, scratchReg1_, 0, w_in * C_ * sizeof(uint8_t)));
-        gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
-      } else {
-        if (!isZeroPointZero_) {
-          gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-        }
-      }
+      gen8BitSum<inst_set_t::avx2>(a, w_in * C_);
     }
   }
+
   // store results
   storeResultRowoffset<inst_set_t::avx2>(a);
 
@@ -817,12 +1140,8 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
   a->bind(LoopTopEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  if (!isZeroPointZero_) {
-    for (int r = 0; r < H_PAD_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, H_PAD_ * S_);
   }
   for (int r = H_PAD_; r < R_; ++r) {
     int h_in = -H_PAD_ + r;
@@ -831,11 +1150,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
         W_R_,
         static_cast<asmjit::Imm>(h_in * C_ * sizeof(uint8_t)));
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, s * C_);
     }
   }
   a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
@@ -859,12 +1174,8 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
   // top-right corner code
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
-  if (!isZeroPointZero_) {
-    for (int r = 0; r < H_PAD_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
   }
   for (int r = H_PAD_; r < R_; ++r) {
     int h_in = -H_PAD_ + r;
@@ -877,13 +1188,7 @@ void GenConvKernel<int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
       a->sub(scratchReg2_, static_cast<asmjit::Imm>(R_ - W_PAD_ - s));
       a->imul(scratchReg2_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
       a->add(scratchReg1_, scratchReg2_);
-      a->vmovaps(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
-    }
-    if (!isZeroPointZero_) {
-      for (int s = S_ - W_PAD_; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
+      gen8BitSum<inst_set_t::avx2>(a, 0);
     }
   }
 
@@ -907,25 +1212,16 @@ void GenConvKernel<int32_t>::genForLeftEdgeRowoffset<inst_set_t::avx2>(
   a->bind(LoopLeftEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * W_PAD_);
+  }
   a->mov(scratchReg1_, loopR1_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
   a->imul(scratchReg1_, W_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_; ++r) {
-    if (!isZeroPointZero_) {
-      for (int s = 0; s < W_PAD_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vmovaps(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_,
-              scratchReg1_,
-              0,
-              (s - W_PAD_) * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, (s - W_PAD_) * C_);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
@@ -968,6 +1264,9 @@ void GenConvKernel<int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
   a->bind(LoopRightEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * W_PAD_);
+  }
   a->mov(scratchReg1_, loopR1_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(H_PAD_));
   a->imul(scratchReg1_, W_R_);
@@ -979,15 +1278,8 @@ void GenConvKernel<int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
   a->add(scratchReg1_, scratchReg2_);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->vbroadcastsd(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
-      a->vmovaps(actRegAvx2_, x86::dword_ptr(in_acts_R_, scratchReg1_));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, 0);
       a->add(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
-    }
-    if (!isZeroPointZero_) {
-      for (int s = S_ - W_PAD_; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
     }
 
     a->sub(
@@ -1030,35 +1322,19 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   // bottom-left corner
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
+  }
   a->mov(scratchReg1_, H_R_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
   a->imul(scratchReg1_, W_R_);
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_ - H_PAD_; ++r) {
-    if (!isZeroPointZero_) {
-      for (int s = 0; s < W_PAD_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
     for (int s = W_PAD_; s < S_; ++s) {
-      a->vmovaps(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_,
-              scratchReg1_,
-              0,
-              (s - W_PAD_) * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, (s - W_PAD_) * C_);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
-  }
-  if (!isZeroPointZero_) {
-    for (int r = R_ - H_PAD_; r < R_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
   }
 
   // we updating the last row
@@ -1076,6 +1352,9 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   a->bind(LoopBottomEdge);
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, H_PAD_ * S_);
+  }
   a->mov(scratchReg1_, H_R_);
   a->sub(scratchReg1_, static_cast<asmjit::Imm>(2 * H_PAD_));
   a->imul(scratchReg1_, W_R_);
@@ -1083,22 +1362,10 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   for (int r = 0; r < R_ - W_PAD_; ++r) {
     // int h_in = H_-2*H_PAD_ + r;
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, s * C_);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
-  }
-
-  if (!isZeroPointZero_) {
-    for (int r = R_ - W_PAD_; r < R_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
   }
 
   a->add(in_acts_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
@@ -1121,6 +1388,9 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   // bottom-right corner
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
+  if (!isAZeroPointZero_) {
+    genZeroPtSum<inst_set_t::avx2>(a, R_ * S_ - (R_ - H_PAD_) * (S_ - W_PAD_));
+  }
   // input start point
   // ((H_-(R_-H_PAD_))*W_+(W_-(S_-W_PAD_)))*C_*sizeof(uint8_t)
   a->mov(scratchReg1_, H_R_);
@@ -1131,27 +1401,10 @@ void GenConvKernel<int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
   a->imul(scratchReg1_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
   for (int r = 0; r < R_ - H_PAD_; ++r) {
     for (int s = 0; s < S_ - W_PAD_; ++s) {
-      a->vmovaps(
-          actRegAvx2_,
-          x86::dword_ptr(
-              in_acts_R_, scratchReg1_, 0, s * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, s * C_);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(scratchReg1_, scratchReg2_);
-    if (!isZeroPointZero_) {
-      for (int s = S_ - W_PAD_; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
-  }
-
-  if (!isZeroPointZero_) {
-    for (int r = R_ - H_PAD_; r < R_; ++r) {
-      for (int s = 0; s < S_; ++s) {
-        gen8BitSum<inst_set_t::avx2>(a, zeroPTRegAvx2_);
-      }
-    }
   }
 
   storeResultRowoffset<inst_set_t::avx2>(a);
@@ -1195,9 +1448,7 @@ void GenConvKernel<int32_t>::genRowoffsetCore<inst_set_t::avx2>(
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
   for (int r = 0; r < R_; ++r) {
     for (int s = 0; s < S_; ++s) {
-      a->vmovaps(
-          actRegAvx2_, x86::dword_ptr(in_acts_R_, s * C_ * sizeof(uint8_t)));
-      gen8BitSum<inst_set_t::avx2>(a, actRegAvx2_);
+      gen8BitSum<inst_set_t::avx2>(a, s * C_, false /*use_scratch_reg1*/);
     }
     a->imul(scratchReg2_, W_R_, static_cast<asmjit::Imm>(C_ * sizeof(uint8_t)));
     a->add(in_acts_R_, scratchReg2_);
@@ -1287,8 +1538,16 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
 
   // This uses xmm10 register temporarily. Should come before
   // createVector8BitOne
-  if (!isZeroPointZero_) {
-    setToZeroPt<inst_set_t::avx2>(a, zeroPTRegAvx2_);
+  if (!isAZeroPointZero_) {
+    // we can use xmm11 because ymm11 is used by tmpReg1Avx2_
+    asmjit::X86Xmm const_reg_xmm = x86::xmm11;
+    a->movq(const_reg_xmm, a_zero_pt_R_);
+    a->vpbroadcastd(zeroPTRegAvx2_, const_reg_xmm);
+
+    a->mov(scratchReg1_, static_cast<asmjit::Imm>(C_per_G_));
+    a->movq(const_reg_xmm, scratchReg1_);
+    a->vpbroadcastd(tmpReg1Avx2_, const_reg_xmm);
+    a->vpmulld(zeroPTRegAvx2_, zeroPTRegAvx2_, tmpReg1Avx2_);
   }
 
   createVector16BitOne<inst_set_t::avx2>(a);
@@ -1310,7 +1569,7 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
     std::cout << "Error: in fn add" << std::endl;
     return nullptr;
   }
-  auto kernelSig = getKernelSig(conv_param, isZeroPointZero_);
+  auto kernelSig = getKernelSig(conv_param, isAZeroPointZero_);
   codeCacheRowOffset_[kernelSig] = fn;
 
 #if defined(FBGEMM_LOG_CODE)
@@ -1321,12 +1580,14 @@ GenConvKernel<int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
   return fn;
 }
 
+namespace {
+
 template <
     typename packed_W,
     typename outType,
     typename processOutputType,
     int SPATIAL_DIM>
-void fbgemmGroupwiseConv(
+void fbgemmGroupwiseConvBase_(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
     std::int32_t a_zero_point,
@@ -1345,11 +1606,11 @@ void fbgemmGroupwiseConv(
   int K_per_G = conv_param.OC / G;
   int C_per_G = conv_param.IC / G;
   int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
+  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
 
   static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
 
-  int32_t* rowOffsetTrDest =
-      rowOffsetBuf + 8 * conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
   if (fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param)) {
     assert(G % 8 == 0);
     // generate convolution kernel
@@ -1359,57 +1620,68 @@ void fbgemmGroupwiseConv(
     jit_rowoffset_kernel_fp fpRowoffset =
         getOrCreateRowOffsetKernel(conv_param, a_zero_point);
     for (int i = 0; i < MB; ++i) {
-      const uint8_t* actStartBatch = activations +
-          i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * conv_param.IC;
+      const uint8_t* actStartBatch = activations + i * ih_iw * conv_param.IC;
       for (int gOuter = 0; gOuter < G; gOuter += 8) {
-        // for C_per_G == 4 and K_per_G == 4, row offset is calcualted for 8
-        // groups at a time The result is row offsets in the format IH*IW x G
-        fpRowoffset(
-            actStartBatch + gOuter * C_per_G,
-            a_zero_point,
-            H,
-            W,
-            rowOffsetBuf);
-        // Transpose to get row offsets in the format G x IH*IW
-        internal::transpose_8x8(
-            conv_param.IN_DIM[0] * conv_param.IN_DIM[1],
-            8,
-            (const float*)rowOffsetBuf,
-            8,
-            (float*)rowOffsetTrDest,
-            conv_param.IN_DIM[0] * conv_param.IN_DIM[1]);
+        // row offset is calcualted for 8 groups at a time.
+        // The result is row offsets in the format IH*IW x G
+        if (rowOffsetBuf) {
+          fpRowoffset(
+              actStartBatch + gOuter * C_per_G,
+              a_zero_point,
+              H,
+              W,
+              rowOffsetBuf);
+          // Transpose to get row offsets in the format G x IH*IW
+          internal::transpose_8x8(
+              ih_iw,
+              8,
+              reinterpret_cast<const float*>(rowOffsetBuf),
+              8,
+              reinterpret_cast<float*>(rowOffsetTrDest),
+              ih_iw);
+        }
         int gLimit = gOuter + 8;
-        for (int g = gOuter; g < gLimit; g += 2) {
+        // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
+        // of AVX2), and we need multiple groups if a group has not enough
+        // number of channels.
+        int gDelta = std::max(8 / C_per_G, 1);
+        for (int g = gOuter; g < gLimit; g += gDelta) {
           int32_t* currOutBuf =
               outBuffer + i * oh_ow * conv_param.OC + g * K_per_G;
           const uint8_t* actStartGroup = actStartBatch + g * C_per_G;
-
-          fpConv(
-              actStartGroup,
-              packed_weights.getBuf() + g * K_per_G * C_per_G,
-              currOutBuf,
-              a_zero_point,
-              H,
-              W);
+          for (int k = 0; k < K_per_G; k += 8) {
+            // Don't be confused with k above which refers to output channels.
+            // k0 and k1 are filter dimensions (commonly 3 and 3)
+            int k0 = conv_param.K[0];
+            int k1 = conv_param.K[1];
+            fpConv(
+                actStartGroup,
+                // packed weight is in G (C/4) R S K 4 layout for IC_per_G >= 8
+                // in (G/2) R S K (2C) for IC_per_G == 4
+                packed_weights.getBuf() +
+                    (g * (C_per_G / 4) * k0 * k1 * K_per_G + k) * 4,
+                currOutBuf + k,
+                a_zero_point,
+                H,
+                W);
+          } // k loop
 
           // Output processing should be called for each group
-          for (int j = 0; j < 2; ++j) {
+          for (int j = 0; j < gDelta; ++j) {
             // calculateRowOffsets(
             // conv_param, actStartGroup, rowOffsetBuf, a_zero_point, j);
-            int32_t* rowOffsetForCurG = rowOffsetTrDest +
-                ((g - gOuter) + j) * conv_param.IN_DIM[0] *
-                    conv_param.IN_DIM[1];
+            int32_t* rowOffsetForCurG =
+                rowOffsetTrDest
+                ? rowOffsetTrDest + ((g - gOuter) + j) * ih_iw
+                : nullptr;
             // compare_buffers(rowOffsetBuf, rowOffsetForCurG,
             // conv_param.IN_DIM[0]*conv_param.IN_DIM[1], 1, 1, 100);
 
             // outProcess expects rowOffsetBuf to contain row offsets for the
             // current group
-            memcpy(
-                rowOffsetBuf,
-                rowOffsetForCurG,
-                conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * sizeof(int32_t));
+            memcpy(rowOffsetBuf, rowOffsetForCurG, ih_iw * sizeof(int32_t));
 
-            if (cpuinfo_has_x86_avx512f()) {
+            if (fbgemmHasAvx512Support()) {
               // Currently use avx2 code
               outProcess.template f<inst_set_t::avx2>(
                   out,
@@ -1417,7 +1689,7 @@ void fbgemmGroupwiseConv(
                   {i * oh_ow, oh_ow, (g + j) * K_per_G, K_per_G},
                   K_per_G * G,
                   K_per_G * G);
-            } else if (cpuinfo_has_x86_avx2()) {
+            } else if (fbgemmHasAvx2Support()) {
               outProcess.template f<inst_set_t::avx2>(
                   out,
                   currOutBuf + j * K_per_G,
@@ -1429,9 +1701,9 @@ void fbgemmGroupwiseConv(
               assert(0 && "unsupported architecure");
             }
           } // j loop
-        }
-      }
-    }
+        } // g loop
+      } // gOuter loop
+    } // i loop
   } else {
     // for the not supported cases, just execute the naive C implementation
     conv_ref(
@@ -1442,13 +1714,16 @@ void fbgemmGroupwiseConv(
         outBuffer);
     for (int i = 0; i < conv_param.MB; ++i) {
       for (int g = 0; g < conv_param.G; ++g) {
-        calculateRowOffsets(
-            conv_param,
-            activations +
-                i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] * conv_param.IC,
-            rowOffsetBuf,
-            a_zero_point,
-            g);
+        if (rowOffsetBuf) {
+          calculateRowOffsets(
+              conv_param,
+              activations +
+                  i * conv_param.IN_DIM[0] * conv_param.IN_DIM[1] *
+                      conv_param.IC,
+              rowOffsetBuf,
+              a_zero_point,
+              g);
+        }
         outProcess.template f<inst_set_t::anyarch>(
             out,
             outBuffer + i * oh_ow * conv_param.OC + g * K_per_G,
@@ -1458,6 +1733,403 @@ void fbgemmGroupwiseConv(
       }
     }
   }
+}
+
+}
+
+template <
+    typename packed_W,
+    typename outType,
+    typename processOutputType,
+    int SPATIAL_DIM>
+void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    int32_t* outBuffer,
+    const processOutputType& outProcess,
+    int thread_id,
+    int num_threads) {
+  return fbgemmGroupwiseConvBase_<
+      packed_W,
+      outType,
+      processOutputType,
+      SPATIAL_DIM>(
+      conv_param,
+      activations,
+      a_zero_point,
+      rowOffsetBuf,
+      packed_weights,
+      out,
+      outBuffer,
+      outProcess,
+      thread_id,
+      num_threads);
+}
+
+template <
+    typename packed_W,
+    typename outType,
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    int SPATIAL_DIM>
+void fbgemmGroupwiseConv(
+    const conv_param_t<SPATIAL_DIM>& conv_param,
+    const std::uint8_t* activations,
+    std::int32_t a_zero_point,
+    std::int32_t* rowOffsetBuf,
+    packed_W& packed_weights,
+    outType* out,
+    int32_t* outBuffer,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    int thread_id,
+    int num_threads) {
+  typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN> processOutputType;
+
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (!fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param) ||
+      (!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+    return fbgemmGroupwiseConvBase_<
+        packed_W,
+        outType,
+        processOutputType,
+        SPATIAL_DIM>(
+        conv_param,
+        activations,
+        a_zero_point,
+        rowOffsetBuf,
+        packed_weights,
+        out,
+        outBuffer,
+        outProcess,
+        thread_id,
+        num_threads);
+  }
+
+  int MB = conv_param.MB;
+  int H = conv_param.OUT_DIM[0];
+  int W = conv_param.OUT_DIM[1];
+  int G = conv_param.G;
+  int K_per_G = conv_param.OC / G;
+  int C_per_G = conv_param.IC / G;
+  int oh_ow = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
+  int ih_iw = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+
+  static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
+
+  int32_t* rowOffsetTrDest = rowOffsetBuf ? rowOffsetBuf + 8 * ih_iw : nullptr;
+  assert(G % 8 == 0);
+  // generate convolution kernel
+  jit_conv_kernel_fp fpConv =
+      getOrCreateConvKernel<>(conv_param, a_zero_point);
+  // generate row offset kernel
+  jit_rowoffset_kernel_fp fpRowoffset =
+      getOrCreateRowOffsetKernel(conv_param, a_zero_point);
+  for (int i = 0; i < MB; ++i) {
+    const uint8_t* actStartBatch = activations + i * ih_iw * conv_param.IC;
+    for (int gOuter = 0; gOuter < G; gOuter += 8) {
+      if (rowOffsetBuf && outProcess.getBZeroPoint()) {
+        // row offset is calcualted for 8 groups at a time.
+        // The result is row offsets in the format IH*IW x G
+        fpRowoffset(
+            actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
+        // Transpose to get row offsets in the format G x IH*IW
+        internal::transpose_8x8(
+            ih_iw,
+            8,
+            reinterpret_cast<const float*>(rowOffsetBuf),
+            8,
+            reinterpret_cast<float*>(rowOffsetTrDest),
+            ih_iw);
+      }
+      int gLimit = gOuter + 8;
+      // Work on 8 output channels at a time (8 * sizeof(int32_t) == 32B VLEN
+      // of AVX2), and we need multiple groups if a group has not enough
+      // number of channels.
+      int gDelta = std::max(8 / C_per_G, 1);
+      for (int g = gOuter; g < gLimit; g += gDelta) {
+        // Reusing the same region of outBuffer multiple times for locality
+        int32_t* currOutBuf = outBuffer + (g - gOuter) * K_per_G;
+        const uint8_t* actStartGroup = actStartBatch + g * C_per_G;
+        for (int k = 0; k < K_per_G; k += 8) {
+          // Don't be confused with k above which refers to output channels.
+          // k0 and k1 are filter dimensions (commonly 3 and 3)
+          int k0 = conv_param.K[0];
+          int k1 = conv_param.K[1];
+          fpConv(
+              actStartGroup,
+              // packed weight is in G (C/4) R S K 4 layout for IC_per_G >= 8
+              // in (G/2) R S K (2C) for IC_per_G == 4
+              packed_weights.getBuf() +
+                  (g * (C_per_G / 4) * k0 * k1 * K_per_G + k) * 4,
+              currOutBuf + k,
+              a_zero_point,
+              H,
+              W);
+        } // k loop
+      } // g loop
+
+      bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
+                          outProcess.getBZeroPoint()[0] == 0) ||
+          rowOffsetBuf == nullptr;
+
+      requantizationParams_t r = {a_zero_point,
+                                  outProcess.getBZeroPoint(),
+                                  outProcess.getCZeroPoint(),
+                                  outProcess.getCMultiplier(),
+                                  rowOffsetBuf,
+                                  outProcess.getColOffsets(),
+                                  outProcess.getBias(),
+                                  outProcess.getNCols(),
+                                  G};
+
+      const std::int32_t* inp = outBuffer;
+      block_type_t block{i * oh_ow, oh_ow, gOuter * K_per_G, 8 * K_per_G};
+      int ld_out = K_per_G * G;
+      int ld_in = K_per_G * G;
+
+      if (C_per_G == 4) {
+        if (a_zero_point == 0) {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        } else {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  4>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        }
+      } else if (C_per_G == 8) {
+        if (a_zero_point == 0) {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        } else {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  8>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        }
+      } else {
+        if (a_zero_point == 0) {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  true,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        } else {
+          if (b_symmetric) {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  true,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            }
+          } else {
+            if (outProcess.getBias() == nullptr) {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  false,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            } else {
+              requantizeOutputProcessingGConvAvx2<
+                  false,
+                  false,
+                  Q_GRAN,
+                  true,
+                  FUSE_RELU,
+                  16>(out, inp, block, ld_out, ld_in, r);
+            }
+          }
+        }
+      }
+    } // gOuter loop
+  } // i loop
 }
 
 jit_rowoffset_kernel_fp getOrCreateRowOffsetKernel(
@@ -1481,20 +2153,22 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   // row offset buffer should be a able to hold row offsets for however
   // number of groups we process at a time.
   if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
+    if (fbgemmHasAvx512Support()) {
       int bufferSize = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
       int C_per_G = conv_param.IC / conv_param.G;
       int K_per_G = conv_param.OC / conv_param.G;
-      if (C_per_G == 4 && K_per_G == 4) {
+      if (C_per_G == K_per_G &&
+          (C_per_G == 4 || C_per_G == 8 || C_per_G == 16)) {
         return 2 * 8 * bufferSize;
       } else {
         return conv_param.G * bufferSize;
       }
-    } else if (cpuinfo_has_x86_avx2()) {
+    } else if (fbgemmHasAvx2Support()) {
       int bufferSize = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
       int C_per_G = conv_param.IC / conv_param.G;
       int K_per_G = conv_param.OC / conv_param.G;
-      if (C_per_G == 4 && K_per_G == 4) {
+      if (C_per_G == K_per_G &&
+          (C_per_G == 4 || C_per_G == 8 || C_per_G == 16)) {
         // row offset is calculated for 8 groups at a time
         // 2x is needed for transposing
         return 2 * 8 * bufferSize;

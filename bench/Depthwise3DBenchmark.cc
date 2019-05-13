@@ -27,6 +27,14 @@ using namespace std;
 using namespace fbgemm;
 
 int main() {
+#ifdef _OPENMP
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
+#endif
+
   // Depthwise is memory BW bound so we want to flush LLC.
   bool flush = true;
   std::vector<char> llc;
@@ -123,72 +131,7 @@ int main() {
     double ops =
         double(NITER) * N * T_OUT * H_OUT * W_OUT * K * K_T * K_H * K_W * 2;
     chrono::time_point<chrono::system_clock> t_begin, t_end;
-    for (int i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush();
 
-      t_begin = chrono::system_clock::now();
-#pragma omp parallel
-      {
-        int num_threads = fbgemm_get_num_threads();
-        int tid = fbgemm_get_thread_num();
-        depthwise_3x3x3_pad_1(
-            N,
-            T,
-            H,
-            W,
-            K,
-            stride_t,
-            stride_h,
-            stride_w,
-            A_zero_point,
-            A.data(),
-            Bp,
-            C.data(),
-            tid,
-            num_threads);
-      }
-      t_end = chrono::system_clock::now();
-      if (i >= NWARMUP) {
-        double dt = chrono::duration<double>(t_end - t_begin).count();
-        ttot += dt;
-      }
-    }
-
-    // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int t = 0; t < T_OUT; ++t) {
-        for (int h = 0; h < H_OUT; ++h) {
-          for (int w = 0; w < W_OUT; ++w) {
-            for (int g = 0; g < K; ++g) {
-              int32_t expected =
-                  C_ref[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + g];
-              int32_t actual =
-                  C[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + g];
-              if (expected != actual) {
-                cerr << "Depthwise 3x3 results differ at (" << n << ", " << t
-                     << ", " << h << ", " << w << ", " << g << "). expected "
-                     << expected << " actual " << actual << endl;
-                return -1;
-              }
-              assert(expected == actual);
-            }
-          } // w
-        } // h
-      } // t
-    } // n
-
-    // Report performance
-    printf(
-        "N = %d K = %d T = %d H = %d W = %d stride = %d\n",
-        N,
-        K,
-        T,
-        H,
-        W,
-        stride_h);
-    printf("GB/s = %f Gops/s = %f\n", bytes / ttot / 1e9, ops / ttot / 1e9);
-
-    ttot = 0;
     for (int i = 0; i < NWARMUP + NITER; ++i) {
       llc_flush();
 

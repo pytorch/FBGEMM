@@ -25,6 +25,14 @@ using namespace std;
 using namespace fbgemm;
 
 int main() {
+#ifdef _OPENMP
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  const char* val = getenv("OMP_NUM_THREADS");
+  if (val == nullptr || !*val) {
+    omp_set_num_threads(1);
+  }
+#endif
+
   const vector<array<int, 3>> shapes = {
       //   M,    N,    K
       {1024, 1024, 1024},
@@ -68,7 +76,7 @@ int main() {
 #endif
 
   for (const auto& shape : shapes) {
-    for (float density : {0.0001f, 0.001f, 0.01f, 0.1f, 1.0f}) {
+    for (float density : {0.00001f, 0.0001f, 0.001f, 0.01f, 0.1f, 1.0f}) {
       for (bool accumulation : {false, true}) {
         int M = shape[0];
         int N = shape[1];

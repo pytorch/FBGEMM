@@ -28,42 +28,66 @@ ExecuteKernel<
             PackBMatrix<int8_t, typename packingAMatrix::accType>,
             int8_t,
             typename packingAMatrix::accType>& packB,
-        int32_t kBlock,
         cT* matC,
         int32_t* C_buffer,
         int32_t ldc,
         const processOutputType& outputProcess,
         int thread_id,
-        int num_threads)
-    : packedA_(packA),
+        int num_threads,
+        const BlockingFactors* params)
+    : CodeGenBase<uint8_t, int8_t, int32_t, typename packingAMatrix::accType>(
+          params),
+      packedA_(packA),
       packedB_(packB),
-      kBlock_(kBlock),
       matC_(matC),
       C_buffer_(C_buffer),
       ldc_(ldc),
       outputProcess_(outputProcess),
       thread_id_(thread_id),
       num_threads_(num_threads) {
-  if (cpuinfo_has_x86_avx512f()) {
-    mbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx512>::MCB;
-    nbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx512>::NCB;
-  } else if (cpuinfo_has_x86_avx2()) {
-    mbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx2>::MCB;
-    nbSize_ = PackingTraits<
-        int8_t,
-        typename packingAMatrix::accType,
-        inst_set_t::avx2>::NCB;
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      mbSize_ = params->MCB;
+      nbSize_ = params->NCB;
+      nrMinSize_ = params->NR_MIN;
+      nrSize_ = params->NR;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
   } else {
-    assert(0 && "unsupported architecure");
+    if (fbgemmHasAvx512Support()) {
+      mbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::MCB;
+      nbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::NCB;
+      nrMinSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::NR_MIN;
+    } else if (fbgemmHasAvx2Support()) {
+      mbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::MCB;
+      nbSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::NCB;
+      nrMinSize_ = PackingTraits<
+          int8_t,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::NR;
+    } else {
+      assert(0 && "unsupported architecure");
+    }
   }
   C_tile_ = new int32_t[mbSize_ * nbSize_];
 }
@@ -94,28 +118,24 @@ void ExecuteKernel<
 
   typename BaseType::jit_micro_kernel_fp fn;
 
-  if (cpuinfo_initialize()) {
-    if (cpuinfo_has_x86_avx512f()) {
-      fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-          accum,
-          packed_rows_A,
-          packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
-    } else if (cpuinfo_has_x86_avx2()) {
-      fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-          accum,
-          packed_rows_A,
-          packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecture");
-      return;
-    }
+  if (fbgemmHasAvx512Support()) {
+    fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+        accum,
+        packed_rows_A,
+        packedB_.blockColSize(),
+        packedA_.numPackedCols(),
+        nbSize_);
+  } else if (fbgemmHasAvx2Support()) {
+    fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+        accum,
+        packed_rows_A,
+        packedB_.blockColSize(),
+        packedA_.numPackedCols(),
+        nbSize_);
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    // TODO: Have default slower path
+    assert(0 && "unsupported architecture");
+    return;
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -125,6 +145,23 @@ void ExecuteKernel<
 #endif
 
   for (int jb = 0; jb < bColBlocks; ++jb) {
+    if (jb == bColBlocks - 1) {
+      int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
+      if (nc != nbSize_) {
+        if (fbgemmHasAvx512Support()) {
+          fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+        } else if (fbgemmHasAvx2Support()) {
+          fn = BaseType::template getOrCreate<inst_set_t::avx2>(
+              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+        } else {
+          // TODO: Have default slower path
+          assert(0 && "unsupported architecture");
+          return;
+        }
+      }
+    }
+
     bBuf = packedB_.getBuf(jb, kBlock);
     // prefetch addr of the next packed block of B matrix
     bBuf_pf = packedB_.getBuf(jb == bColBlocks - 1 ? jb : jb + 1, kBlock);
@@ -176,7 +213,7 @@ void ExecuteKernel<
       int32_t nSize =
           C_buffer_start == C_tile_ ? jb * nbSize_ : packedB_.numCols();
       if (nSize) {
-        if (cpuinfo_has_x86_avx512f()) {
+        if (fbgemmHasAvx512Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
@@ -185,7 +222,7 @@ void ExecuteKernel<
               {row_start_A, packed_rows_A, NDim * group, nSize},
               ldc_,
               ldc_);
-        } else if (cpuinfo_has_x86_avx2()) {
+        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_buffer_row_start,
@@ -201,7 +238,7 @@ void ExecuteKernel<
       if (C_buffer_start == C_tile_) {
         // When C_tile_ scratchpad was used to avoid accessing memory past
         // C_buffer_ .
-        if (cpuinfo_has_x86_avx512f()) {
+        if (fbgemmHasAvx512Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
@@ -213,7 +250,7 @@ void ExecuteKernel<
                packedB_.lastBcol()},
               ldc_,
               leadingDim);
-        } else if (cpuinfo_has_x86_avx2()) {
+        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_tile_,
@@ -243,116 +280,127 @@ void ExecuteKernel<
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeOutput
-#define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN) \
-  template class ExecuteKernel<                       \
-      PACK_A<uint8_t, ACC_T>,                         \
-      PackBMatrix<int8_t, ACC_T>,                     \
-      uint8_t,                                        \
+#define INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN) \
+  template class ExecuteKernel<                               \
+      PACK_A<uint8_t, ACC_T>,                                 \
+      PackBMatrix<int8_t, ACC_T>,                             \
+      uint8_t,                                                \
       ReQuantizeOutput<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                          \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, RELU)     \
+  INSTANTIATE_REQUANT_BASE(                                  \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_REQUANT_BASE(                                  \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_REQUANT_BASE(                                  \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_RELU(PACK_A, ACC_T)      \
-  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false); \
-  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, true);
+#define INSTANTIATE_REQUANT_RELU(PACK_A, ACC_T)      \
+  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, false); \
+  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, true);
 
-#define INSTANTIATE_ACC_T(PACK_A)    \
-  INSTANTIATE_RELU(PACK_A, int32_t); \
-  INSTANTIATE_RELU(PACK_A, int16_t);
+#define INSTANTIATE_REQUANT_ACC_T(PACK_A)    \
+  INSTANTIATE_REQUANT_RELU(PACK_A, int32_t); \
+  INSTANTIATE_REQUANT_RELU(PACK_A, int16_t);
 
-INSTANTIATE_ACC_T(PackAMatrix);
-INSTANTIATE_ACC_T(PackAWithRowOffset);
+INSTANTIATE_REQUANT_ACC_T(PackAMatrix);
+INSTANTIATE_REQUANT_ACC_T(PackAWithRowOffset);
 
-#undef INSTANTIATE_ACC_T
-#undef INSTANTIATE_RELU
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_REQUANT_ACC_T
+#undef INSTANTIATE_REQUANT_RELU
+#undef INSTANTIATE_REQUANT_Q_GRANS
+#undef INSTANTIATE_REQUANT_BASE
 
-#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
-  template class ExecuteKernel<                            \
-      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,        \
-      PackBMatrix<int8_t, ACC_T>,                          \
-      uint8_t,                                             \
+#define INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
+  template class ExecuteKernel<                                           \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,                       \
+      PackBMatrix<int8_t, ACC_T>,                                         \
+      uint8_t,                                                            \
       ReQuantizeOutput<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(                                                            \
+#define INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, SPATIAL_DIM) \
+  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR);    \
+  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);     \
+  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+#define INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 3);
 
-#define INSTANTIATE_RELU(ACC_T)          \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+#define INSTANTIATE_IM2COL_REQUANT_RELU(ACC_T)          \
+  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, true);
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+INSTANTIATE_IM2COL_REQUANT_RELU(int32_t);
+INSTANTIATE_IM2COL_REQUANT_RELU(int16_t);
 
-#undef INSTANTIATE_RELU
-#undef INSTANTIATE_SPATIAL_DIM
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_IM2COL_REQUANT_RELU
+#undef INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM
+#undef INSTANTIATE_IM2COL_REQUANT_Q_GRANS
+#undef INSTANTIATE_IM2COL_REQUANT_BASE
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeForFloat
-#define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN) \
-  template class ExecuteKernel<                \
-      PACK_A<uint8_t, int32_t>,                \
-      PackBMatrix<int8_t, int32_t>,            \
-      float,                                   \
+#define INSTANTIATE_REQUANT_FLOAT_BASE(PACK_A, RELU, Q_GRAN) \
+  template class ExecuteKernel<                              \
+      PACK_A<uint8_t, int32_t>,                              \
+      PackBMatrix<int8_t, int32_t>,                          \
+      float,                                                 \
       ReQuantizeForFloat<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, RELU) \
+  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
+      PACK_A, RELU, QuantizationGranularity::TENSOR);   \
+  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
+      PACK_A, RELU, QuantizationGranularity::GROUP);    \
+  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
+      PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_RELU(PACK_A)      \
-  INSTANTIATE_Q_GRANS(PACK_A, false); \
-  INSTANTIATE_Q_GRANS(PACK_A, true);
+#define INSTANTIATE_REQUANT_FLOAT_RELU(PACK_A)      \
+  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, false); \
+  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, true);
 
-INSTANTIATE_RELU(PackAWithRowOffset);
-INSTANTIATE_RELU(PackAWithQuantRowOffset);
+INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithRowOffset);
+INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithQuantRowOffset);
 
-#undef INSTANTIATE_RELU
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_REQUANT_FLOAT_RELU
+#undef INSTANTIATE_REQUANT_FLOAT_Q_GRANS
+#undef INSTANTIATE_REQUANT_FLOAT_BASE
 
-#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
-  template class ExecuteKernel<                            \
-      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,        \
-      PackBMatrix<int8_t, ACC_T>,                          \
-      float,                                               \
+#define INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(      \
+    ACC_T, RELU, SPATIAL_DIM, Q_GRAN)               \
+  template class ExecuteKernel<                     \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>, \
+      PackBMatrix<int8_t, ACC_T>,                   \
+      float,                                        \
       ReQuantizeForFloat<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(                                                            \
+#define INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, SPATIAL_DIM) \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR);          \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);           \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
-#define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+#define INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 2);       \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 3);
 
-#define INSTANTIATE_RELU(ACC_T)          \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+#define INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(ACC_T)          \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, false); \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, true);
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int32_t);
+INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int16_t);
 
-#undef INSTANTIATE_RELU
-#undef INSTANTIATE_SPATIAL_DIM
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU
+#undef INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM
+#undef INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS
+#undef INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE
 
 template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int16_t>,
@@ -362,41 +410,46 @@ template class ExecuteKernel<
 
 ////////////////////////////////////////////////////////////////////////////////
 // DoSpmdmOnInpBuffer
-#define INSTANTIATE_BASE(RELU, Q_GRAN)      \
-  template class ExecuteKernel<             \
-      PackAWithRowOffset<uint8_t, int16_t>, \
-      PackBMatrix<int8_t, int16_t>,         \
-      uint8_t,                              \
+#define INSTANTIATE_SPMDM_BASE(PACK_A, RELU, Q_GRAN) \
+  template class ExecuteKernel<                      \
+      PACK_A<uint8_t, int16_t>,                      \
+      PackBMatrix<int8_t, int16_t>,                  \
+      uint8_t,                                       \
       DoSpmdmOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
 
-#define INSTANTIATE_Q_GRANS(RELU)                          \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_SPMDM_Q_GRANS(PACK_A, RELU)                          \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
 
-INSTANTIATE_Q_GRANS(false);
-INSTANTIATE_Q_GRANS(true);
+#define INSTANTIATE_SPMDM_RELU(PACK_A)      \
+  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, false); \
+  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, true);
 
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+INSTANTIATE_SPMDM_RELU(PackAMatrix);
+INSTANTIATE_SPMDM_RELU(PackAWithRowOffset);
 
-#define INSTANTIATE_BASE(RELU, Q_GRAN)   \
-  template class ExecuteKernel<          \
-      PackAWithIm2Col<uint8_t, int16_t>, \
-      PackBMatrix<int8_t, int16_t>,      \
-      uint8_t,                           \
+#undef INSTANTIATE_SPMDM_RELU
+#undef INSTANTIATE_SPMDM_Q_GRANS
+#undef INSTANTIATE_SPMDM_BASE
+
+#define INSTANTIATE_SCONV_BASE(RELU, Q_GRAN) \
+  template class ExecuteKernel<              \
+      PackAWithIm2Col<uint8_t, int16_t>,     \
+      PackBMatrix<int8_t, int16_t>,          \
+      uint8_t,                               \
       DoSConvOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
 
-#define INSTANTIATE_Q_GRANS(RELU)                          \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_SCONV_Q_GRANS(RELU)                          \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
 
-INSTANTIATE_Q_GRANS(false);
-INSTANTIATE_Q_GRANS(true);
+INSTANTIATE_SCONV_Q_GRANS(false);
+INSTANTIATE_SCONV_Q_GRANS(true);
 
-#undef INSTANTIATE_Q_GRANS
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_SCONV_Q_GRANS
+#undef INSTANTIATE_SCONV_BASE
 
 template class ExecuteKernel<
     PackAWithRowOffset<uint8_t, int16_t>,
@@ -406,39 +459,39 @@ template class ExecuteKernel<
 
 ////////////////////////////////////////////////////////////////////////////////
 // memCopy
-#define INSTANTIATE_BASE(PACK_A, ACC_T) \
-  template class ExecuteKernel<         \
-      PACK_A<uint8_t, ACC_T>,           \
-      PackBMatrix<int8_t, ACC_T>,       \
-      int32_t,                          \
+#define INSTANTIATE_MEMCPY_BASE(PACK_A, ACC_T) \
+  template class ExecuteKernel<                \
+      PACK_A<uint8_t, ACC_T>,                  \
+      PackBMatrix<int8_t, ACC_T>,              \
+      int32_t,                                 \
       memCopy<>>;
 
-#define INSTANTIATE_ACC_T(PACK_A)   \
-  INSTANTIATE_BASE(PACK_A, int32_t) \
-  INSTANTIATE_BASE(PACK_A, int16_t)
+#define INSTANTIATE_MEMCPY_ACC_T(PACK_A)   \
+  INSTANTIATE_MEMCPY_BASE(PACK_A, int32_t) \
+  INSTANTIATE_MEMCPY_BASE(PACK_A, int16_t)
 
-INSTANTIATE_ACC_T(PackAMatrix);
-INSTANTIATE_ACC_T(PackAWithRowOffset);
+INSTANTIATE_MEMCPY_ACC_T(PackAMatrix);
+INSTANTIATE_MEMCPY_ACC_T(PackAWithRowOffset);
 
-#undef INSTANTIATE_ACC_T
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_MEMCPY_ACC_T
+#undef INSTANTIATE_MEMCPY_BASE
 
-#define INSTANTIATE_BASE(ACC_T, SPATIAL_DIM)        \
-  template class ExecuteKernel<                     \
-      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>, \
-      PackBMatrix<int8_t, ACC_T>,                   \
-      int32_t,                                      \
+#define INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, SPATIAL_DIM) \
+  template class ExecuteKernel<                            \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,        \
+      PackBMatrix<int8_t, ACC_T>,                          \
+      int32_t,                                             \
       memCopy<>>;
 
-#define INSTANTIATE_SPATIAL_DIM(ACC_T) \
-  INSTANTIATE_BASE(ACC_T, 2);          \
-  INSTANTIATE_BASE(ACC_T, 3);
+#define INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(ACC_T) \
+  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 2);          \
+  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 3);
 
-INSTANTIATE_SPATIAL_DIM(int32_t);
-INSTANTIATE_SPATIAL_DIM(int16_t);
+INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int32_t);
+INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int16_t);
 
-#undef INSTANTIATE_SPATIAL_DIM
-#undef INSTANTIATE_BASE
+#undef INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM
+#undef INSTANTIATE_MEMCPY_IM2COL_BASE
 
 template class ExecuteKernel<
     PackAWithQuantRowOffset<uint8_t, int32_t>,
