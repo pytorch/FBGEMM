@@ -6,9 +6,9 @@ jobs:
     steps:
       - checkout
       - run:
-        name: Pull submodules
-        command: |
-          git submodule update --init --recursive
+          name: Pull submodules
+          command: |
+            git submodule update --init --recursive
 
       - run:
           name: Install prerequisites
