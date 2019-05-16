@@ -44,53 +44,51 @@ void fbgemmPacked(
           typename packingBMatrix::accType>::value,
       "Accumulation type of both matrices should be the same");
 
-  int MCB, KCB;
+  // Run time CPU detection
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if ((!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+    assert(0 && "unknown architecure");
+  }
+
+  int MCB;
+  int KCB;
   int MR;
 
-  // Run time CPU detection
-  if (cpuinfo_initialize()) {
-    if (blocking_params) {
-      if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
-        MCB = blocking_params->MCB;
-        KCB = blocking_params->KCB;
-        MR = blocking_params->MR;
-      }
-    } else {
-      if (fbgemmHasAvx512Support()) {
-        MCB = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx512>::MCB;
-        KCB = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx512>::KCB;
-        MR = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx512>::MR;
-      } else if (fbgemmHasAvx2Support()) {
-        MCB = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx2>::MCB;
-        KCB = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx2>::KCB;
-        MR = PackingTraits<
-            typename packingAMatrix::inpType,
-            typename packingAMatrix::accType,
-            inst_set_t::avx2>::MR;
+  if (blocking_params) {
+    MCB = blocking_params->MCB;
+    KCB = blocking_params->KCB;
+    MR = blocking_params->MR;
 
-      } else {
-        // TODO: Have default slower path
-        assert(0 && "unsupported architecture");
-        return;
-      }
-    }
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    if (fbgemmHasAvx512Support()) {
+      MCB = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::MCB;
+      KCB = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::KCB;
+      MR = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx512>::MR;
+    } else {
+      MCB = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::MCB;
+      KCB = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::KCB;
+      MR = PackingTraits<
+          typename packingAMatrix::inpType,
+          typename packingAMatrix::accType,
+          inst_set_t::avx2>::MR;
+    }
   }
 
   if (!packB.isPrePacked()) {
@@ -515,6 +513,5 @@ template void fbgemmPacked(
     int thread_id,
     int num_threads,
     const BlockingFactors* blocking_params);
-
 
 } // namespace fbgemm
