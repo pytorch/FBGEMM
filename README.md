@@ -4,7 +4,7 @@
 
 FBGEMM (Facebook GEneral Matrix Multiplication) is a low-precision,
 high-performance matrix-matrix multiplications and convolution library for
-server-side inference. 
+server-side inference.
 
 The library provides efficient low-precision general matrix multiplication for
 small batch sizes and support for accuracy-loss minimizing techniques such as
@@ -36,7 +36,7 @@ higher. It's been tested on Mac OS X and Linux.
 With inner kernels, FBGEMM takes a “one size doesn't fit all” approach, so the
 implementation dynamically generates efficient matrix-shape specific vectorized
 code using a third-party library called [asmjit][1]. **asmjit is required** to
-build FBGEMM. 
+build FBGEMM.
 
 + ###### cpuinfo
 FBGEMM detects CPU instruction set support at runtime using cpuinfo library and
@@ -51,8 +51,7 @@ is **on**. Turn it off by setting FBGEMM\_BUILD\_TESTS to off.
 You can download [asmjit][1], [cpuinfo][2], [googletest][3] and set
 ASMJIT\_SRC\_DIR, CPUINFO\_SRC\_DIR, GOOGLETEST\_SOURCE\_DIR respectively for
 cmake to find these libraries. If any of these variables is not set, cmake will
-try to download that missing library in a folder called third\_party in the
-build directory and build it using the downloaded source code.
+build the git submodules found in the third\_party directory.
 
 FBGEMM, in general, does not have any dependency on Intel MKL. However, for
 performance comparison, some benchmarks use MKL functions. If MKL is found or
@@ -63,6 +62,8 @@ not found, the benchmarks are not built.
 General build instructions are as follows:
 
 ```
+git clone --recursive https://github.com/pytorch/FBGEMM.git
+cd FBGEMM
 mkdir build && cd build
 cmake ..
 make
