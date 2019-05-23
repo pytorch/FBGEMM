@@ -185,7 +185,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
   asmjit::X86Emitter* a = assembler.asEmitter();
 #if defined(FBGEMM_LOG_CODE)
   // generated code logging
-  FILE* codeLogfile =
   FILE* codeLogfile = fopen(
       getCodeLoggingFile<inst_set_t::avx2>(
           accum,
