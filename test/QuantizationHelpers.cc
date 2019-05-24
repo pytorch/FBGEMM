@@ -62,6 +62,23 @@ void avoidOverflow(int m, int n, int k, const uint8_t* Aint8, T* B) {
   return avoidOverflow(m, n, k, Aint8, k, B, n);
 }
 
+template void avoidOverflow(
+    int m,
+    int n,
+    int k,
+    const uint8_t* Aint8,
+    int lda,
+    int8_t* B,
+    int ldb);
+template void avoidOverflow(
+    int m,
+    int n,
+    int k,
+    const uint8_t* Aint8,
+    int lda,
+    float* B,
+    int ldb);
+
 template void
 avoidOverflow(int m, int n, int k, const uint8_t* Aint8, int8_t* B);
 template void
