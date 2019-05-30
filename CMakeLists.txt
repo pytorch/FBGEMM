@@ -53,6 +53,11 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
+#We should default to a Release build
+if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+endif()
+
 #check if compiler supports openmp
 find_package(OpenMP)
 if (OPENMP_FOUND)
