@@ -20,7 +20,7 @@
 #include "AlignedVec.h"
 #include "BenchUtils.h"
 #include "fbgemm/Utils.h"
-#include "src/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/FbgemmI8DepthwiseAvx2.h"
 #include "src/RefImplementations.h"
 
 using namespace std;

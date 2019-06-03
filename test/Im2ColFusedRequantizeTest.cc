@@ -610,7 +610,7 @@ static void Im2col3DTest(bool b_symmetric) {
       // computing row offset
       vector<int32_t> row_offsets(MDim);
       vector<uint8_t> Aint8_im2col(MDim * KDim);
-      im2col3d_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
+      im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
 
       // computing column offset
       vector<int32_t> col_offsets(conv_p.G * NDim);
@@ -625,7 +625,7 @@ static void Im2col3DTest(bool b_symmetric) {
             ncols_per_quant_group);
       }
 
-      conv3d_ref(
+      conv_ref(
           conv_p,
           Aint8.data(),
           Aint8_zero_point,
