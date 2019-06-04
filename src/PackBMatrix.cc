@@ -241,9 +241,9 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
 
   BaseType::packedBlock(block);
   bool tr = (trans_ == matrix_op_t::Transpose);
-  for (int g = 0; g < this->numGroups(); ++g) {
+  for (int g = 0; g < BaseType::numGroups(); ++g) {
     T* out = BaseType::getBuf() +
-        g * this->packedBufferSize(block.row_size, block.col_size);
+        g * BaseType::packedBufferSize(block.row_size, block.col_size);
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int r_offset = ((i / BaseType::blockRowSize()) * BaseType::blockCols()) *
               (BaseType::blockRowSize() * BaseType::blockColSize()) +
@@ -298,6 +298,57 @@ void PackBMatrix<T, accT>::pack(const block_type_t& block) {
 
         int out_idx = r_offset + c_offset;
         out[out_idx] = 0;
+      }
+    }
+  } // for each group
+}
+
+template <typename T, typename accT>
+void PackBMatrix<T, accT>::unpack(T* origin_buf) {
+  bool tr = (trans_ == matrix_op_t::Transpose);
+  for (int g = 0; g < this->numGroups(); ++g) {
+    T* out = BaseType::getBuf() +
+        g *
+            BaseType::packedBufferSize(
+                BaseType::numPackedRows(), BaseType::numPackedCols());
+    for (int i = BaseType::packedRowStart();
+         i < BaseType::packedRowStart() + BaseType::numPackedRows();
+         ++i) {
+      int r_offset = ((i / BaseType::blockRowSize()) * BaseType::blockCols()) *
+              (BaseType::blockRowSize() * BaseType::blockColSize()) +
+          (i % BaseType::blockRowSize() / row_interleave_) *
+              BaseType::blockColSize() * row_interleave_ +
+          i % row_interleave_;
+
+      int c_start_offset =
+          (BaseType::packedColStart() / BaseType::blockColSize()) *
+              BaseType::blockRowSize() * BaseType::blockColSize() +
+          (BaseType::packedColStart() % BaseType::blockColSize()) *
+              row_interleave_;
+
+      int c_idx_offset = 0;
+      int c_blk_offset = 0;
+      for (int j = BaseType::packedColStart();
+           j < BaseType::packedColStart() + BaseType::numPackedCols();
+           ++j) {
+        int c_offset = c_start_offset +
+            c_blk_offset * BaseType::blockRowSize() * BaseType::blockColSize() +
+            c_idx_offset * row_interleave_;
+
+        int out_idx = r_offset + c_offset;
+
+        T val = out[out_idx];
+        if (tr) {
+          origin_buf[i + (g * BaseType::numPackedCols() + j) * ld_] = val;
+        } else {
+          origin_buf[(g * BaseType::numPackedRows() + i) * ld_ + j] = val;
+        }
+
+        c_idx_offset++;
+        if (c_idx_offset == BaseType::blockColSize()) {
+          c_idx_offset = 0;
+          c_blk_offset++;
+        }
       }
     }
   } // for each group
