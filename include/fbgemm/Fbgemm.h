@@ -216,6 +216,13 @@ class PackMatrix {
   }
 
   /**
+   * @return The first column of the block we're working on.
+   */
+  std::int32_t packedColStart() const {
+    return packedBlock_.col_start;
+  }
+
+  /**
    * @return The beginning of (rowBlockNum, colBlockNum)th block
    */
   inpType* getBuf(std::int32_t rowBlockNum = 0, std::int32_t colBlockNum = 0) {
@@ -450,6 +457,12 @@ class FBGEMM_API PackBMatrix final
    * @return true if matrices are the same.
    */
   bool equals(const PackBMatrix<T, accT>& that) const;
+
+  /**
+   * @brief Unpack pmat buffer to the origin_buf (Used for the serialization to
+   * recover weight matrix).
+   */
+  void unpack(T* origin_buf);
 
   ~PackBMatrix() {}
 
