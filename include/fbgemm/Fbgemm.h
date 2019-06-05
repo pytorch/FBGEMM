@@ -18,6 +18,7 @@
 #include "FbgemmBuild.h"
 #include "FbgemmI8Spmdm.h"
 #include "QuantUtilsAvx2.h"
+#include "FbgemmI8DepthwiseAvx2.h"
 #include "Types.h"
 #include "Utils.h"
 
@@ -524,6 +525,62 @@ class FBGEMM_API PackWeightMatrixForGConv {
 };
 
 /**
+ * @brief A container class to keep packed weight tensor for convolution.
+ *        The source tensor should already be quantized.
+ *
+ * @tparam SPATIAL_DIM is equal to 2 for 2D convolutions and 3 for 3D
+ *                     convolutions. Default value is 2.
+ * @tparam T is the datatype for source tensor. Default value is int8.
+ * @tparam accT is the datatype to accumulate into. Default value is int32.
+ */
+template <
+    int SPATIAL_DIM = 2,
+    typename T = std::int8_t,
+    typename accT = std::int32_t>
+class FBGEMM_API PackWeightsForConv {
+ public:
+  using This = PackWeightsForConv<SPATIAL_DIM, T, accT>;
+  using inpType = T;
+  using accType = accT;
+
+  PackWeightsForConv() = delete; // no default constructor
+
+  PackWeightsForConv(
+      const conv_param_t<SPATIAL_DIM>& conv_param,
+      const inpType* sdata,
+      const BlockingFactors* blocking_params = nullptr);
+
+  std::shared_ptr<PackBMatrix<T, accT>> getPackedWForIm2col() {
+    return W_im2col_packed_;
+  }
+
+  std::shared_ptr<Packed3x3ConvMatrix> getPackedWFor2DDW() {
+    return W_dw_2D_packed_;
+  }
+
+  std::shared_ptr<Packed3x3x3ConvMatrix> getPackedWFor3DDW() {
+    return W_dw_3D_packed_;
+  }
+
+  std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
+  getPackedWForGroupwise() {
+    return W_gconv_packed_;
+  }
+
+ private:
+  // Packed weights if we use im2col based convolution implementation
+  std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
+  // Packed weights if we use 2D depthwise convolution implementation
+  std::shared_ptr<Packed3x3ConvMatrix> W_dw_2D_packed_;
+  // Packed weights if we use 3D depthwise convolution implementation
+  std::shared_ptr<Packed3x3x3ConvMatrix> W_dw_3D_packed_;
+  // Packed weights if we use groupwise (small channels per group) convolution
+  // implementation
+  std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
+      W_gconv_packed_;
+};
+
+/**
  * @brief Matrix packed for the first input matrix in GEMM (usually activation),
  *        and row offsets used for requantization is computed during packing.
  *        Im2col is fused with packing here. The source matrix is already
@@ -1002,6 +1059,7 @@ template <
     typename nextOPType = DoNothing<outT, outT>>
 class FBGEMM_API ReQuantizeOutput {
  public:
+  static constexpr int RELU_FUSED = FUSE_RELU;
   using outType = outT;
   using inpType = inT;
   /**
@@ -1056,11 +1114,17 @@ class FBGEMM_API ReQuantizeOutput {
   const float* getCMultiplier() const {
     return C_multiplier_;
   }
+  std::int32_t getAZeroPoint() const {
+    return Aq_zero_point_;
+  }
   std::int32_t getCZeroPoint() const {
     return C_zero_point_;
   }
   const std::int32_t* getBZeroPoint() const {
     return Bq_zero_point_;
+  }
+  const std::int32_t* getRowOffsets() const {
+    return q_row_offsets_;
   }
   const std::int32_t* getColOffsets() const {
     return q_col_offsets_;
@@ -1070,6 +1134,10 @@ class FBGEMM_API ReQuantizeOutput {
   }
   std::uint32_t getNCols() const {
     return ncols_;
+  }
+
+  void setRowOffsets(const std::int32_t* row_offsets) {
+    q_row_offsets_ = row_offsets;
   }
 
  private:
@@ -1273,6 +1341,12 @@ void convDepthwiseSeparable(
     const processOutputType& output);
 
 /**
+ * @brief Is this depthwise convolution optimized?
+ */
+template <int SPATIAL_DIM = 2, typename ACC_T = std::int32_t>
+bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+/**
  * @brief Is this groupwise convolution supported?
  */
 template <int SPATIAL_DIM>
@@ -1350,5 +1424,38 @@ static void fbgemmGetRange(
       end += mRegRemainder;
   }
 }
+
+/**
+ * @brief Performs convolution using fastest path available.
+ *
+ * @tparam SPATIAL_DIM It's 2 for 2D convolutions and 3 for 3D convolutions.
+ */
+template <
+    typename processOutputType,
+    int SPATIAL_DIM = 2,
+    typename ACC_T = std::int32_t>
+FBGEMM_API int fbgemmConv(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
+    const std::uint8_t* activations,
+    PackWeightsForConv<SPATIAL_DIM, std::int8_t, ACC_T>& packed_weights,
+    typename processOutputType::outType* out,
+    std::int32_t* outBuffer,
+    processOutputType& outProcess,
+    int thread_id,
+    int num_threads,
+    const BlockingFactors* blocking_params = nullptr);
+
+/**
+ * @brief Returns which fast path to take
+ *
+ * @tparam SPATIAL_DIM It's 2 for 2D convolutions and 3 for 3D convolutions.
+ *
+ * @return optimized_conv_t::depthwise, optimized_conv_t::groupwise or
+ *         optimized_conv_t::im2col
+ *
+ */
+template <int SPATIAL_DIM = 2, typename ACC_T = std::int32_t>
+FBGEMM_API optimized_conv_t
+ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 } // namespace fbgemm

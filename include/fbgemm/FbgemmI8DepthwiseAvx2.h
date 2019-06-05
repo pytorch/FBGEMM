@@ -4,9 +4,9 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 #ifndef I8DEPTHWISE_H
 #define I8DEPTHWISE_H
-
 #include <cstdint>
 #include "fbgemm/FbgemmBuild.h"
 
@@ -171,4 +171,5 @@ FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     int num_threads = 1);
 
 } // namespace fbgemm
+
 #endif

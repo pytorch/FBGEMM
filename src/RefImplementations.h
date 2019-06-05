@@ -180,15 +180,9 @@ int32_t clip_16bit(int32_t x);
  * The filters B are assumed to be in RSCK format.
  * The output C is assumed to be in NHoWoC format.
  */
+template <int SPATIAL_DIM = 2>
 FBGEMM_API void conv_ref(
-    const conv_param_t<>& conv_p,
-    const std::uint8_t* A,
-    std::int32_t A_zero_point,
-    const std::int8_t* B,
-    std::int32_t* C);
-
-FBGEMM_API void conv3d_ref(
-    const conv_param_t<3>& conv_p,
+    const conv_param_t<SPATIAL_DIM>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
     const std::int8_t* B,
@@ -197,29 +191,26 @@ FBGEMM_API void conv3d_ref(
 /*
  * @brief Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
  */
+template <int SPATIAL_DIM = 2>
 FBGEMM_API void transposeConvWeights(
-    const conv_param_t<>& conv_p,
+    const conv_param_t<SPATIAL_DIM>& conv_p,
     const std::int8_t* src,
     std::int8_t* dest);
 
 /*
  * @brief Reference implementation of im2col operation.
+ *
+ * For 2D:
  * The input A is assumed to be in NHiWiC format.
  * The output A is assumed to be in NHoWoRSC format.
- */
-FBGEMM_API void im2col_ref(
-    const conv_param_t<>& conv_p,
-    const std::uint8_t* A,
-    std::int32_t A_zero_point,
-    std::uint8_t* Ao);
-
-/*
- * @brief Reference implementation of im2col 3D operation.
+ *
+ * For 3D:
  * The input A is assumed to be in NTiHiWiC format.
  * The output A is assumed to be in NToHoWoK0K1K2C format.
  */
-FBGEMM_API void im2col3d_ref(
-    const conv_param_t<3>& conv_p,
+template <int SPATIAL_DIM = 2>
+FBGEMM_API void im2col_ref(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
     const std::uint8_t* A,
     std::int32_t A_zero_point,
     std::uint8_t* Ao);
