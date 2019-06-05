@@ -36,10 +36,12 @@ using jit_rowoffset_kernel_fp = void (*)(
     int32_t width,
     int32_t* row_offset);
 
-template <typename accT = int32_t>
+template <int SPATIAL_DIM = 2, typename accT = int32_t>
 class GenConvKernel {
  public:
-  GenConvKernel(const conv_param_t<>& conv_param, std::int32_t a_zero_point)
+  GenConvKernel(
+      const conv_param_t<SPATIAL_DIM>& conv_param,
+      std::int32_t a_zero_point)
       : WRegs_avx2_{x86::ymm0,
                     x86::ymm1,
                     x86::ymm2,
@@ -119,11 +121,11 @@ class GenConvKernel {
   ~GenConvKernel() {}
 
   template <inst_set_t instSet>
-  jit_conv_kernel_fp getOrCreate(const conv_param_t<>& conv_param);
+  jit_conv_kernel_fp getOrCreate(const conv_param_t<SPATIAL_DIM>& conv_param);
 
   template <inst_set_t instSet>
   jit_rowoffset_kernel_fp getOrCreateRowOffset(
-      const conv_param_t<>& conv_param);
+      const conv_param_t<SPATIAL_DIM>& conv_param);
 
   template <inst_set_t instSet>
   void createVector16BitOne(asmjit::X86Emitter* a);

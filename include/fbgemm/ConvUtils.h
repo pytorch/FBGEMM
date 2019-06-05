@@ -101,7 +101,7 @@ struct conv_param_t {
             std::to_string(stride[d]) + ", ";
       }
       for (int d = 0; d < SPATIAL_DIM * 2; ++d) {
-        out += "pad_" + dim_string[3 - (SPATIAL_DIM % 3) + d] + ":" +
+        out += "pad_" + dim_string[3 - SPATIAL_DIM + (d % SPATIAL_DIM)] + ":" +
             std::to_string(pad[d]);
         if (d < SPATIAL_DIM * 2 - 1) {
           out += ", ";

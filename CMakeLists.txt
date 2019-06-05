@@ -29,6 +29,7 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc
                 src/FbgemmFP16.cc
+                src/FbgemmConv.cc
                 src/FbgemmI8Spmdm.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
@@ -42,6 +43,7 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/PackAWithQuantRowOffset.cc
                 src/PackAWithRowOffset.cc
                 src/PackWeightMatrixForGConv.cc
+                src/PackWeightsForConv.cc
                 src/QuantUtils.cc
                 src/RefImplementations.cc
                 src/Utils.cc)

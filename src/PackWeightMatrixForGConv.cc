@@ -19,7 +19,7 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
     const T* sdata,
     T* pdata)
     : trans_(trans), conv_param_(conv_param), sdata_(sdata) {
-  static_assert(SPATIAL_DIM == 2, "3D conv not supported yet");
+  assert(SPATIAL_DIM == 2 && "3D conv not supported yet");
 
   if (!pdata) {
     bufAllocatedHere_ = true;
@@ -111,4 +111,6 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
 
 template class PackWeightMatrixForGConv<int8_t, int32_t, 2>;
 template class PackWeightMatrixForGConv<int8_t, int16_t, 2>;
+template class PackWeightMatrixForGConv<int8_t, int32_t, 3>;
+template class PackWeightMatrixForGConv<int8_t, int16_t, 3>;
 } // namespace fbgemm

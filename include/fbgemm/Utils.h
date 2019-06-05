@@ -32,6 +32,11 @@ enum class matrix_op_t { NoTranspose, Transpose };
 enum class inst_set_t { anyarch, avx2, avx512 };
 
 /**
+ * @brief Typed enum for optimized paths for convolutions
+ */
+enum class optimized_conv_t { depthwise, groupwise, im2col };
+
+/**
  * @brief Typed enum for implementation type.
  *
  * ref is reference and opt is optimized.
