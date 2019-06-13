@@ -108,16 +108,23 @@ class PackedGemmMatrixFP16 {
     // allocate and initialize packed memory
     const int padding = 1024; // required by sw pipelined kernels
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
-    // pmat_ = (float16 *)aligned_alloc(64, matSize() * sizeof(float16) +
-    // padding);
+#ifdef _MSC_VER
+    pmat_ = (float16 *)_aligned_malloc(matSize() * sizeof(float16) +
+      padding, 64);
+#else
     posix_memalign((void**)&pmat_, 64, matSize() * sizeof(float16) + padding);
+#endif
     for (auto i = 0; i < matSize(); i++) {
       pmat_[i] = tconv(0.f, pmat_[i]);
     }
   }
 
   ~PackedGemmMatrixFP16() {
+#ifdef _MSC_VER
+    _aligned_free(pmat_);
+#else
     free(pmat_);
+#endif
   }
 
   // protected:
@@ -166,7 +173,7 @@ class PackedGemmMatrixFP16 {
   }
 
   int matSize() const {
-    return size_;
+    return (int)size_;
   }
   int numRows() const {
     return nrow_;

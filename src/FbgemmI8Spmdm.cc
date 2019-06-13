@@ -70,8 +70,8 @@ void CompressedSparseColumn::SpMDM(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  alignas(64) uint8_t A_buffer[K * 32];
-  alignas(64) int32_t C_buffer[N * 32];
+  alignas(64) uint8_t* A_buffer = new uint8_t[K * 32];
+  alignas(64) int32_t* C_buffer = new int32_t[N * 32];
 
   // If we compute C = C + A * B, where B is a sparse matrix in CSC format, for
   // each non-zero in B, we'd need to access the corresponding column in A.
@@ -82,7 +82,7 @@ void CompressedSparseColumn::SpMDM(
     // The cost of transpose is O(K*N) and we do O(NNZ*N) multiplications.
     // If NNZ/K is small, it's not worth doing transpose so we just use this
     // scalar loop.
-    int32_t C_temp[block.row_size];
+    int32_t* C_temp = new int32_t[block.row_size];
     if (accumulation) {
       for (int j = 0; j < block.col_size; ++j) {
         int k = colptr_[block.col_start + j];
@@ -141,6 +141,9 @@ void CompressedSparseColumn::SpMDM(
         }
       } // for each column of B
     }
+    delete C_temp;
+    delete A_buffer;
+    delete C_buffer;
     return;
   }
 
@@ -157,7 +160,7 @@ void CompressedSparseColumn::SpMDM(
   for (int i1 = block.row_start; i1 < i_end; i1 += 32) {
     // Transpose 32 x K submatrix of A
     if (i_end - i1 < 32) {
-      alignas(64) uint8_t A_temp_buffer[K * 32];
+      alignas(64) uint8_t* A_temp_buffer = new uint8_t[K * 32];
       for (int i2 = 0; i2 < (i_end - i1) / 8 * 8; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
       }
@@ -173,6 +176,7 @@ void CompressedSparseColumn::SpMDM(
       for (int i2 = (i_end - i1) / 8 * 8; i2 < 32; i2 += 8) {
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
+      delete A_temp_buffer;
     } else {
       for (int i2 = 0; i2 < 32; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
@@ -232,6 +236,9 @@ void CompressedSparseColumn::SpMDM(
         32,
         reinterpret_cast<float*>(C + (i1 - block.row_start) * ldc),
         ldc);
+
+    delete A_buffer;
+    delete C_buffer;
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
     t_end = std::chrono::high_resolution_clock::now();

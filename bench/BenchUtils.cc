@@ -24,6 +24,21 @@ void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
 
+// MSVC doesn't accept uint8_t and int8_t as a template argument.
+#ifdef _MSC_VER
+void randFill(aligned_vector<uint8_t>& vec, uint8_t low, uint8_t high, std::true_type) {
+  std::uniform_int_distribution<unsigned short> dis(low, high);
+  for (int i = 0; i < vec.size(); i++)
+    vec[i] = (uint8_t)dis(eng);
+}
+
+void randFill(aligned_vector<int8_t>& vec, int8_t low, int8_t high, std::true_type) {
+  std::uniform_int_distribution<short> dis(low, high);
+  for (int i = 0; i < vec.size(); i++)
+    vec[i] = (int8_t)dis(eng);
+}
+#endif
+
 template <typename T>
 void randFill(aligned_vector<T>& vec, T low, T high, std::false_type) {
   std::uniform_real_distribution<T> dis(low, high);
