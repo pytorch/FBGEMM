@@ -14,7 +14,7 @@
 #include <immintrin.h>
 
 #ifdef _MSC_VER
- #define ALWAYS_INLINE __forceinline
+ #define ALWAYS_INLINE
 #else
  #define ALWAYS_INLINE __attribute__((always_inline))
 #endif
