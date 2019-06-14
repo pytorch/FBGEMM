@@ -70,9 +70,6 @@ void CompressedSparseColumn::SpMDM(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  alignas(64) uint8_t* A_buffer = new uint8_t[K * 32];
-  alignas(64) int32_t* C_buffer = new int32_t[N * 32];
-
   // If we compute C = C + A * B, where B is a sparse matrix in CSC format, for
   // each non-zero in B, we'd need to access the corresponding column in A.
   // This results in strided access, which we want to avoid.
@@ -141,9 +138,7 @@ void CompressedSparseColumn::SpMDM(
         }
       } // for each column of B
     }
-    delete C_temp;
-    delete A_buffer;
-    delete C_buffer;
+    delete[] C_temp;
     return;
   }
 
@@ -154,6 +149,9 @@ void CompressedSparseColumn::SpMDM(
   spmdm_initial_time += (dt);
   t_start = std::chrono::high_resolution_clock::now();
 #endif
+
+  alignas(64) uint8_t* A_buffer = new uint8_t[K * 32];
+  alignas(64) int32_t* C_buffer = new int32_t[N * 32];
 
   // Take 32 rows at a time
   int i_end = block.row_start + block.row_size;
@@ -176,7 +174,7 @@ void CompressedSparseColumn::SpMDM(
       for (int i2 = (i_end - i1) / 8 * 8; i2 < 32; i2 += 8) {
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
-      delete A_temp_buffer;
+      delete[] A_temp_buffer;
     } else {
       for (int i2 = 0; i2 < 32; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
@@ -237,9 +235,6 @@ void CompressedSparseColumn::SpMDM(
         reinterpret_cast<float*>(C + (i1 - block.row_start) * ldc),
         ldc);
 
-    delete A_buffer;
-    delete C_buffer;
-
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
     t_end = std::chrono::high_resolution_clock::now();
     dt = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start)
@@ -257,6 +252,9 @@ void CompressedSparseColumn::SpMDM(
   spmdm_run_time += (dt);
   t_start = std::chrono::high_resolution_clock::now();
 #endif
+
+  delete[] A_buffer;
+  delete[] C_buffer;
 }
 
 void CompressedSparseColumn::SparseConv(
