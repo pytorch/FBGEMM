@@ -151,7 +151,7 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
     }
   }
 
-  delete smat_transposed;
+  delete[] smat_transposed;
 }
 
 template <typename T, typename accT>

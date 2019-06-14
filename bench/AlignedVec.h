@@ -102,7 +102,8 @@ class aligned_allocator {
 #ifdef _MSC_VER
     pv = _aligned_malloc(n * sizeof(T), Alignment);
 #else
-    posix_memalign(&pv, Alignment, n * sizeof(T));
+    int result = posix_memalign(&pv, Alignment, n * sizeof(T));
+    assert(result == 0);
 #endif
 
     // Allocators should throw std::bad_alloc in the case of memory allocation

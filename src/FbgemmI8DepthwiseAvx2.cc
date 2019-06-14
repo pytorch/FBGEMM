@@ -170,7 +170,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     }
   }
 
-  delete smat_transposed;
+  delete[] smat_transposed;
 }
 
 template <int KERNEL_PROD>
@@ -1763,7 +1763,7 @@ static inline ALWAYS_INLINE void depthwise_3x3_pad_1_(
       }
     }
   } // for each n
-  delete row_offsets;
+  delete[] row_offsets;
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
@@ -1875,7 +1875,7 @@ static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
     } // t
   } // for each n
 
-  delete row_offsets;
+  delete[] row_offsets;
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
@@ -2191,7 +2191,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
     }
   } // for each n
 
-  delete row_offsets;
+  delete[] row_offsets;
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
@@ -2303,7 +2303,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
     } // t
   } // for each n
 
-  delete row_offsets;
+  delete[] row_offsets;
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -2428,7 +2428,7 @@ static void depthwise_3x3_pad_1_(
           num_threads);
     }
   }
-  delete C_int32_temp;
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS
@@ -2842,7 +2842,7 @@ static void depthwise_3x3x3_pad_1_(
           num_threads);
     }
   }
-  delete C_int32_temp;
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS
@@ -3047,7 +3047,7 @@ static void depthwise_3x3_per_channel_quantization_pad_1_(
         thread_id,
         num_threads);
   }
-  delete C_int32_temp;
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS
@@ -3406,7 +3406,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
         thread_id,
         num_threads);
   }
-  delete C_int32_temp;
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS

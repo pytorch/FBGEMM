@@ -112,7 +112,8 @@ class PackedGemmMatrixFP16 {
     pmat_ = (float16 *)_aligned_malloc(matSize() * sizeof(float16) +
       padding, 64);
 #else
-    posix_memalign((void**)&pmat_, 64, matSize() * sizeof(float16) + padding);
+    int result = posix_memalign((void**)&pmat_, 64, matSize() * sizeof(float16) + padding);
+    assert(result == 0);
 #endif
     for (auto i = 0; i < matSize(); i++) {
       pmat_[i] = tconv(0.f, pmat_[i]);
