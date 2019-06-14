@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/Utils.h"
 
 #include <algorithm> // for min and max
 #include <cassert>
@@ -12,12 +13,6 @@
 #include <tuple> // for tie
 
 #include <immintrin.h>
-
-#ifdef _MSC_VER
- #define ALWAYS_INLINE
-#else
- #define ALWAYS_INLINE __attribute__((always_inline))
-#endif
 
 using namespace std;
 
@@ -42,7 +37,8 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : K_(K) {
   // Transpose the input matrix to make packing faster.
-  alignas(64) int8_t* smat_transposed = new int8_t[K * KERNEL_PROD];
+  int8_t* smat_transposed = static_cast<int8_t *>(ALIGNED_MALLOC(
+      K * KERNEL_PROD * sizeof(int8_t), 64));
   for (int i = 0; i < KERNEL_PROD; ++i) {
     for (int j = 0; j < K; ++j) {
       smat_transposed[i * K + j] = smat[i + j * KERNEL_PROD];
@@ -170,7 +166,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     }
   }
 
-  delete[] smat_transposed;
+  FREE(smat_transposed);
 }
 
 template <int KERNEL_PROD>
@@ -1506,7 +1502,7 @@ static inline ALWAYS_INLINE void depthwise_3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t* row_offsets = new int32_t[(K + 31) / 32 * 32];
+  int32_t* row_offsets = static_cast<int32_t *>(ALIGNED_MALLOC(((K + 31) / 32 * 32)*sizeof(int32_t), 64));
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
@@ -1763,7 +1759,7 @@ static inline ALWAYS_INLINE void depthwise_3x3_pad_1_(
       }
     }
   } // for each n
-  delete[] row_offsets;
+  FREE(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
@@ -1797,7 +1793,7 @@ static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t* row_offsets = new int32_t[(K + 31) / 32 * 32]; // __attribute__((aligned(64)));
+  int32_t* row_offsets = static_cast<int32_t*>(ALIGNED_MALLOC(((K + 31) / 32 * 32)*sizeof(int32_t), 64)); // __attribute__((aligned(64)));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -1875,7 +1871,7 @@ static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
     } // t
   } // for each n
 
-  delete[] row_offsets;
+  FREE(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
@@ -1906,7 +1902,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t* row_offsets = new int32_t[(K + 31) / 32 * 32]; // __attribute__((aligned(64)));
+  int32_t* row_offsets = static_cast<int32_t*>(ALIGNED_MALLOC(((K + 31) / 32 * 32)*sizeof(int32_t), 64)); // __attribute__((aligned(64)));
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
@@ -2191,7 +2187,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
     }
   } // for each n
 
-  delete[] row_offsets;
+  FREE(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
@@ -2226,7 +2222,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t* row_offsets = new int32_t[(K + 31) / 32 * 32]; // __attribute__((aligned(64)));
+  int32_t* row_offsets = static_cast<int32_t*>(ALIGNED_MALLOC(((K + 31) / 32 * 32)*sizeof(int32_t), 64)); // __attribute__((aligned(64)));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -2303,7 +2299,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
     } // t
   } // for each n
 
-  delete[] row_offsets;
+  FREE(row_offsets);
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC

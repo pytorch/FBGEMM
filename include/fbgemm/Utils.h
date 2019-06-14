@@ -10,6 +10,16 @@
 #include "FbgemmBuild.h"
 #include "UtilsAvx2.h"
 
+#ifdef _MSC_VER
+# define ALWAYS_INLINE // __forceinline
+# define ALIGNED_MALLOC(size, alignment) _aligned_malloc(size, alignment)
+# define FREE(ptr) _aligned_free(ptr)
+#else
+# define ALWAYS_INLINE __attribute__((always_inline))
+# define ALIGNED_MALLOC(size, alignment) aligned_alloc(alignment, size)
+# define FREE(ptr) free(ptr)
+#endif
+
 namespace fbgemm {
 
 /**
