@@ -201,9 +201,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
   int maxMRegs = mRegBlockSize;
   int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
   assert(
-      maxMRegs * maxNRegs <= 24 &&
-      "MR*(NR*ROW_INTERLEAVE*8/512) \
-      must be <= 24(available registers constraint)");
+      (maxMRegs+1) * maxNRegs <= 28 &&
+      "number of zmm registers for C + one row for loading B: \
+      MR*(NR*ROW_INTERLEAVE*8/512) + (NR*ROW_INTERLEAVE*8/512)  \
+      must be <= 28(available registers constraint)");
   int mRegBlocks = mc / mRegBlockSize;
   int mRegBlocksRem = mc % mRegBlockSize;
 
