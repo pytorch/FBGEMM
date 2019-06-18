@@ -12,7 +12,11 @@
 
 namespace fbgemm {
 
+#ifdef _MSC_VER
+typedef struct __declspec(align(2)) __f16 {
+#else
 typedef struct __attribute__((aligned(2))) __f16 {
+#endif
   uint16_t x;
 } float16;
 
@@ -38,11 +42,11 @@ static inline float16 cpu_float2half_rn(float f) {
 
   // Get rid of +Inf/-Inf, +0/-0.
   if (u > 0x477fefff) {
-    ret.x = sign | 0x7c00U;
+    ret.x = (uint16_t) (sign | 0x7c00U);
     return ret;
   }
   if (u < 0x33000001) {
-    ret.x = (sign | 0x0000);
+    ret.x = (uint16_t)(sign | 0x0000);
     return ret;
   }
 
@@ -72,7 +76,7 @@ static inline float16 cpu_float2half_rn(float f) {
     }
   }
 
-  ret.x = (sign | (exponent << 10) | mantissa);
+  ret.x = (uint16_t)(sign | (exponent << 10) | mantissa);
 
   return ret;
 }

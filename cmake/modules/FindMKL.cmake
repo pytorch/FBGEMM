@@ -47,7 +47,7 @@ ELSE(CMAKE_COMPILER_IS_GNUCC)
   SET(mklifaces  "intel")
   SET(mklrtls "iomp5" "guide")
   IF (MSVC)
-    SET(mklrtls "libiomp5md")
+    SET(mklrtls "libiomp5mt")
   ENDIF (MSVC)
 ENDIF (CMAKE_COMPILER_IS_GNUCC)
 

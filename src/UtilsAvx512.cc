@@ -103,6 +103,40 @@ inline void transpose_kernel_16x16_avx512(
   //  m1  n1  o1  p1 ...
   //  m2  n2  o2  p2 ...
   //  m3  n3  o3  p3 ...
+#ifdef _MSC_VER
+  a = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(ta), reinterpret_cast<__m512d&>(tc)));
+  b = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(ta), reinterpret_cast<__m512d&>(tc)));
+  c = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(tb), reinterpret_cast<__m512d&>(td)));
+  d = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(tb), reinterpret_cast<__m512d&>(td)));
+  e = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(te), reinterpret_cast<__m512d&>(tg)));
+  f = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(te), reinterpret_cast<__m512d&>(tg)));
+  g = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(tf), reinterpret_cast<__m512d&>(th)));
+  h = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(tf), reinterpret_cast<__m512d&>(th)));
+  i = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(ti), reinterpret_cast<__m512d&>(tk)));
+  j = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(ti), reinterpret_cast<__m512d&>(tk)));
+  k = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(tj), reinterpret_cast<__m512d&>(tl)));
+  l = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(tj), reinterpret_cast<__m512d&>(tl)));
+  m = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(tm), reinterpret_cast<__m512d&>(to)));
+  n = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(tm), reinterpret_cast<__m512d&>(to)));
+  o = reinterpret_cast<__m512&>(_mm512_unpacklo_pd(
+      reinterpret_cast<__m512d&>(tn), reinterpret_cast<__m512d&>(tq)));
+  p = reinterpret_cast<__m512&>(_mm512_unpackhi_pd(
+      reinterpret_cast<__m512d&>(tn), reinterpret_cast<__m512d&>(tq)));
+#else
   a = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
       reinterpret_cast<__m512d>(ta), reinterpret_cast<__m512d>(tc)));
   b = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
@@ -135,6 +169,7 @@ inline void transpose_kernel_16x16_avx512(
       reinterpret_cast<__m512d>(tn), reinterpret_cast<__m512d>(tq)));
   p = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
       reinterpret_cast<__m512d>(tn), reinterpret_cast<__m512d>(tq)));
+#endif
 
   //  shuffle 128-bits (composed of 4 32-bit elements)
   //  a0  b0  c0  d0  a8  b8  c8  d8  e0  f0  g0  h0  e8  f8  g8  h8

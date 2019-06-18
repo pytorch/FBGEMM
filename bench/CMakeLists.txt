@@ -12,8 +12,12 @@ macro(add_benchmark BENCHNAME)
   set_target_properties(${BENCHNAME} PROPERTIES
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
-  target_compile_options(${BENCHNAME} PRIVATE
-    "-m64" "-mavx2" "-mfma" "-masm=intel")
+  if(MSVC)
+    target_compile_options(${BENCHNAME} PRIVATE "/DFBGEMM_STATIC" "/MT")
+  else(MSVC)
+    target_compile_options(${BENCHNAME} PRIVATE
+      "-m64" "-mavx2" "-mfma" "-masm=intel")
+  endif(MSVC)
   target_link_libraries(${BENCHNAME} fbgemm)
   add_dependencies(${BENCHNAME} fbgemm)
   if(${MKL_FOUND})

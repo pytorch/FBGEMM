@@ -9,6 +9,7 @@
 #include <cmath>
 #include <random>
 #include <vector>
+#include <numeric>
 
 #ifdef _OPENMP
 #include <omp.h>

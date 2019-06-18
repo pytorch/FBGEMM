@@ -266,7 +266,11 @@ class PackMatrix {
 
   virtual ~PackMatrix() {
     if (bufAllocatedHere_) {
+#ifdef _MSC_VER
+      _aligned_free(buf_);
+#else
       free(buf_);
+#endif
     }
   }
 
@@ -512,7 +516,11 @@ class FBGEMM_API PackWeightMatrixForGConv {
 
   ~PackWeightMatrixForGConv() {
     if (bufAllocatedHere_) {
+#ifdef _MSC_VER
+      _aligned_free(pdata_);
+#else
       free(pdata_);
+#endif
     }
   }
 
@@ -1358,8 +1366,12 @@ FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p);
  */
 static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
   void* aligned_mem;
+#ifdef _MSC_VER
+  aligned_mem = _aligned_malloc(__size, __align);
+#else
   if (posix_memalign(&aligned_mem, __align, __size))
     return 0;
+#endif
   return aligned_mem;
 }
 

@@ -22,6 +22,10 @@ set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# only static library is available for windows
+if(MSVC)
+  set(FBGEMM_LIBRARY_TYPE "static")
+endif(MSVC)
 
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
@@ -49,10 +53,20 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/Utils.cc)
 
 #check if compiler supports avx512
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
+if (MSVC)
+  set(DISABLE_GLOBALLY "/wd\"4310\" /wd\"4324\"")
+  set(INTRINSICS "/arch:AVX2")
+  set(CMAKE_CXX_FLAGS           "/EHsc /DWIN32 /D_WINDOWS /DUNICODE /D_UNICODE /D_CRT_NONSTDC_NO_WARNINGS /D_CRT_SECURE_NO_WARNINGS ${DISABLE_GLOBALLY}")
+  set(CMAKE_CXX_FLAGS_RELEASE   "${CMAKE_CXX_FLAGS} /MT /O2 ${INTRINSICS} /Zi /MP /GL /DNDEBUG")
+  set(CMAKE_CXX_FLAGS_DEBUG     "${CMAKE_CXX_FLAGS} /MTd /Od /Ob0 ${INTRINSICS} /RTC1 /Zi /D_DEBUG")
+  set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS} /DEBUG /LTCG:incremental /INCREMENTAL:NO /NODEFAULTLIB:MSVCRT /ignore:4049")
+  set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /LTCG:incremental /NODEFAULTLIB:MSVCRT")
+else()
+  include(CheckCXXCompilerFlag)
+  CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
+  if(NOT COMPILER_SUPPORTS_AVX512)
+    message(FATAL_ERROR "A compiler with AVX512 support is required.")
+  endif()
 endif()
 
 #We should default to a Release build
@@ -104,11 +118,13 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_EXTENSIONS NO
       CXX_VISIBILITY_PRESET hidden)
 
-target_compile_options(fbgemm_avx2 PRIVATE
-  "-m64" "-mavx2" "-mfma" "-masm=intel")
-target_compile_options(fbgemm_avx512 PRIVATE
-  "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
-  "-mavx512vl" "-masm=intel")
+if (NOT MSVC)
+  target_compile_options(fbgemm_avx2 PRIVATE
+    "-m64" "-mavx2" "-mfma" "-masm=intel" "-mf16c")
+  target_compile_options(fbgemm_avx512 PRIVATE
+    "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
+    "-mavx512vl" "-masm=intel" "-mf16c")
+endif()
 
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -118,7 +134,7 @@ if(NOT TARGET asmjit)
   endif()
 
   #build asmjit
-  set(ASMJIT_STATIC ON)
+  set(ASMJIT_STATIC TRUE CACHE STRING "" FORCE)
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
@@ -135,6 +151,9 @@ if(NOT TARGET cpuinfo)
   set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Do not build cpuinfo mock tests")
   set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Do not build cpuinfo benchmarks")
   set(CPUINFO_LIBRARY_TYPE static)
+  if(MSVC)
+    set(CPUINFO_RUNTIME_TYPE static)
+  endif(MSVC)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
@@ -177,9 +196,10 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
-  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC ASMJIT_STATIC)
+  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC ASMJIT_STATIC)
+  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC ASMJIT_STATIC)
+  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC ASMJIT_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()

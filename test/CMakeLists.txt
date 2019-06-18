@@ -18,8 +18,12 @@ macro(add_gtest TESTNAME)
   set_target_properties(${TESTNAME} PROPERTIES
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
- target_compile_options(${TESTNAME} PRIVATE
-   "-m64" "-mavx2" "-mfma" "-masm=intel")
+  if(MSVC)
+    target_compile_options(${TESTNAME} PRIVATE "/DFBGEMM_STATIC")
+  else(MSVC)
+    target_compile_options(${TESTNAME} PRIVATE
+      "-m64" "-mavx2" "-mfma" "-masm=intel")
+  endif(MSVC)
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
   add_dependencies(${TESTNAME} gtest fbgemm)
   add_test(${TESTNAME} ${TESTNAME})
