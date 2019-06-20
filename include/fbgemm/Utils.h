@@ -44,6 +44,13 @@ enum class optimized_conv_t { depthwise, groupwise, im2col };
 enum class impl_type_t { ref, opt };
 
 /**
+ * @brief Typed enum to specify data layout.
+ * KCX can be KCRS format or KCTRS format (e.g., for 3-D convolutions)
+ * KXC can be KRSC format or KTRSC format (e.g., for 3-D convolutions)
+ */
+enum class layout_t { KCX, KXC };
+
+/**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
 template <typename T>
