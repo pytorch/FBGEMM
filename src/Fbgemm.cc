@@ -214,8 +214,8 @@ FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       (conv_p.stride[0] == 1) && (conv_p.stride[0] == conv_p.stride[1]);
 }
 
-template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
-template bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
+template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
+template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
 bool fbgemmSupportedCPU() {
   return (cpuinfo_initialize() && fbgemmHasAvx2Support());
