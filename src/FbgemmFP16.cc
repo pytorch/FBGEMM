@@ -214,7 +214,7 @@ void cblas_gemm_compute(
   i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
     int mb = std::min(mb_max, i_end - m0);
-    assert(mb < KernelInfo::partition.size());
+    assert(mb < sizeof(KernelInfo::partition) / sizeof(KernelInfo::partition[0]));
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
       float beta_;
