@@ -839,6 +839,9 @@ void requantizeOutputProcessingGConvAvx2(
     int g = block.col_start / ncol_per_group;
     quant_param_idx = g;
   }
+  constexpr int SIMD_WIDTH = 256;
+  constexpr int SIMD_WIDTH_I32 = SIMD_WIDTH / 32;
+
   __m256 multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
 
   __m256i min_v = _mm256_set1_epi8(static_cast<uint8_t>(0));
@@ -864,7 +867,7 @@ void requantizeOutputProcessingGConvAvx2(
   __m256i permute_mask_v =
       _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
 
-  constexpr int VLEN = 8;
+  constexpr int VLEN = SIMD_WIDTH_I32;
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     int j = block.col_start;
     for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
@@ -920,19 +923,19 @@ void requantizeOutputProcessingGConvAvx2(
           // groups 0 and 1
           row_offset_v = _mm256_insertf128_si256(
               _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 0])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 1]),
+                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * VLEN])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * VLEN + 1]),
               1);
         } else if (C_PER_G == 8) {
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
+                                    [(i - block.row_start) * VLEN +
                                      (j - block.col_start) / (VLEN * 4) * 4]);
         } else {
           assert(C_PER_G == 16);
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
+                                    [(i - block.row_start) * VLEN +
                                      (j - block.col_start) / (VLEN * 4) * 2]);
         }
         __m256i B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[0]);
@@ -964,20 +967,20 @@ void requantizeOutputProcessingGConvAvx2(
         if (C_PER_G == 4) {
           // + 2 and + 3 here are for groups 2 and 3
           row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 2])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 3]),
+              _mm256_castsi128_si256(_mm_set1_epi32(
+                  r.row_offsets[(i - block.row_start) * VLEN + 2])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * VLEN + 3]),
               1);
         } else if (C_PER_G == 8) {
           // + 1 here is for group 1
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
-                  [(i - block.row_start) * 8 +
+                  [(i - block.row_start) * VLEN +
                    (j - block.col_start) / (VLEN * 4) * 4 + 1]);
         } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
+                                    [(i - block.row_start) * VLEN +
                                      (j - block.col_start) / (VLEN * 4) * 2]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -1006,19 +1009,19 @@ void requantizeOutputProcessingGConvAvx2(
         // Group 2 when C_PER_G == 8
         if (C_PER_G == 4) {
           row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 4])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 5]),
+              _mm256_castsi128_si256(_mm_set1_epi32(
+                  r.row_offsets[(i - block.row_start) * VLEN + 4])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * VLEN + 5]),
               1);
         } else if (C_PER_G == 8) {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
-                  [(i - block.row_start) * 8 +
+                  [(i - block.row_start) * VLEN +
                    (j - block.col_start) / (VLEN * 4) * 4 + 2]);
         } else {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
-                  [(i - block.row_start) * 8 +
+                  [(i - block.row_start) * VLEN +
                    (j - block.col_start) / (VLEN * 4) * 2 + 1]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -1050,19 +1053,19 @@ void requantizeOutputProcessingGConvAvx2(
         // Group 3 when C_PER_G == 8
         if (C_PER_G == 4) {
           row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 6])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 7]),
+              _mm256_castsi128_si256(_mm_set1_epi32(
+                  r.row_offsets[(i - block.row_start) * VLEN + 6])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * VLEN + 7]),
               1);
         } else if (C_PER_G == 8) {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
-                  [(i - block.row_start) * 8 +
+                  [(i - block.row_start) * VLEN +
                    (j - block.col_start) / (VLEN * 4) * 4 + 3]);
         } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_set1_epi32(
               r.row_offsets
-                  [(i - block.row_start) * 8 +
+                  [(i - block.row_start) * VLEN +
                    (j - block.col_start) / (VLEN * 4) * 2 + 1]);
         }
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -1165,22 +1168,22 @@ void requantizeOutputProcessingGConvAvx2(
                   [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4]);
           x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
 
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                   1]);
+          multiplier_v =
+              _mm256_set1_ps(r.C_multiplier
+                                 [quant_param_idx +
+                                  (j - block.col_start) / (VLEN * 4) * 4 + 1]);
           y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
 
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                   2]);
+          multiplier_v =
+              _mm256_set1_ps(r.C_multiplier
+                                 [quant_param_idx +
+                                  (j - block.col_start) / (VLEN * 4) * 4 + 2]);
           z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
 
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                   3]);
+          multiplier_v =
+              _mm256_set1_ps(r.C_multiplier
+                                 [quant_param_idx +
+                                  (j - block.col_start) / (VLEN * 4) * 4 + 3]);
           w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
         } else {
           multiplier_v = _mm256_set1_ps(
@@ -1189,10 +1192,10 @@ void requantizeOutputProcessingGConvAvx2(
           x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
           y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
 
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2 +
-                   1]);
+          multiplier_v =
+              _mm256_set1_ps(r.C_multiplier
+                                 [quant_param_idx +
+                                  (j - block.col_start) / (VLEN * 4) * 2 + 1]);
           z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
           w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
         }

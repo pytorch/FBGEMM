@@ -25,13 +25,14 @@ using namespace fbgemm;
 
 void performance_test() {
   vector<conv_param_t<>> shapes = {
-      // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, pad_t, pad_l,
+      // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
+      // pad_b, pad_r}
       // pad_b, pad_r
       // conv_param_t<>(1, 16, 16, {16, 14}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
+      // conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
       conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
       // conv_param_t<>(1, 256, 256, {56, 56}, 64, {3, 3}, {1, 1}, {1, 1, 1,
       // 1}),
       // conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
@@ -59,15 +60,19 @@ void performance_test() {
       // conv_param_t<>(2, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1,
       // 1}),
 
-      conv_param_t<>(1, 256, 256, {28, 24}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 256, 256, {24, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(1, 256, 256, {28, 24}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
+      // conv_param_t<>(1, 256, 256, {24, 28}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
       conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(2, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
 
-      conv_param_t<>(1, 512, 512, {14, 12}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 512, 512, {12, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(1, 512, 512, {14, 12}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
+      // conv_param_t<>(1, 512, 512, {12, 14}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
       conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      // conv_param_t<>(2, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1,1,1,1}),
+
+      // strided gconv used in resnext101-32x4d
+      conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 512, 512, {28, 28}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
   };
 
   bool flush = true;
@@ -88,6 +93,7 @@ void performance_test() {
        << "OC, "
        << "IH, "
        << "IW, "
+       << "G, "
        << "KH, "
        << "KW, "
        << "stride_h, "
@@ -111,6 +117,7 @@ void performance_test() {
        << "OC, "
        << "IH, "
        << "IW, "
+       << "G, "
        << "KH, "
        << "KW, "
        << "stride_h, "
@@ -218,6 +225,8 @@ void performance_test() {
           col_offsets.data() + g * OC_per_G,
           conv_p.OC);
     }
+    aligned_vector<int32_t> bias(conv_p.OC);
+    randFill(bias, -40, 40);
 
     for (int g = 0; g < conv_p.G; ++g) {
       row_offsets_u8acc32_ref(
@@ -239,7 +248,7 @@ void performance_test() {
           Bint8_zero_point.data() + g * NDim / conv_p.OC,
           row_offsets.data(),
           col_offsets.data() + g * NDim,
-          nullptr,
+          bias.data() + g * NDim,
           conv_p.OC);
     }
     // printMatrix(matrix_op_t::NoTranspose, Cint8_ref.data(), MDim, NDim, NDim,
@@ -279,7 +288,7 @@ void performance_test() {
         Bint8_zero_point.data(),
         packA.getRowOffsetBuffer(),
         col_offsets.data(),
-        nullptr,
+        bias.data(),
         conv_p.G * NDim,
         conv_p.G);
 
@@ -388,7 +397,7 @@ void performance_test() {
         Bint8_zero_point.data(),
         row_offset_buf_direct.data(),
         col_offsets.data(),
-        nullptr,
+        bias.data(),
         conv_p.OC,
         conv_p.G);
 

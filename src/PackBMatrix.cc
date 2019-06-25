@@ -198,6 +198,7 @@ PackBMatrix<T, accT>::PackBMatrix(
       assert(0 && "unsupported architecure");
     }
   } else {
+    cpuinfo_initialize();
     if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
       BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;

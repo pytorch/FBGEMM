@@ -41,18 +41,20 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
  *
  * Let IC_per_G be number of input channels per group and OC_per_G be number of
  * output channels per group.
+ * Let SIMD_WIDTH_I32 is the number of i32 per SIMD register (8 in AVX2 and 16
+ * in AVX512).
+ * When OC_per_G is small, we need to work on multiple groups at a time to fill
+ * the whole output SIMD register. We call the number of groups we put at each
+ * SIMD register G_VEC_BLOCK.
+ * For example, in AVX2 and OC_per_G = 4, G_VEC_BLOCK = 8 / 4 = 2
+ * In AVX512 and OC_per_G = 8, G_VEC_BLOCK = 16 / 8 = 2.
  *
- * For IC_per_G == 4 && OC_per_G == 4 optimized
- * kernel works on 2 groups at a time hence input channels for g and g+1 group
- * are laid out sequentially for each output channel, i.e., the layout is (G/2)
- * R S K (2C) and K (2C) is in each 32B vector.
- * We work on two groups at a time to fully utilize the avx2 SIMD width of
- * 256-bits.
+ * The layout we're using is G/G_VEC_BLOCK x R x S x K x G_VEC_BLOCK x C .
+ * That is input channel (C) is the fast moving dimension, G_VEC_BLOCK, output
+ * channel (K), filter dimensions (S and R), and finally G/G_VEC_BLOCK .
  *
- * For IC_per_G == 8, 16, 32 && OC_per_G == 8, 16, 32 there is no need to work
- * on 2 groups at a time and full SIMD width can be efficiently utilized even
- * while working on 1 group at a time.
- * In this case, the layout is G (C/4) R S K 4
+ * This layout roughly aligns with the access order in our group convolution
+ * kernels. See GroupwiseConv.cc for more details on the access order.
  */
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
@@ -60,14 +62,20 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
   int R = conv_param_.K[0];
   int S = conv_param_.K[1];
   int G = conv_param_.G;
-  int IC_per_G = conv_param_.IC / conv_param_.G;
-  int OC_per_G = conv_param_.OC / conv_param_.G;
+  int IC_per_G = conv_param_.IC / G;
+  int OC_per_G = conv_param_.OC / G;
 
   // If transpose option is set, the weight matrix is in layout G K/G (R S C/G)
   // instead of G (R S C/G) K/G
   bool tr = (trans_ == matrix_op_t::Transpose);
   if (fbgemmOptimizedGConv(conv_param_)) {
     // currently only this case is supported
+    bool useAvx512 =
+        cpuinfo_initialize() && fbgemmHasAvx512Support() && G >= 16;
+    int simd_width = useAvx512 ? 512 : 256;
+    // The number of groups we have per simd vector
+    // e.g., for IC_per_G == 4 and AVX2, we need to work on 2 groups at a time
+    int g_vec_block = std::max(simd_width / 32 / OC_per_G, 1);
     for (int r = 0; r < R; ++r) {
       for (int s = 0; s < S; ++s) {
         for (int k = 0; k < OC_per_G; ++k) {
@@ -78,21 +86,12 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack() {
                         [(((g * OC_per_G + k) * R + r) * S + s) * IC_per_G + c]
                   : sdata_
                         [(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k];
-              if (IC_per_G == 4) {
-                // For IC_per_G == 4, we need to work on 2 groups at a time
-                pdata_
-                    [(((((g / 2) * R + r) * S + s) * OC_per_G + k) * 2 +
-                      (g % 2)) *
-                         IC_per_G +
-                     c] = b;
-              } else {
-                pdata_
-                    [((((g * (IC_per_G / 4) + (c / 4)) * R + r) * S + s) *
-                          OC_per_G +
-                      k) *
-                         4 +
-                     (c % 4)] = b;
-              }
+              pdata_
+                  [(((((g / g_vec_block) * R + r) * S + s) * OC_per_G + k) *
+                        g_vec_block +
+                    (g % g_vec_block)) *
+                       IC_per_G +
+                   c] = b;
             }
           }
         }

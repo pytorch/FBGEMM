@@ -35,7 +35,7 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC32.cc
                 src/GenerateKernelU8S8S32ACC32Avx512.cc
-                src/GroupwiseConvAcc32Avx2.cc
+                src/GroupwiseConv.cc
                 src/PackAMatrix.cc
                 src/PackAWithIm2Col.cc
                 src/PackBMatrix.cc
@@ -74,12 +74,15 @@ endif()
 set(FBGEMM_AVX2_SRCS
   src/FbgemmFP16UKernelsAvx2.cc
   src/FbgemmI8DepthwiseAvx2.cc
+  src/GroupwiseConvAcc32Avx2.cc
   src/OptimizedKernelsAvx2.cc
   src/QuantUtilsAvx2.cc
   src/UtilsAvx2.cc)
 
 #All the source files that use avx512 instructions statically
-set(FBGEMM_AVX512_SRCS src/UtilsAvx512.cc)
+set(FBGEMM_AVX512_SRCS
+  src/GroupwiseConvAcc32Avx512.cc
+  src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
