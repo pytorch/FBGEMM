@@ -62,16 +62,7 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
     }
   }
 
-  if (fbgemmHasAvx512Support()) {
-    if (isA()) {
-      return MCB * KCB;
-    } else {
-      int rowBlock = KCB;
-      int colBlock = NCB;
-      return (((rows + rowBlock - 1) / rowBlock) * rowBlock) *
-          (((cols + colBlock - 1) / colBlock) * colBlock);
-    }
-  } else if (fbgemmHasAvx2Support()) {
+  if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
     if (isA()) {
       return MCB * KCB;
     } else {
