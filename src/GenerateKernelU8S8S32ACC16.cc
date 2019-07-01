@@ -34,13 +34,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::initCRegs<
     asmjit::X86Emitter* a,
     int rowRegs,
     int colRegs,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs_avx2_[i * leadingDimCRegAssign + j],
-          CRegs_avx2_[i * leadingDimCRegAssign + j],
-          CRegs_avx2_[i * leadingDimCRegAssign + j]);
+          CRegs_avx2_[i * leadingDimCReg + j],
+          CRegs_avx2_[i * leadingDimCReg + j],
+          CRegs_avx2_[i * leadingDimCReg + j]);
     }
   }
 }
@@ -60,7 +60,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     int rowRegs,
     int colRegs,
     int lda,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   // used for matrix A
   asmjit::X86Ymm AReg = x86::ymm12;
 
@@ -74,9 +74,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
       a->vpmaddubsw(
           tmpReg, AReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
       a->vpaddsw(
-          CRegs_avx2_[i * leadingDimCRegAssign + j],
+          CRegs_avx2_[i * leadingDimCReg + j],
           tmpReg,
-          CRegs_avx2_[i * leadingDimCRegAssign + j]);
+          CRegs_avx2_[i * leadingDimCReg + j]);
       // Prefetching is hurting performance in some cases
       // because prefetch instructions itself consumes a slot
       // in pipeline issue thus slowing down the kernel.
@@ -101,7 +101,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     asmjit::X86Gp C_Offset,
     asmjit::X86Gp ldcReg,
     bool accum,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   asmjit::X86Xmm extractDest128 = x86::xmm15;
   asmjit::X86Ymm extractDest256 = x86::ymm15;
 
@@ -110,7 +110,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
         a->vextracti128(
-            extractDest128, CRegs_avx2_[i * leadingDimCRegAssign + j], idx);
+            extractDest128, CRegs_avx2_[i * leadingDimCReg + j], idx);
         a->vpmovsxwd(extractDest256, extractDest128);
         asmjit::X86Mem destAddr = x86::dword_ptr(
             a->zcx(), C_Offset, 0, (j * 2 + idx) * 8 * sizeof(int32_t));
@@ -289,7 +289,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     a->jl(Loopk);
 
     // store C matrix
-    storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+    storeCRegs<inst_set_t::avx2>(
+        a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
     // increment A for next block
     a->sub(buffer_A, kSize);
@@ -339,7 +340,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     a->jl(LoopkRem);
 
     // store C matrix
-    storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+    storeCRegs<inst_set_t::avx2>(
+        a, rowRegs, colRegs, C_Offset, ldcReg, accum);
   }
 
   asmjit::FuncUtils::emitEpilog(a, layout);
