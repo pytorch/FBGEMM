@@ -504,6 +504,11 @@ class FBGEMM_API PackWeightMatrixForGConv {
   void pack();
 
   /**
+   * @brief Unpacks a pmat buffer into source matrix.
+   */
+  void unpack(T* origin_buf);
+
+  /**
    * @brief Return packed data
    */
   inpType* getBuf() {
@@ -522,6 +527,22 @@ class FBGEMM_API PackWeightMatrixForGConv {
   const T* sdata_;
   T* pdata_;
   bool bufAllocatedHere_;
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(const T* src, T* dst, bool ispack);
+
+  /**
+   * @brief Get the index of the unpacked data
+   */
+  int unpacked_index_(int r, int s, int k, int g, int c, bool tr);
+
+  /**
+   * @brief Get the index of the packed data
+   */
+  int packed_index_(int r, int s, int k, int g, int c);
+
 };
 
 /**
