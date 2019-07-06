@@ -16,13 +16,24 @@ namespace fbgemm {
 template <int KERNEL_PROD>
 class FBGEMM_API PackedDepthWiseConvMatrix {
  public:
-  // smat in RSG layout
+  // smat in GRS layout
   PackedDepthWiseConvMatrix(int K, const std::int8_t* smat);
   virtual ~PackedDepthWiseConvMatrix();
 
   const std::int8_t* PackedMat() const {
     return pmat_;
   }
+
+  /**
+   * @brief Unpacks pmat_ into unpack_data.
+   * Used for recovering the weight matrix into the original format
+   */
+  void unpack(std::int8_t* unpacked_data);
+
+  /**
+   * @brief returns the index into pmat_ given the row and column for smat
+   */
+  int addr(int r, int c);
 
  private:
   int K_;
@@ -31,6 +42,13 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
 
 using Packed3x3ConvMatrix = PackedDepthWiseConvMatrix<3 * 3>;
 using Packed3x3x3ConvMatrix = PackedDepthWiseConvMatrix<3 * 3 * 3>;
+using Packed1ConvMatrix = PackedDepthWiseConvMatrix<1>;
+using Packed2ConvMatrix = PackedDepthWiseConvMatrix<2>;
+using Packed3ConvMatrix = PackedDepthWiseConvMatrix<3>;
+using Packed4ConvMatrix = PackedDepthWiseConvMatrix<4>;
+using Packed5ConvMatrix = PackedDepthWiseConvMatrix<5>;
+using Packed10ConvMatrix = PackedDepthWiseConvMatrix<10>;
+using Packed11ConvMatrix = PackedDepthWiseConvMatrix<11>;
 
 /**
  * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8

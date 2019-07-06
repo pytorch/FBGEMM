@@ -69,14 +69,29 @@ static vector<vector<int>> shapes = {
 };
 
 namespace {
-class FBGemmDepthWiseTest
-    : public testing::TestWithParam<tuple<bool, bool>> {};
+
+class FBGemmDepthWiseTest : public testing::TestWithParam<tuple<bool, bool>> {};
+
+// Two parameters are K (or Groups) and kernel_prod, i.e.,
+// (output_channels)(kernel_prod)
+// output_channels == Groups.
+// For example, kernel_prod for 3x3 convolution is 9
+class FBGemmDepthWisePackUnpackTest
+    : public testing::TestWithParam<tuple<int, int>> {};
+
 } // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     FBGemmDepthWiseTest,
     ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    FBGemmDepthWisePackUnpackTest,
+    ::testing::Combine(
+        ::testing::ValuesIn({8, 16, 24, 32, 40, 64, 72}),
+        ::testing::ValuesIn({1, 2, 3, 4, 5, 9, 10, 11, 27})));
 
 TEST_P(FBGemmDepthWiseTest, Test3x3) {
   bool a_symmetric, b_symmetric;
@@ -297,8 +312,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
             for (int k = 0; k < K; ++k) {
               int32_t expected = C_uint8_ref
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              int32_t actual = C_uint8
-                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+              int32_t actual =
+                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
               EXPECT_EQ(expected, actual)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
@@ -560,5 +575,51 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
     } // n
   } // for each shape
 } // Test3x3PerChannelQuantization
+
+TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
+  int K, kernel_prod;
+  tie(K, kernel_prod) = GetParam();
+
+  ASSERT_EQ(K % 8, 0)
+      << "output channels (== groups) should be a multiple of 8";
+  aligned_vector<int8_t> B(K * kernel_prod);
+  randFill<int8_t>(B, -16, 16);
+
+  aligned_vector<int8_t> BUnpacked(K * kernel_prod);
+
+  if (kernel_prod == 1) {
+    Packed1ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 2) {
+    Packed2ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 3) {
+    Packed3ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 4) {
+    Packed4ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 5) {
+    Packed5ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 9) {
+    Packed3x3ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 10) {
+    Packed10ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 11) {
+    Packed11ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else if (kernel_prod == 27) {
+    Packed3x3x3ConvMatrix BPacked(K, B.data());
+    BPacked.unpack(BUnpacked.data());
+  } else {
+    ASSERT_TRUE(false);
+  }
+
+  ASSERT_EQ(B, BUnpacked)
+      << "Original and unpacked data elements are not the same";
+} // TestPackUnpack
 
 } // namespace fbgemm
