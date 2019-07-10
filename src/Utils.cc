@@ -197,13 +197,13 @@ void transpose_simd(
 }
 
 bool fbgemmHasAvx512Support() {
-  return (
+  return (cpuinfo_initialize() &&
       cpuinfo_has_x86_avx512f() && cpuinfo_has_x86_avx512bw() &&
       cpuinfo_has_x86_avx512dq() && cpuinfo_has_x86_avx512vl());
 }
 
 bool fbgemmHasAvx2Support() {
-  return (cpuinfo_has_x86_avx2());
+  return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
 }
 
 } // namespace fbgemm
