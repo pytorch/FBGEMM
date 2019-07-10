@@ -26,7 +26,7 @@ using namespace std;
 using namespace fbgemm;
 
 vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
-                                       matrix_op_t::Transpose};
+                                  matrix_op_t::Transpose};
 
 vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
@@ -39,6 +39,8 @@ class fbgemmu8s8acc16WithQuantGranularityTest
           tuple<matrix_op_t, matrix_op_t, bool, QuantizationGranularity>> {};
 class fbgemmu8s8acc16Test
     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t, bool>> {};
+class fbgemmPackUnpackAcc16Test
+    : public testing::TestWithParam<tuple<matrix_op_t, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -57,6 +59,11 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(matrix_op_t::NoTranspose),
         ::testing::ValuesIn(transposeVals),
         ::testing::Bool()));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    fbgemmPackUnpackAcc16Test,
+    ::testing::Combine(::testing::ValuesIn(transposeVals), ::testing::Bool()));
 
 /**
  * @brief Shapes for unit test.
@@ -808,4 +815,67 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
           static_cast<int32_t>(0));
     } // for each groups
   } // for each shape
+}
+
+/**
+ * @brief Unit test for packing and unpacking the weight tensor.
+ */
+TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
+  vector<vector<int>> shapes(GetShapes_());
+  matrix_op_t btrans;
+  bool test_ld;
+  tie(btrans, test_ld) = GetParam();
+
+  for (auto shape : shapes) {
+    for (int groups : {1, 3, 4}) {
+      int n = shape[1];
+      int k = shape[2];
+
+      if (k % groups != 0) {
+        continue;
+      }
+      int k_per_group = k / groups;
+
+      // kxn matrix
+      aligned_vector<int8_t> Bint8(k * n);
+      randFill<int8_t>(Bint8, -128, 127);
+
+      // To test lda != k , we just reduce k by half and use the original k
+      // as lda.
+      int n_adjusted = n;
+      if (test_ld) {
+        if (btrans == matrix_op_t::NoTranspose) {
+          n_adjusted = std::max(n / 2, 1);
+        }
+      }
+
+      // Note that packing for weight is performed during the constructor
+      // stage.
+      PackBMatrix<int8_t, int16_t> packedWeights(
+          btrans,
+          k,
+          n_adjusted,
+          Bint8.data(),
+          (btrans == matrix_op_t::Transpose) ? k_per_group : n,
+          nullptr,
+          groups);
+
+      // Setup a buffer to get pack -> unpacked results
+      aligned_vector<int8_t> unpack_buf(k * n, 0);
+
+      // Perform unpacking
+      packedWeights.unpack(unpack_buf.data());
+
+      // Sanity check
+      for (int i = 0; i < k; i++) {
+        for (int j = 0; j < n_adjusted; j++) {
+          EXPECT_EQ(Bint8.data()[i * n + j], unpack_buf.data()[i * n + j])
+              << "Pack/Unpack results differ at index (" << i << ", " << j
+              << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
+              << ", Pack-Unpacked: "
+              << static_cast<int>(unpack_buf.data()[i * n + j]);
+        }
+      }
+    }
+  }
 }

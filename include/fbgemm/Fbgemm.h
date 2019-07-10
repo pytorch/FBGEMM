@@ -472,6 +472,15 @@ class FBGEMM_API PackBMatrix final
   const T* smat_;
   std::int32_t ld_;
   std::int32_t row_interleave_;
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(
+      const block_type_t& block,
+      T* unpack_buf,
+      T* pack_buf,
+      bool ispack);
 };
 
 /**
