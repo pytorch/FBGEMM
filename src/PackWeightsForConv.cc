@@ -42,18 +42,18 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       W_dw_3D_packed_ = nullptr;
       W_gconv_packed_ =
           std::make_shared<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>(
-              matrix_op_t::NoTranspose, conv_p, sdata, nullptr);
+              matrix_op_t::Transpose, conv_p, sdata, nullptr);
       break;
     }
     case optimized_conv_t::im2col: {
       int NDim = conv_p.OC / conv_p.G;
       int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
       W_im2col_packed_ = std::make_shared<PackBMatrix<T, accT>>(
-          matrix_op_t::NoTranspose,
+          matrix_op_t::Transpose,
           KDim,
           NDim,
           sdata,
-          NDim,
+          KDim / conv_p.G,
           nullptr,
           conv_p.G,
           blocking_params);
