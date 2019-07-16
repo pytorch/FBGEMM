@@ -13,7 +13,8 @@ template <int SPATIAL_DIM, typename T, typename accT>
 PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const T* sdata,
-    const BlockingFactors* blocking_params) {
+    const BlockingFactors* blocking_params)
+    : conv_param_(conv_p) {
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3,
       "Only 2D and 3D convolutions are supported");
