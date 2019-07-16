@@ -49,32 +49,29 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  if ((!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+    assert(0 && "unknown architecure");
+  }
 
   if (params) {
-    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
-      BaseType::brow_ = params->MCB;
-      BaseType::bcol_ = params->KCB;
-      row_interleave_B_ = params->ROW_INTERLEAVE;
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecure");
-    }
+    BaseType::brow_ = params->MCB;
+    BaseType::bcol_ = params->KCB;
+    row_interleave_B_ = params->ROW_INTERLEAVE;
   } else {
     if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
       BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
       row_interleave_B_ =
           PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-    } else if (fbgemmHasAvx2Support()) {
+    } else {
+      // AVX2
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
       BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
       row_interleave_B_ =
           PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecure");
     }
   }
+
   if (BaseType::numCols() % conv_p.G != 0) {
     throw std::runtime_error(
         "groups = " + std::to_string(conv_p.G) +
