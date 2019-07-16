@@ -597,6 +597,22 @@ class FBGEMM_API PackWeightsForConv {
     return W_gconv_packed_;
   }
 
+  int inputChannels() {
+    return conv_param_.IC;
+  }
+
+  int outputChannels() {
+    return conv_param_.OC;
+  }
+
+  std::array<int, SPATIAL_DIM> kernelDims() {
+    return conv_param_.K;
+  }
+
+  int groups() {
+    return conv_param_.G;
+  }
+
   /**
    * @brief Unpack packed matric into origin_buf (Used for the serialization to
    * recover weight matrix).
@@ -604,6 +620,7 @@ class FBGEMM_API PackWeightsForConv {
   void unpack(T* origin_buf);
 
  private:
+  const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
   // Packed weights if we use 2D depthwise convolution implementation
