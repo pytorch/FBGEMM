@@ -597,6 +597,12 @@ class FBGEMM_API PackWeightsForConv {
     return W_gconv_packed_;
   }
 
+  /**
+   * @brief Unpack packed matric into origin_buf (Used for the serialization to
+   * recover weight matrix).
+   */
+  void unpack(T* origin_buf);
+
  private:
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;

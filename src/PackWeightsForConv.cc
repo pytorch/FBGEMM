@@ -65,6 +65,21 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
   } // switch
 }
 
+template <int SPATIAL_DIM, typename T, typename accT>
+void PackWeightsForConv<SPATIAL_DIM, T, accT>::unpack(T* origin_buf) {
+  if (W_dw_2D_packed_) {
+    W_dw_2D_packed_->unpack(origin_buf);
+  } else if (W_dw_3D_packed_) {
+    W_dw_3D_packed_->unpack(origin_buf);
+  } else if (W_gconv_packed_) {
+    W_gconv_packed_->unpack(origin_buf);
+  } else if (W_im2col_packed_) {
+    W_im2col_packed_->unpack(origin_buf);
+  } else {
+    assert(false && "At least one packed weights object should exist");
+  }
+}
+
 template class PackWeightsForConv<2, int8_t, int32_t>;
 template class PackWeightsForConv<3, int8_t, int32_t>;
 
