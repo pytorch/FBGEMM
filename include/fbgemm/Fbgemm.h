@@ -614,6 +614,12 @@ class FBGEMM_API PackWeightsForConv {
   }
 
   /**
+   * @brief Returns true if the packed weights would work for the given
+   * convolution parameters, and false otherwise
+   */
+  bool isPackingCompliant(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+  /**
    * @brief Unpack packed matric into origin_buf (Used for the serialization to
    * recover weight matrix).
    */

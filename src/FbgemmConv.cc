@@ -58,6 +58,13 @@ int fbgemmConv(
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3,
       "Only 2D and 3D convolutions are supported");
+
+  if (!packed_weights.isPackingCompliant(conv_p)) {
+    throw std::logic_error(
+        "[FBGEMM_CONV_ERROR] Prepacked weights can't be used"
+        " with these convolution parameters!");
+  }
+
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     case optimized_conv_t::depthwise: {
       // 2D and 3D depthwise fast path
