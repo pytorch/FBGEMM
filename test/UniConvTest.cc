@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <random>
 #include <iostream>
+#include <stdexcept>
 
 
 #include <gtest/gtest.h>
@@ -202,4 +203,87 @@ TEST_P(uniConvTest, packUnpackTest) {
 
   ASSERT_EQ(Bint8_3d, Bint8_3d_unpacked)
       << "Original and unpacked data elements are not the same [3D]";
+}
+
+TEST(uniConvTest, cornerCases) {
+  int stride = 1;
+  conv_param_t<2> conv_p_2d(
+      1, // mini-batch
+      16, // input channels
+      32, // output channels
+      {28, 28}, // input height/width
+      4, // groups
+      {3, 3}, // kernel height/width
+      {stride, stride}, // strides
+      {1, 1, 1, 1}); // padding
+
+  int kernel_dim_2d = conv_p_2d.K[0] * conv_p_2d.K[1];
+
+  aligned_vector<uint8_t> Aint8(
+      conv_p_2d.MB * conv_p_2d.IN_DIM[0] * conv_p_2d.IN_DIM[1] * conv_p_2d.IC);
+  aligned_vector<int8_t> Bint8_2d(
+      kernel_dim_2d * conv_p_2d.IC * (conv_p_2d.OC / conv_p_2d.G));
+  aligned_vector<int32_t> Cint32_fb(
+      conv_p_2d.MB * conv_p_2d.OUT_DIM[0] * conv_p_2d.OUT_DIM[1] *
+      conv_p_2d.OC);
+  aligned_vector<uint8_t> Cint8_fb(Cint32_fb.size(), 0);
+
+  // A matrix (input activations)
+  randFill<uint8_t>(Aint8, 0, 5);
+  int32_t Aint8_zero_point = 4;
+
+  // B matrix (weights)
+  randFill<int8_t>(Bint8_2d, -4, 4);
+  aligned_vector<int32_t> Bint8_zero_point(1);
+  randFill(Bint8_zero_point, -3, -1);
+
+  aligned_vector<float> C_multiplier(Bint8_zero_point.size());
+  randFill(C_multiplier, 0.1234f / 2, 0.1234f * 3 / 2);
+  int32_t C_zero_point = 5;
+
+  PackWeightsForConv<2> packedB_2D(conv_p_2d, Bint8_2d.data());
+
+  vector<int32_t> col_offsets(conv_p_2d.OC);
+
+  DoNothing<> doNothingObj{};
+  ReQuantizeOutput<false, QuantizationGranularity::TENSOR> outputProcObj(
+      doNothingObj,
+      C_multiplier.data(),
+      C_zero_point,
+      Aint8_zero_point,
+      Bint8_zero_point.data(),
+      nullptr, // row offsets
+      col_offsets.data(),
+      nullptr, // bias
+      conv_p_2d.OC,
+      conv_p_2d.G);
+
+  try {
+    conv_p_2d.stride[0] = 2;
+    fbgemmConv(
+        conv_p_2d,
+        Aint8.data(),
+        packedB_2D,
+        Cint8_fb.data(),
+        Cint32_fb.data(),
+        outputProcObj,
+        0,
+        1);
+  } catch (std::logic_error const& err) {
+    std::string s(err.what());
+    EXPECT_TRUE(s.rfind("[FBGEMM_CONV_ERROR]", 0) == 0);
+  }
+
+  // reset
+  conv_p_2d.stride[0] = stride;
+  // this should run fine
+  fbgemmConv(
+      conv_p_2d,
+      Aint8.data(),
+      packedB_2D,
+      Cint8_fb.data(),
+      Cint32_fb.data(),
+      outputProcObj,
+      0,
+      1);
 }
