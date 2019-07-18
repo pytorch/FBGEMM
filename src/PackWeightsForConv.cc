@@ -47,6 +47,24 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
               matrix_op_t::Transpose, conv_p, sdata, nullptr);
       break;
     }
+    case optimized_conv_t::pointwise: {
+      W_im2col_packed_ = nullptr;
+      W_dw_2D_packed_ = nullptr;
+      W_dw_3D_packed_ = nullptr;
+      W_gconv_packed_ = nullptr;
+      int NDim = conv_p.OC / conv_p.G;
+      int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
+      W_pointwise_packed_ = std::make_shared<PackBMatrix<T, accT>>(
+          matrix_op_t::Transpose,
+          KDim,
+          NDim,
+          sdata,
+          KDim / conv_p.G,
+          nullptr,
+          conv_p.G,
+          blocking_params);
+      break;
+    }
     case optimized_conv_t::im2col: {
       int NDim = conv_p.OC / conv_p.G;
       int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
@@ -77,6 +95,8 @@ void PackWeightsForConv<SPATIAL_DIM, T, accT>::unpack(T* origin_buf) {
     W_gconv_packed_->unpack(origin_buf);
   } else if (W_im2col_packed_) {
     W_im2col_packed_->unpack(origin_buf);
+  } else if (W_pointwise_packed_) {
+    W_pointwise_packed_->unpack(origin_buf);
   } else {
     assert(false && "At least one packed weights object should exist");
   }

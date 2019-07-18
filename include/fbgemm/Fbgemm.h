@@ -597,6 +597,10 @@ class FBGEMM_API PackWeightsForConv {
     return W_gconv_packed_;
   }
 
+  std::shared_ptr<PackBMatrix<T, accT>> getPackedWForPointwise() {
+    return W_pointwise_packed_;
+  }
+
   int inputChannels() {
     return conv_param_.IC;
   }
@@ -637,6 +641,8 @@ class FBGEMM_API PackWeightsForConv {
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
       W_gconv_packed_;
+  // Packed weights if we use direct gemm for pointwise convolution
+  std::shared_ptr<PackBMatrix<T, accT>> W_pointwise_packed_;
 };
 
 /**
@@ -1410,6 +1416,13 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
  */
 template <int SPATIAL_DIM>
 FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+/**
+ * @brief Is this convolution a direct matrix-matrix multiplication, i.e., 1x1
+ * (aka pointwise) with right paddings etc.?
+ */
+template <int SPATIAL_DIM>
+FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 /**
  * @brief Allocate __size bytes of uninitialized storage whose alignment is
