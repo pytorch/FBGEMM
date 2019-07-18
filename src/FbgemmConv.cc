@@ -145,7 +145,8 @@ int fbgemmConv(
       // All other convolutions go through im2col-based implementation
       // std::cout << "Im2col path" << std::endl;
       std::vector<int32_t> row_offset_buf(
-          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>::rowOffsetBufferSize());
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>
+          ::rowOffsetBufferSize(blocking_params));
 
       const std::int32_t* b_zero_point = outProcess.getBZeroPoint();
       bool b_symmetric = b_zero_point[0] == 0;
