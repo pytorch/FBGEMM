@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <numeric>
 #include <vector>
+#include <functional>
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
