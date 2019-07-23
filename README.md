@@ -64,6 +64,9 @@ General build instructions are as follows:
 ```
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM
+# if you are updating an existing checkout
+git submodule sync
+git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
 make
