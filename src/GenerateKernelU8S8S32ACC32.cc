@@ -60,7 +60,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
     int rowRegs,
     int colRegs,
     int lda,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   // used for matrix A
   asmjit::X86Ymm AReg = x86::ymm12;
 
@@ -83,9 +83,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
       a->vpaddd(
-          CRegs_avx2_[i * leadingDimCRegAssign + j],
+          CRegs_avx2_[i * leadingDimCReg + j],
           res1,
-          CRegs_avx2_[i * leadingDimCRegAssign + j]);
+          CRegs_avx2_[i * leadingDimCReg + j]);
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
@@ -105,10 +105,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     asmjit::X86Gp C_Offset,
     asmjit::X86Gp ldcReg,
     bool accum,
-    int leadingDimCRegAssign) {
-  // temp register
-  asmjit::X86Ymm tmpReg = x86::ymm14;
-
+    int leadingDimCReg) {
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
       a->add(C_Offset, ldcReg);
@@ -116,13 +113,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
         a->vpaddd(
-            CRegs_avx2_[i * leadingDimCRegAssign + j],
-            CRegs_avx2_[i * leadingDimCRegAssign + j],
+            CRegs_avx2_[i * leadingDimCReg + j],
+            CRegs_avx2_[i * leadingDimCReg + j],
             x86::dword_ptr(a->zcx(), C_Offset, 0, j * 8 * sizeof(int32_t)));
       }
       a->vmovups(
           x86::dword_ptr(a->zcx(), C_Offset, 0, j * 8 * sizeof(int32_t)),
-          CRegs_avx2_[i * leadingDimCRegAssign + j]);
+          CRegs_avx2_[i * leadingDimCReg + j]);
     }
   }
 }

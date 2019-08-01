@@ -22,13 +22,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::initCRegs<
     asmjit::X86Emitter* a,
     int rowRegs,
     int colRegs,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs_avx512_[i * leadingDimCRegAssign + j],
-          CRegs_avx512_[i * leadingDimCRegAssign + j],
-          CRegs_avx512_[i * leadingDimCRegAssign + j]);
+          CRegs_avx512_[i * leadingDimCReg + j],
+          CRegs_avx512_[i * leadingDimCReg + j],
+          CRegs_avx512_[i * leadingDimCReg + j]);
     }
   }
 }
@@ -48,7 +48,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     int rowRegs,
     int colRegs,
     int lda,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   // used for matrix A
   asmjit::X86Zmm AReg = x86::zmm29;
 
@@ -69,9 +69,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
       a->vpmaddubsw(
           tmpReg, AReg, AllRegs_avx512_[27-j]);
       a->vpaddsw(
-          CRegs_avx512_[i * leadingDimCRegAssign + j],
+          CRegs_avx512_[i * leadingDimCReg + j],
           tmpReg,
-          CRegs_avx512_[i * leadingDimCRegAssign + j]);
+          CRegs_avx512_[i * leadingDimCReg + j]);
       // Prefetching is hurting performance in some cases
       // because prefetch instructions itself consumes a slot
       // in pipeline issue thus slowing down the kernel.
@@ -96,7 +96,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     asmjit::X86Gp C_Offset,
     asmjit::X86Gp ldcReg,
     bool accum,
-    int leadingDimCRegAssign) {
+    int leadingDimCReg) {
   asmjit::X86Ymm extractDest256 = x86::ymm31;
   asmjit::X86Zmm extractDest512 = x86::zmm31;
 
@@ -105,7 +105,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
         a->vextracti32x8(
-            extractDest256, CRegs_avx512_[i * leadingDimCRegAssign + j], idx);
+            extractDest256, CRegs_avx512_[i * leadingDimCReg + j], idx);
         a->vpmovsxwd(extractDest512, extractDest256);
         asmjit::X86Mem destAddr = x86::dword_ptr(
             a->zcx(), C_Offset, 0, (j * 2 + idx) * 16 * sizeof(int32_t));
@@ -201,9 +201,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
   int maxMRegs = mRegBlockSize;
   int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
   assert(
-      maxMRegs * maxNRegs <= 24 &&
-      "MR*(NR*ROW_INTERLEAVE*8/512) \
-      must be <= 24(available registers constraint)");
+      (maxMRegs+1) * maxNRegs <= 28 &&
+      "number of zmm registers for C + one row for loading B: \
+      MR*(NR*ROW_INTERLEAVE*8/512) + (NR*ROW_INTERLEAVE*8/512)  \
+      must be <= 28(available registers constraint)");
   int mRegBlocks = mc / mRegBlockSize;
   int mRegBlocksRem = mc % mRegBlockSize;
 

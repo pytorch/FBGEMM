@@ -105,7 +105,7 @@ void FindMinMax(const float* a, float* min, float* max, int len) {
   float temp_min = *a, temp_max = *a;
   int i = 0;
 
-#ifdef __AVX__
+#ifdef __AVX2__
   __m256 min_v = _mm256_set1_ps(*a), max_v = _mm256_set1_ps(*a);
   constexpr int VLEN = 8;
   if (len >= VLEN) {

@@ -54,6 +54,13 @@ enum class optimized_conv_t { depthwise, groupwise, im2col };
 enum class impl_type_t { ref, opt };
 
 /**
+ * @brief Typed enum to specify data layout.
+ * KCX can be KCRS format or KCTRS format (e.g., for 3-D convolutions)
+ * KXC can be KRSC format or KTRSC format (e.g., for 3-D convolutions)
+ */
+enum class layout_t { KCX, KXC };
+
+/**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
 template <typename T>
@@ -129,10 +136,10 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
       return false;
 
     if (fbgemmHasAvx512Support()) {
-      if (param->NR != 16)
+      if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
         return false;
     } else if (fbgemmHasAvx2Support()) {
-      if (param->NR != 8)
+      if (param->NR_MIN != 8 || param->NR % param->NR_MIN)
         return false;
     }
   } else if (is_16bit) {
@@ -140,10 +147,10 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
       return false;
 
     if (fbgemmHasAvx512Support()) {
-      if (param->NR != 32)
+      if (param->NR_MIN != 32 || param->NR % param->NR_MIN)
         return false;
     } else if (fbgemmHasAvx2Support()) {
-      if (param->NR != 16)
+      if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
         return false;
     }
   }
@@ -153,10 +160,19 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
   if (param->NCB % param->NR)
     return false;
   if (fbgemmHasAvx512Support()) {
-    if (param->MR * (param->NCB / param->NR) > 24)
-      return false;
+    if (is_32bit) {
+      // Zmm register usage for C
+      if (param->MR * (param->NR / param->NR_MIN) > 28)
+        return false;
+    } else if (is_16bit) {
+      // Zmm register usage for C + one row for loading B
+      if ((param->MR * (param->NR / param->NR_MIN) +
+           (param->NR / param->NR_MIN)) > 28)
+        return false;
+    }
+
   } else if (fbgemmHasAvx2Support()) {
-    if (param->MR * (param->NCB / param->NR) > 16)
+    if (param->MR * (param->NR / param->NR_MIN) > 12)
       return false;
   }
   return true;

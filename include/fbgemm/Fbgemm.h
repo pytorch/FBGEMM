@@ -416,6 +416,19 @@ class FBGEMM_API PackBMatrix final
       const BlockingFactors* params = nullptr);
 
   /**
+   * This constructor accepts pre-packed matrix as an input.
+   * And, it skips the actual packing procedure.
+   */
+  PackBMatrix(
+      matrix_op_t trans,
+      std::int32_t nRow,
+      std::int32_t nCol,
+      inpType* prepackedmat,
+      std::int32_t ld,
+      int groups = 1,
+      const BlockingFactors* params = nullptr);
+
+  /**
    * Weight matrices are usually constant so worth pre-packing.
    */
   bool isPrePacked() const {

@@ -234,6 +234,64 @@ PackBMatrix<T, accT>::PackBMatrix(
 }
 
 template <typename T, typename accT>
+PackBMatrix<T, accT>::PackBMatrix(
+    matrix_op_t trans,
+    int32_t nRow,
+    int32_t nCol,
+    inpType* prepackedmat,
+    int32_t ld,
+    int groups,
+    const BlockingFactors* params)
+    : PackMatrix<PackBMatrix<T, accT>, T, accT>(
+          nRow,
+          nCol,
+          prepackedmat,
+          groups,
+          params),
+      trans_(trans),
+      smat_(nullptr),
+      ld_(ld) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (params) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+      BaseType::brow_ = params->KCB;
+      BaseType::bcol_ = params->NCB;
+      row_interleave_ = params->ROW_INTERLEAVE;
+    } else {
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecure");
+    }
+  } else {
+    if (fbgemmHasAvx512Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
+      row_interleave_ =
+          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx2Support()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::NCB;
+      row_interleave_ =
+          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    } else {
+      // Error
+      assert(0 && "unknown architecure");
+    }
+  }
+  if (BaseType::numRows() % groups != 0) {
+    throw std::runtime_error(
+        "groups = " + std::to_string(groups) +
+        " does not divide numRows = " + std::to_string(BaseType::numRows()));
+  }
+
+  // blocking for one group
+  block_type_t block{
+      0, BaseType::numRows() / BaseType::numGroups(), 0, BaseType::numCols() };
+  BaseType::packedBlock(block);
+}
+
+template <typename T, typename accT>
 void PackBMatrix<T, accT>::pack(const block_type_t& block) {
   assert((BaseType::blockRowSize() % row_interleave_) == 0);
   assert((block.row_start % BaseType::blockRowSize()) == 0);
@@ -382,33 +440,39 @@ void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
             << "[" << BaseType::blockRowSize() << ", "
             << BaseType::blockColSize() << "]" << std::endl;
 
-  T* out = BaseType::getBuf();
-
-  for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
-    auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
-                                                  : BaseType::blockRowSize();
-    for (auto nc = 0; nc < BaseType::blockCols(); ++nc) {
-      std::cout << "block:" << nr << ", " << nc << std::endl;
-      auto cols = (nc == BaseType::blockCols() - 1) ? BaseType::lastBcol()
-                                                    : BaseType::blockColSize();
-      for (auto r = 0; r < (rows + row_interleave_ - 1) / row_interleave_;
-           ++r) {
-        for (auto c = 0; c < cols * row_interleave_; ++c) {
-          T val =
-              out[nr * BaseType::blockCols() * BaseType::blockRowSize() *
-                      BaseType::blockColSize() +
-                  nc * BaseType::blockRowSize() * BaseType::blockColSize() +
-                  r * BaseType::blockColSize() * row_interleave_ + c];
-          if (std::is_integral<T>::value) {
-            // cast to int64 because cout doesn't print int8_t type directly
-            std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
-          } else {
-            std::cout << std::setw(5) << val << " ";
+  for (int g = 0; g < BaseType::numGroups(); ++g) {
+    T* out = BaseType::getBuf() +
+        g *
+            BaseType::packedBufferSize(
+                BaseType::numPackedRows(), BaseType::numPackedCols());
+    std::cout << "group: " << g << std::endl;
+    for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
+      auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
+                                                    : BaseType::blockRowSize();
+      for (auto nc = 0; nc < BaseType::blockCols(); ++nc) {
+        std::cout << "block:" << nr << ", " << nc << std::endl;
+        auto cols = (nc == BaseType::blockCols() - 1)
+            ? BaseType::lastBcol()
+            : BaseType::blockColSize();
+        for (auto r = 0; r < (rows + row_interleave_ - 1) / row_interleave_;
+             ++r) {
+          for (auto c = 0; c < cols * row_interleave_; ++c) {
+            T val =
+                out[nr * BaseType::blockCols() * BaseType::blockRowSize() *
+                        BaseType::blockColSize() +
+                    nc * BaseType::blockRowSize() * BaseType::blockColSize() +
+                    r * BaseType::blockColSize() * row_interleave_ + c];
+            if (std::is_integral<T>::value) {
+              // cast to int64 because cout doesn't print int8_t type directly
+              std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
+            } else {
+              std::cout << std::setw(5) << val << " ";
+            }
           }
+          std::cout << std::endl;
         }
         std::cout << std::endl;
       }
-      std::cout << std::endl;
     }
   }
 }
