@@ -104,6 +104,14 @@ class PackedGemmMatrixFP16 {
     }
   }
 
+  void setPacked(bool p) {
+    packed_ = p;
+  }
+
+  bool packed() const {
+    return packed_;
+  }
+
   void initializeMemory() {
     // allocate and initialize packed memory
     const int padding = 1024; // required by sw pipelined kernels
@@ -118,6 +126,16 @@ class PackedGemmMatrixFP16 {
 
   ~PackedGemmMatrixFP16() {
     free(pmat_);
+  }
+
+  void unpackFromSrc(const matrix_op_t trans, float16* src_mat) {
+    bool tr = (trans == matrix_op_t::Transpose);
+    for (int i = 0; i < numRows(); i++) {
+      for (int j = 0; j < numCols(); j++) {
+        pmat_[tr ? i + numRows() * j : i * numCols() + j] = src_mat[addr(i, j)];
+      }
+    }
+    packed_ = false;
   }
 
   // protected:
@@ -155,6 +173,19 @@ class PackedGemmMatrixFP16 {
             pmat_[addr(i, j)]);
       }
     }
+    packed_ = true;
+  }
+
+  // This function takes in an unpacked float16 matrix of the same size and
+  // packs it. There is no floating type conversion.
+  void packFromSrc(const matrix_op_t trans, const float16* smat) {
+    bool tr = (trans == matrix_op_t::Transpose);
+    for (int i = 0; i < numRows(); ++i) {
+      for (int j = 0; j < numCols(); ++j) {
+        pmat_[addr(i, j)] = smat[tr ? i + numRows() * j : i * numCols() + j];
+      }
+    }
+    packed_ = true;
   }
 
   const float16& operator()(const int r, const int c) const {
@@ -202,6 +233,7 @@ class PackedGemmMatrixFP16 {
   uint64_t size_;
   int kernel_ncol_blocks_;
   float16* pmat_;
+  bool packed_{false};
 
   friend void cblas_gemm_compute(
       const matrix_op_t transa,
