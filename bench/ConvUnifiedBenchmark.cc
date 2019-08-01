@@ -26,16 +26,18 @@ using namespace fbgemm;
 
 // 2D conv shapes
 vector<conv_param_t<2>> shapes_2d = {
-    // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
-    // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
-    // 2D convolutions
-    // regular
-    conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    // groupwise
-    conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+  // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
+  // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
+  // 2D convolutions
+  // regular
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+  // groupwise
+  conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+  // DW
+  conv_param_t<>(1, 272, 272, {47, 125}, 272, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+  // Pointwise
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0})
 
-    // DW
-    conv_param_t<>(1, 272, 272, {47, 125}, 272, {3, 3}, {1, 1}, {1, 1, 1, 1}),
 };
 
 // 3D conv shapes
@@ -43,9 +45,11 @@ vector<conv_param_t<3>> shapes_3d = {
   // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h, stride_w},
   // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right}
   // Regular
-  conv_param_t<3>(1, 64, 64, {32, 56, 56}, 1, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
   // Depthwise
-  conv_param_t<3>(1, 64, 64, {32, 56, 56}, 64, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1})
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 64, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  // Pointwise
+  conv_param_t<3>(1, 128, 128, {8, 14, 14}, 1, {1, 1, 1}, {1, 1, 1}, {0, 0, 0, 0})
 };
 
 template <int SPATIAL_DIM, typename Acc_t>
@@ -110,6 +114,9 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
     aligned_vector<int8_t> Bint8(
         kernel_dim * conv_p.IC * (conv_p.OC / conv_p.G));
 
+    aligned_vector<int8_t> Bint8_tr(
+        kernel_dim * conv_p.IC * (conv_p.OC / conv_p.G));
+
     int im_out_dim = accumulate(
         conv_p.OUT_DIM.begin(), conv_p.OUT_DIM.end(), 1, multiplies<int>());
     aligned_vector<int32_t> Cint32_ref(conv_p.MB * im_out_dim * conv_p.OC);
@@ -132,14 +139,14 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
     randFill(C_multiplier, 0.1234f / 2, 0.1234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
-
     // reference implementation
+    // conv_ref expects weights to be in G (R S C/G) K/G
+    transposeConvWeights<SPATIAL_DIM>(conv_p, Bint8.data(), Bint8_tr.data());
     conv_ref(
         conv_p,
         Aint8.data(),
         Aint8_zero_point,
-        Bint8.data(),
+        Bint8_tr.data(),
         Cint32_ref.data());
 
     // matrix dimensions after im2col
@@ -162,7 +169,7 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
           KDimPerGroup,
           OC_per_G,
           OC_per_G,
-          Bint8.data() + g * KDimPerGroup * OC_per_G,
+          Bint8_tr.data() + g * KDimPerGroup * OC_per_G,
           Bint8_zero_point.data(),
           col_offsets.data() + g * OC_per_G,
           conv_p.OC);

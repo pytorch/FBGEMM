@@ -489,6 +489,15 @@ class FBGEMM_API PackBMatrix final
   const T* smat_;
   std::int32_t ld_;
   std::int32_t row_interleave_;
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(
+      const block_type_t& block,
+      T* unpack_buf,
+      T* pack_buf,
+      bool ispack);
 };
 
 /**
@@ -521,6 +530,11 @@ class FBGEMM_API PackWeightMatrixForGConv {
   void pack();
 
   /**
+   * @brief Unpacks a pmat buffer into source matrix.
+   */
+  void unpack(T* origin_buf);
+
+  /**
    * @brief Return packed data
    */
   inpType* getBuf() {
@@ -543,6 +557,22 @@ class FBGEMM_API PackWeightMatrixForGConv {
   const T* sdata_;
   T* pdata_;
   bool bufAllocatedHere_;
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(const T* src, T* dst, bool ispack);
+
+  /**
+   * @brief Get the index of the unpacked data
+   */
+  int unpacked_index_(int r, int s, int k, int g, int c, bool tr);
+
+  /**
+   * @brief Get the index of the packed data
+   */
+  int packed_index_(int r, int s, int k, int g, int c);
+
 };
 
 /**
@@ -588,7 +618,40 @@ class FBGEMM_API PackWeightsForConv {
     return W_gconv_packed_;
   }
 
+  std::shared_ptr<PackBMatrix<T, accT>> getPackedWForPointwise() {
+    return W_pointwise_packed_;
+  }
+
+  int inputChannels() {
+    return conv_param_.IC;
+  }
+
+  int outputChannels() {
+    return conv_param_.OC;
+  }
+
+  std::array<int, SPATIAL_DIM> kernelDims() {
+    return conv_param_.K;
+  }
+
+  int groups() {
+    return conv_param_.G;
+  }
+
+  /**
+   * @brief Returns true if the packed weights would work for the given
+   * convolution parameters, and false otherwise
+   */
+  bool isPackingCompliant(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+  /**
+   * @brief Unpack packed matric into origin_buf (Used for the serialization to
+   * recover weight matrix).
+   */
+  void unpack(T* origin_buf);
+
  private:
+  const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
   // Packed weights if we use 2D depthwise convolution implementation
@@ -599,6 +662,8 @@ class FBGEMM_API PackWeightsForConv {
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
       W_gconv_packed_;
+  // Packed weights if we use direct gemm for pointwise convolution
+  std::shared_ptr<PackBMatrix<T, accT>> W_pointwise_packed_;
 };
 
 /**
@@ -1372,6 +1437,13 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
  */
 template <int SPATIAL_DIM>
 FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+/**
+ * @brief Is this convolution a direct matrix-matrix multiplication, i.e., 1x1
+ * (aka pointwise) with right paddings etc.?
+ */
+template <int SPATIAL_DIM>
+FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 /**
  * @brief Allocate __size bytes of uninitialized storage whose alignment is

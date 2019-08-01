@@ -170,6 +170,45 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
 }
 
 template <int KERNEL_PROD>
+int PackedDepthWiseConvMatrix<KERNEL_PROD>::addr(int r, int c) {
+  constexpr int KERNEL_PROD_ALIGNED = (KERNEL_PROD + 1) / 2 * 2;
+  if (c >= KERNEL_PROD / 4 * 4 &&
+      (KERNEL_PROD % 4 == 1 || KERNEL_PROD % 4 == 2)) {
+    int kBlock = r / 32;
+    int reg_idx = (r % 16) / 8 + c / 4 * 4;
+
+    int blk_idx = kBlock * KERNEL_PROD_ALIGNED + reg_idx;
+
+    int r_ = r % 8;
+    int c_ = c % 4;
+
+    int in_blk_idx = (r % 32) / 16 * 16 + 2 * r_ + c_;
+    return blk_idx * 32 + in_blk_idx;
+
+  } else {
+    int kBlock = r / 32;
+    int reg_idx = (r % 16) / 4 + c / 4 * 4;
+
+    int blk_idx = kBlock * KERNEL_PROD_ALIGNED + reg_idx;
+
+    int r_ = r % 4;
+    int c_ = c % 4;
+
+    int in_blk_idx = (r % 32) / 16 * 16 + 4 * r_ + c_;
+    return blk_idx * 32 + in_blk_idx;
+  }
+}
+
+template <int KERNEL_PROD>
+void PackedDepthWiseConvMatrix<KERNEL_PROD>::unpack(int8_t* unpacked_data) {
+  for (int r = 0; r < K_; ++r) {
+    for (int c = 0; c < KERNEL_PROD; ++c) {
+      unpacked_data[r * KERNEL_PROD + c] = pmat_[addr(r, c)];
+    }
+  }
+}
+
+template <int KERNEL_PROD>
 PackedDepthWiseConvMatrix<KERNEL_PROD>::~PackedDepthWiseConvMatrix() {
 #ifdef _MSC_VER
   _aligned_free(pmat_);
@@ -180,6 +219,13 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::~PackedDepthWiseConvMatrix() {
 
 template class PackedDepthWiseConvMatrix<3 * 3>;
 template class PackedDepthWiseConvMatrix<3 * 3 * 3>;
+template class PackedDepthWiseConvMatrix<1>;
+template class PackedDepthWiseConvMatrix<2>;
+template class PackedDepthWiseConvMatrix<3>;
+template class PackedDepthWiseConvMatrix<4>;
+template class PackedDepthWiseConvMatrix<5>;
+template class PackedDepthWiseConvMatrix<5 * 2>;
+template class PackedDepthWiseConvMatrix<11 * 1>;
 
 // c = a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
 // A is in uint8_t

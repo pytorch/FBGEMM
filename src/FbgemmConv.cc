@@ -6,8 +6,9 @@
  */
 
 #include <algorithm>
-#include <iostream>
+#include <numeric>
 #include <vector>
+#include <functional>
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -33,12 +34,24 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
          });
 }
 
+template <int SPATIAL_DIM>
+bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  return std::accumulate(conv_p.K.begin(), conv_p.K.end(), 0) == SPATIAL_DIM &&
+      std::accumulate(conv_p.stride.begin(), conv_p.stride.end(), 0) ==
+      SPATIAL_DIM &&
+      std::accumulate(conv_p.dilation.begin(), conv_p.dilation.end(), 0) ==
+      SPATIAL_DIM &&
+      std::accumulate(conv_p.pad.begin(), conv_p.pad.end(), 0) == 0;
+}
+
 template <int SPATIAL_DIM, typename ACC_T>
 optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   if (takeDepthWiseFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     return optimized_conv_t::depthwise;
   } else if (fbgemmOptimizedGConv<SPATIAL_DIM>(conv_p)) {
     return optimized_conv_t::groupwise;
+  } else if (takePointWiseFastPath<SPATIAL_DIM>(conv_p)) {
+    return optimized_conv_t::pointwise;
   } else {
     return optimized_conv_t::im2col;
   }
@@ -58,6 +71,13 @@ int fbgemmConv(
   static_assert(
       SPATIAL_DIM == 2 || SPATIAL_DIM == 3,
       "Only 2D and 3D convolutions are supported");
+
+  if (!packed_weights.isPackingCompliant(conv_p)) {
+    throw std::logic_error(
+        "[FBGEMM_CONV_ERROR] Prepacked weights can't be used"
+        " with these convolution parameters!");
+  }
+
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     case optimized_conv_t::depthwise: {
       // 2D and 3D depthwise fast path
@@ -134,11 +154,44 @@ int fbgemmConv(
           num_threads);
       break;
     }
+    case optimized_conv_t::pointwise: {
+      std::vector<int32_t> row_offset_buf(
+          PackAWithRowOffset<uint8_t>::rowOffsetBufferSize(blocking_params));
+      int image_dim = std::accumulate(
+          conv_p.IN_DIM.begin(),
+          conv_p.IN_DIM.end(),
+          1,
+          std::multiplies<int>());
+      PackAWithRowOffset<uint8_t, ACC_T> packA(
+          matrix_op_t::NoTranspose,
+          conv_p.MB * image_dim,
+          conv_p.IC,
+          activations,
+          conv_p.IC,
+          nullptr,
+          conv_p.G,
+          row_offset_buf.data(),
+          blocking_params);
+
+      outProcess.setRowOffsets(row_offset_buf.data());
+      fbgemmPacked(
+          packA,
+          *(packed_weights.getPackedWForPointwise()),
+          out,
+          outBuffer,
+          conv_p.OC,
+          outProcess,
+          thread_id,
+          num_threads,
+          blocking_params);
+      break;
+    }
     case optimized_conv_t::im2col: {
       // All other convolutions go through im2col-based implementation
       // std::cout << "Im2col path" << std::endl;
       std::vector<int32_t> row_offset_buf(
-          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>::rowOffsetBufferSize());
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>
+          ::rowOffsetBufferSize(blocking_params));
 
       const std::int32_t* b_zero_point = outProcess.getBZeroPoint();
       bool b_symmetric = b_zero_point[0] == 0;

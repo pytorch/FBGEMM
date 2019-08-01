@@ -44,7 +44,7 @@ enum class inst_set_t { anyarch, avx2, avx512 };
 /**
  * @brief Typed enum for optimized paths for convolutions
  */
-enum class optimized_conv_t { depthwise, groupwise, im2col };
+enum class optimized_conv_t { depthwise, groupwise, pointwise, im2col };
 
 /**
  * @brief Typed enum for implementation type.
