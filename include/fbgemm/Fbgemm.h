@@ -441,14 +441,17 @@ class FBGEMM_API PackBMatrix final
   std::int32_t addr(std::int32_t i, std::int32_t j) const;
 
   /**
-   * @brief Packs a block of source matrix into pmat buffer.
+   * @brief Packs a block of source matrix into pmat buffer. The blocking
+   *        parameters are needed to compute the buffer size of each group.
+   *        It will use default blocking parameters if params is not provided.
    */
-  void pack(const block_type_t& block);
+  void pack(const block_type_t& block, const BlockingFactors* params = nullptr);
 
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(std::string name,
+                         const BlockingFactors* params = nullptr);
 
   /**
    * @return true if meta information like matrix shape is the same.
@@ -463,7 +466,7 @@ class FBGEMM_API PackBMatrix final
    * @brief Unpack pmat buffer to the origin_buf (Used for the serialization to
    * recover weight matrix).
    */
-  void unpack(T* origin_buf);
+  void unpack(T* origin_buf, const BlockingFactors* params = nullptr);
 
   ~PackBMatrix() {}
 
@@ -480,7 +483,8 @@ class FBGEMM_API PackBMatrix final
       const block_type_t& block,
       T* unpack_buf,
       T* pack_buf,
-      bool ispack);
+      bool ispack,
+      const BlockingFactors* params = nullptr);
 };
 
 /**
