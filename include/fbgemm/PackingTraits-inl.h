@@ -222,3 +222,70 @@ struct PackingTraits<
       128}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 };
+
+/**
+ * @brief Packing parameter specialization for accumulation into 32-bit
+ * integers.
+ *
+ * This is picked when T is of int8 type (signed or unsigned) and instruction
+ * set is avx512_vnni.
+ */
+template <typename T>
+struct PackingTraits<
+    T,
+    std::int32_t,
+    inst_set_t::avx512_vnni,
+    typename std::enable_if<is_8bit<T>::value>::type> {
+  static constexpr int MR{8}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{
+      16}; ///< Minimum register block for N dimension.
+           ///< 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector.
+  static constexpr int NR{
+      32}; ///< Register block for N dimension.
+           ///< Must be a multiple of 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector. Total registers used for
+           ///< N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
+           ///< NR*ROW_INTERLEAVE*8/VLEN zmm registers
+           ///< for C accumulations.
+
+  static constexpr int ROW_INTERLEAVE{
+      4}; ///< 4 rows are interleaved to use vpmaddubsw instruction for packing
+          ///< B matrix.
+
+  static constexpr int MCB{
+      128}; ///< Cache block for M dimension (multiple of MR).
+  static constexpr int NCB{
+      32}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{256}; ///< Cache block for K dimension.
+};
+
+template <typename T>
+struct PackingTraits<
+    T,
+    std::int16_t,
+    inst_set_t::avx512_vnni,
+    typename std::enable_if<is_8bit<T>::value>::type> {
+  static constexpr int MR{6}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{
+      32}; ///< Minimum register block for N dimension.
+           ///< 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector.
+  static constexpr int NR{
+      128}; ///< Register block for N dimension.
+           ///< Must be a multiple of 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector. Total registers used for
+           ///< N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
+           ///< NR*ROW_INTERLEAVE*8/VLEN zmm registers
+           ///< for C accumulations.
+
+  static constexpr int ROW_INTERLEAVE{
+      2}; ///< 4 rows are interleaved to use vpmaddubsw instruction for packing
+          ///< B matrix.
+
+  static constexpr int MCB{
+      60}; ///< Cache block for M dimension (multiple of MR).
+  static constexpr int NCB{
+      128}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{256}; ///< Cache block for K dimension.
+};
