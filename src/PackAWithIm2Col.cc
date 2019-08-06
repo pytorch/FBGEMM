@@ -49,7 +49,8 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if ((!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+  if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
+       !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
 
@@ -58,7 +59,12 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
     BaseType::bcol_ = params->KCB;
     row_interleave_B_ = params->ROW_INTERLEAVE;
   } else {
-    if (fbgemmHasAvx512Support()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::MCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::KCB;
+      row_interleave_B_ =
+          PackingTraits<T, accT, inst_set_t::avx512_vnni>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
       BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
       row_interleave_B_ =
@@ -478,7 +484,9 @@ int PackAWithIm2Col<T, accT, SPATIAL_DIM>::rowOffsetBufferSize(
     if (params) {
       return params->MCB;
     } else {
-      if (fbgemmHasAvx512Support()) {
+      if (fbgemmHasAvx512VnniSupport()) {
+        return PackingTraits<T, accT, inst_set_t::avx512_vnni>::MCB;
+      } else if (fbgemmHasAvx512Support()) {
         return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
       } else if (fbgemmHasAvx2Support()) {
         return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
