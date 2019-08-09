@@ -29,7 +29,7 @@ enum class matrix_op_t { NoTranspose, Transpose };
 /**
  * @brief Typed enum for supported instruction sets.
  */
-enum class inst_set_t { anyarch, avx2, avx512 };
+enum class inst_set_t { anyarch, avx2, avx512, avx512_vnni };
 
 /**
  * @brief Typed enum for optimized paths for convolutions
@@ -98,6 +98,11 @@ FBGEMM_API bool fbgemmHasAvx512Support();
  * @brief Are we running on a AVX2 supported cpu?
  */
 FBGEMM_API bool fbgemmHasAvx2Support();
+
+/**
+ * @brief Are we running on a AVX512_VNNI supported cpu?
+ */
+FBGEMM_API bool fbgemmHasAvx512VnniSupport();
 
 /**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.

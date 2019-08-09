@@ -106,7 +106,7 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::packed_index_(
  * on 2 groups at a time and full SIMD width can be efficiently utilized even
  * while working on 1 group at a time.
  * In this case, the layout is G (C/4) R S K 4
-*/
+ */
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack_unpack_(
@@ -148,9 +148,9 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack_unpack_(
       if (ispack) {
         transposeConvWeights(conv_param_, src, dst);
       } else {
-      // TODO: Wrap this as a inverseTransposeConvWeights()?
-      // For unpack & transposed, call transposeConvWeights()
-      // G (R S C/G) K/G => G K/G (R S C/G)
+        // TODO: Wrap this as a inverseTransposeConvWeights()?
+        // For unpack & transposed, call transposeConvWeights()
+        // G (R S C/G) K/G => G K/G (R S C/G)
         for (int r = 0; r < R; ++r) {
           for (int s = 0; s < S; ++s) {
             for (int k = 0; k < OC_per_G; ++k) {

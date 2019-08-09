@@ -18,7 +18,7 @@ namespace fbgemm {
 namespace x86 = asmjit::x86;
 
 /**
- * @brief AVX2/AVX512 JIT assembly code generator.
+ * @brief AVX2/AVX512/AVX512VNNI JIT assembly code generator.
  * @tparam TA Type of matrix A.
  * @tparam TB Type of matrix B.
  * @tparam TC Type of matrix C.
@@ -104,7 +104,7 @@ class CodeGenBase {
    */
   template <inst_set_t instSet>
   void initCRegs(
-      asmjit::X86Emitter* a,
+      x86::Emitter* a,
       int rowRegs,
       int colRegs,
       int leadingDimCRegAssign = 4);
@@ -114,10 +114,10 @@ class CodeGenBase {
    */
   template <inst_set_t instSet>
   void genComputeBlock(
-      asmjit::X86Emitter* a,
-      asmjit::X86Gp buffer_A,
-      asmjit::X86Gp buffer_B,
-      asmjit::X86Gp B_pf,
+      x86::Emitter* a,
+      x86::Gp buffer_A,
+      x86::Gp buffer_B,
+      x86::Gp B_pf,
       int rowRegs,
       int colRegs,
       int lda,
@@ -129,11 +129,11 @@ class CodeGenBase {
    */
   template <inst_set_t instSet>
   void storeCRegs(
-      asmjit::X86Emitter* a,
+      x86::Emitter* a,
       int rowRegs,
       int colRegs,
-      asmjit::X86Gp C_Offset,
-      asmjit::X86Gp ldcReg,
+      x86::Gp C_Offset,
+      x86::Gp ldcReg,
       bool accum,
       int leadingDimCRegAssign = 4);
 
@@ -168,7 +168,9 @@ class CodeGenBase {
     fileName += "_MR-" + std::to_string(MR);
     fileName += "_NR-" + std::to_string(NR);
     fileName += "_NR_MIN-" + std::to_string(NR_MIN);
-    if (instSet == inst_set_t::avx512) {
+    if (instSet == inst_set_t::avx512_vnni) {
+      fileName += "_avx512vnni";
+    } else if (instSet == inst_set_t::avx512) {
       fileName += "_avx512";
     } else if (instSet == inst_set_t::avx2) {
       fileName += "_avx2";
@@ -178,12 +180,10 @@ class CodeGenBase {
   }
 
  private:
-  asmjit::X86Ymm
-      CRegs_avx2_[12]; ///< AVX2 ymm registers for C in the micro-kernel.
-  asmjit::X86Zmm
+  x86::Ymm CRegs_avx2_[12]; ///< AVX2 ymm registers for C in the micro-kernel.
+  x86::Zmm
       CRegs_avx512_[28]; ///< AVX512 zmm registers for C in the micro-kernel.
-  asmjit::X86Zmm
-      AllRegs_avx512_[32]; ///< all AVX512 zmm registers.
+  x86::Zmm AllRegs_avx512_[32]; ///< all AVX512 zmm registers.
 
   int vectorWidth_; ///< Vector width in bits.
   int VLEN_; ///< Vector width in elements.
