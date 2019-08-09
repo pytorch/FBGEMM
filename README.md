@@ -12,9 +12,9 @@ row-wise quantization and outlier-aware quantization. FBGEMM also exploits
 fusion opportunities in order to overcome the unique challenges of matrix
 multiplication at lower precision with bandwidth-bound operations.
 
-FBGEMM is used as a backend of Caffe2 quantized operators for x86 machines
-(https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server).
-We also plan to integrate FBGEMM into PyTorch.
+FBGEMM is used as a backend of Caffe2 and PyTorch quantized operators for x86 machines:
+- Caffe2: https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server
+- PyTorch: https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu
 
 ## Examples
 
