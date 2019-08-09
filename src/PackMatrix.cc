@@ -36,7 +36,8 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if ((!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+  if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
+       !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
 
@@ -46,7 +47,11 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
     NCB = params->NCB;
     KCB = params->KCB;
   } else {
-    if (fbgemmHasAvx512Support()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      MCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::MCB;
+      NCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::NCB;
+      KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::KCB;
+    } else if (fbgemmHasAvx512Support()) {
       MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;
       NCB = PackingTraits<inpType, accType, inst_set_t::avx512>::NCB;
       KCB = PackingTraits<inpType, accType, inst_set_t::avx512>::KCB;
