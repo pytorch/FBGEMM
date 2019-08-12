@@ -73,9 +73,14 @@ int fbgemmConv(
       "Only 2D and 3D convolutions are supported");
 
   if (!packed_weights.isPackingCompliant(conv_p)) {
-    throw std::logic_error(
-        "[FBGEMM_CONV_ERROR] Prepacked weights can't be used"
-        " with these convolution parameters!");
+    std::string msg =
+        "[FBGEMM_CONV_ERROR] Convolution parameters "
+        "mismatch between pre-packed weights and conv invocation! ";
+    msg += packed_weights.mismatchingParams(conv_p);
+    msg += std::string(
+        " Please pack weights using the same parameters "
+        "with which convolution operation is invoked!");
+    throw std::logic_error(msg);
   }
 
   switch (ConvFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {

@@ -125,6 +125,74 @@ bool PackWeightsForConv<SPATIAL_DIM, T, accT>::isPackingCompliant(
              test_conv_p.dilation.begin());
 }
 
+template <int SPATIAL_DIM, typename T, typename accT>
+std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
+    const conv_param_t<SPATIAL_DIM>& test_conv_p) {
+  std::string msg = "";
+
+  auto combineStr = [](std::string id, std::string str1, std::string str2) {
+    std::string out = id + std::string(" ");
+    out += str1;
+    out += std::string(" vs ") + str2;
+    out += std::string(";");
+    return out;
+  };
+
+  auto combineInt = [&combineStr](std::string id, int int1, int int2) {
+   return combineStr(id, std::to_string(int1), std::to_string(int2));
+  };
+
+  if (conv_param_.IC != test_conv_p.IC) {
+    msg += combineInt("input_channels", conv_param_.IC, test_conv_p.IC);
+  }
+  if (conv_param_.OC != test_conv_p.OC) {
+    msg += combineInt("output_channels", conv_param_.IC, test_conv_p.IC);
+  }
+  if (conv_param_.G != test_conv_p.G) {
+    msg += combineInt("groups", conv_param_.G, test_conv_p.G);
+  }
+
+  if (!std::equal(
+          conv_param_.K.begin(), conv_param_.K.end(), test_conv_p.K.begin())) {
+    msg += combineStr(
+        "kernel",
+        arrayToString<SPATIAL_DIM>(conv_param_.K),
+        arrayToString<SPATIAL_DIM>(test_conv_p.K));
+  }
+
+  if (!std::equal(
+          conv_param_.stride.begin(),
+          conv_param_.stride.end(),
+          test_conv_p.stride.begin())) {
+    msg += combineStr(
+        "stride",
+        arrayToString<SPATIAL_DIM>(conv_param_.stride),
+        arrayToString<SPATIAL_DIM>(test_conv_p.stride));
+  }
+
+  if (!std::equal(
+          conv_param_.pad.begin(),
+          conv_param_.pad.end(),
+          test_conv_p.pad.begin())) {
+    msg += combineStr(
+        "pad",
+        arrayToString<2 * SPATIAL_DIM>(conv_param_.pad),
+        arrayToString<2 * SPATIAL_DIM>(test_conv_p.pad));
+  }
+
+  if (!std::equal(
+          conv_param_.dilation.begin(),
+          conv_param_.dilation.end(),
+          test_conv_p.dilation.begin())) {
+    msg += combineStr(
+        "dilation",
+        arrayToString<SPATIAL_DIM>(conv_param_.dilation),
+        arrayToString<SPATIAL_DIM>(test_conv_p.dilation));
+  }
+
+  return msg;
+}
+
 template class PackWeightsForConv<2, int8_t, int32_t>;
 template class PackWeightsForConv<3, int8_t, int32_t>;
 

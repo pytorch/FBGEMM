@@ -628,6 +628,11 @@ class FBGEMM_API PackWeightsForConv {
   bool isPackingCompliant(const conv_param_t<SPATIAL_DIM>& conv_p);
 
   /**
+   * @brief Returns a string of mismatching parameters
+   */
+  std::string mismatchingParams(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+  /**
    * @brief Unpack packed matric into origin_buf (Used for the serialization to
    * recover weight matrix).
    */
