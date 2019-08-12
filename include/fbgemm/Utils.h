@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+#include <array>
 #include <string>
 #include <type_traits>
 #include "FbgemmBuild.h"
@@ -120,6 +121,16 @@ struct FBGEMM_API BlockingFactors {
   int KCB;
   int NCB;
 };
+
+template <int SIZE, typename T = std::int32_t>
+FBGEMM_API std::string arrayToString(const std::array<T, SIZE>& inp) {
+  std::string out = "[";
+  for (int i = 0; i < SIZE; ++i) {
+    out += std::to_string(inp[i]);
+    out += (i != SIZE - 1) ? std::string(", ") : std::string("]");
+  }
+  return out;
+}
 
 template <typename accT = std::int32_t>
 FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
