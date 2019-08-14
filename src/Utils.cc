@@ -206,4 +206,7 @@ bool fbgemmHasAvx2Support() {
   return (cpuinfo_initialize() && cpuinfo_has_x86_avx2());
 }
 
+bool fbgemmHasAvx512VnniSupport() {
+  return (cpuinfo_has_x86_avx512vnni());
+}
 } // namespace fbgemm

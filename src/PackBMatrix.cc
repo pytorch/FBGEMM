@@ -188,7 +188,8 @@ PackBMatrix<T, accT>::PackBMatrix(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if ((!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
+  if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
+       !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
   }
 
@@ -197,7 +198,12 @@ PackBMatrix<T, accT>::PackBMatrix(
     BaseType::bcol_ = params->NCB;
     row_interleave_ = params->ROW_INTERLEAVE;
   } else {
-    if (fbgemmHasAvx512Support()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::KCB;
+      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::NCB;
+      row_interleave_ =
+          PackingTraits<T, accT, inst_set_t::avx512_vnni>::ROW_INTERLEAVE;
+    } else if (fbgemmHasAvx512Support()) {
       BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
       BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
       row_interleave_ =
@@ -228,7 +234,7 @@ PackBMatrix<T, accT>::PackBMatrix(
         BaseType::numGroups() * BaseType::blockRows() * BaseType::brow_ *
             BaseType::blockCols() * BaseType::bcol_ * sizeof(T));
   }
-  pack(block);
+  pack(block, params);
 }
 
 template <typename T, typename accT>
@@ -294,7 +300,8 @@ void PackBMatrix<T, accT>::pack_unpack_(
     const block_type_t& block,
     T* unpack_buf,
     T* pack_buf,
-    bool ispack) {
+    bool ispack,
+    const BlockingFactors* params) {
   assert((BaseType::blockRowSize() % row_interleave_) == 0);
   assert((block.row_start % BaseType::blockRowSize()) == 0);
   assert((block.col_start % BaseType::blockColSize()) == 0);
@@ -303,7 +310,7 @@ void PackBMatrix<T, accT>::pack_unpack_(
   bool tr = (trans_ == matrix_op_t::Transpose);
   for (int g = 0; g < BaseType::numGroups(); ++g) {
     T* pack_buf_cur = pack_buf +
-        g * BaseType::packedBufferSize(block.row_size, block.col_size);
+        g * BaseType::packedBufferSize(block.row_size, block.col_size, params);
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int r_offset = ((i / BaseType::blockRowSize()) * BaseType::blockCols()) *
               (BaseType::blockRowSize() * BaseType::blockColSize()) +
@@ -374,17 +381,21 @@ void PackBMatrix<T, accT>::pack_unpack_(
 }
 
 template <typename T, typename accT>
-void PackBMatrix<T, accT>::pack(const block_type_t& block) {
-  pack_unpack_(block, const_cast<T*>(smat_), BaseType::getBuf(), true);
+void PackBMatrix<T, accT>::pack(
+    const block_type_t& block,
+    const BlockingFactors* params) {
+  pack_unpack_(block, const_cast<T*>(smat_), BaseType::getBuf(), true, params);
 }
 
 template <typename T, typename accT>
-void PackBMatrix<T, accT>::unpack(T* origin_buf) {
+void PackBMatrix<T, accT>::unpack(
+    T* origin_buf,
+    const BlockingFactors* params) {
   block_type_t blockB{BaseType::packedRowStart(),
                       BaseType::numPackedRows(),
                       BaseType::packedColStart(),
                       BaseType::numPackedCols()};
-  pack_unpack_(blockB, origin_buf, BaseType::getBuf(), false);
+  pack_unpack_(blockB, origin_buf, BaseType::getBuf(), false, params);
 }
 
 template <typename T, typename accT>
@@ -407,7 +418,9 @@ int32_t PackBMatrix<T, accT>::addr(int32_t r, int32_t c) const {
 }
 
 template <typename T, typename accT>
-void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
+void PackBMatrix<T, accT>::printPackedMatrix(
+    std::string name,
+    const BlockingFactors* params) {
   std::cout << name << ":"
             << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
@@ -419,7 +432,7 @@ void PackBMatrix<T, accT>::printPackedMatrix(std::string name) {
     T* out = BaseType::getBuf() +
         g *
             BaseType::packedBufferSize(
-                BaseType::numPackedRows(), BaseType::numPackedCols());
+                BaseType::numPackedRows(), BaseType::numPackedCols(), params);
     std::cout << "group: " << g << std::endl;
     for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
       auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()

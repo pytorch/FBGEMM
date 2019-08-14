@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+#include <array>
 #include <string>
 #include <type_traits>
 #include "FbgemmBuild.h"
@@ -39,7 +40,7 @@ enum class matrix_op_t { NoTranspose, Transpose };
 /**
  * @brief Typed enum for supported instruction sets.
  */
-enum class inst_set_t { anyarch, avx2, avx512 };
+enum class inst_set_t { anyarch, avx2, avx512, avx512_vnni };
 
 /**
  * @brief Typed enum for optimized paths for convolutions
@@ -110,6 +111,11 @@ FBGEMM_API bool fbgemmHasAvx512Support();
 FBGEMM_API bool fbgemmHasAvx2Support();
 
 /**
+ * @brief Are we running on a AVX512_VNNI supported cpu?
+ */
+FBGEMM_API bool fbgemmHasAvx512VnniSupport();
+
+/**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
  *
  * This structure is optional. If not used, the default values for these
@@ -125,6 +131,16 @@ struct FBGEMM_API BlockingFactors {
   int KCB;
   int NCB;
 };
+
+template <int SIZE, typename T = std::int32_t>
+FBGEMM_API std::string arrayToString(const std::array<T, SIZE>& inp) {
+  std::string out = "[";
+  for (int i = 0; i < SIZE; ++i) {
+    out += std::to_string(inp[i]);
+    out += (i != SIZE - 1) ? std::string(", ") : std::string("]");
+  }
+  return out;
+}
 
 template <typename accT = std::int32_t>
 FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
