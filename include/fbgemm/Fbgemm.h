@@ -1134,6 +1134,7 @@ template <
 class FBGEMM_API ReQuantizeOutput {
  public:
   static constexpr int RELU_FUSED = FUSE_RELU;
+  static constexpr QuantizationGranularity QGRANType = Q_GRAN;
   using outType = outT;
   using inpType = inT;
   /**
