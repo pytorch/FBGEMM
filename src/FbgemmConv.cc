@@ -94,47 +94,111 @@ int fbgemmConv(
             std::is_same<typename processOutputType::outType, std::uint8_t>::
                 value,
             "For depthwise, only requantized output is supported");
-        depthwise_3x3x3_pad_1(
-            conv_p.MB, // mini batch
-            conv_p.IN_DIM[0], // T
-            conv_p.IN_DIM[1], // H
-            conv_p.IN_DIM[2], // W
-            conv_p.OC, // output channels
-            conv_p.stride[0], // stride_t
-            conv_p.stride[1], // stride_h
-            conv_p.stride[2], // stride_w
-            outProcess.getAZeroPoint(),
-            activations,
-            B_zero_point[0],
-            *(packed_weights.getPackedWFor3DDW()),
-            C_multiplier[0],
-            outProcess.getCZeroPoint(),
-            out,
-            outProcess.getColOffsets(),
-            outProcess.getBias(),
-            outProcess.RELU_FUSED, // fuse_relu
-            thread_id,
-            num_threads);
+
+        if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+          depthwise_3x3x3_pad_1(
+              conv_p.MB, // mini batch
+              conv_p.IN_DIM[0], // T
+              conv_p.IN_DIM[1], // H
+              conv_p.IN_DIM[2], // W
+              conv_p.OC, // output channels
+              conv_p.stride[0], // stride_t
+              conv_p.stride[1], // stride_h
+              conv_p.stride[2], // stride_w
+              outProcess.getAZeroPoint(),
+              activations,
+              B_zero_point[0],
+              *(packed_weights.getPackedWFor3DDW()),
+              C_multiplier[0],
+              outProcess.getCZeroPoint(),
+              out,
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              outProcess.RELU_FUSED, // fuse_relu
+              thread_id,
+              num_threads);
+        } else if (
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
+          depthwise_3x3x3_per_channel_quantization_pad_1(
+              conv_p.MB, // mini batch
+              conv_p.IN_DIM[0], // T
+              conv_p.IN_DIM[1], // H
+              conv_p.IN_DIM[2], // W
+              conv_p.OC, // output channels
+              conv_p.stride[0], // stride_t
+              conv_p.stride[1], // stride_h
+              conv_p.stride[2], // stride_w
+              outProcess.getAZeroPoint(),
+              activations,
+              B_zero_point,
+              *(packed_weights.getPackedWFor3DDW()),
+              C_multiplier,
+              outProcess.getCZeroPoint(),
+              out,
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              outProcess.RELU_FUSED, // fuse_relu
+              thread_id,
+              num_threads);
+        } else {
+          std::string msg =
+              "[FBGEMM_CONV_ERROR] This quantization granularity is "
+              "not supported";
+          throw std::runtime_error(msg);
+        }
       } else {
-        depthwise_3x3_pad_1(
-            conv_p.MB, // mini batch
-            conv_p.IN_DIM[0], // H
-            conv_p.IN_DIM[1], // W
-            conv_p.OC, // output channels
-            conv_p.stride[0], // stride_h
-            conv_p.stride[1], // stride_w
-            outProcess.getAZeroPoint(),
-            activations,
-            B_zero_point[0],
-            *(packed_weights.getPackedWFor2DDW()),
-            C_multiplier[0],
-            outProcess.getCZeroPoint(),
-            out,
-            outProcess.getColOffsets(),
-            outProcess.getBias(),
-            outProcess.RELU_FUSED, // fuse_relu
-            thread_id,
-            num_threads);
+        if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+          depthwise_3x3_pad_1(
+              conv_p.MB, // mini batch
+              conv_p.IN_DIM[0], // H
+              conv_p.IN_DIM[1], // W
+              conv_p.OC, // output channels
+              conv_p.stride[0], // stride_h
+              conv_p.stride[1], // stride_w
+              outProcess.getAZeroPoint(),
+              activations,
+              B_zero_point[0],
+              *(packed_weights.getPackedWFor2DDW()),
+              C_multiplier[0],
+              outProcess.getCZeroPoint(),
+              out,
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              outProcess.RELU_FUSED, // fuse_relu
+              thread_id,
+              num_threads);
+        } else if (
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
+          // The number of channels == groups for depthwise convolutions
+          depthwise_3x3_per_channel_quantization_pad_1(
+              conv_p.MB, // mini batch
+              conv_p.IN_DIM[0], // H
+              conv_p.IN_DIM[1], // W
+              conv_p.OC, // output channels
+              conv_p.stride[0], // stride_h
+              conv_p.stride[1], // stride_w
+              outProcess.getAZeroPoint(),
+              activations,
+              B_zero_point,
+              *(packed_weights.getPackedWFor2DDW()),
+              C_multiplier,
+              outProcess.getCZeroPoint(),
+              out,
+              outProcess.getColOffsets(),
+              outProcess.getBias(),
+              outProcess.RELU_FUSED, // fuse_relu
+              thread_id,
+              num_threads);
+        } else {
+          std::string msg =
+              "[FBGEMM_CONV_ERROR] This quantization granularity is "
+              "not supported";
+          throw std::runtime_error(msg);
+        }
       }
       break;
     }
@@ -195,11 +259,32 @@ int fbgemmConv(
       // All other convolutions go through im2col-based implementation
       // std::cout << "Im2col path" << std::endl;
       std::vector<int32_t> row_offset_buf(
-          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>
-          ::rowOffsetBufferSize(blocking_params));
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>::rowOffsetBufferSize(
+              blocking_params));
 
       const std::int32_t* b_zero_point = outProcess.getBZeroPoint();
-      bool b_symmetric = b_zero_point[0] == 0;
+      bool b_symmetric = false;
+      if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+        b_symmetric = b_zero_point[0] == 0;
+      } else if (
+          processOutputType::QGRANType == QuantizationGranularity::GROUP) {
+        b_symmetric =
+            std::all_of(b_zero_point, b_zero_point + conv_p.G, [](int i) {
+              return i == 0;
+            });
+      } else if (
+          processOutputType::QGRANType ==
+          QuantizationGranularity::OUT_CHANNEL) {
+        b_symmetric =
+            std::all_of(b_zero_point, b_zero_point + conv_p.OC, [](int i) {
+              return i == 0;
+            });
+      } else {
+        std::string msg =
+            "[FBGEMM_CONV_ERROR] This quantization granularity is "
+            "not supported";
+        throw std::runtime_error(msg);
+      }
       PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM> packA(
           conv_p,
           activations,
