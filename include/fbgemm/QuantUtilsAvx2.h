@@ -40,9 +40,10 @@ struct FBGEMM_API RequantizationParams {
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
+template <typename T=std::uint8_t>
 void QuantizeAvx2(
     const float* src,
-    std::uint8_t* dst,
+    T* dst,
     int len,
     const TensorQuantizationParams& qparams);
 
