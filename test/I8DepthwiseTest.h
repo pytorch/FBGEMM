@@ -11,6 +11,7 @@
 namespace fbgemm {
 
 // From ResNeXt-3D-101
+// clang-format off
 static std::vector<std::vector<int>> shapes_3d = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
@@ -35,5 +36,6 @@ static std::vector<std::vector<int>> shapes_3d = {
 
   {   1,   8,    4,   4,  4, 1, },
 };
+// clang-format on
 
 } // namespace fbgemm
