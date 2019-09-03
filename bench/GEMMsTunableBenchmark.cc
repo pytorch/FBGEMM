@@ -218,7 +218,8 @@ int main(int /* unused */, char** /* unused */) {
   }
 #endif
 
- vector<vector<int>> shapes = {
+  // clang-format off
+  vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
     // m, n, k
@@ -266,7 +267,8 @@ int main(int /* unused */, char** /* unused */) {
     {128, 128, 128},
     {256, 512, 256},
     {1024, 1024, 1024},
-};
+  };
+  // clang-format on
 
   vector<int> MCBs;
   vector<int> NCBs;
