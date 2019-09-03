@@ -44,7 +44,8 @@ struct conv_param_t {
       int g,
       std::array<int, SPATIAL_DIM> k,
       std::array<int, SPATIAL_DIM> strd,
-      std::array<int, SPATIAL_DIM * 2> pd)
+      std::array<int, SPATIAL_DIM * 2> pd,
+      std::array<int, SPATIAL_DIM> dilations = {})
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -52,7 +53,8 @@ struct conv_param_t {
         G(g),
         K(k),
         stride(strd),
-        pad(pd) {
+        pad(pd),
+        dilation(dilations) {
     if (ic % g != 0) {
       throw std::runtime_error(
           "groups = " + std::to_string(g) +
@@ -63,10 +65,21 @@ struct conv_param_t {
           "groups = " + std::to_string(g) +
           " does not divide number of output channels = " + std::to_string(oc));
     }
+
+    bool dilation_unset = true;
     for (int d = 0; d < SPATIAL_DIM; ++d) {
-      dilation[d] = 1;
+      if (dilation[d] != 0) {
+        dilation_unset = false;
+        break;
+      }
+    }
+    if (dilation_unset) {
+      dilation.fill(1);
+    }
+
+    for (int d = 0; d < SPATIAL_DIM; ++d) {
       IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
-      OUT_DIM[d] = (IN_DIMP[d] - K[d]) / stride[d] + 1;
+      OUT_DIM[d] = (IN_DIMP[d] - dilation[d] * (K[d] - 1) - 1) / stride[d] + 1;
     }
   }
 
@@ -107,6 +120,10 @@ struct conv_param_t {
           out += ", ";
         }
       }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "dilation_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(dilation[d]) + ", ";
+      }
     } else {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "K" + std::to_string(d) + ":" + std::to_string(K[d]) + ", ";
@@ -120,6 +137,10 @@ struct conv_param_t {
         if (d < SPATIAL_DIM * 2 - 1) {
           out += ", ";
         }
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "dilation_" + std::to_string(d) + ":" +
+            std::to_string(dilation[d]) + ", ";
       }
     }
     return out;
