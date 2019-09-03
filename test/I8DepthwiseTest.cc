@@ -22,6 +22,7 @@ using namespace std;
 namespace fbgemm {
 
 // From Xray OCR
+// clang-format off
 static vector<vector<int>> shapes = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
@@ -67,6 +68,7 @@ static vector<vector<int>> shapes = {
 
   {   1,    8,   4,   4, 1, },
 };
+// clang-format on
 
 namespace {
 

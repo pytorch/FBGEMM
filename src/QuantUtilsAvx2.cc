@@ -592,6 +592,7 @@ void requantizeOutputProcessingAvx2(
 
     int remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
+      // clang-format off
       alignas(64) const int masks[8][8] = {
         // NOTE: clang-format wants to use a different formatting but the
         // current formatting should be easier to read.
@@ -604,6 +605,7 @@ void requantizeOutputProcessingAvx2(
         { -1, -1, -1, -1, -1, -1,  0,  0,  },
         { -1, -1, -1, -1, -1, -1, -1,  0,  },
       };
+      // clang-format on
       __m256i mask_v = _mm256_load_si256(
           reinterpret_cast<const __m256i*>(masks[remainder]));
 
@@ -777,6 +779,7 @@ void requantizeForFloatAvx2(
 
     int remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
+      // clang-format off
       alignas(64) const int masks[8][8] = {
         // NOTE: clang-format wants to use a different formatting but the
         // current formatting should be easier to read.
@@ -789,6 +792,7 @@ void requantizeForFloatAvx2(
         { -1, -1, -1, -1, -1, -1,  0,  0,  },
         { -1, -1, -1, -1, -1, -1, -1,  0,  },
       };
+      // clang-format on
       __m256i mask_v = _mm256_load_si256(
           reinterpret_cast<const __m256i*>(masks[remainder]));
 

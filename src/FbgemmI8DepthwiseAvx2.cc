@@ -17,6 +17,7 @@ using namespace std;
 
 namespace fbgemm {
 
+// clang-format off
 static int masks[8][8] = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
@@ -29,6 +30,7 @@ static int masks[8][8] = {
   { -1, -1, -1, -1, -1, -1,  0,  0,  },
   { -1, -1, -1, -1, -1, -1, -1,  0,  },
 };
+// clang-format on
 
 template <int KERNEL_PROD>
 PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(

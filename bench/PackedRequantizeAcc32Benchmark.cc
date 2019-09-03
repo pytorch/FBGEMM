@@ -28,6 +28,7 @@ using namespace std;
 using namespace fbgemm;
 
 void performance_test() {
+  // clang-format off
   vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
@@ -70,6 +71,7 @@ void performance_test() {
     {1, 128, 2722},
     {16, 256, 512},
   };
+  // clang-format on
   bool flush = true;
   std::vector<char> llc;
 

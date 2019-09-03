@@ -34,6 +34,7 @@ int main() {
 #endif
 
   // From Xray OCR
+  // clang-format off
   vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
@@ -138,6 +139,7 @@ int main() {
     {  96,  544,  14,  14, 2, },
     { 100,  544,  14,  14, 2, },
   };
+  // clang-format on
 
   // Depthwise is memory BW bound so we want to flush LLC.
   bool flush = true;
