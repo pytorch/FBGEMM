@@ -275,6 +275,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       conv_p_.K[1] == 7 && conv_p_.stride[0] == 2 && conv_p_.stride[1] == 2 &&
       conv_p_.pad[0] == 3 && conv_p_.pad[1] == 3 && block.col_size == 147 &&
       block_p.col_size == 148 && block.col_start == 0 &&
+      conv_p_.dilation[0] == 1 && conv_p_.dilation[1] == 1 &&
       std::is_same<T, uint8_t>::value) {
     if (BaseType::blockColSize() == 256) {
       pack_a_with_im2col_opt<
@@ -350,8 +351,10 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
         int r = grs / conv_p_.K[1] % conv_p_.K[0];
         int g = grs / conv_p_.K[1] / conv_p_.K[0];
 
-        int h_in = -conv_p_.pad[0] + h * conv_p_.stride[0] + r;
-        int w_in = -conv_p_.pad[1] + w * conv_p_.stride[1] + s;
+        int h_in =
+            -conv_p_.pad[0] + h * conv_p_.stride[0] + r * conv_p_.dilation[0];
+        int w_in =
+            -conv_p_.pad[1] + w * conv_p_.stride[1] + s * conv_p_.dilation[1];
 
         if (h_in < 0 || h_in >= conv_p_.IN_DIM[0] || w_in < 0 ||
             w_in >= conv_p_.IN_DIM[1]) {
@@ -399,9 +402,12 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
         int q = gqrs / conv_p_.K[2] / conv_p_.K[1] % conv_p_.K[0];
         int g = gqrs / conv_p_.K[2] / conv_p_.K[1] / conv_p_.K[0];
 
-        int t_in = -conv_p_.pad[0] + t * conv_p_.stride[0] + q;
-        int h_in = -conv_p_.pad[1] + h * conv_p_.stride[1] + r;
-        int w_in = -conv_p_.pad[2] + w * conv_p_.stride[2] + s;
+        int t_in =
+            -conv_p_.pad[0] + t * conv_p_.stride[0] + q * conv_p_.dilation[0];
+        int h_in =
+            -conv_p_.pad[1] + h * conv_p_.stride[1] + r * conv_p_.dilation[1];
+        int w_in =
+            -conv_p_.pad[2] + w * conv_p_.stride[2] + s * conv_p_.dilation[2];
 
         if (t_in < 0 || t_in >= conv_p_.IN_DIM[0] || h_in < 0 ||
             h_in >= conv_p_.IN_DIM[1] || w_in < 0 ||
