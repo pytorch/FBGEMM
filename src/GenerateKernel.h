@@ -8,8 +8,10 @@
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <map>
+#include <mutex>
 #include <string>
 #include <tuple>
+#include "CodeCache.h"
 #include "fbgemm/Fbgemm.h"
 /*#define FBGEMM_LOG_CODE 1*/
 
@@ -187,13 +189,24 @@ class CodeGenBase {
 
   int vectorWidth_; ///< Vector width in bits.
   int VLEN_; ///< Vector width in elements.
-  static thread_local asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
-  static thread_local asmjit::CodeHolder code_; ///< JIT Code Holder for asmjit.
+  static asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
+  static std::mutex rtMutex_;    ///< Controll access to rt_;
+
   // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr, nr_min
-  static thread_local std::map<
-      std::tuple<bool, int, int, int, int, int, int, int>,
-      jit_micro_kernel_fp>
+  static CodeCache<std::tuple<bool, int, int, int, int, int, int, int>,
+                   jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 };
+
+template <typename TA, typename TB, typename TC, typename accT>
+asmjit::JitRuntime CodeGenBase<TA, TB, TC, accT>::rt_;
+
+template <typename TA, typename TB, typename TC, typename accT>
+std::mutex CodeGenBase<TA, TB, TC, accT>::rtMutex_;
+
+template <typename TA, typename TB, typename TC, typename accT>
+CodeCache<std::tuple<bool, int, int, int, int, int, int, int>,
+          typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
+    CodeGenBase<TA, TB, TC, accT>::codeCache_;
 
 } // namespace fbgemm
