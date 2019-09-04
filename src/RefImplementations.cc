@@ -300,9 +300,11 @@ void im2col_ref(
     for (int h = 0; h < OUT_DIM[0]; ++h) {
       for (int w = 0; w < OUT_DIM[1]; ++w) {
         for (int r = 0; r < K[0]; ++r) {
-          int h_in = -conv_p.pad[0] + h * conv_p.stride[0] + r;
+          int h_in =
+              -conv_p.pad[0] + h * conv_p.stride[0] + r * conv_p.dilation[0];
           for (int s = 0; s < K[1]; ++s) {
-            int w_in = -conv_p.pad[1] + w * conv_p.stride[1] + s;
+            int w_in =
+                -conv_p.pad[1] + w * conv_p.stride[1] + s * conv_p.dilation[1];
             if (h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
                 w_in >= IN_DIM[1]) {
               for (int g = 0; g < G; ++g) {
@@ -363,11 +365,14 @@ void im2col_ref(
       for (int h = 0; h < OUT_DIM[1]; ++h) {
         for (int w = 0; w < OUT_DIM[2]; ++w) {
           for (int q = 0; q < K[0]; ++q) {
-            int t_in = -conv_p.pad[0] + t * conv_p.stride[0] + q;
+            int t_in =
+                -conv_p.pad[0] + t * conv_p.stride[0] + q * conv_p.dilation[0];
             for (int r = 0; r < K[1]; ++r) {
-              int h_in = -conv_p.pad[1] + h * conv_p.stride[1] + r;
+              int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
+                  r * conv_p.dilation[1];
               for (int s = 0; s < K[2]; ++s) {
-                int w_in = -conv_p.pad[2] + w * conv_p.stride[2] + s;
+                int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
+                    s * conv_p.dilation[2];
                 if (t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
                     h_in >= IN_DIM[1] || w_in < 0 || w_in >= IN_DIM[2]) {
                   for (int g = 0; g < G; ++g) {
@@ -447,9 +452,11 @@ void conv_ref(
           for (int m = 0; m < OC / G; ++m) {
             int sum = 0;
             for (int r = 0; r < K[0]; ++r) {
-              int h_in = -conv_p.pad[0] + h * conv_p.stride[0] + r;
+              int h_in = -conv_p.pad[0] + h * conv_p.stride[0] +
+                  r * conv_p.dilation[0];
               for (int s = 0; s < K[1]; ++s) {
-                int w_in = -conv_p.pad[1] + w * conv_p.stride[1] + s;
+                int w_in = -conv_p.pad[1] + w * conv_p.stride[1] +
+                    s * conv_p.dilation[1];
                 for (int c = 0; c < IC / G; ++c) {
                   int a = h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
                           w_in >= IN_DIM[1]
@@ -499,11 +506,14 @@ void conv_ref(
             for (int m = 0; m < OC / G; ++m) {
               int sum = 0;
               for (int q = 0; q < K[0]; ++q) {
-                int t_in = -conv_p.pad[0] + t * conv_p.stride[0] + q;
+                int t_in = -conv_p.pad[0] + t * conv_p.stride[0] +
+                    q * conv_p.dilation[0];
                 for (int r = 0; r < K[1]; ++r) {
-                  int h_in = -conv_p.pad[1] + h * conv_p.stride[1] + r;
+                  int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
+                      r * conv_p.dilation[1];
                   for (int s = 0; s < K[2]; ++s) {
-                    int w_in = -conv_p.pad[2] + w * conv_p.stride[2] + s;
+                    int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
+                        s * conv_p.dilation[2];
                     for (int c = 0; c < IC / G; ++c) {
                       int a = t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
                               h_in >= IN_DIM[1] || w_in < 0 || w_in >= IN_DIM[2]
