@@ -51,27 +51,8 @@ using Packed10ConvMatrix = PackedDepthWiseConvMatrix<10>;
 using Packed11ConvMatrix = PackedDepthWiseConvMatrix<11>;
 
 /**
- * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
- * @params A The input image in NHWK layout
- * @params Bp The pre-packed filter
- */
-FBGEMM_API void depthwise_3x3_pad_1(
-    int N,
-    int H,
-    int W,
-    int K,
-    int stride_h,
-    int stride_w,
-    std::int32_t A_zero_point,
-    const std::uint8_t* A,
-    const Packed3x3ConvMatrix& Bp,
-    std::int32_t* C,
-    int thread_id = 0,
-    int num_threads = 1);
-
-/**
- * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
- * This version is fused with requantization.
+ * Depth-wise 3x3 convolution with pad=1 and K a multiple of 8, fused with
+ * requantization.
  *
  * @col_offsets nullptr if col_offsets are folded into bias
  */
@@ -96,8 +77,8 @@ FBGEMM_API void depthwise_3x3_pad_1(
     int num_threads = 1);
 
 /**
- * Depth-wise 3x3 convolution with pad=1 and stride=1 and K a multiple of 8
- * This version is fused with requantization and uses per-channel quantization.
+ * Depth-wise 3x3 convolution with pad=1 and K a multiple of 8, fused with
+ * requantization, and using per-channel quantization.
  *
  * @col_offsets nullptr if col_offsets are folded into bias
  */
@@ -118,22 +99,6 @@ FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
     const std::int32_t* col_offsets,
     const std::int32_t* bias,
     bool fuse_relu = false,
-    int thread_id = 0,
-    int num_threads = 1);
-
-FBGEMM_API void depthwise_3x3x3_pad_1(
-    int N,
-    int T,
-    int H,
-    int W,
-    int K,
-    int stride_t,
-    int stride_h,
-    int stride_w,
-    std::int32_t A_zero_point,
-    const std::uint8_t* A,
-    const Packed3x3x3ConvMatrix& Bp,
-    std::int32_t* C,
     int thread_id = 0,
     int num_threads = 1);
 
