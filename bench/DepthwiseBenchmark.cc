@@ -17,8 +17,8 @@
 
 #include "AlignedVec.h"
 #include "BenchUtils.h"
-#include "fbgemm/Utils.h"
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
@@ -38,7 +38,7 @@ int main() {
   vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
-    // N,  G, H_in, W_in, stride
+    // N,  K, H_in, W_in, stride
     {   1,  272,  47, 125, 1, },
     {   1,  272,  64, 125, 1, },
     {   1,  272,  66, 125, 1, },
@@ -157,19 +157,35 @@ int main() {
 
   for (auto shape : shapes) {
     int N = shape[0];
-    int G = shape[1];
+    int K = shape[1];
     int H = shape[2];
     int W = shape[3];
     int stride_h = shape[4];
     int stride_w = stride_h;
     constexpr int R = 3, S = 3;
-    constexpr int PAD_T = 1, PAD_B = 1, PAD_L = 1, PAD_R = 1;
-    int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
-    int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
+    int PAD_T = (R - 1) / 2, PAD_B = (R - 1) / 2, PAD_L = (S - 1) / 2,
+        PAD_R = (S - 1) / 2;
 
-    aligned_vector<uint8_t> A(N * H * W * G);
-    aligned_vector<int8_t> B(G * R * S);
-    aligned_vector<int32_t> C_ref(N * H_OUT * W_OUT * G), C(C_ref.size());
+    conv_param_t<2> conv_p(
+        N,
+        K,
+        K,
+        {H, W},
+        K,
+        {R, S},
+        {stride_h, stride_w},
+        {PAD_T, PAD_L, PAD_B, PAD_R});
+    int H_OUT = conv_p.OUT_DIM[0];
+    int W_OUT = conv_p.OUT_DIM[1];
+
+    int MDim = N * H_OUT * W_OUT;
+    int KDim = R * S * K;
+    int KDimPerGroup = KDim / conv_p.G;
+
+    aligned_vector<uint8_t> A(N * H * W * K);
+    aligned_vector<int8_t> B(KDim);
+    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
@@ -177,53 +193,54 @@ int main() {
     randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
-    depthwise_3x3_pad_1_ref(
-        N,
-        H,
-        W,
-        G,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
-        B.data(),
-        C_ref.data());
-
-    int32_t minimum = *min_element(C_ref.begin(), C_ref.end());
-    int32_t maximum = *max_element(C_ref.begin(), C_ref.end());
-
-    float C_multiplier = 255. / (maximum - minimum);
-
-    aligned_vector<int32_t> col_offsets(G);
-    aligned_vector<int32_t> bias(G);
-    randFill(col_offsets, -100, 100);
-    randFill(bias, -40, 40);
+    aligned_vector<float> C_multiplier(1);
+    randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
-    depthwise_3x3_pad_1_ref(
-        N,
-        H,
-        W,
-        G,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
-        B_zero_point,
-        B.data(),
-        C_multiplier,
-        C_zero_point,
-        C_uint8_ref.data(),
-        col_offsets.data(),
-        bias.data());
+    vector<int32_t> row_offsets(MDim);
+    // im2col to compute row offset later
+    vector<uint8_t> A_im2col(MDim * KDim);
+    im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
 
-    Packed3x3ConvMatrix Bp(G, B.data());
+    aligned_vector<int32_t> col_offsets(K);
+    aligned_vector<int32_t> bias(K);
+    randFill(col_offsets, -100, 100);
+    randFill(bias, -40, 40);
+
+    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+
+    for (int g = 0; g < conv_p.G; ++g) {
+      // Compute row offset
+      row_offsets_u8acc32_ref(
+          MDim,
+          KDimPerGroup,
+          KDim,
+          A_im2col.data() + g * KDimPerGroup,
+          row_offsets.data());
+
+      // Requantization
+      requantize_u8acc32_ref(
+          MDim,
+          1,
+          conv_p.G,
+          C_ref.data() + g,
+          C_uint8_ref.data() + g,
+          C_multiplier.data(),
+          C_zero_point,
+          A_zero_point,
+          &B_zero_point,
+          row_offsets.data(),
+          col_offsets.data() + g,
+          bias.data() + g,
+          K);
+    }
+
+    Packed3x3ConvMatrix Bp(K, B.data());
 
     double ttot = 0;
     double bytes = double(NITER) *
-        (G * (N * (2 * sizeof(int32_t) * H_OUT * W_OUT + H * W) + R * S));
-    double ops = double(NITER) * N * H_OUT * W_OUT * G * R * S * 2;
+        (K * (N * (2 * sizeof(int32_t) * H_OUT * W_OUT + H * W) + R * S));
+    double ops = double(NITER) * N * H_OUT * W_OUT * K * R * S * 2;
     chrono::time_point<chrono::system_clock> t_begin, t_end;
     for (int i = 0; i < NWARMUP + NITER; ++i) {
       llc_flush();
@@ -237,14 +254,14 @@ int main() {
             N,
             H,
             W,
-            G,
+            K,
             stride_h,
             stride_w,
             A_zero_point,
             A.data(),
             B_zero_point,
             Bp,
-            C_multiplier,
+            C_multiplier[0],
             C_zero_point,
             C_uint8.data(),
             col_offsets.data(),
@@ -264,10 +281,10 @@ int main() {
     for (int n = 0; n < N; ++n) {
       for (int h = 0; h < H_OUT; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
-          for (int g = 0; g < G; ++g) {
+          for (int g = 0; g < K; ++g) {
             uint8_t expected =
-                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * G + g];
-            uint8_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * G + g];
+                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + g];
+            uint8_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + g];
             if (expected != actual) {
               cerr << "Depthwise 3x3 results differ at (" << n << ", " << h
                    << ", " << w << ", " << g << "). expected " << (int)expected
@@ -282,9 +299,9 @@ int main() {
 
     // Report performance
     printf(
-        "N = %d G = %d H = %d W = %d stride = %d with requantization fused\n",
+        "N = %d K = %d H = %d W = %d stride = %d with requantization fused\n",
         N,
-        G,
+        K,
         H,
         W,
         stride_h);

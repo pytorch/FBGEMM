@@ -4,7 +4,6 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "test/I8DepthwiseTest.h"
 
 #include <algorithm>
 #include <chrono>
@@ -19,8 +18,8 @@
 
 #include "AlignedVec.h"
 #include "BenchUtils.h"
-#include "fbgemm/Utils.h"
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
@@ -34,6 +33,34 @@ int main() {
     omp_set_num_threads(1);
   }
 #endif
+
+  // From ResNeXt-3D-101
+  // clang-format off
+  vector<vector<int>> shapes_3d = {
+    // NOTE: clang-format wants to use a different formatting but the current
+    // formatting should be easier to read.
+    // N, K, T_in, H_in, W_in, stride
+    {   1,  64,   32,  56, 56, 1, },
+    {   1, 128,   16,  28, 28, 1, },
+    {   1, 256,    8,  14, 14, 1, },
+    {   1, 512,    4,   7,  7, 1, },
+
+    {   1, 128,   32,  56, 56, 2, },
+    {   1, 256,   16,  28, 28, 2, },
+    {   1, 512,    8,  14, 14, 2, },
+
+    {   5,  64,   32,  56, 56, 1, },
+    {   5, 128,   16,  28, 28, 1, },
+    {   5, 256,    8,  14, 14, 1, },
+    {   5, 512,    4,   7,  7, 1, },
+
+    {   5, 128,   32,  56, 56, 2, },
+    {   5, 256,   16,  28, 28, 2, },
+    {   5, 512,    8,  14, 14, 2, },
+
+    {   1,   8,    4,   4,  4, 1, },
+  };
+  // clang-format on
 
   // Depthwise is memory BW bound so we want to flush LLC.
   bool flush = true;
@@ -61,14 +88,28 @@ int main() {
     constexpr int K_T = 3, K_H = 3, K_W = 3;
     constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
                   PAD_R = 1;
-    int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
-    int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
-    int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
+
+    conv_param_t<3> conv_p(
+        N,
+        K,
+        K,
+        {T, H, W},
+        K,
+        {K_T, K_H, K_W},
+        {stride_t, stride_h, stride_w},
+        {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
+    int T_OUT = conv_p.OUT_DIM[0];
+    int H_OUT = conv_p.OUT_DIM[1];
+    int W_OUT = conv_p.OUT_DIM[2];
+
+    int MDim = N * T_OUT * H_OUT * W_OUT;
+    int KDim = K_T * K_H * K_W * K;
+    int KDimPerGroup = KDim / conv_p.G;
 
     aligned_vector<uint8_t> A(N * T * H * W * K);
-    aligned_vector<int8_t> B(K * K_T * K_H * K_W);
-    aligned_vector<int32_t> C_ref(N * T_OUT * H_OUT * W_OUT * K),
-        C(C_ref.size());
+    aligned_vector<int8_t> B(KDim);
+    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
     int32_t A_zero_point = 43;
@@ -76,50 +117,47 @@ int main() {
     randFill<int8_t>(B, -16, 16);
     int32_t B_zero_point = 5;
 
-    depthwise_3x3x3_pad_1_ref(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
-        B.data(),
-        C_ref.data());
+    aligned_vector<float> C_multiplier(1);
+    randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
+    int32_t C_zero_point = 5;
 
-    int32_t minimum = *min_element(C_ref.begin(), C_ref.end());
-    int32_t maximum = *max_element(C_ref.begin(), C_ref.end());
-
-    float C_multiplier = 255. / (maximum - minimum);
+    vector<int32_t> row_offsets(MDim);
+    // im2col to compute row offset later
+    vector<uint8_t> A_im2col(MDim * KDim);
+    im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
 
     aligned_vector<int32_t> col_offsets(K);
     aligned_vector<int32_t> bias(K);
     randFill(col_offsets, -100, 100);
     randFill(bias, -40, 40);
-    int32_t C_zero_point = 5;
 
-    aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
-    depthwise_3x3x3_pad_1_ref(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A.data(),
-        B_zero_point,
-        B.data(),
-        C_multiplier,
-        C_zero_point,
-        C_uint8_ref.data(),
-        col_offsets.data(),
-        bias.data());
+    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+
+    for (int g = 0; g < conv_p.G; ++g) {
+      // Compute row offset
+      row_offsets_u8acc32_ref(
+          MDim,
+          KDimPerGroup,
+          KDim,
+          A_im2col.data() + g * KDimPerGroup,
+          row_offsets.data());
+
+      // Requantization
+      requantize_u8acc32_ref(
+          MDim,
+          1,
+          conv_p.G,
+          C_ref.data() + g,
+          C_uint8_ref.data() + g,
+          C_multiplier.data(),
+          C_zero_point,
+          A_zero_point,
+          &B_zero_point,
+          row_offsets.data(),
+          col_offsets.data() + g,
+          bias.data() + g,
+          K);
+    }
 
     Packed3x3x3ConvMatrix Bp(K, B.data());
 
@@ -153,7 +191,7 @@ int main() {
             A.data(),
             B_zero_point,
             Bp,
-            C_multiplier,
+            C_multiplier[0],
             C_zero_point,
             C_uint8.data(),
             col_offsets.data(),
