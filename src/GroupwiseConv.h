@@ -10,8 +10,10 @@
 #include <cassert>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <string>
 #include <tuple>
+#include "CodeCache.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
@@ -217,16 +219,23 @@ class GenConvKernel {
   template <inst_set_t instSet>
   void storeResultRowoffset(x86::Emitter* a, int offset = 0);
 
-  static thread_local asmjit::JitRuntime rt_; ///< JIT Runtime for asmjit.
-  static thread_local asmjit::CodeHolder code_; ///< JIT Code Holder for asmjit.
-  static thread_local std::
-      map<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
-          codeCache_; ///< JIT Code Cache for reuse.
-  static thread_local std::
-      map<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
-          codeCacheRowOffset_; ///< JIT Code Cache for row offset kernel.
 
- private:
+  static asmjit::JitRuntime &runtime() {
+    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
+                                  // depents on other static
+                                  // variables.  Required to prevent
+                                  // initialization order fiasco
+    return rt;
+  }
+
+  static std::mutex rtMutex_; ///< Controll access to runtime;
+
+  static CodeCache<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
+      codeCache_; ///< JIT Code Cache for reuse.
+  static CodeCache<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
+      codeCacheRowOffset_; ///< JIT Code Cache for row offset kernel.
+
+private:
   int vectorWidth_; ///< Vector width in bits.
   int VLEN_; ///< Vector width in elements.
   // avx2 specific
@@ -271,5 +280,16 @@ class GenConvKernel {
   int H_PAD_; ///< Padding for height (top and bottom)
   int W_PAD_; ///< Padding for width (left and right)
 };
+
+template <int SPATIAL_DIM, typename accT>
+std::mutex GenConvKernel<SPATIAL_DIM, accT>::rtMutex_;
+
+template <int SPATIAL_DIM, typename accT>
+CodeCache<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
+    GenConvKernel<SPATIAL_DIM, accT>::codeCache_;
+
+template <int SPATIAL_DIM, typename accT>
+CodeCache<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
+    GenConvKernel<SPATIAL_DIM, accT>::codeCacheRowOffset_;
 
 } // namespace fbgemm
