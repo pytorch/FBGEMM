@@ -1872,15 +1872,17 @@ void fbgemmGroupwiseConv(
                           outProcess.getBZeroPoint()[0] == 0) ||
           rowOffsetBuf == nullptr;
 
-      requantizationParams_t r = {a_zero_point,
-                                  outProcess.getBZeroPoint(),
-                                  outProcess.getCZeroPoint(),
-                                  outProcess.getCMultiplier(),
-                                  rowOffsetBuf,
-                                  outProcess.getColOffsets(),
-                                  outProcess.getBias(),
-                                  outProcess.getNCols(),
-                                  G};
+      requantizationParams_t<typename processOutputType::BIAS_T> r = {
+          a_zero_point,
+          outProcess.getBZeroPoint(),
+          outProcess.getCZeroPoint(),
+          outProcess.getCMultiplier(),
+          rowOffsetBuf,
+          outProcess.getColOffsets(),
+          outProcess.getBias(),
+          outProcess.getNCols(),
+          G,
+          outProcess.getActWScale()};
 
       const std::int32_t* inp = outBuffer;
       block_type_t block{i * oh_ow, oh_ow, gOuter * K_per_G, 8 * K_per_G};
