@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cmath> // for lrintf and sqrt
 #include <tuple> // for tie
+#include <type_traits> // for is_same
 
 #include <immintrin.h>
 
@@ -578,7 +579,8 @@ template <
     bool HAS_BIAS,
     bool PER_CHANNEL_QUANTIZATION,
     bool A_SYMMETRIC,
-    bool B_SYMMETRIC>
+    bool B_SYMMETRIC,
+    typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void requantize_(
     int32_t A_zero_point,
     const float* C_multiplier,
@@ -588,10 +590,16 @@ static inline __attribute__((always_inline)) void requantize_(
     int n,
     const int32_t* row_offsets,
     const int32_t* col_offsets,
-    const int32_t* bias) {
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale = nullptr) {
   __m256 multiplier_v = _mm256_setzero_ps();
+  // Broadcasted reciprocal of act_times_w_scale
+  __m256 act_times_w_rcp_v = _mm256_setzero_ps();
   if (!PER_CHANNEL_QUANTIZATION) {
     multiplier_v = _mm256_set1_ps(*C_multiplier);
+    if (is_same<BIAS_TYPE, float>::value) {
+      act_times_w_rcp_v = _mm256_set1_ps(1.0f / (*act_times_w_scale));
+    }
   }
 
   __m256i min_v = _mm256_set1_epi8(static_cast<uint8_t>(0));
@@ -673,39 +681,95 @@ static inline __attribute__((always_inline)) void requantize_(
       w_v = _mm256_sub_epi32(w_v, col_off_v);
     }
 
+    // convert to float
+    __m256 xf_v, yf_v, zf_v, wf_v;
     if (HAS_BIAS) { // static if
-      x_v = _mm256_add_epi32(
-          x_v, _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias + j)));
-      y_v = _mm256_add_epi32(
-          y_v,
-          _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(bias + j + VLEN)));
-      z_v = _mm256_add_epi32(
-          z_v,
-          _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(bias + j + 2 * VLEN)));
-      w_v = _mm256_add_epi32(
-          w_v,
-          _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(bias + j + 3 * VLEN)));
+      if (is_same<BIAS_TYPE, float>::value) {
+        __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
+        if (PER_CHANNEL_QUANTIZATION) {
+          x_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 0 * VLEN)),
+              _mm256_loadu_ps(act_times_w_scale + j + 0 * VLEN));
+          y_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 1 * VLEN)),
+              _mm256_loadu_ps(act_times_w_scale + j + 1 * VLEN));
+          z_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 2 * VLEN)),
+              _mm256_loadu_ps(act_times_w_scale + j + 2 * VLEN));
+          w_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 3 * VLEN)),
+              _mm256_loadu_ps(act_times_w_scale + j + 3 * VLEN));
+        } else {
+          x_bias_v = _mm256_mul_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 0 * VLEN)),
+              act_times_w_rcp_v);
+          y_bias_v = _mm256_mul_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 1 * VLEN)),
+              act_times_w_rcp_v);
+          z_bias_v = _mm256_mul_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 2 * VLEN)),
+              act_times_w_rcp_v);
+          w_bias_v = _mm256_mul_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 3 * VLEN)),
+              act_times_w_rcp_v);
+        }
+        xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), x_bias_v);
+        yf_v = _mm256_add_ps(_mm256_cvtepi32_ps(y_v), y_bias_v);
+        zf_v = _mm256_add_ps(_mm256_cvtepi32_ps(z_v), z_bias_v);
+        wf_v = _mm256_add_ps(_mm256_cvtepi32_ps(w_v), w_bias_v);
+      } else {
+        x_v = _mm256_add_epi32(
+            x_v,
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(bias + j + 0 * VLEN)));
+        y_v = _mm256_add_epi32(
+            y_v,
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(bias + j + 1 * VLEN)));
+        z_v = _mm256_add_epi32(
+            z_v,
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(bias + j + 2 * VLEN)));
+        w_v = _mm256_add_epi32(
+            w_v,
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(bias + j + 3 * VLEN)));
+        xf_v = _mm256_cvtepi32_ps(x_v);
+        yf_v = _mm256_cvtepi32_ps(y_v);
+        zf_v = _mm256_cvtepi32_ps(z_v);
+        wf_v = _mm256_cvtepi32_ps(w_v);
+      }
+    } else {
+      xf_v = _mm256_cvtepi32_ps(x_v);
+      yf_v = _mm256_cvtepi32_ps(y_v);
+      zf_v = _mm256_cvtepi32_ps(z_v);
+      wf_v = _mm256_cvtepi32_ps(w_v);
     }
 
     if (PER_CHANNEL_QUANTIZATION) {
-      multiplier_v = _mm256_loadu_ps(C_multiplier + j);
+      multiplier_v = _mm256_loadu_ps(C_multiplier + j + 0 * VLEN);
     }
-    __m256 x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+    __m256 x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
     if (PER_CHANNEL_QUANTIZATION) {
-      multiplier_v = _mm256_loadu_ps(C_multiplier + j + VLEN);
+      multiplier_v = _mm256_loadu_ps(C_multiplier + j + 1 * VLEN);
     }
-    __m256 y_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(y_v), multiplier_v);
+    __m256 y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
     if (PER_CHANNEL_QUANTIZATION) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 2 * VLEN);
     }
-    __m256 z_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(z_v), multiplier_v);
+    __m256 z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
     if (PER_CHANNEL_QUANTIZATION) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 3 * VLEN);
     }
-    __m256 w_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(w_v), multiplier_v);
+    __m256 w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
 
     __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
     __m256i y_rounded_v = _mm256_cvtps_epi32(y_scaled_v);
@@ -745,15 +809,35 @@ static inline __attribute__((always_inline)) void requantize_(
       x_v = _mm256_sub_epi32(x_v, col_off_v);
     }
 
+    // Convert to float
+    __m256 xf_v;
     if (HAS_BIAS) { // static if
-      x_v = _mm256_add_epi32(
-          x_v, _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias + j)));
+      if (is_same<BIAS_TYPE, float>::value) {
+        __m256 x_bias_v;
+        if (PER_CHANNEL_QUANTIZATION) {
+          x_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(reinterpret_cast<const float*>(bias + j)),
+              _mm256_loadu_ps(act_times_w_scale + j));
+        } else {
+          x_bias_v = _mm256_mul_ps(
+              _mm256_loadu_ps(reinterpret_cast<const float*>(bias + j)),
+              act_times_w_rcp_v);
+        }
+        xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), x_bias_v);
+      } else {
+        x_v = _mm256_add_epi32(
+            x_v,
+            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bias + j)));
+        xf_v = _mm256_cvtepi32_ps(x_v);
+      }
+    } else {
+      xf_v = _mm256_cvtepi32_ps(x_v);
     }
 
     if (PER_CHANNEL_QUANTIZATION) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j);
     }
-    __m256 x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
+    __m256 x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
     __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
 
     __m256i x_packed_v = _mm256_adds_epi16(
@@ -779,11 +863,20 @@ static inline __attribute__((always_inline)) void requantize_(
     if (!A_SYMMETRIC) {
       raw -= A_zero_point * col_offsets[j];
     }
+    float raw_f;
     if (HAS_BIAS) { // static if
-      raw += bias[j];
+      if (is_same<BIAS_TYPE, float>::value) {
+        raw_f = raw;
+        raw_f += bias[j] / act_times_w_scale[PER_CHANNEL_QUANTIZATION ? j : 0];
+      } else {
+        raw += bias[j];
+        raw_f = raw;
+      }
+    } else {
+      raw_f = raw;
     }
 
-    float ab = raw * C_multiplier[PER_CHANNEL_QUANTIZATION ? j : 0];
+    float ab = raw_f * C_multiplier[PER_CHANNEL_QUANTIZATION ? j : 0];
     long rounded = lrintf(ab) + C_zero_point;
 
     C_uint8[j] = std::max(
@@ -1165,7 +1258,12 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   }
 }
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
+template <
+    bool FUSE_RELU,
+    bool HAS_BIAS,
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void depthwise_3x3_kernel_(
     int H,
     int W,
@@ -1184,7 +1282,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3_kernel_(
     uint8_t* C_uint8,
     int32_t* row_offsets,
     const int32_t* col_offsets,
-    const int32_t* bias) {
+    const BIAS_TYPE* bias,
+    float act_times_w_scale) {
   constexpr int S = 3;
   constexpr int PAD_T = 1, PAD_L = 1, PAD_R = 1;
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
@@ -1229,7 +1328,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3_kernel_(
       HAS_BIAS,
       false, /*PER_CHAN_QUANT*/
       A_SYMMETRIC,
-      B_SYMMETRIC>(
+      B_SYMMETRIC,
+      BIAS_TYPE>(
       A_zero_point,
       &C_multiplier,
       C_zero_point,
@@ -1238,10 +1338,16 @@ static inline __attribute__((always_inline)) void depthwise_3x3_kernel_(
       K,
       row_offsets,
       col_offsets,
-      bias);
+      bias,
+      &act_times_w_scale);
 }
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
+template <
+    bool FUSE_RELU,
+    bool HAS_BIAS,
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
     int T,
     int H,
@@ -1263,7 +1369,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
     uint8_t* C_uint8,
     int32_t* row_offsets,
     const int32_t* col_offsets,
-    const int32_t* bias) {
+    const BIAS_TYPE* bias,
+    float act_times_w_scale) {
   constexpr int R = 3, S = 3;
   constexpr int PAD_P = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1, PAD_R = 1;
   int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
@@ -1323,10 +1430,11 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
       K,
       row_offsets,
       col_offsets,
-      bias);
+      bias,
+      &act_times_w_scale);
 }
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
+template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_kernel_(
     int H,
@@ -1346,7 +1454,8 @@ depthwise_3x3_per_channel_quantization_kernel_(
     uint8_t* C_uint8,
     int32_t* row_offsets,
     const int32_t* col_offsets,
-    const int32_t* bias) {
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale) {
   constexpr int S = 3;
   constexpr int PAD_T = 1, PAD_L = 1, PAD_R = 1;
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
@@ -1397,7 +1506,8 @@ depthwise_3x3_per_channel_quantization_kernel_(
       HAS_BIAS,
       true, /*PER_CHAN_QUANT*/
       A_SYMMETRIC,
-      false /*B_SYMM*/>(
+      false, /*B_SYMM*/
+      BIAS_TYPE>(
       A_zero_point,
       C_multiplier,
       C_zero_point,
@@ -1406,10 +1516,11 @@ depthwise_3x3_per_channel_quantization_kernel_(
       K,
       row_offsets,
       col_offsets,
-      bias);
+      bias,
+      act_times_w_scale);
 }
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
+template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void
 depthwise_3x3x3_per_channel_quantization_kernel_(
     int T,
@@ -1432,7 +1543,8 @@ depthwise_3x3x3_per_channel_quantization_kernel_(
     uint8_t* C_uint8,
     int32_t* row_offsets,
     const int32_t* col_offsets,
-    const int32_t* bias) {
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale) {
   constexpr int R = 3, S = 3;
   constexpr int PAD_P = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1, PAD_R = 1;
   int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
@@ -1497,7 +1609,8 @@ depthwise_3x3x3_per_channel_quantization_kernel_(
       K,
       row_offsets,
       col_offsets,
-      bias);
+      bias,
+      act_times_w_scale);
 }
 
 static pair<int, int> closest_factors_(int n) {
@@ -1512,7 +1625,12 @@ static pair<int, int> closest_factors_(int n) {
 // This implemntation should be general enough to handle not just 3x3 but other
 // filter shapes by parameterizing with R and S but restricting it to just 3x3
 // for now.
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
+template <
+    bool FUSE_RELU,
+    bool HAS_BIAS,
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
     int N,
     int H,
@@ -1529,7 +1647,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
     int32_t* C_int32,
     uint8_t* C_uint8,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
     int thread_id,
     int num_threads) {
   assert(K % 8 == 0);
@@ -1588,7 +1707,12 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
 
     if (h_begin == 0) {
       if (w_begin == 0) {
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1606,11 +1730,17 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1628,12 +1758,18 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
         w = W_OUT - 1;
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1651,14 +1787,20 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
 
     for (h = std::max(1, h_begin); h < std::min(H - 1, h_end); ++h) {
       if (w_begin == 0) {
         w = 0;
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1676,11 +1818,17 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1698,12 +1846,18 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
         w = W_OUT - 1;
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1721,7 +1875,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
 
@@ -1729,7 +1884,12 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
       h = H_OUT - 1;
       w = 0;
       if (w_begin == 0) {
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1747,11 +1907,17 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1769,12 +1935,18 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
         w = W_OUT - 1;
-        depthwise_3x3_kernel_<FUSE_RELU, HAS_BIAS, A_SYMMETRIC, B_SYMMETRIC>(
+        depthwise_3x3_kernel_<
+            FUSE_RELU,
+            HAS_BIAS,
+            A_SYMMETRIC,
+            B_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -1792,13 +1964,19 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
   } // for each n
 };
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, bool B_SYMMETRIC>
+template <
+    bool FUSE_RELU,
+    bool HAS_BIAS,
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
     int N,
     int T,
@@ -1817,7 +1995,8 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
     int32_t* C_int32,
     uint8_t* C_uint8,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
     int thread_id,
     int num_threads) {
   assert(K % 8 == 0);
@@ -1901,14 +2080,15 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
               C_uint8_base,
               row_offsets,
               col_offsets,
-              bias);
+              bias,
+              act_times_w_scale);
         } // w
       } // h
     } // t
   } // for each n
 };
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
+template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void
 depthwise_3x3_per_channel_quantization_pad_1_(
     int N,
@@ -1926,7 +2106,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
     int32_t* C_int32,
     uint8_t* C_uint8,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
   assert(K % 8 == 0);
@@ -1988,7 +2169,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2006,14 +2188,16 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2031,7 +2215,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
@@ -2039,7 +2224,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2057,7 +2243,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
 
@@ -2067,7 +2254,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2085,14 +2273,16 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2110,7 +2300,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
@@ -2118,7 +2309,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2136,7 +2328,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
 
@@ -2147,7 +2340,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2165,14 +2359,16 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       for (w = std::max(1, w_begin); w < std::min(W_OUT - 1, w_end); ++w) {
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2190,7 +2386,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
 
       if (w_end == W_OUT) {
@@ -2198,7 +2395,8 @@ depthwise_3x3_per_channel_quantization_pad_1_(
         depthwise_3x3_per_channel_quantization_kernel_<
             FUSE_RELU,
             HAS_BIAS,
-            A_SYMMETRIC>(
+            A_SYMMETRIC,
+            BIAS_TYPE>(
             H,
             W,
             K,
@@ -2216,13 +2414,14 @@ depthwise_3x3_per_channel_quantization_pad_1_(
             C_uint8_base,
             row_offsets,
             col_offsets,
-            bias);
+            bias,
+            act_times_w_scale);
       }
     }
   } // for each n
 };
 
-template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC>
+template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
 static inline __attribute__((always_inline)) void
 depthwise_3x3x3_per_channel_quantization_pad_1_(
     int N,
@@ -2242,7 +2441,8 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
     int32_t* C_int32,
     uint8_t* C_uint8,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
   assert(K % 8 == 0);
@@ -2304,7 +2504,8 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
           depthwise_3x3x3_per_channel_quantization_kernel_<
               FUSE_RELU,
               HAS_BIAS,
-              A_SYMMETRIC>(
+              A_SYMMETRIC,
+              BIAS_TYPE>(
               T,
               H,
               W,
@@ -2325,7 +2526,8 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
               C_uint8_base,
               row_offsets,
               col_offsets,
-              bias);
+              bias,
+              act_times_w_scale);
         } // w
       } // h
     } // t
@@ -2333,7 +2535,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
-template <bool FUSE_RELU, bool HAS_BIAS>
+template <bool FUSE_RELU, bool HAS_BIAS, typename BIAS_TYPE>
 static void depthwise_3x3_pad_1_(
     int N,
     int H,
@@ -2349,7 +2551,8 @@ static void depthwise_3x3_pad_1_(
     int32_t C_zero_point,
     uint8_t* C,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
     int thread_id,
     int num_threads) {
   int32_t C_int32_temp[(K + 31) / 32 * 32];
@@ -2359,7 +2562,8 @@ static void depthwise_3x3_pad_1_(
           FUSE_RELU,
           HAS_BIAS,
           true /*A_symmetric*/,
-          true /*B_symmetric*/>(
+          true /*B_symmetric*/,
+          BIAS_TYPE>(
           N,
           H,
           W,
@@ -2376,6 +2580,7 @@ static void depthwise_3x3_pad_1_(
           C,
           col_offsets,
           bias,
+          act_times_w_scale,
           thread_id,
           num_threads);
     } else {
@@ -2383,7 +2588,8 @@ static void depthwise_3x3_pad_1_(
           FUSE_RELU,
           HAS_BIAS,
           true /*A_symmetric*/,
-          false /*B_symmetric*/>(
+          false /*B_symmetric*/,
+          BIAS_TYPE>(
           N,
           H,
           W,
@@ -2400,6 +2606,7 @@ static void depthwise_3x3_pad_1_(
           C,
           col_offsets,
           bias,
+          act_times_w_scale,
           thread_id,
           num_threads);
     }
@@ -2409,7 +2616,8 @@ static void depthwise_3x3_pad_1_(
           FUSE_RELU,
           HAS_BIAS,
           false /*A_symmetric*/,
-          true /*B_symmetric*/>(
+          true /*B_symmetric*/,
+          BIAS_TYPE>(
           N,
           H,
           W,
@@ -2426,6 +2634,7 @@ static void depthwise_3x3_pad_1_(
           C,
           col_offsets,
           bias,
+          act_times_w_scale,
           thread_id,
           num_threads);
     } else {
@@ -2433,7 +2642,8 @@ static void depthwise_3x3_pad_1_(
           FUSE_RELU,
           HAS_BIAS,
           false /*A_symmetric*/,
-          false /*B_symmetric*/>(
+          false /*B_symmetric*/,
+          BIAS_TYPE>(
           N,
           H,
           W,
@@ -2450,6 +2660,7 @@ static void depthwise_3x3_pad_1_(
           C,
           col_offsets,
           bias,
+          act_times_w_scale,
           thread_id,
           num_threads);
     }
@@ -2457,7 +2668,7 @@ static void depthwise_3x3_pad_1_(
 }
 
 // Dispatch HAS_BIAS
-template <bool FUSE_RELU>
+template <bool FUSE_RELU, typename BIAS_TYPE>
 static void depthwise_3x3_pad_1_(
     int N,
     int H,
@@ -2473,11 +2684,12 @@ static void depthwise_3x3_pad_1_(
     int32_t C_zero_point,
     uint8_t* C,
     const int32_t* col_offsets,
-    const int32_t* bias,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
     int thread_id,
     int num_threads) {
   if (bias) {
-    depthwise_3x3_pad_1_<FUSE_RELU, true /*HAS_BIAS*/>(
+    depthwise_3x3_pad_1_<FUSE_RELU, true /*HAS_BIAS*/, BIAS_TYPE>(
         N,
         H,
         W,
@@ -2493,10 +2705,11 @@ static void depthwise_3x3_pad_1_(
         C,
         col_offsets,
         bias,
+        act_times_w_scale,
         thread_id,
         num_threads);
   } else {
-    depthwise_3x3_pad_1_<FUSE_RELU, false /*HAS_BIAS*/>(
+    depthwise_3x3_pad_1_<FUSE_RELU, false /*HAS_BIAS*/, BIAS_TYPE>(
         N,
         H,
         W,
@@ -2512,6 +2725,7 @@ static void depthwise_3x3_pad_1_(
         C,
         col_offsets,
         bias,
+        act_times_w_scale,
         thread_id,
         num_threads);
   }
@@ -2519,6 +2733,1181 @@ static void depthwise_3x3_pad_1_(
 
 // Dispatch input shape and FUSE_RELU
 // assumption: W > 3 and H > 3
+template <typename BIAS_TYPE>
+void depthwise_3x3_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
+  if (fuse_relu) {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_pad_1_<true /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_pad_1_<true /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_pad_1_<true /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_pad_1_<true /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_pad_1_<true /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  } else {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_pad_1_<false /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_pad_1_<false /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_pad_1_<false /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_pad_1_<false /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_pad_1_<false /* FUSE_RELU */, BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  }
+}
+
+// Dispatch A_SYMMETRIC and B_SYMMETRIC
+template <bool FUSE_RELU, bool HAS_BIAS, typename BIAS_TYPE>
+static void depthwise_3x3x3_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  if (A_zero_point == 0 || col_offsets == nullptr) {
+    if (B_zero_point == 0) {
+      depthwise_3x3x3_pad_1_<
+          FUSE_RELU,
+          HAS_BIAS,
+          true /*A_symmetric*/,
+          true /*B_symmetric*/,
+          BIAS_TYPE>(
+          N,
+          T,
+          H,
+          W,
+          K,
+          stride_t,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3x3_pad_1_<
+          FUSE_RELU,
+          HAS_BIAS,
+          true /*A_symmetric*/,
+          false /*B_symmetric*/,
+          BIAS_TYPE>(
+          N,
+          T,
+          H,
+          W,
+          K,
+          stride_t,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  } else {
+    if (B_zero_point == 0) {
+      depthwise_3x3x3_pad_1_<
+          FUSE_RELU,
+          HAS_BIAS,
+          false /*A_symmetric*/,
+          true /*B_symmetric*/,
+          BIAS_TYPE>(
+          N,
+          T,
+          H,
+          W,
+          K,
+          stride_t,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3x3_pad_1_<
+          FUSE_RELU,
+          HAS_BIAS,
+          false /*A_symmetric*/,
+          false /*B_symmetric*/,
+          BIAS_TYPE>(
+          N,
+          T,
+          H,
+          W,
+          K,
+          stride_t,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C_int32_temp,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  }
+}
+
+// Dispatch HAS_BIAS
+template <bool FUSE_RELU, typename BIAS_TYPE>
+static void depthwise_3x3x3_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (bias) {
+    depthwise_3x3x3_pad_1_<FUSE_RELU, true /*HAS_BIAS*/, BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3x3_pad_1_<FUSE_RELU, false /*HAS_BIAS*/, BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch FUSE_RELU
+template <typename BIAS_TYPE>
+void depthwise_3x3x3_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(
+        0 &&
+        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
+  if (fuse_relu) {
+    depthwise_3x3x3_pad_1_<true /*FUSE_RELU*/, BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3x3_pad_1_<false /*FUSE_RELU*/, BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch A_SYMMETRIC
+template <bool FUSE_RELU, bool HAS_BIAS, typename BIAS_TYPE>
+static void depthwise_3x3_per_channel_quantization_pad_1_(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  if (A_zero_point == 0 || col_offsets == nullptr) {
+    depthwise_3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        HAS_BIAS,
+        true /*A_SYMM*/,
+        BIAS_TYPE>(
+        N,
+        H,
+        W,
+        K,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        Bp,
+        C_multiplier,
+        C_zero_point,
+        C_int32_temp,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        HAS_BIAS,
+        false /*A_SYMM*/,
+        BIAS_TYPE>(
+        N,
+        H,
+        W,
+        K,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        Bp,
+        C_multiplier,
+        C_zero_point,
+        C_int32_temp,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch HAS_BIAS
+template <bool FUSE_RELU, typename BIAS_TYPE>
+static void depthwise_3x3_per_channel_quantization_pad_1_(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (bias) {
+    depthwise_3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        true /* HAS_BIAS */,
+        BIAS_TYPE>(
+        N,
+        H,
+        W,
+        K,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        Bp,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        false /* HAS_BIAS */,
+        BIAS_TYPE>(
+        N,
+        H,
+        W,
+        K,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        Bp,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch input shape and FUSE_RELU
+template <typename BIAS_TYPE>
+void depthwise_3x3_per_channel_quantization_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
+  if (fuse_relu) {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          true /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  } else {
+    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          false /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          false /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (1 == stride_h && 1 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          false /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else if (2 == stride_h && 2 == stride_w) {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          false /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_3x3_per_channel_quantization_pad_1_<
+          false /* FUSE_RELU */,
+          BIAS_TYPE>(
+          N,
+          H,
+          W,
+          K,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          Bp,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+  }
+}
+
+// Dispatch A_SYMMETRIC
+template <bool FUSE_RELU, bool HAS_BIAS, typename BIAS_TYPE>
+static void depthwise_3x3x3_per_channel_quantization_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  if (A_zero_point == 0 || col_offsets == nullptr) {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        HAS_BIAS,
+        true /*A_SYMM*/,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C_int32_temp,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        HAS_BIAS,
+        false /*A_SYMM*/,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C_int32_temp,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch HAS_BIAS
+template <bool FUSE_RELU, typename BIAS_TYPE>
+static void depthwise_3x3x3_per_channel_quantization_pad_1_(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (bias) {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        true /* HAS_BIAS */,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        FUSE_RELU,
+        false /* HAS_BIAS */,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// Dispatch FUSE_RELU
+template <typename BIAS_TYPE>
+void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads) {
+  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(
+        0 &&
+        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
+  if (fuse_relu) {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        true /* FUSE_RELU */,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  } else {
+    depthwise_3x3x3_per_channel_quantization_pad_1_<
+        false /* FUSE_RELU */,
+        BIAS_TYPE>(
+        N,
+        T,
+        H,
+        W,
+        K,
+        stride_t,
+        stride_h,
+        stride_w,
+        A_zero_point,
+        A,
+        B_zero_point,
+        B,
+        C_multiplier,
+        C_zero_point,
+        C,
+        col_offsets,
+        bias,
+        act_times_w_scale,
+        thread_id,
+        num_threads);
+  }
+}
+
+// To be removed
 void depthwise_3x3_pad_1(
     int N,
     int H,
@@ -2538,413 +3927,71 @@ void depthwise_3x3_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
-  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
-    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
-    return;
-  }
-  if (N == 0) {
-    // In C2, batch size 0 is allowed, so we should just early return.
-    return;
-  }
-  if (fuse_relu) {
-    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  } else {
-    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  }
+  depthwise_3x3_pad_1<std::int32_t>(
+      N,
+      H,
+      W,
+      K,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B_zero_point,
+      B,
+      C_multiplier,
+      C_zero_point,
+      C,
+      col_offsets,
+      bias,
+      fuse_relu,
+      1.0f,
+      thread_id,
+      num_threads);
 }
 
-// Dispatch A_SYMMETRIC and B_SYMMETRIC
-template <bool FUSE_RELU, bool HAS_BIAS>
-static void depthwise_3x3x3_pad_1_(
+// To be removed
+void depthwise_3x3_per_channel_quantization_pad_1(
     int N,
-    int T,
     int H,
     int W,
     int K,
-    int stride_t,
     int stride_h,
     int stride_w,
     int32_t A_zero_point,
     const uint8_t* A,
-    int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
-    float C_multiplier,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
     const int32_t* col_offsets,
     const int32_t* bias,
+    bool fuse_relu,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
-  if (A_zero_point == 0 || col_offsets == nullptr) {
-    if (B_zero_point == 0) {
-      depthwise_3x3x3_pad_1_<
-          FUSE_RELU,
-          HAS_BIAS,
-          true /*A_symmetric*/,
-          true /*B_symmetric*/>(
-          N,
-          T,
-          H,
-          W,
-          K,
-          stride_t,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C_int32_temp,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3x3_pad_1_<
-          FUSE_RELU,
-          HAS_BIAS,
-          true /*A_symmetric*/,
-          false /*B_symmetric*/>(
-          N,
-          T,
-          H,
-          W,
-          K,
-          stride_t,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C_int32_temp,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  } else {
-    if (B_zero_point == 0) {
-      depthwise_3x3x3_pad_1_<
-          FUSE_RELU,
-          HAS_BIAS,
-          false /*A_symmetric*/,
-          true /*B_symmetric*/>(
-          N,
-          T,
-          H,
-          W,
-          K,
-          stride_t,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C_int32_temp,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3x3_pad_1_<
-          FUSE_RELU,
-          HAS_BIAS,
-          false /*A_symmetric*/,
-          false /*B_symmetric*/>(
-          N,
-          T,
-          H,
-          W,
-          K,
-          stride_t,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          B,
-          C_multiplier,
-          C_zero_point,
-          C_int32_temp,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  }
+  depthwise_3x3_per_channel_quantization_pad_1<std::int32_t>(
+      N,
+      H,
+      W,
+      K,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B_zero_point,
+      Bp,
+      C_multiplier,
+      C_zero_point,
+      C,
+      col_offsets,
+      bias,
+      fuse_relu,
+      nullptr,
+      thread_id,
+      num_threads);
 }
 
-// Dispatch HAS_BIAS
-template <bool FUSE_RELU>
-static void depthwise_3x3x3_pad_1_(
-    int N,
-    int T,
-    int H,
-    int W,
-    int K,
-    int stride_t,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
-    float C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    int thread_id,
-    int num_threads) {
-  if (bias) {
-    depthwise_3x3x3_pad_1_<FUSE_RELU, true /*HAS_BIAS*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3x3_pad_1_<FUSE_RELU, false /*HAS_BIAS*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
-}
-
-// Dispatch FUSE_RELU
+// To be removed
 void depthwise_3x3x3_pad_1(
     int N,
     int T,
@@ -2966,569 +4013,30 @@ void depthwise_3x3x3_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
-  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
-    assert(
-        0 &&
-        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
-    return;
-  }
-  if (N == 0) {
-    // In C2, batch size 0 is allowed, so we should just early return.
-    return;
-  }
-  if (fuse_relu) {
-    depthwise_3x3x3_pad_1_<true /*FUSE_RELU*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3x3_pad_1_<false /*FUSE_RELU*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
+  depthwise_3x3x3_pad_1<int32_t>(
+      N,
+      T,
+      H,
+      W,
+      K,
+      stride_t,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B_zero_point,
+      B,
+      C_multiplier,
+      C_zero_point,
+      C,
+      col_offsets,
+      bias,
+      fuse_relu,
+      1.0f, // act_scale * weight_scale
+      thread_id,
+      num_threads);
 }
 
-// Dispatch A_SYMMETRIC
-template <bool FUSE_RELU, bool HAS_BIAS>
-static void depthwise_3x3_per_channel_quantization_pad_1_(
-    int N,
-    int H,
-    int W,
-    int K,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
-    const float* C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    int thread_id,
-    int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
-  if (A_zero_point == 0 || col_offsets == nullptr) {
-    depthwise_3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        HAS_BIAS,
-        true /*A_SYMM*/>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        HAS_BIAS,
-        false /*A_SYMM*/>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
-}
-
-// Dispatch HAS_BIAS
-template <bool FUSE_RELU>
-static void depthwise_3x3_per_channel_quantization_pad_1_(
-    int N,
-    int H,
-    int W,
-    int K,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
-    const float* C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    int thread_id,
-    int num_threads) {
-  if (bias) {
-    depthwise_3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        true /* HAS_BIAS */>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        false /* HAS_BIAS */>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
-}
-
-// Dispatch input shape and FUSE_RELU
-void depthwise_3x3_per_channel_quantization_pad_1(
-    int N,
-    int H,
-    int W,
-    int K,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
-    const float* C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    bool fuse_relu,
-    int thread_id,
-    int num_threads) {
-  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
-    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
-    return;
-  }
-  if (N == 0) {
-    // In C2, batch size 0 is allowed, so we should just early return.
-    return;
-  }
-  if (fuse_relu) {
-    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  } else {
-    if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (14 == H && 14 == W && 2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (1 == stride_h && 1 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else if (2 == stride_h && 2 == stride_w) {
-      depthwise_3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    } else {
-      depthwise_3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-          N,
-          H,
-          W,
-          K,
-          stride_h,
-          stride_w,
-          A_zero_point,
-          A,
-          B_zero_point,
-          Bp,
-          C_multiplier,
-          C_zero_point,
-          C,
-          col_offsets,
-          bias,
-          thread_id,
-          num_threads);
-    }
-  }
-}
-
-// Dispatch A_SYMMETRIC
-template <bool FUSE_RELU, bool HAS_BIAS>
-static void depthwise_3x3x3_per_channel_quantization_pad_1_(
-    int N,
-    int T,
-    int H,
-    int W,
-    int K,
-    int stride_t,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
-    const float* C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    int thread_id,
-    int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
-  if (A_zero_point == 0 || col_offsets == nullptr) {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        HAS_BIAS,
-        true /*A_SYMM*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        HAS_BIAS,
-        false /*A_SYMM*/>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C_int32_temp,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
-}
-
-// Dispatch HAS_BIAS
-template <bool FUSE_RELU>
-static void depthwise_3x3x3_per_channel_quantization_pad_1_(
-    int N,
-    int T,
-    int H,
-    int W,
-    int K,
-    int stride_t,
-    int stride_h,
-    int stride_w,
-    int32_t A_zero_point,
-    const uint8_t* A,
-    const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
-    const float* C_multiplier,
-    int32_t C_zero_point,
-    uint8_t* C,
-    const int32_t* col_offsets,
-    const int32_t* bias,
-    int thread_id,
-    int num_threads) {
-  if (bias) {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        true /* HAS_BIAS */>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<
-        FUSE_RELU,
-        false /* HAS_BIAS */>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
-}
-
-// Dispatch FUSE_RELU
 void depthwise_3x3x3_per_channel_quantization_pad_1(
     int N,
     int T,
@@ -3550,59 +4058,204 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
-  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
-    assert(
-        0 &&
-        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
-    return;
-  }
-  if (N == 0) {
-    // In C2, batch size 0 is allowed, so we should just early return.
-    return;
-  }
-  if (fuse_relu) {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_3x3x3_per_channel_quantization_pad_1_<false /* FUSE_RELU */>(
-        N,
-        T,
-        H,
-        W,
-        K,
-        stride_t,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        B,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        thread_id,
-        num_threads);
-  }
+  depthwise_3x3x3_per_channel_quantization_pad_1(
+      N,
+      T,
+      H,
+      W,
+      K,
+      stride_t,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B_zero_point,
+      B,
+      C_multiplier,
+      C_zero_point,
+      C,
+      col_offsets,
+      bias,
+      fuse_relu,
+      nullptr, // act_scale * weight_scale
+      thread_id,
+      num_threads);
 }
+
+template void depthwise_3x3_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const float* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3_per_channel_quantization_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3_per_channel_quantization_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3ConvMatrix& Bp,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const float* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3x3_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3x3_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    int32_t B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    float C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const float* bias,
+    bool fuse_relu,
+    float act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template void depthwise_3x3x3_per_channel_quantization_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int K,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const Packed3x3x3ConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const float* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
 
 } // namespace fbgemm
