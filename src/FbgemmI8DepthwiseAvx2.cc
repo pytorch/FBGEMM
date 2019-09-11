@@ -2538,6 +2538,14 @@ void depthwise_3x3_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
+  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
   if (fuse_relu) {
     if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
       depthwise_3x3_pad_1_<true /* FUSE_RELU */>(
@@ -2958,6 +2966,16 @@ void depthwise_3x3x3_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
+  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(
+        0 &&
+        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
   if (fuse_relu) {
     depthwise_3x3x3_pad_1_<true /*FUSE_RELU*/>(
         N,
@@ -3158,6 +3176,14 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
+  if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
   if (fuse_relu) {
     if (7 == H && 7 == W && 1 == stride_h && 1 == stride_w) {
       depthwise_3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
@@ -3524,6 +3550,16 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
     bool fuse_relu,
     int thread_id,
     int num_threads) {
+  if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
+    assert(
+        0 &&
+        "stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0");
+    return;
+  }
+  if (N == 0) {
+    // In C2, batch size 0 is allowed, so we should just early return.
+    return;
+  }
   if (fuse_relu) {
     depthwise_3x3x3_per_channel_quantization_pad_1_<true /* FUSE_RELU */>(
         N,
