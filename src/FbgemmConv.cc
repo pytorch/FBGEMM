@@ -89,6 +89,7 @@ int fbgemmConv(
       // std::cout << "Depthwise fast path" << std::endl;
       const std::int32_t* B_zero_point = outProcess.getBZeroPoint();
       const float* C_multiplier = outProcess.getCMultiplier();
+      const float* act_times_w_scale = outProcess.getActWScale();
       if (SPATIAL_DIM == 3) {
         static_assert(
             std::is_same<typename processOutputType::outType, std::uint8_t>::
@@ -115,7 +116,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
-              1.0f, // act_scale * weight_scale
+              act_times_w_scale ? act_times_w_scale[0] : 1.0f,
               thread_id,
               num_threads);
         } else if (
@@ -141,7 +142,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
-              nullptr, // act_scale * weight_scale
+              outProcess.getActWScale(), // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -169,7 +170,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
-              1.0f, // act_scale * weight_scale
+              act_times_w_scale ? act_times_w_scale[0] : 1.0f,
               thread_id,
               num_threads);
         } else if (
@@ -194,7 +195,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
-              nullptr, // act_scale * weight_scale
+              outProcess.getActWScale(), // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -316,21 +317,25 @@ int fbgemmConv(
   return 0;
 }
 
-#define INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM)                 \
+#define INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, BIAS_TYPE)      \
   template int fbgemmConv(                                                 \
       const conv_param_t<SPATIAL_DIM>& conv_p,                             \
       const std::uint8_t* activations,                                     \
       PackWeightsForConv<SPATIAL_DIM, std::int8_t, ACC_T>& packed_weights, \
       std::uint8_t* out,                                                   \
       std::int32_t* outBuffer,                                             \
-      ReQuantizeOutput<RELU, Q_GRAN>& outProcess,                          \
+      ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>& outProcess,               \
       int thread_id,                                                       \
       int num_threads,                                                     \
       const BlockingFactors* blocking_params);
 
+#define INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, SPATIAL_DIM) \
+  INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, float); \
+  INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, int32_t);
+
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, RELU) \
-  INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, 2);          \
-  INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, 3);
+  INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 2);        \
+  INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 3);
 
 #define INSTANTIATE_RELU(ACC_T, Q_GRAN)         \
   INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, true); \
@@ -346,6 +351,7 @@ INSTANTIATE_Q_GRANS(std::int32_t);
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
 
 template bool takeDepthWiseFastPath<2, std::int32_t>(

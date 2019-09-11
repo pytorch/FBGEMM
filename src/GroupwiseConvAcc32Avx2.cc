@@ -2204,7 +2204,7 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
 template int rowOffsetBufferSizeGConv<2>(const conv_param_t<2>& conv_param);
 template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
 
-#define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM)                           \
+#define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, BIAS_TYPE)                \
   template void fbgemmGroupwiseConv(                                          \
       const conv_param_t<SPATIAL_DIM>& conv_param,                            \
       const uint8_t* activations,                                             \
@@ -2213,13 +2213,17 @@ template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
       PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>& packed_weights, \
       uint8_t* out,                                                           \
       int32_t* outBuffer,                                                     \
-      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,                       \
+      const ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>& outProcess,            \
       int thread_id,                                                          \
       int num_threads);
 
+#define INSTANTIATE_BIAS_T(RELU, Q_GRAN, SPATIAL_DIM) \
+  INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, float); \
+  INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, int32_t);
+
 #define INSTANTIATE_SPATIAL_DIM(RELU, Q_GRAN) \
-  INSTANTIATE_BASE(RELU, Q_GRAN, 2);          \
-  INSTANTIATE_BASE(RELU, Q_GRAN, 3);
+  INSTANTIATE_BIAS_T(RELU, Q_GRAN, 2);        \
+  INSTANTIATE_BIAS_T(RELU, Q_GRAN, 3);
 
 #define INSTANTIATE_Q_GRANS(RELU)                                 \
   INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::TENSOR); \
@@ -2231,6 +2235,7 @@ INSTANTIATE_Q_GRANS(true);
 
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
 
 template void fbgemmGroupwiseConv(

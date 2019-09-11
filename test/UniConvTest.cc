@@ -88,8 +88,11 @@ class uniConvTest
     : public testing::TestWithParam<
           tuple<int, int, int, int, int, int, int, int, int, int>> {};
 
-class UniConvQGranTest : public testing::TestWithParam<
-                             tuple<QuantizationGranularity, bool, bool>> {};
+// tuple represents QuantizationGranularity, A symmetric, B symmetric,
+// test_bias, test_float_bias
+class UniConvQGranTest
+    : public testing::TestWithParam<
+          tuple<QuantizationGranularity, bool, bool, bool, bool>> {};
 
 }; // namespace
 
@@ -115,7 +118,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::ValuesIn(qGranularityVals),
         ::testing::Bool(), // A symmetric
-        ::testing::Bool())); // B symmetric
+        ::testing::Bool(), // B symmetric
+        ::testing::Bool(), // test_bias
+        ::testing::Bool())); // test_float_bias
 /**
  * Test for conv packing
  */
@@ -403,7 +408,9 @@ TEST_P(UniConvQGranTest, requantizeTest) {
   vector<conv_param_t<>> shapes(GetShapes_());
   QuantizationGranularity q_granularity;
   bool a_symmetric, b_symmetric;
-  tie(q_granularity, a_symmetric, b_symmetric) = GetParam();
+  bool test_bias, test_float_bias;
+  tie(q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias) =
+      GetParam();
 
   for (auto conv_p : shapes) {
     int R = conv_p.K[0];
@@ -463,10 +470,51 @@ TEST_P(UniConvQGranTest, requantizeTest) {
 
     vector<int32_t> row_offsets(MDim);
 
+    // activation_scale * weight_scale
+    aligned_vector<float> act_times_w_scale(Bint8_zero_point.size());
+    randFill(act_times_w_scale, 0.1234f / 2, 0.1234f * 3 / 2);
+
+    float out_scale = 2.0f;
     aligned_vector<float> C_multiplier(Bint8_zero_point.size());
-    randFill(C_multiplier, 0.1234f / 2, 0.1234f * 3 / 2);
+    transform(
+        act_times_w_scale.begin(),
+        act_times_w_scale.end(),
+        C_multiplier.begin(),
+        [&out_scale](float i) { return i / out_scale; });
+
     int32_t C_zero_pt = 5;
 
+    // initialize bias
+    aligned_vector<int32_t> bias_int32(OC);
+    aligned_vector<float> bias_fp32(OC);
+    if (test_bias) {
+      randFill(bias_int32, -8, 8);
+    }
+
+    // floating point bias
+    if (test_float_bias) {
+      if (q_granularity == QuantizationGranularity::TENSOR) {
+        transform(
+            bias_int32.begin(),
+            bias_int32.end(),
+            bias_fp32.begin(),
+            [&act_times_w_scale](float i) { return i * act_times_w_scale[0]; });
+      } else if (q_granularity == QuantizationGranularity::GROUP) {
+        for (int g = 0; g < G; ++g) {
+          for (int c = 0; c < OC_per_G; ++c) {
+            bias_fp32[g * OC_per_G + c] = act_times_w_scale[g] *
+                static_cast<float>(bias_int32[g * OC_per_G + c]);
+          }
+        }
+      } else { // OUT_CHANNEL
+        transform(
+            act_times_w_scale.begin(),
+            act_times_w_scale.end(),
+            bias_int32.begin(),
+            bias_fp32.begin(),
+            multiplies<float>());
+      }
+    }
     // reference implementation
     // conv_ref expects weights to be in G (R S C/G) K/G
     int8_t* rightBData = Bint8.data();
@@ -505,7 +553,7 @@ TEST_P(UniConvQGranTest, requantizeTest) {
           Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
           row_offsets.data(),
           col_offsets.data() + g * NDim,
-          nullptr,
+          test_bias ? bias_int32.data() + g * NDim : nullptr,
           ncols_per_quant_group);
     }
 
@@ -524,73 +572,153 @@ TEST_P(UniConvQGranTest, requantizeTest) {
       int tid = fbgemm_get_thread_num();
 
       if (q_granularity == QuantizationGranularity::TENSOR) {
-        ReQuantizeOutput<false, QuantizationGranularity::TENSOR> reqObj(
-            doNothingObj,
-            C_multiplier.data(),
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point.data(),
-            nullptr, /* row offset buffer */
-            col_offsets.data(),
-            nullptr,
-            G * NDim,
-            G);
+        if (test_float_bias) {
+          ReQuantizeOutput<false, QuantizationGranularity::TENSOR, float>
+              reqObj(
+                  doNothingObj,
+                  C_multiplier.data(),
+                  C_zero_pt,
+                  Aint8_zero_point,
+                  Bint8_zero_point.data(),
+                  nullptr, /* row offset buffer */
+                  col_offsets.data(),
+                  test_bias ? bias_fp32.data() : nullptr,
+                  G * NDim,
+                  G,
+                  act_times_w_scale.data());
 
-        fbgemmConv(
-            conv_p,
-            Aint8.data(),
-            packedWeights,
-            Cint8_fb.data(),
-            Cint32_fb.data(),
-            reqObj,
-            tid,
-            num_threads);
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+
+        } else {
+          ReQuantizeOutput<false, QuantizationGranularity::TENSOR> reqObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              nullptr, /* row offset buffer */
+              col_offsets.data(),
+              test_bias ? bias_int32.data() : nullptr,
+              G * NDim,
+              G);
+
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+        }
 
       } else if (q_granularity == QuantizationGranularity::GROUP) {
-        ReQuantizeOutput<false, QuantizationGranularity::GROUP> reqObj(
-            doNothingObj,
-            C_multiplier.data(),
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point.data(),
-            nullptr, /* row offset buffer */
-            col_offsets.data(),
-            nullptr,
-            G * NDim,
-            G);
+        if (test_float_bias) {
+          ReQuantizeOutput<false, QuantizationGranularity::GROUP, float> reqObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              nullptr, /* row offset buffer */
+              col_offsets.data(),
+              test_bias ? bias_fp32.data() : nullptr,
+              G * NDim,
+              G,
+              act_times_w_scale.data());
 
-        fbgemmConv(
-            conv_p,
-            Aint8.data(),
-            packedWeights,
-            Cint8_fb.data(),
-            Cint32_fb.data(),
-            reqObj,
-            tid,
-            num_threads);
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+
+        } else {
+          ReQuantizeOutput<false, QuantizationGranularity::GROUP> reqObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              nullptr, /* row offset buffer */
+              col_offsets.data(),
+              test_bias ? bias_int32.data() : nullptr,
+              G * NDim,
+              G);
+
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+        }
 
       } else {
-        ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL> reqObj(
-            doNothingObj,
-            C_multiplier.data(),
-            C_zero_pt,
-            Aint8_zero_point,
-            Bint8_zero_point.data(),
-            nullptr, /* row offset buffer */
-            col_offsets.data(),
-            nullptr,
-            G * NDim,
-            G);
+        if (test_float_bias) {
+          ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL, float>
+              reqObj(
+                  doNothingObj,
+                  C_multiplier.data(),
+                  C_zero_pt,
+                  Aint8_zero_point,
+                  Bint8_zero_point.data(),
+                  nullptr, /* row offset buffer */
+                  col_offsets.data(),
+                  test_bias ? bias_fp32.data() : nullptr,
+                  G * NDim,
+                  G,
+                  act_times_w_scale.data());
 
-        fbgemmConv(
-            conv_p,
-            Aint8.data(),
-            packedWeights,
-            Cint8_fb.data(),
-            Cint32_fb.data(),
-            reqObj,
-            tid,
-            num_threads);
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+
+        } else {
+          ReQuantizeOutput<false, QuantizationGranularity::OUT_CHANNEL> reqObj(
+              doNothingObj,
+              C_multiplier.data(),
+              C_zero_pt,
+              Aint8_zero_point,
+              Bint8_zero_point.data(),
+              nullptr, /* row offset buffer */
+              col_offsets.data(),
+              test_bias ? bias_int32.data() : nullptr,
+              G * NDim,
+              G);
+
+          fbgemmConv(
+              conv_p,
+              Aint8.data(),
+              packedWeights,
+              Cint8_fb.data(),
+              Cint32_fb.data(),
+              reqObj,
+              tid,
+              num_threads);
+        }
       }
     } // omp parallel
 
