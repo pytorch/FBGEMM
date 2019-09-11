@@ -44,16 +44,19 @@ struct block_type_t {
  * QuantUtilsAvx2.h as it combines all the parameters needed for various
  * quantization granularities
  */
+template<typename BIAS_TYPE = std::int32_t>
 struct requantizationParams_t {
+  using BIAS_T = BIAS_TYPE;
   std::int32_t A_zero_point;
   const std::int32_t* B_zero_point;
   std::int32_t C_zero_point;
   const float* C_multiplier;
   const std::int32_t* row_offsets;
   const std::int32_t* col_offsets;
-  const std::int32_t* bias;
+  const BIAS_T* bias;
   std::uint32_t ncols;
   int groups;
+  const float* act_times_w_scale;
 };
 
 /**

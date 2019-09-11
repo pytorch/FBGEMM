@@ -1128,6 +1128,7 @@ class FBGEMM_API DoSConvOnInpBuffer {
 template <
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR,
+    typename BIAS_TYPE = std::int32_t,
     typename outT = std::uint8_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
@@ -1135,6 +1136,7 @@ class FBGEMM_API ReQuantizeOutput {
  public:
   static constexpr int RELU_FUSED = FUSE_RELU;
   static constexpr QuantizationGranularity QGRANType = Q_GRAN;
+  using BIAS_T = BIAS_TYPE;
   using outType = outT;
   using inpType = inT;
   /**
@@ -1155,6 +1157,8 @@ class FBGEMM_API ReQuantizeOutput {
    *                     See PackedRequantizeTest.cc for an example.
    *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
    * @params bias can be nullptr otherwise the length should be nCol
+   * @params act_times_w_scale activation_scale * weight_scale. This is only
+   *                           used if bias is unquantized (i.e., float).
    */
   ReQuantizeOutput(
       nextOPType& nextop,
@@ -1164,9 +1168,10 @@ class FBGEMM_API ReQuantizeOutput {
       const std::int32_t* Bq_zero_point,
       const std::int32_t* row_offsets,
       const std::int32_t* col_offsets,
-      const std::int32_t* bias,
+      const BIAS_T* bias,
       std::uint32_t nCol,
-      int groups = 1)
+      int groups = 1,
+      const float* act_times_w_scale = nullptr)
       : nextop_(nextop),
         C_multiplier_(C_multiplier),
         C_zero_point_(C_zero_point),
@@ -1176,7 +1181,8 @@ class FBGEMM_API ReQuantizeOutput {
         q_col_offsets_(col_offsets),
         bias_(bias),
         ncols_(nCol),
-        groups_(groups) {}
+        groups_(groups),
+        act_times_w_scale_(act_times_w_scale) {}
 
   template <inst_set_t instSet>
   inline int f(
@@ -1204,11 +1210,14 @@ class FBGEMM_API ReQuantizeOutput {
   const std::int32_t* getColOffsets() const {
     return q_col_offsets_;
   }
-  const std::int32_t* getBias() const {
+  const BIAS_T* getBias() const {
     return bias_;
   }
   std::uint32_t getNCols() const {
     return ncols_;
+  }
+  const float* getActWScale() const {
+    return act_times_w_scale_;
   }
 
   void setRowOffsets(const std::int32_t* row_offsets) {
@@ -1223,9 +1232,10 @@ class FBGEMM_API ReQuantizeOutput {
   const std::int32_t* Bq_zero_point_;
   const std::int32_t* q_row_offsets_;
   const std::int32_t* q_col_offsets_;
-  const std::int32_t* bias_;
+  const BIAS_T* bias_;
   std::uint32_t ncols_;
   int groups_;
+  const float* act_times_w_scale_;
 };
 
 /**
