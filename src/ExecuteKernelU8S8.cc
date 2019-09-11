@@ -315,19 +315,23 @@ void ExecuteKernel<
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeOutput
-#define INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN) \
-  template class ExecuteKernel<                               \
-      PACK_A<uint8_t, ACC_T>,                                 \
-      PackBMatrix<int8_t, ACC_T>,                             \
-      uint8_t,                                                \
-      ReQuantizeOutput<RELU, Q_GRAN>>;
+#define INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, BIAS_TYPE) \
+  template class ExecuteKernel<                                          \
+      PACK_A<uint8_t, ACC_T>,                                            \
+      PackBMatrix<int8_t, ACC_T>,                                        \
+      uint8_t,                                                           \
+      ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>>;
+
+#define INSTANTIATE_REQUANT_BIAS_T(PACK_A, ACC_T, RELU, Q_GRAN) \
+  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float); \
+  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t);
 
 #define INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, RELU)     \
-  INSTANTIATE_REQUANT_BASE(                                  \
+  INSTANTIATE_REQUANT_BIAS_T(                                \
       PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_REQUANT_BASE(                                  \
+  INSTANTIATE_REQUANT_BIAS_T(                                \
       PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_REQUANT_BASE(                                  \
+  INSTANTIATE_REQUANT_BIAS_T(                                \
       PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_REQUANT_RELU(PACK_A, ACC_T)      \
@@ -344,21 +348,27 @@ INSTANTIATE_REQUANT_ACC_T(PackAWithRowOffset);
 #undef INSTANTIATE_REQUANT_ACC_T
 #undef INSTANTIATE_REQUANT_RELU
 #undef INSTANTIATE_REQUANT_Q_GRANS
+#undef INSTANTIATE_REQUANT_BIAS_T
 #undef INSTANTIATE_REQUANT_BASE
 
-#define INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
-  template class ExecuteKernel<                                           \
-      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,                       \
-      PackBMatrix<int8_t, ACC_T>,                                         \
-      uint8_t,                                                            \
-      ReQuantizeOutput<RELU, Q_GRAN>>;
+#define INSTANTIATE_IM2COL_REQUANT_BASE(            \
+    ACC_T, RELU, SPATIAL_DIM, Q_GRAN, BIAS_TYPE)    \
+  template class ExecuteKernel<                     \
+      PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>, \
+      PackBMatrix<int8_t, ACC_T>,                   \
+      uint8_t,                                      \
+      ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>>;
+
+#define INSTANTIATE_IM2COL_REQUANT_BIAS_T(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
+  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float); \
+  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t);
 
 #define INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, SPATIAL_DIM) \
-  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
+  INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR);    \
-  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
+  INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);     \
-  INSTANTIATE_IM2COL_REQUANT_BASE(                                   \
+  INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, RELU) \
@@ -375,6 +385,7 @@ INSTANTIATE_IM2COL_REQUANT_RELU(int16_t);
 #undef INSTANTIATE_IM2COL_REQUANT_RELU
 #undef INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM
 #undef INSTANTIATE_IM2COL_REQUANT_Q_GRANS
+#undef INSTANTIATE_IM2COL_REQUANT_BIAS_T
 #undef INSTANTIATE_IM2COL_REQUANT_BASE
 
 ////////////////////////////////////////////////////////////////////////////////
