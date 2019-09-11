@@ -212,6 +212,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
         a_symmetric ? nullptr : col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
+        1.0f, /* act_scale * w_scale */
         0,
         1);
 

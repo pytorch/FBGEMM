@@ -267,6 +267,7 @@ int main() {
             col_offsets.data(),
             bias.data(),
             false, /* fuse_relu */
+            1.0f, /* act_scale * w_scale */
             tid,
             num_threads);
       }

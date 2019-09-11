@@ -115,6 +115,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
+              1.0f, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else if (
@@ -140,6 +141,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
+              nullptr, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -167,6 +169,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
+              1.0f, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else if (
@@ -191,6 +194,7 @@ int fbgemmConv(
               outProcess.getColOffsets(),
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
+              nullptr, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
