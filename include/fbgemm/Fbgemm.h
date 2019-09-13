@@ -1388,7 +1388,8 @@ template <
     typename outType,
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
-    int SPATIAL_DIM = 2>
+    int SPATIAL_DIM = 2,
+    typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
@@ -1397,7 +1398,7 @@ FBGEMM_API void fbgemmGroupwiseConv(
     packed_W& packed_weights,
     outType* out,
     std::int32_t* outBuffer,
-    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
     int thread_id,
     int num_threads);
 
