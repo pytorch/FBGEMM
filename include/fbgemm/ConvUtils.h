@@ -8,8 +8,23 @@
 
 #include <array>
 #include <string>
+#include <type_traits>
 
 namespace fbgemm {
+
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
+    array_of_ones() {
+  return std::array<int, N>{{Vals...}};
+}
+
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
+    array_of_ones() {
+  return array_of_ones<N, Vals..., 1>();
+}
 
 /**
  * @brief A struct to conveniently store all convolution parameters.
@@ -34,7 +49,6 @@ struct conv_param_t {
 
   /**
    * @brief Constructor for initializing the convolution parameters.
-   * TODO: Dilation is not handled correctly.
    */
   conv_param_t(
       int mb,
@@ -45,7 +59,7 @@ struct conv_param_t {
       std::array<int, SPATIAL_DIM> k,
       std::array<int, SPATIAL_DIM> strd,
       std::array<int, SPATIAL_DIM * 2> pd,
-      std::array<int, SPATIAL_DIM> dilations = {})
+      std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>())
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -64,17 +78,6 @@ struct conv_param_t {
       throw std::runtime_error(
           "groups = " + std::to_string(g) +
           " does not divide number of output channels = " + std::to_string(oc));
-    }
-
-    bool dilation_unset = true;
-    for (int d = 0; d < SPATIAL_DIM; ++d) {
-      if (dilation[d] != 0) {
-        dilation_unset = false;
-        break;
-      }
-    }
-    if (dilation_unset) {
-      dilation.fill(1);
     }
 
     for (int d = 0; d < SPATIAL_DIM; ++d) {
@@ -115,14 +118,14 @@ struct conv_param_t {
       }
       for (int d = 0; d < SPATIAL_DIM * 2; ++d) {
         out += "pad_" + dim_string[3 - SPATIAL_DIM + (d % SPATIAL_DIM)] + ":" +
-            std::to_string(pad[d]);
-        if (d < SPATIAL_DIM * 2 - 1) {
-          out += ", ";
-        }
+            std::to_string(pad[d]) + ", ";
       }
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "dilation_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
-            std::to_string(dilation[d]) + ", ";
+            std::to_string(dilation[d]);
+        if (d < SPATIAL_DIM - 1) {
+          out += ", ";
+        }
       }
     } else {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
