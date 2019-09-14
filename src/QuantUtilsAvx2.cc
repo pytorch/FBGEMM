@@ -258,9 +258,12 @@ void RequantizeFixedPointAvx2(
   }
 }
 #else
-// dummy implementation to avoid link errors
+// dummy implementations to avoid link errors
+void RequantizeAvx2(const int32_t* src, uint8_t* dst, int len, const RequantizationParams& params) {
+    assert(false && "RequantizeAvx2() was called unexpectedly in non-AVX2 build");
+}
 void RequantizeFixedPointAvx2(const int32_t* src, uint8_t* dst, int len, const RequantizationParams& params) {
-    assert(false && "RequantizeFixedPointAvx2() called in build without AVX2 support");
+    assert(false && "RequantizeFixedPointAvx2() was called unexpectedly in non-AVX2 build");
 }
 #endif
 
