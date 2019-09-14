@@ -257,6 +257,11 @@ void RequantizeFixedPointAvx2(
     dst[i] = std::min<int64_t>(std::max<int64_t>(quantized_down, 0l), 255l);
   }
 }
+#else
+// dummy implementation to avoid link errors
+void RequantizeFixedPointAvx2(const int32_t* src, uint8_t* dst, int len, const RequantizationParams& params) {
+    assert(false && "RequantizeFixedPointAvx2() called in build without AVX2 support");
+}
 #endif
 
 template <
