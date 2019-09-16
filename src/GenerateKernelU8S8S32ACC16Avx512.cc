@@ -23,12 +23,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::initCRegs<
     int rowRegs,
     int colRegs,
     int leadingDimCReg) {
+  using CRegs = x86::Zmm;
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs_avx512_[i * leadingDimCReg + j],
-          CRegs_avx512_[i * leadingDimCReg + j],
-          CRegs_avx512_[i * leadingDimCReg + j]);
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j));
     }
   }
 }
@@ -57,20 +58,22 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
   // We start allocating BRegs from zmm27 and then allocate zmm26 and so on.
   for (int j = 0; j < colRegs; ++j) {
     a->vmovups(
-        AllRegs_avx512_[27 - j],
+        x86::Zmm(27 - j),
         x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
   }
+
+  using CRegs = x86::Zmm;
 
   for (int i = 0; i < rowRegs; ++i) {
     // broadcast A
     a->vpbroadcastw(
         AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
     for (int j = 0; j < colRegs; ++j) {
-      a->vpmaddubsw(tmpReg, AReg, AllRegs_avx512_[27 - j]);
+      a->vpmaddubsw(tmpReg, AReg, x86::Zmm(27 - j));
       a->vpaddsw(
-          CRegs_avx512_[i * leadingDimCReg + j],
+          CRegs(i * leadingDimCReg + j),
           tmpReg,
-          CRegs_avx512_[i * leadingDimCReg + j]);
+          CRegs(i * leadingDimCReg + j));
       // Prefetching is hurting performance in some cases
       // because prefetch instructions itself consumes a slot
       // in pipeline issue thus slowing down the kernel.
@@ -100,12 +103,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
   x86::Ymm extractDest256 = x86::ymm31;
   x86::Zmm extractDest512 = x86::zmm31;
 
+  using CRegs = x86::Zmm;
   for (int i = 0; i < rowRegs; ++i) {
     a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
         a->vextracti32x8(
-            extractDest256, CRegs_avx512_[i * leadingDimCReg + j], idx);
+            extractDest256, CRegs(i * leadingDimCReg + j), idx);
         a->vpmovsxwd(extractDest512, extractDest256);
         x86::Mem destAddr = x86::dword_ptr(
             a->zcx(), C_Offset, 0, (j * 2 + idx) * 16 * sizeof(int32_t));

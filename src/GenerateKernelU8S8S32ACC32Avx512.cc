@@ -23,12 +23,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
     int rowRegs,
     int colRegs,
     int leadingDimCReg) {
+  using CRegs = x86::Zmm;
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs_avx512_[i * leadingDimCReg + j],
-          CRegs_avx512_[i * leadingDimCReg + j],
-          CRegs_avx512_[i * leadingDimCReg + j]);
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j));
     }
   }
 }
@@ -61,6 +62,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
   // temporary register
   x86::Zmm res1 = x86::zmm28;
 
+  using CRegs = x86::Zmm;
   for (int j = 0; j < colRegs; ++j) {
     // load B
     a->vmovaps(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
@@ -71,9 +73,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
       a->vpaddd(
-          CRegs_avx512_[i * leadingDimCReg + j],
+          CRegs(i * leadingDimCReg + j),
           res1,
-          CRegs_avx512_[i * leadingDimCReg + j]);
+          CRegs(i * leadingDimCReg + j));
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
@@ -94,6 +96,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     x86::Gp ldcReg,
     bool accum,
     int leadingDimCReg) {
+  using CRegs = x86::Zmm;
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
       a->add(C_Offset, ldcReg);
@@ -103,13 +106,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
         a->vpaddd(
-            CRegs_avx512_[i * leadingDimCReg + j],
-            CRegs_avx512_[i * leadingDimCReg + j],
+            CRegs(i * leadingDimCReg + j),
+            CRegs(i * leadingDimCReg + j),
             x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)));
       }
       a->vmovups(
           x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)),
-          CRegs_avx512_[i * leadingDimCReg + j]);
+          CRegs(i * leadingDimCReg + j));
     }
   }
 }
