@@ -218,7 +218,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     a->emitProlog(frame);
     a->emitArgsAssignment(frame, args);
 
-    asmjit::Label Loopk = a->newLabel();
     asmjit::Label LoopMBlocks = a->newLabel();
 
     x86::Gp buffer_B_saved = a->gpz(10);
@@ -238,25 +237,16 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     a->mov(C_Offset, 0);
 
     int colRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
-    if (mRegBlocks > 0) {
-      // move 0 to iteration variables
-      a->mov(iIdx, 0);
 
-      // save B_buffer address
-      a->mov(buffer_B_saved, buffer_B);
-      a->mov(B_pf_saved, B_pf);
+    auto issueLoopOverK = [&](int rowRegs) {
+      asmjit::Label LoopKLabel = a->newLabel();
 
-      a->bind(LoopMBlocks);
-      a->inc(iIdx);
-
-      int rowRegs = mRegBlockSize;
-
-      // init C registers
+      // Init C (result) vector registers
       initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, colRegs);
 
-      // init k loop index
+      // Loops over K
       a->mov(kIdx, 0);
-      a->bind(Loopk);
+      a->bind(LoopKLabel);
 
       // k is incremented by row_interleave
       a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
@@ -274,15 +264,28 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
                                             sizeof(int8_t)));
 
-      // a->add(B_pf, 32*sizeof(float));
-
       a->cmp(kIdx, kSize);
-      a->jl(Loopk);
+      a->jl(LoopKLabel);
 
       // store C matrix
       storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum,
                                    colRegs);
+    };
 
+    if (mRegBlocks > 0) {
+      // move 0 to iteration variables
+      a->mov(iIdx, 0);
+
+      // save B_buffer address
+      a->mov(buffer_B_saved, buffer_B);
+      a->mov(B_pf_saved, B_pf);
+
+      a->bind(LoopMBlocks);
+      a->inc(iIdx);
+
+      issueLoopOverK(mRegBlockSize);
+
+      int rowRegs = mRegBlockSize;
       // increment A for next block
       a->sub(buffer_A, kSize);
       a->add(buffer_A,
@@ -296,43 +299,13 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       // reset B
       a->mov(buffer_B, buffer_B_saved);
       a->mov(B_pf, B_pf_saved);
+
       a->cmp(iIdx, mRegBlocks);
       a->jl(LoopMBlocks);
     }
     // generate code for remainder
     if (mRegBlocksRem > 0) {
-      asmjit::Label LoopkRem = a->newLabel();
-      int rowRegs = mRegBlocksRem;
-
-      // init C registers
-      initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, colRegs);
-
-      // init k loop index
-      a->mov(kIdx, 0);
-      a->bind(LoopkRem);
-
-      // k is incremented by row_interleave
-      a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
-
-      genComputeBlock<inst_set_t::avx2>(a, buffer_A, buffer_B, B_pf, rowRegs,
-                                        colRegs, kBlock, colRegs);
-
-      // update buffer_A address for next k iteration
-      a->add(buffer_A,
-             static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
-
-      // update buffer_B address for next k iteration
-      a->add(buffer_B, static_cast<asmjit::Imm>(nBlock * row_interleave *
-                                                sizeof(int8_t)));
-      a->add(B_pf, static_cast<asmjit::Imm>(nBlock * row_interleave *
-                                            sizeof(int8_t)));
-
-      a->cmp(kIdx, kSize);
-      a->jl(LoopkRem);
-
-      // store C matrix
-      storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum,
-                                   colRegs);
+        issueLoopOverK(mRegBlocksRem);
     }
 
     a->emitEpilog(frame);
