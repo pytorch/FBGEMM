@@ -11,17 +11,24 @@
 
 namespace fbgemm {
 
-// KERNEL_PROD is the product of all kernels.
-// For example, KERNEL_PROD = 9 for 3x3, and 27 for 3x3x3.
-template <int KERNEL_PROD>
 class FBGEMM_API PackedDepthWiseConvMatrix {
  public:
-  // smat in GRS layout
-  PackedDepthWiseConvMatrix(int K, const std::int8_t* smat);
+  /**
+   * @params K the number of channels (same as the number of groups because
+   *           depth-wise convolution has one input/output channel per group)
+   * @params kernel_prod the product of all kernels. For example, kernel_prod =
+   *                     9 for 3x3 conv, and 27 for 3x3x3 conv.
+   * @param smat the source unpacked weight in GRS layout
+   */
+  PackedDepthWiseConvMatrix(int K, int kernel_prod, const std::int8_t* smat);
   virtual ~PackedDepthWiseConvMatrix();
 
   const std::int8_t* PackedMat() const {
     return pmat_;
+  }
+
+  const int GetKernelProduct() const {
+    return kernel_prod_;
   }
 
   /**
@@ -36,19 +43,22 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
   int addr(int r, int c);
 
  private:
-  int K_;
-  std::int8_t* pmat_;
-}; // Packed3x3ConvMatrix
+  const int K_; /**< the number of channels */
+  const int kernel_prod_; /** the product of all kernel dims */
+  std::int8_t* pmat_; /** packed weight */
+}; // PackedDepthWiseConvMatrix
 
-using Packed3x3ConvMatrix = PackedDepthWiseConvMatrix<3 * 3>;
-using Packed3x3x3ConvMatrix = PackedDepthWiseConvMatrix<3 * 3 * 3>;
-using Packed1ConvMatrix = PackedDepthWiseConvMatrix<1>;
-using Packed2ConvMatrix = PackedDepthWiseConvMatrix<2>;
-using Packed3ConvMatrix = PackedDepthWiseConvMatrix<3>;
-using Packed4ConvMatrix = PackedDepthWiseConvMatrix<4>;
-using Packed5ConvMatrix = PackedDepthWiseConvMatrix<5>;
-using Packed10ConvMatrix = PackedDepthWiseConvMatrix<10>;
-using Packed11ConvMatrix = PackedDepthWiseConvMatrix<11>;
+class FBGEMM_API Packed3x3ConvMatrix : public PackedDepthWiseConvMatrix {
+ public:
+  Packed3x3ConvMatrix(int K, const std::int8_t* smat)
+      : PackedDepthWiseConvMatrix(K, 3 * 3, smat) {}
+};
+
+class FBGEMM_API Packed3x3x3ConvMatrix : public PackedDepthWiseConvMatrix {
+ public:
+  Packed3x3x3ConvMatrix(int K, const std::int8_t* smat)
+      : PackedDepthWiseConvMatrix(K, 3 * 3 * 3, smat) {}
+};
 
 /** To be removed. Keeping it just to make sure we don't change C2 files and
  * fbgemm files in a single diff
@@ -64,7 +74,7 @@ FBGEMM_API void depthwise_3x3_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     std::int32_t B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     float C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -93,7 +103,7 @@ FBGEMM_API void depthwise_3x3_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     std::int32_t B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     float C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -121,7 +131,7 @@ FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     const std::int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -145,7 +155,7 @@ FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     const std::int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -171,7 +181,7 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     std::int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     float C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -196,7 +206,7 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     std::int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     float C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -223,7 +233,7 @@ FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     const std::int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,
@@ -249,7 +259,7 @@ FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     std::int32_t A_zero_point,
     const std::uint8_t* A,
     const std::int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::uint8_t* C,

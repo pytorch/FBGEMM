@@ -193,7 +193,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
           K);
     }
 
-    Packed3x3ConvMatrix Bp(K, B.data());
+    PackedDepthWiseConvMatrix Bp(K, 3 * 3, B.data());
 
     depthwise_3x3_pad_1(
         N,
@@ -330,7 +330,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
           K);
     }
 
-    Packed3x3x3ConvMatrix Bp(K, B.data());
+    PackedDepthWiseConvMatrix Bp(K, 3 * 3 * 3, B.data());
 
     depthwise_3x3x3_pad_1(
         N,
@@ -464,7 +464,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
           K);
     }
 
-    Packed3x3ConvMatrix Bp(K, B.data());
+    PackedDepthWiseConvMatrix Bp(K, 3 * 3, B.data());
 
     depthwise_3x3_per_channel_quantization_pad_1(
         N,
@@ -596,7 +596,7 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
           K);
     }
 
-    Packed3x3x3ConvMatrix Bp(K, B.data());
+    PackedDepthWiseConvMatrix Bp(K, 3 * 3 * 3, B.data());
 
     depthwise_3x3x3_per_channel_quantization_pad_1(
         N,
@@ -653,31 +653,31 @@ TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
   aligned_vector<int8_t> BUnpacked(K * kernel_prod);
 
   if (kernel_prod == 1) {
-    Packed1ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 1, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 2) {
-    Packed2ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 2, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 3) {
-    Packed3ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 3, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 4) {
-    Packed4ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 4, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 5) {
-    Packed5ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 5, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 9) {
-    Packed3x3ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 9, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 10) {
-    Packed10ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 10, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 11) {
-    Packed11ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 11, B.data());
     BPacked.unpack(BUnpacked.data());
   } else if (kernel_prod == 27) {
-    Packed3x3x3ConvMatrix BPacked(K, B.data());
+    PackedDepthWiseConvMatrix BPacked(K, 27, B.data());
     BPacked.unpack(BUnpacked.data());
   } else {
     ASSERT_TRUE(false);

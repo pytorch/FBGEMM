@@ -147,23 +147,19 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::depthwise: {
       ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
-      ASSERT_EQ(packedB_2D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
-      ASSERT_NE(packedB_2D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
+      ASSERT_NE(packedB_2D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix is null";
       break;
     }
     case optimized_conv_t::groupwise: {
       ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
-      ASSERT_EQ(packedB_2D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
-      ASSERT_EQ(packedB_2D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForGroupwise(), nullptr)
@@ -173,10 +169,8 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::pointwise: {
       ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
-      ASSERT_EQ(packedB_2D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
-      ASSERT_EQ(packedB_2D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should null";
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForPointwise(), nullptr)
@@ -184,10 +178,8 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::im2col: {
-      ASSERT_EQ(packedB_2D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
-      ASSERT_EQ(packedB_2D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
@@ -215,16 +207,14 @@ TEST_P(uniConvTest, packingTest) {
 
   switch (ConvFastPath<3, int32_t>(conv_p_3d)) {
     case optimized_conv_t::depthwise: {
-      ASSERT_EQ(packedB_3D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
       ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
-      ASSERT_NE(packedB_3D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_NE(packedB_3D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix is null";
       break;
     }
     case optimized_conv_t::groupwise: {
@@ -232,10 +222,8 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::pointwise: {
-      ASSERT_EQ(packedB_3D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
-      ASSERT_EQ(packedB_3D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
@@ -245,10 +233,8 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::im2col: {
-      ASSERT_EQ(packedB_3D.getPackedWFor2DDW(), nullptr)
-          << "2D depthwise packed matrix is null";
-      ASSERT_EQ(packedB_3D.getPackedWFor3DDW(), nullptr)
-          << "3D depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)

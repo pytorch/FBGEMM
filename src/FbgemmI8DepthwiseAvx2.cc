@@ -33,27 +33,27 @@ static int masks[8][8] = {
 };
 // clang-format on
 
-template <int KERNEL_PROD>
-PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
+PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     int K,
+    int kernel_prod,
     const int8_t* smat)
-    : K_(K) {
+    : K_(K), kernel_prod_(kernel_prod) {
   // Transpose the input matrix to make packing faster.
-  alignas(64) int8_t smat_transposed[K * KERNEL_PROD];
-  for (int i = 0; i < KERNEL_PROD; ++i) {
+  alignas(64) int8_t smat_transposed[K * kernel_prod];
+  for (int i = 0; i < kernel_prod; ++i) {
     for (int j = 0; j < K; ++j) {
-      smat_transposed[i * K + j] = smat[i + j * KERNEL_PROD];
+      smat_transposed[i * K + j] = smat[i + j * kernel_prod];
     }
   }
 
   // Allocate packed arrays
-  constexpr int KERNEL_PROD_ALIGNED = (KERNEL_PROD + 1) / 2 * 2;
+  int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
   // pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(
   //     64, ((K + 31) / 32) * KERNEL_PROD_ALIGNED * 32 * sizeof(int8_t)));
   posix_memalign(
       (void**)&pmat_,
       64,
-      ((K + 31) / 32) * KERNEL_PROD_ALIGNED * 32 * sizeof(int8_t));
+      ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
 
   // Pack input matrix
   // The layout is optimized to use vpmaddubsw efficiently (see
@@ -77,7 +77,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // ...
   //
   // REMAINDER
-  // If KERNEL_PROD % 4 == 1 for example when KERNEL_PROD == 9
+  // If kernel_prod % 4 == 1 for example when kernel_prod == 9
   // 8th SIMD register:
   // (0, 8), zero, ..., (7, 8), zero
   // (16, 8), zero, ..., (23, 8), zero
@@ -86,7 +86,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // (24, 8), zero, ..., (31, 8), zero
   // We use madd_epi16_packed for this case
   //
-  // If KERNEL_PROD % 4 == 2 for example when KERNEL_PROD == 10
+  // If kernel_prod % 4 == 2 for example when kernel_prod == 10
   // 8th SIMD register:
   // (0, 8), (0, 9), ..., (7, 8), (7, 9)
   // (16, 8), (16, 9), ..., (23, 8), (23, 9)
@@ -94,7 +94,7 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // (8, 8), (8, 9), ..., (15, 8), (15, 9)
   // (24, 8), (24, 9), ..., (31, 8), (31, 9)
   //
-  // If KERNEL_PROD % 4 == 3 for example when KERNEL_PROD == 11
+  // If kernel_prod % 4 == 3 for example when kernel_prod == 11
   // 8th SIMD register:
   // (0, 8), (0, 9), (0, 10), zero, ..., (3, 8), (3, 9), (3, 10), zero
   // (16, 8), (16, 9), (16, 10), zero, ..., (19, 8), (19, 9), (19, 10), zero
@@ -108,27 +108,27 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
   for (int k1 = 0; k1 < K; k1 += 32) {
-    __m256i b_v[KERNEL_PROD];
+    __m256i b_v[kernel_prod];
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_loadu_si256(
           reinterpret_cast<const __m256i*>(masks[remainder / 4]));
-      for (int i = 0; i < KERNEL_PROD; ++i) {
+      for (int i = 0; i < kernel_prod; ++i) {
         b_v[i] = _mm256_maskload_epi32(
             reinterpret_cast<const int*>(smat_transposed + i * K + k1), mask_v);
       }
     } else {
-      for (int i = 0; i < KERNEL_PROD; ++i) {
+      for (int i = 0; i < kernel_prod; ++i) {
         b_v[i] = _mm256_lddqu_si256(
             reinterpret_cast<const __m256i*>(smat_transposed + i * K + k1));
       }
     }
 
     // Interleave 2 SIMD registers
-    __m256i b_interleaved_epi16[KERNEL_PROD_ALIGNED];
+    __m256i b_interleaved_epi16[kernel_prod_aligned];
     __m256i zero_v = _mm256_setzero_si256();
-    for (int i = 0; i < KERNEL_PROD_ALIGNED / 2; ++i) {
-      if (2 * i + 1 >= KERNEL_PROD) {
+    for (int i = 0; i < kernel_prod_aligned / 2; ++i) {
+      if (2 * i + 1 >= kernel_prod) {
         b_interleaved_epi16[2 * i] = _mm256_unpacklo_epi8(b_v[2 * i], zero_v);
         b_interleaved_epi16[2 * i + 1] =
             _mm256_unpackhi_epi8(b_v[2 * i], zero_v);
@@ -141,8 +141,8 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    __m256i b_interleaved_epi32[KERNEL_PROD_ALIGNED];
-    for (int i = 0; i < KERNEL_PROD_ALIGNED / 4; ++i) {
+    __m256i b_interleaved_epi32[kernel_prod_aligned];
+    for (int i = 0; i < kernel_prod_aligned / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
       b_interleaved_epi32[4 * i + 1] = _mm256_unpackhi_epi16(
@@ -152,28 +152,27 @@ PackedDepthWiseConvMatrix<KERNEL_PROD>::PackedDepthWiseConvMatrix(
       b_interleaved_epi32[4 * i + 3] = _mm256_unpackhi_epi16(
           b_interleaved_epi16[4 * i + 1], b_interleaved_epi16[4 * i + 3]);
     }
-    for (int i = KERNEL_PROD_ALIGNED / 4 * 4; i < KERNEL_PROD_ALIGNED; ++i) {
+    for (int i = kernel_prod_aligned / 4 * 4; i < kernel_prod_aligned; ++i) {
       b_interleaved_epi32[i] = b_interleaved_epi16[i];
     }
 
-    for (int i = 0; i < KERNEL_PROD_ALIGNED; ++i) {
+    for (int i = 0; i < kernel_prod_aligned; ++i) {
       _mm256_storeu_si256(
           reinterpret_cast<__m256i*>(
-              &pmat_[((k1 / 32) * KERNEL_PROD_ALIGNED + i) * 32]),
+              &pmat_[((k1 / 32) * kernel_prod_aligned + i) * 32]),
           b_interleaved_epi32[i]);
     }
   }
 }
 
-template <int KERNEL_PROD>
-int PackedDepthWiseConvMatrix<KERNEL_PROD>::addr(int r, int c) {
-  constexpr int KERNEL_PROD_ALIGNED = (KERNEL_PROD + 1) / 2 * 2;
-  if (c >= KERNEL_PROD / 4 * 4 &&
-      (KERNEL_PROD % 4 == 1 || KERNEL_PROD % 4 == 2)) {
+int PackedDepthWiseConvMatrix::addr(int r, int c) {
+  int kernel_prod_aligned = (kernel_prod_ + 1) / 2 * 2;
+  if (c >= kernel_prod_ / 4 * 4 &&
+      (kernel_prod_ % 4 == 1 || kernel_prod_ % 4 == 2)) {
     int kBlock = r / 32;
     int reg_idx = (r % 16) / 8 + c / 4 * 4;
 
-    int blk_idx = kBlock * KERNEL_PROD_ALIGNED + reg_idx;
+    int blk_idx = kBlock * kernel_prod_aligned + reg_idx;
 
     int r_ = r % 8;
     int c_ = c % 4;
@@ -185,7 +184,7 @@ int PackedDepthWiseConvMatrix<KERNEL_PROD>::addr(int r, int c) {
     int kBlock = r / 32;
     int reg_idx = (r % 16) / 4 + c / 4 * 4;
 
-    int blk_idx = kBlock * KERNEL_PROD_ALIGNED + reg_idx;
+    int blk_idx = kBlock * kernel_prod_aligned + reg_idx;
 
     int r_ = r % 4;
     int c_ = c % 4;
@@ -195,29 +194,17 @@ int PackedDepthWiseConvMatrix<KERNEL_PROD>::addr(int r, int c) {
   }
 }
 
-template <int KERNEL_PROD>
-void PackedDepthWiseConvMatrix<KERNEL_PROD>::unpack(int8_t* unpacked_data) {
+void PackedDepthWiseConvMatrix::unpack(int8_t* unpacked_data) {
   for (int r = 0; r < K_; ++r) {
-    for (int c = 0; c < KERNEL_PROD; ++c) {
-      unpacked_data[r * KERNEL_PROD + c] = pmat_[addr(r, c)];
+    for (int c = 0; c < kernel_prod_; ++c) {
+      unpacked_data[r * kernel_prod_ + c] = pmat_[addr(r, c)];
     }
   }
 }
 
-template <int KERNEL_PROD>
-PackedDepthWiseConvMatrix<KERNEL_PROD>::~PackedDepthWiseConvMatrix() {
+PackedDepthWiseConvMatrix::~PackedDepthWiseConvMatrix() {
   free(pmat_);
 }
-
-template class PackedDepthWiseConvMatrix<3 * 3>;
-template class PackedDepthWiseConvMatrix<3 * 3 * 3>;
-template class PackedDepthWiseConvMatrix<1>;
-template class PackedDepthWiseConvMatrix<2>;
-template class PackedDepthWiseConvMatrix<3>;
-template class PackedDepthWiseConvMatrix<4>;
-template class PackedDepthWiseConvMatrix<5>;
-template class PackedDepthWiseConvMatrix<5 * 2>;
-template class PackedDepthWiseConvMatrix<11 * 1>;
 
 // c = a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
 // A is in uint8_t
@@ -1641,7 +1628,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     int32_t* C_int32,
@@ -1989,7 +1976,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     int32_t* C_int32,
@@ -2100,7 +2087,7 @@ depthwise_3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     int32_t* C_int32,
@@ -2435,7 +2422,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     int32_t* C_int32,
@@ -2546,7 +2533,7 @@ static void depthwise_3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -2679,7 +2666,7 @@ static void depthwise_3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -2744,7 +2731,7 @@ void depthwise_3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -2754,6 +2741,13 @@ void depthwise_3x3_pad_1(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
+  if (B.GetKernelProduct() != 3 * 3) {
+    std::string msg =
+        "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
+        std::to_string(3 * 3) + " but has " +
+        std::to_string(B.GetKernelProduct());
+    throw std::logic_error(msg);
+  }
   if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
     assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
     return;
@@ -2983,7 +2977,7 @@ static void depthwise_3x3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3126,7 +3120,7 @@ static void depthwise_3x3x3_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3196,7 +3190,7 @@ void depthwise_3x3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3206,6 +3200,13 @@ void depthwise_3x3x3_pad_1(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
+  if (B.GetKernelProduct() != 3 * 3 * 3) {
+    std::string msg =
+        "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
+        std::to_string(3 * 3 * 3) + " but has " +
+        std::to_string(B.GetKernelProduct());
+    throw std::logic_error(msg);
+  }
   if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
     assert(
         0 &&
@@ -3275,7 +3276,7 @@ static void depthwise_3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3350,7 +3351,7 @@ static void depthwise_3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3420,7 +3421,7 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3430,6 +3431,13 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
+  if (Bp.GetKernelProduct() != 3 * 3) {
+    std::string msg =
+        "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
+        std::to_string(3 * 3) + " but has " +
+        std::to_string(Bp.GetKernelProduct());
+    throw std::logic_error(msg);
+  }
   if (stride_h == 0 || stride_w == 0 || num_threads == 0) {
     assert(0 && "stride_h == 0 || stride_w == 0 || num_threads == 0");
     return;
@@ -3679,7 +3687,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3760,7 +3768,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3836,7 +3844,7 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3846,6 +3854,13 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
+  if (B.GetKernelProduct() != 3 * 3 * 3) {
+    std::string msg =
+        "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
+        std::to_string(3 * 3 * 3) + " but has " +
+        std::to_string(B.GetKernelProduct());
+    throw std::logic_error(msg);
+  }
   if (stride_t == 0 || stride_h == 0 || stride_w == 0 || num_threads == 0) {
     assert(
         0 &&
@@ -3918,7 +3933,7 @@ void depthwise_3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -3960,7 +3975,7 @@ void depthwise_3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4004,7 +4019,7 @@ void depthwise_3x3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4049,7 +4064,7 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4092,7 +4107,7 @@ template void depthwise_3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4113,7 +4128,7 @@ template void depthwise_3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4134,7 +4149,7 @@ template void depthwise_3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4155,7 +4170,7 @@ template void depthwise_3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3ConvMatrix& Bp,
+    const PackedDepthWiseConvMatrix& Bp,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4178,7 +4193,7 @@ template void depthwise_3x3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4201,7 +4216,7 @@ template void depthwise_3x3x3_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     int32_t B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     float C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4224,7 +4239,7 @@ template void depthwise_3x3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,
@@ -4247,7 +4262,7 @@ template void depthwise_3x3x3_per_channel_quantization_pad_1(
     int32_t A_zero_point,
     const uint8_t* A,
     const int32_t* B_zero_point,
-    const Packed3x3x3ConvMatrix& B,
+    const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
     uint8_t* C,

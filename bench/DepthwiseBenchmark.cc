@@ -235,7 +235,7 @@ int main() {
           K);
     }
 
-    Packed3x3ConvMatrix Bp(K, B.data());
+    PackedDepthWiseConvMatrix Bp(K, 3 * 3, B.data());
 
     double ttot = 0;
     double bytes = double(NITER) *
