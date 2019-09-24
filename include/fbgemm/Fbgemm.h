@@ -588,12 +588,16 @@ class FBGEMM_API PackWeightsForConv {
     return W_im2col_packed_;
   }
 
-  std::shared_ptr<Packed3x3ConvMatrix> getPackedWFor2DDW() {
-    return W_dw_2D_packed_;
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWForDepthwise() {
+    return W_dw_packed_;
   }
 
-  std::shared_ptr<Packed3x3x3ConvMatrix> getPackedWFor3DDW() {
-    return W_dw_3D_packed_;
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor2DDW() {
+    return W_dw_packed_;
+  }
+
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor3DDW() {
+    return W_dw_packed_;
   }
 
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
@@ -642,10 +646,8 @@ class FBGEMM_API PackWeightsForConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
-  // Packed weights if we use 2D depthwise convolution implementation
-  std::shared_ptr<Packed3x3ConvMatrix> W_dw_2D_packed_;
-  // Packed weights if we use 3D depthwise convolution implementation
-  std::shared_ptr<Packed3x3x3ConvMatrix> W_dw_3D_packed_;
+  // Packed weights if we use depthwise convolution implementation
+  std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
