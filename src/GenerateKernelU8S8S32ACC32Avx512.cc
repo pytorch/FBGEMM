@@ -109,10 +109,12 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
         a->vpaddd(
             CRegs_avx512_[i * leadingDimCRegAssign + j],
             CRegs_avx512_[i * leadingDimCRegAssign + j],
-            x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)));
+            x86::dword_ptr(a->gpzRef(9), C_Offset, 0, j * 16 * sizeof(int32_t)));
+//            x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)),
+          x86::dword_ptr(a->gpzRef(9), C_Offset, 0, j * 16 * sizeof(int32_t)),
+//          x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)),
           CRegs_avx512_[i * leadingDimCRegAssign + j]);
     }
   }
@@ -208,18 +210,34 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
   int mRegBlocksRem = mc % mRegBlockSize;
 
   // arguments to the function created
+#ifdef _MSC_VER
+  asmjit::X86Gp buffer_A = a->zcx();
+  asmjit::X86Gp buffer_B = a->zdx();
+  asmjit::X86Gp B_pf = a->gpzRef(8);
+  asmjit::X86Gp CBase = a->gpzRef(9);
+  asmjit::X86Gp kSize = a->zdi();   // a->zsi();   // x86::esi; // a->zsi();
+  asmjit::X86Gp ldcReg = a->zsi();  // a->zdi();  // x86::edi; // a->zdi();
+#else
   asmjit::X86Gp buffer_A = a->zdi();
   asmjit::X86Gp buffer_B = a->zsi();
   asmjit::X86Gp B_pf = a->zdx();
   asmjit::X86Gp CBase = a->zcx();
   asmjit::X86Gp kSize = a->gpzRef(8);
   asmjit::X86Gp ldcReg = a->gpzRef(9);
+#endif
 
   asmjit::FuncDetail func;
+#ifdef _MSC_VER
+  //func.init(asmjit::FuncSignature4<void, uint8_t*, int8_t*, int8_t*, int32_t*>(
+  //    asmjit::CallConv::kIdHost));
+  func.init(asmjit::FuncSignature6<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(
+      asmjit::CallConv::kIdHost));
+#else
   func.init(
       asmjit::
           FuncSignature6<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(
               asmjit::CallConv::kIdHost));
+#endif
 
   asmjit::FuncFrameInfo ffi;
   ffi.setDirtyRegs(
@@ -228,10 +246,20 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
           asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
   ffi.setDirtyRegs(
       asmjit::X86Reg::kKindGp,
+#ifdef _MSC_VER
       asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
+      //asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
+#else
+      asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
+#endif
 
   asmjit::FuncArgsMapper args(&func);
+#ifdef _MSC_VER
+//  args.assignAll(buffer_A, buffer_B, B_pf, CBase);
   args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
+#else
+  args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);
+#endif
 
   args.updateFrameInfo(ffi);
 
@@ -240,6 +268,14 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
 
   asmjit::FuncUtils::emitProlog(a, layout);
   asmjit::FuncUtils::allocArgs(a, layout, args);
+
+//#ifdef _MSC_VER
+//  // retrieve parameters from stack
+//  a->mov(kSize, asmjit::x86::dword_ptr(asmjit::x86::rsp, func.getArg(4).getStackOffset())); //0x20)); //func.getArg(4).getStackOffset()));
+//  std::cout << "func.getArg(4).getStackOffset(): " << func.getArg(4).getStackOffset() << std::endl;
+//  a->mov(ldcReg, asmjit::x86::dword_ptr(asmjit::x86::rsp, func.getArg(5).getStackOffset())); //;0x28)); //func.getArg(5).getStackOffset()));
+//  std::cout << "func.getArg(5).getStackOffset(): " << func.getArg(5).getStackOffset() << std::endl;
+//#endif
 
   asmjit::Label LoopMBlocks = a->newLabel();
   asmjit::Label LoopNBlocks = a->newLabel();

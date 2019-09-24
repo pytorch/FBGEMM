@@ -181,7 +181,8 @@ void transpose_simd(
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
 #ifdef _MSC_VER
-      internal::transpose_8x8(M, N, src, ld_src, dst, ld_dst);
+//      internal::transpose_8x8(M, N, src, ld_src, dst, ld_dst);
+      internal::transpose_16x16(M, N, src, ld_src, dst, ld_dst);
 #else
       internal::transpose_16x16(M, N, src, ld_src, dst, ld_dst);
 #endif

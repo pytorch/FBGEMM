@@ -661,7 +661,11 @@ class FBGEMM_API PackAWithIm2Col
 
   ~PackAWithIm2Col() {
     if (rowOffsetAllocatedHere) {
+#ifdef _MSC_VER
+      _aligned_free(row_offset_);
+#else
       free(row_offset_);
+#endif
     }
   }
 
@@ -752,7 +756,11 @@ class FBGEMM_API PackAWithRowOffset final
 
   ~PackAWithRowOffset() {
     if (rowOffsetAllocatedHere) {
+#ifdef _MSC_VER
+      _aligned_free(row_offset_);
+#else
       free(row_offset_);
+#endif
     }
   }
 
@@ -845,7 +853,11 @@ class FBGEMM_API PackAWithQuantRowOffset final
 
   ~PackAWithQuantRowOffset() {
     if (rowOffsetAllocatedHere) {
+#ifdef _MSC_VER
+      _aligned_free(row_offset_);
+#else
       free(row_offset_);
+#endif
     }
   }
 
