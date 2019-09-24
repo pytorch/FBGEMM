@@ -23,7 +23,7 @@ void QuantizeAvx2(
     uint8_t* dst,
     int len,
     const TensorQuantizationParams& qparams) {
-#if defined(__AVX2__) && defined(__FMA__)
+#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
   constexpr int VLEN = 8;
   std::size_t i = 0;
   __m256 inverse_scale_v = _mm256_set1_ps(1.f / qparams.scale);
