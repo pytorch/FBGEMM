@@ -592,14 +592,6 @@ class FBGEMM_API PackWeightsForConv {
     return W_dw_packed_;
   }
 
-  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor2DDW() {
-    return W_dw_packed_;
-  }
-
-  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor3DDW() {
-    return W_dw_packed_;
-  }
-
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
   getPackedWForGroupwise() {
     return W_gconv_packed_;
