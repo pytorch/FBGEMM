@@ -237,22 +237,26 @@ bool fbgemmSupportedCPU() {
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeOutput
-#define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN)               \
+#define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, BIAS_TYPE)    \
   template void fbgemmPacked(                                       \
       PackMatrix<PACK_A<uint8_t, ACC_T>, uint8_t, ACC_T>& packA,    \
       PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
       uint8_t* C,                                                   \
       int32_t* C_buffer,                                            \
       uint32_t ldc,                                                 \
-      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
+      const ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>& outProcess,  \
       int thread_id,                                                \
       int num_threads,                                              \
       const BlockingFactors* blocking_params);
 
-#define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                          \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, Q_GRAN) \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float); \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t);
+
+#define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                            \
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_RELU(PACK_A, ACC_T)      \
   INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false); \
@@ -268,27 +272,34 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
 #undef INSTANTIATE_ACC_T
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
 
-#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN)          \
-  template void fbgemmPacked(                                       \
-      PackMatrix<                                                   \
-          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
-          uint8_t,                                                  \
-          ACC_T>& packA,                                            \
-      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
-      uint8_t* C,                                                   \
-      int32_t* C_buffer,                                            \
-      uint32_t ldc,                                                 \
-      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,             \
-      int thread_id,                                                \
-      int num_threads,                                              \
+#define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, BIAS_TYPE) \
+  template void fbgemmPacked(                                         \
+      PackMatrix<                                                     \
+          PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,               \
+          uint8_t,                                                    \
+          ACC_T>& packA,                                              \
+      PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB,   \
+      uint8_t* C,                                                     \
+      int32_t* C_buffer,                                              \
+      uint32_t ldc,                                                   \
+      const ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>& outProcess,    \
+      int thread_id,                                                  \
+      int num_threads,                                                \
       const BlockingFactors* blocking_params);
 
-#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(                                                            \
+#define INSTANTIATE_BIAS_T(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float); \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t);
+
+#define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)             \
+  INSTANTIATE_BIAS_T(                                             \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BIAS_T(                                             \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BIAS_T(                                             \
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
@@ -305,6 +316,7 @@ INSTANTIATE_RELU(int16_t);
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
 
 ////////////////////////////////////////////////////////////////////////////////

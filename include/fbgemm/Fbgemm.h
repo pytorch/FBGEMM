@@ -609,12 +609,16 @@ class FBGEMM_API PackWeightsForConv {
     return W_im2col_packed_;
   }
 
-  std::shared_ptr<Packed3x3ConvMatrix> getPackedWFor2DDW() {
-    return W_dw_2D_packed_;
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWForDepthwise() {
+    return W_dw_packed_;
   }
 
-  std::shared_ptr<Packed3x3x3ConvMatrix> getPackedWFor3DDW() {
-    return W_dw_3D_packed_;
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor2DDW() {
+    return W_dw_packed_;
+  }
+
+  std::shared_ptr<PackedDepthWiseConvMatrix> getPackedWFor3DDW() {
+    return W_dw_packed_;
   }
 
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
@@ -663,10 +667,8 @@ class FBGEMM_API PackWeightsForConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
-  // Packed weights if we use 2D depthwise convolution implementation
-  std::shared_ptr<Packed3x3ConvMatrix> W_dw_2D_packed_;
-  // Packed weights if we use 3D depthwise convolution implementation
-  std::shared_ptr<Packed3x3x3ConvMatrix> W_dw_3D_packed_;
+  // Packed weights if we use depthwise convolution implementation
+  std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
@@ -1161,12 +1163,15 @@ class FBGEMM_API DoSConvOnInpBuffer {
 template <
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR,
+    typename BIAS_TYPE = std::int32_t,
     typename outT = std::uint8_t,
     typename inT = std::int32_t,
     typename nextOPType = DoNothing<outT, outT>>
 class FBGEMM_API ReQuantizeOutput {
  public:
   static constexpr int RELU_FUSED = FUSE_RELU;
+  static constexpr QuantizationGranularity QGRANType = Q_GRAN;
+  using BIAS_T = BIAS_TYPE;
   using outType = outT;
   using inpType = inT;
   /**
@@ -1187,6 +1192,8 @@ class FBGEMM_API ReQuantizeOutput {
    *                     See PackedRequantizeTest.cc for an example.
    *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
    * @params bias can be nullptr otherwise the length should be nCol
+   * @params act_times_w_scale activation_scale * weight_scale. This is only
+   *                           used if bias is unquantized (i.e., float).
    */
   ReQuantizeOutput(
       nextOPType& nextop,
@@ -1196,9 +1203,10 @@ class FBGEMM_API ReQuantizeOutput {
       const std::int32_t* Bq_zero_point,
       const std::int32_t* row_offsets,
       const std::int32_t* col_offsets,
-      const std::int32_t* bias,
+      const BIAS_T* bias,
       std::uint32_t nCol,
-      int groups = 1)
+      int groups = 1,
+      const float* act_times_w_scale = nullptr)
       : nextop_(nextop),
         C_multiplier_(C_multiplier),
         C_zero_point_(C_zero_point),
@@ -1208,7 +1216,8 @@ class FBGEMM_API ReQuantizeOutput {
         q_col_offsets_(col_offsets),
         bias_(bias),
         ncols_(nCol),
-        groups_(groups) {}
+        groups_(groups),
+        act_times_w_scale_(act_times_w_scale) {}
 
   template <inst_set_t instSet>
   inline int f(
@@ -1236,11 +1245,14 @@ class FBGEMM_API ReQuantizeOutput {
   const std::int32_t* getColOffsets() const {
     return q_col_offsets_;
   }
-  const std::int32_t* getBias() const {
+  const BIAS_T* getBias() const {
     return bias_;
   }
   std::uint32_t getNCols() const {
     return ncols_;
+  }
+  const float* getActWScale() const {
+    return act_times_w_scale_;
   }
 
   void setRowOffsets(const std::int32_t* row_offsets) {
@@ -1255,9 +1267,10 @@ class FBGEMM_API ReQuantizeOutput {
   const std::int32_t* Bq_zero_point_;
   const std::int32_t* q_row_offsets_;
   const std::int32_t* q_col_offsets_;
-  const std::int32_t* bias_;
+  const BIAS_T* bias_;
   std::uint32_t ncols_;
   int groups_;
+  const float* act_times_w_scale_;
 };
 
 /**
@@ -1410,7 +1423,8 @@ template <
     typename outType,
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
-    int SPATIAL_DIM = 2>
+    int SPATIAL_DIM = 2,
+    typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
@@ -1419,7 +1433,7 @@ FBGEMM_API void fbgemmGroupwiseConv(
     packed_W& packed_weights,
     outType* out,
     std::int32_t* outBuffer,
-    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
     int thread_id,
     int num_threads);
 

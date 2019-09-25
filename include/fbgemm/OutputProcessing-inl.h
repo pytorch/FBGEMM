@@ -59,11 +59,13 @@ inline int DoSConvOnInpBuffer<outT, inT, nextOPType>::f(
 template <
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
+    typename BIAS_TYPE,
     typename outT,
     typename inT,
     typename nextOPType>
 template <inst_set_t instSet>
-inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
+inline int
+ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
     outT* out,
     const inT* inp,
     const block_type_t& block,
@@ -98,11 +100,20 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
           raw -= q_row_offsets_[i - block.row_start] *
               Bq_zero_point_[Bq_zero_point_idx];
         }
+        float raw_f;
         if (bias_) {
-          raw += bias_[j];
+          if (std::is_same<BIAS_TYPE, float>::value) {
+            raw_f = raw;
+            raw_f += bias_[j] / act_times_w_scale_[Bq_zero_point_idx];
+          } else {
+            raw += bias_[j];
+            raw_f = raw;
+          }
+        } else {
+          raw_f = raw;
         }
 
-        float ab = raw * C_multiplier_[Bq_zero_point_idx];
+        float ab = raw_f * C_multiplier_[Bq_zero_point_idx];
         long rounded = std::lrintf(ab) + C_zero_point_;
 
         out[i * ld_out + j] = std::max(
@@ -115,15 +126,16 @@ inline int ReQuantizeOutput<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
                         Bq_zero_point_[0] == 0) ||
         q_row_offsets_ == nullptr;
 
-    requantizationParams_t r = {Aq_zero_point_,
-                                Bq_zero_point_,
-                                C_zero_point_,
-                                C_multiplier_,
-                                q_row_offsets_,
-                                q_col_offsets_,
-                                bias_,
-                                ncols_,
-                                groups_};
+    requantizationParams_t<BIAS_TYPE> r = {Aq_zero_point_,
+                                           Bq_zero_point_,
+                                           C_zero_point_,
+                                           C_multiplier_,
+                                           q_row_offsets_,
+                                           q_col_offsets_,
+                                           bias_,
+                                           ncols_,
+                                           groups_,
+                                           act_times_w_scale_};
 
     if (Aq_zero_point_ == 0) {
       if (b_symmetric) {

@@ -164,29 +164,33 @@ void ChooseRequantizationMultiplier(
       dst[i] = Quantize<T>(src[i], qparams);     \
     }                                            \
   }
-FBGEMM_SPECIALIZED_QUANTIZE(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 
-template <>
-void Quantize<uint8_t>(
-    const float* src,
-    uint8_t* dst,
-    int len,
-    const TensorQuantizationParams& qparams) {
-  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();
-  bool fma_support = cpuinfo_has_x86_fma3();
-  if (avx2_support && fma_support && qparams.precision == 8) {
-    // fast path
-    QuantizeAvx2(src, dst, len, qparams);
-  } else {
-    for (std::size_t i = 0; i < len; ++i) {
-      dst[i] = Quantize<uint8_t>(src[i], qparams);
-    }
-  }
+#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
+template <>                                                             \
+void Quantize<T>(                                                       \
+    const float* src,                                                   \
+    T* dst,                                                             \
+    int len,                                                            \
+    const TensorQuantizationParams& qparams) {                          \
+  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();   \
+  bool fma_support = cpuinfo_has_x86_fma3();                            \
+  if (avx2_support && fma_support && qparams.precision == 8) {          \
+    /* fast path  */                                                    \
+    QuantizeAvx2<T>(src, dst, len, qparams);                            \
+  } else {                                                              \
+    for (std::size_t i = 0; i < len; ++i) {                             \
+      dst[i] = Quantize<T>(src[i], qparams);                            \
+    }                                                                   \
+  }                                                                     \
 }
+
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t)
+#undef FBGEMM_SPECIALIZED_QUANTIZE_AVX2
 
 #define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
   template <>                                                     \

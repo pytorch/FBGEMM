@@ -40,9 +40,10 @@ struct FBGEMM_API RequantizationParams {
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
+template <typename T=std::uint8_t>
 void QuantizeAvx2(
     const float* src,
-    std::uint8_t* dst,
+    T* dst,
     int len,
     const TensorQuantizationParams& qparams);
 
@@ -71,14 +72,15 @@ template <
     bool B_SYMMETRIC,
     QuantizationGranularity Q_GRAN,
     bool HAS_BIAS,
-    bool FUSE_RELU>
+    bool FUSE_RELU,
+    typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void requantizeOutputProcessingAvx2(
     std::uint8_t* out,
     const std::int32_t* inp,
     const block_type_t& block,
     int ld_out,
     int ld_in,
-    const requantizationParams_t& r);
+    const requantizationParams_t<BIAS_TYPE>& r);
 
 template <
     bool A_SYMMETRIC,
@@ -86,14 +88,15 @@ template <
     QuantizationGranularity Q_GRAN,
     bool HAS_BIAS,
     bool FUSE_RELU,
-    int C_PER_G>
+    int C_PER_G,
+    typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void requantizeOutputProcessingGConvAvx2(
     std::uint8_t* out,
     const std::int32_t* inp,
     const block_type_t& block,
     int ld_out,
     int ld_in,
-    const requantizationParams_t& r);
+    const requantizationParams_t<BIAS_TYPE>& r);
 
 template <
     bool A_SYMMETRIC,
