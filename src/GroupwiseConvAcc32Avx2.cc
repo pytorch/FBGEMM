@@ -1747,6 +1747,11 @@ void fbgemmGroupwiseConv(
     const processOutputType& outProcess,
     int thread_id,
     int num_threads) {
+  // TODO: Remove this when threading is supported.
+  if (thread_id > 0) {
+    return;
+  }
+
   return fbgemmGroupwiseConvBase_<
       packed_W,
       outType,
@@ -1786,6 +1791,10 @@ void fbgemmGroupwiseConv(
 
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  // TODO: Remove this when threading is supported.
+  if (thread_id > 0) {
+    return;
   }
   if (!fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param) ||
       (!fbgemmHasAvx512Support() && !fbgemmHasAvx2Support())) {
