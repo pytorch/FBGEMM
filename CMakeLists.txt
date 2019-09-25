@@ -76,7 +76,9 @@ endif()
 set(FBGEMM_AVX2_SRCS
   src/FbgemmFP16UKernelsAvx2.cc
   src/FbgemmI8Depthwise3DAvx2.cc
+  src/FbgemmI8Depthwise3x3Avx2.cc
   src/FbgemmI8DepthwiseAvx2.cc
+  src/FbgemmI8DepthwisePerChannelQuantAvx2.cc
   src/OptimizedKernelsAvx2.cc
   src/PackDepthwiseConvMatrixAvx2.cc
   src/QuantUtilsAvx2.cc

@@ -25,47 +25,50 @@ namespace fbgemm {
 static vector<vector<int>> shapes = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
-  // N, K, H_in, W_in, stride
-  {   1,  272,  47, 125, 1, },
-//  {   1,  272,  64, 125, 1, },
-//  {   1,  272,  66, 125, 1, },
-//  {   1,  272,  67, 100, 1, },
-//  {   1,  272,  75,  75, 1, },
-  {   1,  272,  75,  76, 1, },
-//  {   1,  272,  75, 100, 1, },
-//  {   1,  272,  94,  75, 1, },
-//  {   1,  272, 109,  75, 1, },
-  {   1,  544,  24,  63, 1, },
-//  {   1,  544,  33,  63, 1, },
-//  {   1,  544,  34,  50, 1, },
-//  {   1,  544,  36,  63, 1, },
-//  {   1,  544,  38,  38, 1, },
-//  {   1,  544,  38,  40, 1, },
-  {   1,  544,  47,  38, 1, },
-  {   1, 1088,   7,   7, 1, },
-  {  51, 1088,   7,   7, 1, },
-//  { 100, 1088,   7,   7, 1, },
+  // N, K, H_in, W_in, stride, kernel
+  {   1,  272,  47, 125, 1, 3 },
+  {   1,  272,  47, 125, 1, 5 },
+//  {   1,  272,  64, 125, 1, 3 },
+//  {   1,  272,  66, 125, 1, 3 },
+//  {   1,  272,  67, 100, 1, 3 },
+//  {   1,  272,  75,  75, 1, 3 },
+//   {   1,  272,  75,  76, 1, 3 },
+//  {   1,  272,  75, 100, 1, 3 },
+//  {   1,  272,  94,  75, 1, 3 },
+//  {   1,  272, 109,  75, 1, 3 },
+  {   1,  544,  24,  63, 1, 3 },
+//  {   1,  544,  33,  63, 1, 3 },
+//  {   1,  544,  34,  50, 1, 3 },
+//  {   1,  544,  36,  63, 1, 3 },
+//  {   1,  544,  38,  38, 1, 3 },
+//  {   1,  544,  38,  40, 1, 3 },
+  {   1,  544,  47,  38, 1, 3 },
+  {   1, 1088,   7,   7, 1, 3 },
+  {  51, 1088,   7,   7, 1, 3 },
+  {   2, 1088,   7,   7, 1, 5 },
+//  { 100, 1088,   7,   7, 1, 3 },
 
-  {   1,  248,  93, 250, 2, },
-//  {   1,  248, 128, 250, 2, },
-//  {   1,  248, 133, 200, 2, },
-//  {   1,  248, 150, 150, 2, },
-  {   1,  248, 150, 151, 2, },
-//  {   1,  248, 150, 158, 2, },
-//  {   1,  248, 188, 150, 2, },
-//  {   1,  248, 225, 150, 2, },
-  {   1,  272,  47, 125, 2, },
-//  {   1,  272,  64, 125, 2, },
-//  {   1,  272,  66, 125, 2, },
-//  {   1,  272,  67, 100, 2, },
-//  {   1,  272,  75,  75, 2, },
-//  {   1,  272,  75,  76, 2, },
-  {   1,  272,  94,  75, 2, },
-  {   1,  544,  14,  14, 2, },
-  {  51,  544,  14,  14, 2, },
-//  { 100,  544,  14,  14, 2, },
+  {   1,  248,  93, 250, 2, 3 },
+  {   1,  248,  93, 250, 2, 5 },
+//  {   1,  248, 128, 250, 2, 3 },
+//  {   1,  248, 133, 200, 2, 3 },
+//  {   1,  248, 150, 150, 2, 3 },
+  {   1,  248, 150, 151, 2, 3 },
+//  {   1,  248, 150, 158, 2, 3 },
+//  {   1,  248, 188, 150, 2, 3 },
+//  {   1,  248, 225, 150, 2, 3 },
+  {   1,  272,  47, 125, 2, 3 },
+//  {   1,  272,  64, 125, 2, 3 },
+//  {   1,  272,  66, 125, 2, 3 },
+//  {   1,  272,  67, 100, 2, 3 },
+//  {   1,  272,  75,  75, 2, 3 },
+//  {   1,  272,  75,  76, 2, 3 },
+  {   1,  272,  94,  75, 2, 3 },
+  {   1,  544,  14,  14, 2, 3 },
+  {  51,  544,  14,  14, 2, 3 },
+//  { 100,  544,  14,  14, 2, 3 },
 
-  {   1,    8,   4,   4, 1, },
+  {   1,    8,   4,   4, 1, 3 },
 };
 
 static vector<vector<int>> shapes_3d = {
@@ -115,7 +118,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
     int W = shape[3];
     int stride_h = shape[4];
     int stride_w = stride_h;
-    constexpr int R = 3, S = 3;
+    int R = shape[5];
+    int S = R;
     int PAD_T = (R - 1) / 2, PAD_B = (R - 1) / 2, PAD_L = (S - 1) / 2,
         PAD_R = (S - 1) / 2;
 
@@ -193,9 +197,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
           K);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, 3 * 3, B.data());
-
-    depthwise_3x3_pad_1(
+    PackedDepthWiseConvMatrix Bp(K, R * S, B.data());
+    depthwise_2d_same_pad(
         N,
         H,
         W,
@@ -225,8 +228,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
             EXPECT_EQ(expected, actual)
-                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
+                << "Depthwise " << R << "x" << S << " results differ at (" << n
+                << ", " << h << ", " << w << ", " << k << ").";
           }
         }
       }
@@ -383,7 +386,8 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     int W = shape[3];
     int stride_h = shape[4];
     int stride_w = stride_h;
-    constexpr int R = 3, S = 3;
+    int R = shape[5];
+    int S = R;
     int PAD_T = (R - 1) / 2, PAD_B = (R - 1) / 2, PAD_L = (S - 1) / 2,
         PAD_R = (S - 1) / 2;
 
@@ -464,9 +468,8 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
           K);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, 3 * 3, B.data());
-
-    depthwise_3x3_per_channel_quantization_pad_1(
+    PackedDepthWiseConvMatrix Bp(K, R * S, B.data());
+    depthwise_2d_per_channel_quantization_same_pad(
         N,
         H,
         W,
@@ -483,6 +486,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
         col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
+        nullptr,
         0,
         1);
 
@@ -495,8 +499,8 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
             EXPECT_EQ(expected, actual)
-                << "Depthwise 3x3 results differ at (" << n << ", " << h << ", "
-                << w << ", " << k << ").";
+                << "Depthwise " << R << "x" << S << " results differ at (" << n
+                << ", " << h << ", " << w << ", " << k << ").";
           }
         }
       }
