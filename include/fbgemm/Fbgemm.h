@@ -1353,6 +1353,8 @@ FBGEMM_API void fbgemmPacked(
 
 /**
  * @brief Perform small-channels-per-group groupwise convolution
+ *        Note: Currently threading is not supported. This function does
+ *              nothing for thread_ids > 0, i.e., returns early.
  *
  * @params rowOffsetBuf nullptr if B uses symmetric quantization
  */
@@ -1376,6 +1378,8 @@ FBGEMM_API void fbgemmGroupwiseConv(
 
 /**
  * @params rowOffsetBuf nullptr if B uses symmetric quantization
+ *        Note: Currently threading is not supported. This function does
+ *              nothing for thread_ids > 0, i.e., returns early.
  */
 template <
     typename packed_W,
