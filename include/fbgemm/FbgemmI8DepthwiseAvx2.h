@@ -48,18 +48,6 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
   std::int8_t* pmat_; /** packed weight */
 }; // PackedDepthWiseConvMatrix
 
-class FBGEMM_API Packed3x3ConvMatrix : public PackedDepthWiseConvMatrix {
- public:
-  Packed3x3ConvMatrix(int K, const std::int8_t* smat)
-      : PackedDepthWiseConvMatrix(K, 3 * 3, smat) {}
-};
-
-class FBGEMM_API Packed3x3x3ConvMatrix : public PackedDepthWiseConvMatrix {
- public:
-  Packed3x3x3ConvMatrix(int K, const std::int8_t* smat)
-      : PackedDepthWiseConvMatrix(K, 3 * 3 * 3, smat) {}
-};
-
 /** To be removed. Keeping it just to make sure we don't change C2 files and
  * fbgemm files in a single diff
  *
