@@ -19,7 +19,7 @@ template <
     bool SUM_A,
     bool REMAINDER = false,
     bool PER_CHANNEL_QUANTIZATION = false>
-static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
+static inline ALWAYS_INLINE void inner_prod_3x3x3_packed_(
     int T,
     int H,
     int W,
@@ -272,7 +272,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
+static inline ALWAYS_INLINE void depthwise_3x3x3_kernel_(
     int T,
     int H,
     int W,
@@ -359,7 +359,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
 }
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static inline ALWAYS_INLINE void
 depthwise_3x3x3_per_channel_quantization_kernel_(
     int T,
     int H,
@@ -457,7 +457,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
+static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
     int N,
     int T,
     int H,
@@ -488,7 +488,9 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  //int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  int32_t* row_offsets
+      = static_cast<int32_t*>(ALIGNED_MALLOC((K + 31) / 32 * 32 * sizeof(int32_t), 64));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -566,10 +568,11 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
       } // h
     } // t
   } // for each n
+  FREE(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static inline ALWAYS_INLINE void
 depthwise_3x3x3_per_channel_quantization_pad_1_(
     int N,
     int T,
@@ -601,7 +604,9 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  //int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  int32_t* row_offsets
+      = static_cast<int32_t*>(ALIGNED_MALLOC((K + 31) / 32 * 32 * sizeof(int32_t), 64));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -679,6 +684,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
       } // h
     } // t
   } // for each n
+  FREE(row_offsets);
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -704,7 +710,7 @@ static void depthwise_3x3x3_pad_1_(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = new int32_t[(K + 31) / 32 * 32];
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (B_zero_point == 0) {
       depthwise_3x3x3_pad_1_<
@@ -822,6 +828,7 @@ static void depthwise_3x3x3_pad_1_(
           num_threads);
     }
   }
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS
@@ -1004,7 +1011,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = new int32_t[(K + 31) / 32 * 32];
   if (A_zero_point == 0 || col_offsets == nullptr) {
     depthwise_3x3x3_per_channel_quantization_pad_1_<
         FUSE_RELU,
@@ -1060,6 +1067,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
         thread_id,
         num_threads);
   }
+  delete[] C_int32_temp;
 }
 
 // Dispatch HAS_BIAS

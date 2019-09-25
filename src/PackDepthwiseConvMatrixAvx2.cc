@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
+#include "fbgemm/Utils.h"
+#include "fbgemm/Fbgemm.h"
 
 #include <immintrin.h>
 
@@ -33,7 +35,9 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : K_(K), kernel_prod_(kernel_prod) {
   // Transpose the input matrix to make packing faster.
-  alignas(64) int8_t smat_transposed[K * kernel_prod];
+  int8_t* smat_transposed
+      = static_cast<int8_t*>(ALIGNED_MALLOC(K * kernel_prod * sizeof(int8_t), 64));
+
   for (int i = 0; i < kernel_prod; ++i) {
     for (int j = 0; j < K; ++j) {
       smat_transposed[i * K + j] = smat[i + j * kernel_prod];
@@ -42,12 +46,11 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
 
   // Allocate packed arrays
   int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
-  // pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(
-  //     64, ((K + 31) / 32) * KERNEL_PROD_ALIGNED * 32 * sizeof(int8_t)));
-  posix_memalign(
-      (void**)&pmat_,
-      64,
-      ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
+  pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(64, ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
+  //posix_memalign(
+  //    (void**)&pmat_,
+  //    64,
+  //    ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
 
   // Pack input matrix
   // The layout is optimized to use vpmaddubsw efficiently (see
@@ -102,7 +105,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
   for (int k1 = 0; k1 < K; k1 += 32) {
-    __m256i b_v[kernel_prod];
+    __m256i* b_v = new __m256i[kernel_prod];
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_loadu_si256(
@@ -119,7 +122,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 2 SIMD registers
-    __m256i b_interleaved_epi16[kernel_prod_aligned];
+    __m256i* b_interleaved_epi16 = new __m256i[kernel_prod_aligned];
     __m256i zero_v = _mm256_setzero_si256();
     for (int i = 0; i < kernel_prod_aligned / 2; ++i) {
       if (2 * i + 1 >= kernel_prod) {
@@ -135,7 +138,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    __m256i b_interleaved_epi32[kernel_prod_aligned];
+    __m256i* b_interleaved_epi32 = new __m256i[kernel_prod_aligned];
     for (int i = 0; i < kernel_prod_aligned / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
@@ -156,7 +159,12 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
               &pmat_[((k1 / 32) * kernel_prod_aligned + i) * 32]),
           b_interleaved_epi32[i]);
     }
+
+    delete[] b_v;
+    delete[] b_interleaved_epi16;
+    delete[] b_interleaved_epi32;
   }
+  FREE(smat_transposed);
 }
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {
