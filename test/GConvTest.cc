@@ -25,14 +25,6 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
-                                  matrix_op_t::Transpose};
-
-vector<QuantizationGranularity> qGranularityVals{
-    QuantizationGranularity::TENSOR,
-    QuantizationGranularity::GROUP,
-    QuantizationGranularity::OUT_CHANNEL};
-
 namespace {
 class fbgemmGConvAcc32Test
     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};

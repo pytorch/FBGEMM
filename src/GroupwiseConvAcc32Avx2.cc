@@ -1010,12 +1010,21 @@ jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
 #endif
 
   // arguments to the function created
+#ifdef _MSC_VER
+  in_acts_R_ = a->zcx();
+  wghts_R_ = a->zdx();
+  out_acts_R_ = a->gpz(8);
+  a_zero_pt_R_ = a->gpz(9);
+  H_R_ = a->zdi();
+  W_R_ = a->zsi();
+#else
   in_acts_R_ = a->zdi();
   wghts_R_ = a->zsi();
   out_acts_R_ = a->zdx();
   a_zero_pt_R_ = a->zcx();
   H_R_ = a->gpz(8);
   W_R_ = a->gpz(9);
+#endif
   row_offset_R_ = a->gpz(10);
 
   // register for temporary use
@@ -1492,11 +1501,19 @@ GenConvKernel<2, int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
 #endif
 
   // arguments to the function created
+#ifdef _MSC_VER
+  in_acts_R_ = a->zcx();
+  a_zero_pt_R_ = a->zdx();
+  H_R_ = a->gpz(8);
+  W_R_ = a->gpz(9);
+  row_offset_R_ = a->zdi();
+#else
   in_acts_R_ = a->zdi();
   a_zero_pt_R_ = a->zsi();
   H_R_ = a->zdx();
   W_R_ = a->zcx();
   row_offset_R_ = a->gpz(8);
+#endif
 
   // register for temporary use
   scratchReg1_ = a->gpz(12);

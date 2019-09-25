@@ -7,8 +7,17 @@
 #pragma once
 #include <cmath>
 #include <vector>
+#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
+
+static std::vector<matrix_op_t> transposeVals = { matrix_op_t::NoTranspose,
+                                    matrix_op_t::Transpose };
+
+static std::vector<QuantizationGranularity> qGranularityVals = {
+      QuantizationGranularity::TENSOR,
+      QuantizationGranularity::GROUP,
+      QuantizationGranularity::OUT_CHANNEL };
 
 /*
  * @brief Check and validate the buffers for reference and FBGEMM result.

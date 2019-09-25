@@ -24,11 +24,6 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
-    QuantizationGranularity::TENSOR,
-    QuantizationGranularity::GROUP,
-    QuantizationGranularity::OUT_CHANNEL};
-
 namespace {
 class fbgemmIm2colTest
     : public testing::TestWithParam<tuple<QuantizationGranularity, bool>> {};

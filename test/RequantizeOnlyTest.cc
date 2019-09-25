@@ -20,7 +20,7 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
+vector<QuantizationGranularity> qGranularityValsLocal{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::OUT_CHANNEL};
 
@@ -42,7 +42,7 @@ INSTANTIATE_TEST_CASE_P(
             {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 16, 20, 32}), // number of
                                                                   // cols
         ::testing::Bool(), // fuse relu
-        ::testing::ValuesIn(qGranularityVals))); // requantization granularity
+        ::testing::ValuesIn(qGranularityValsLocal))); // requantization granularity
 
 /**
  * Test for float bias

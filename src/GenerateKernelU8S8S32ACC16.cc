@@ -105,7 +105,11 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
             extractDest128, CRegs(i * leadingDimCReg + j), idx);
         a->vpmovsxwd(extractDest256, extractDest128);
         x86::Mem destAddr = x86::dword_ptr(
+#ifdef _MSC_VER
+            a->gpz(9), C_Offset, 0, (j * 2 + idx) * 8 * sizeof(int32_t));
+#else
             a->zcx(), C_Offset, 0, (j * 2 + idx) * 8 * sizeof(int32_t));
+#endif
         if (accum) {
           a->vpaddd(extractDest256, extractDest256, destAddr);
         }
@@ -191,12 +195,21 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     //"nc must be equal to the number of register blocks");
 
     // arguments to the function created
+#ifdef _MSC_VER
+    x86::Gp buffer_A = a->zcx();
+    x86::Gp buffer_B = a->zdx();
+    x86::Gp B_pf = a->gpz(8);
+    x86::Gp CBase = a->gpz(9);
+    x86::Gp kSize = a->zdi();
+    x86::Gp ldcReg = a->zsi();
+#else
     x86::Gp buffer_A = a->zdi();
     x86::Gp buffer_B = a->zsi();
     x86::Gp B_pf = a->zdx();
     x86::Gp CBase = a->zcx();
     x86::Gp kSize = a->gpz(8);
     x86::Gp ldcReg = a->gpz(9);
+#endif
 
     asmjit::FuncDetail func;
     func.init(

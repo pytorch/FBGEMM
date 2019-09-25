@@ -20,11 +20,6 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
-    QuantizationGranularity::TENSOR,
-    QuantizationGranularity::GROUP,
-    QuantizationGranularity::OUT_CHANNEL};
-
 // clang-format off
 static vector<conv_param_t<>> GetShapes_() {
   vector<conv_param_t<>> shapes = {
