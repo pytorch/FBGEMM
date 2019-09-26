@@ -46,11 +46,15 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
 
   // Allocate packed arrays
   int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
-  pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(64, ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
-  //posix_memalign(
-  //    (void**)&pmat_,
-  //    64,
-  //    ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
+  //pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(64, ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
+#ifdef _MSC_VER
+  pmat_ = (int8_t*)_aligned_malloc(((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t), 64);
+#else
+  posix_memalign(
+      (void**)&pmat_,
+      64,
+      ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
+#endif
 
   // Pack input matrix
   // The layout is optimized to use vpmaddubsw efficiently (see
