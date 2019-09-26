@@ -6,9 +6,9 @@
  */
 
 #include <algorithm>
+#include <functional>
 #include <numeric>
 #include <vector>
-#include <functional>
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -24,13 +24,16 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
              conv_p.stride.end(),
              [](int i) { return i == 1 || i == 2; }) &&
       std::all_of(
-             conv_p.K.begin(), conv_p.K.end(), [](int i) { return i == 3; }) &&
+             conv_p.K.begin(),
+             conv_p.K.end(),
+             [&conv_p](int i) { return i == conv_p.K[0]; }) &&
+      (conv_p.K[0] == 3 || (SPATIAL_DIM == 2 && conv_p.K[0] == 5)) &&
       std::all_of(
              conv_p.dilation.begin(),
              conv_p.dilation.end(),
              [](int i) { return i == 1; }) &&
-      std::all_of(conv_p.pad.begin(), conv_p.pad.end(), [](int i) {
-           return i == 1;
+      std::all_of(conv_p.pad.begin(), conv_p.pad.end(), [&conv_p](int i) {
+           return i == (conv_p.K[0] - 1) / 2;
          });
 }
 
@@ -151,9 +154,9 @@ int fbgemmConv(
               "not supported";
           throw std::runtime_error(msg);
         }
-      } else {
+      } else if (SPATIAL_DIM == 2) {
         if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_3x3_pad_1(
+          depthwise_2d_same_pad(
               conv_p.MB, // mini batch
               conv_p.IN_DIM[0], // H
               conv_p.IN_DIM[1], // W
@@ -178,7 +181,7 @@ int fbgemmConv(
                 QuantizationGranularity::OUT_CHANNEL ||
             processOutputType::QGRANType == QuantizationGranularity::GROUP) {
           // The number of channels == groups for depthwise convolutions
-          depthwise_3x3_per_channel_quantization_pad_1(
+          depthwise_2d_per_channel_quantization_same_pad(
               conv_p.MB, // mini batch
               conv_p.IN_DIM[0], // H
               conv_p.IN_DIM[1], // W
@@ -204,6 +207,10 @@ int fbgemmConv(
               "not supported";
           throw std::runtime_error(msg);
         }
+      } else {
+        std::string msg =
+            "[FBGEMM_CONV_ERROR] This spatial dim is not supported";
+        throw std::runtime_error(msg);
       }
       break;
     }
