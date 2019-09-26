@@ -24,7 +24,9 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
   switch (ConvFastPath<SPATIAL_DIM, accT>(conv_p)) {
     case optimized_conv_t::depthwise: {
       W_dw_packed_ = std::make_shared<PackedDepthWiseConvMatrix>(
-          conv_p.G, SPATIAL_DIM == 3 ? 3 * 3 * 3 : 3 * 3, sdata);
+          conv_p.G,
+          SPATIAL_DIM == 3 ? 3 * 3 * 3 : conv_p.K[0] * conv_p.K[1],
+          sdata);
       break;
     }
     case optimized_conv_t::groupwise: {
