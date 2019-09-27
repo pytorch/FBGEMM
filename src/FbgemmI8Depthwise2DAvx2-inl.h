@@ -1576,4 +1576,48 @@ static void depthwise_2d_per_channel_quantization_(
   }
 }
 
+template <typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void depthwise_3x3_pad_1(
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    std::int32_t B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    float C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    float act_times_w_scale = 1.0f,
+    int thread_id = 0,
+    int num_threads = 1);
+
+template <typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
+   int N,
+   int H,
+   int W,
+   int K,
+   int stride_h,
+   int stride_w,
+   std::int32_t A_zero_point,
+   const std::uint8_t* A,
+   const std::int32_t* B_zero_point,
+   const PackedDepthWiseConvMatrix& Bp,
+   const float* C_multiplier,
+   std::int32_t C_zero_point,
+   std::uint8_t* C,
+   const std::int32_t* col_offsets,
+   const BIAS_TYPE* bias,
+   bool fuse_relu = false,
+   const float* act_times_w_scale = nullptr,
+   int thread_id = 0,
+   int num_threads = 1);
+
 } // namespace fbgemm
