@@ -354,6 +354,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
         a_symmetric ? nullptr : col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
+        1.0f, /* act_scale * w_scale */
         0,
         1);
 
@@ -486,7 +487,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
         col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
-        nullptr,
+        nullptr, /* act_scale * w_scale */
         0,
         1);
 
@@ -621,6 +622,7 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
         col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
+        nullptr, /* act_scale * w_scale */
         0,
         1);
 
