@@ -80,7 +80,7 @@ int main() {
       {3,
        "AVX512",
        {
-           // 6x2 register layout
+           // 14x2 register layout
            {1, 2, 0},
            {2, 2, 0},
            {3, 2, 0},
