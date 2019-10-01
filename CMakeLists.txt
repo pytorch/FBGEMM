@@ -85,9 +85,7 @@ set(FBGEMM_AVX2_SRCS
   src/UtilsAvx2.cc)
 
 #All the source files that use avx512 instructions statically
-set(FBGEMM_AVX512_SRCS
-  src/FbgemmFP16UKernelsAvx512.cc
-  src/UtilsAvx512.cc)
+set(FBGEMM_AVX512_SRCS src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
