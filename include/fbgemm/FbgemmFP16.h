@@ -9,7 +9,6 @@
 // WARNING: this is a legacy fp16 fbgemm implementation and will soon be
 // upgraded to match with new fbgemm interface.
 
-#include <cpuinfo.h>
 #include <cassert>
 #include <cstdlib>
 #include <memory>
@@ -82,10 +81,7 @@ class PackedGemmMatrixFP16 {
   }
 
   void initializeParam() {
-    if (!cpuinfo_initialize()) {
-      throw std::runtime_error("Failed to initialize cpuinfo!");
-    }
-    bcol_ = (fbgemmHasAvx512Support() ? 16 : 8) * kernelNumColBlocks();
+    bcol_ = 8 * kernelNumColBlocks();
 
     // set up internal packing parameters
     nbrow_ = ((numRows() % blockRowSize()) == 0)
