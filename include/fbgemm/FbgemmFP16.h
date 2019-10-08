@@ -47,12 +47,11 @@ class PackedGemmMatrixFP16 {
       const int ncol,
       const float alpha,
       const float* smat,
-      const int brow = 512,
-      const int kernel_ncol_blocks = 2)
+      const int brow = 512)
       : nrow_(nrow),
         ncol_(ncol),
         brow_(brow),
-        kernel_ncol_blocks_(kernel_ncol_blocks) {
+        kernel_ncol_blocks_(2) {
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
@@ -67,8 +66,7 @@ class PackedGemmMatrixFP16 {
       const int bcol,
       const int nbrow,
       const int nbcol,
-      const uint64_t size,
-      const int kernel_ncol_blocks = 2)
+      const uint64_t size)
       : nrow_(nrow),
         ncol_(ncol),
         brow_(brow),
@@ -77,7 +75,7 @@ class PackedGemmMatrixFP16 {
         nbrow_(nbrow),
         nbcol_(nbcol),
         size_(size),
-        kernel_ncol_blocks_(kernel_ncol_blocks) {
+        kernel_ncol_blocks_(2) {
     initializeMemory();
   }
 
