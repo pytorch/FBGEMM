@@ -506,47 +506,35 @@ FBGEMM_API void cblas_gemm_compute(
               int rem = n - last_blk_col;
               assert(rem < kernel_ncols);
 
-              if ((rem % Bp.blockColSize()) == 0) {
-                // FIXME : can't happen
-                gp.B = &(Bp(k_ind, last_blk_col));
-                gp.C = &C[m2 * ldc + last_blk_col];
-                gp.b_block_cols = 1;
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-                ref_kernel(kernel_nrows, &gp, C, m, n, use_avx512);
-#else
-                kernels[kernel_nrows](&gp);
-#endif
-              } else {
-                // small temporary buffer: the size should be larger than the
-                // required kernel_nrow x kernel_ncols elements computed in the
-                // registers.
-                float c_tmp[14 * 32] = {0};
-                assert(
-                    sizeof(c_tmp) / sizeof(c_tmp[0]) >=
-                    kernel_nrows * kernel_ncols);
+              // small temporary buffer: the size should be larger than the
+              // required kernel_nrow x kernel_ncols elements computed in the
+              // registers.
+              float c_tmp[14 * 32] = {0};
+              assert(
+                  sizeof(c_tmp) / sizeof(c_tmp[0]) >=
+                  kernel_nrows * kernel_ncols);
 
-                gp.B = &(Bp(k_ind, last_blk_col));
-                gp.C = c_tmp;
-                gp.ldc = kernel_ncols * sizeof(C[0]);
-                gp.b_block_cols = 1;
+              gp.B = &(Bp(k_ind, last_blk_col));
+              gp.C = c_tmp;
+              gp.ldc = kernel_ncols * sizeof(C[0]);
+              gp.b_block_cols = 1;
 #ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-                ref_kernel(kernel_nrows, &gp, c_tmp, 14, 32, use_avx512);
+              ref_kernel(kernel_nrows, &gp, c_tmp, 14, 32, use_avx512);
 #else
-                kernels[kernel_nrows](&gp);
+              kernels[kernel_nrows](&gp);
 #endif
-                for (int i = 0; i < kernel_nrows; i++) {
-                  // Todo: use assembly
-                  for (int j = last_blk_col; j < n; j++) {
-                    assert(
-                        i * kernel_ncols + (j - last_blk_col) <
-                        sizeof(c_tmp) / sizeof(c_tmp[0]));
-                    if (accum == 0) {
-                      C[(m2 + i) * ldc + j] =
-                          c_tmp[i * kernel_ncols + (j - last_blk_col)];
-                    } else {
-                      C[(m2 + i) * ldc + j] = beta_ * C[(m2 + i) * ldc + j] +
-                          c_tmp[i * kernel_ncols + (j - last_blk_col)];
-                    }
+              for (int i = 0; i < kernel_nrows; i++) {
+                // Todo: use assembly
+                for (int j = last_blk_col; j < n; j++) {
+                  assert(
+                      i * kernel_ncols + (j - last_blk_col) <
+                      sizeof(c_tmp) / sizeof(c_tmp[0]));
+                  if (accum == 0) {
+                    C[(m2 + i) * ldc + j] =
+                        c_tmp[i * kernel_ncols + (j - last_blk_col)];
+                  } else {
+                    C[(m2 + i) * ldc + j] = beta_ * C[(m2 + i) * ldc + j] +
+                        c_tmp[i * kernel_ncols + (j - last_blk_col)];
                   }
                 }
               }
