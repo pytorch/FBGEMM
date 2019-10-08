@@ -40,9 +40,6 @@ class FBGemmFP16Test
       int n = dnk(generator);
       int k = dnk(generator);
       shapes.push_back({m, n, k});
-      if (m > 10) {
-        shapes.push_back({(m / 10) * 10, n, k});
-      }
     }
     return shapes;
   }
