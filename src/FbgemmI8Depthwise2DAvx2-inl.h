@@ -9,6 +9,7 @@
 #include <tuple> // for tie
 
 #include "src/FbgemmI8DepthwiseAvx2-inl.h"
+#include "src/MaskAvx2.h"
 
 namespace fbgemm {
 
@@ -44,8 +45,8 @@ static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
       _mm256_set1_epi8(static_cast<std::uint8_t>(A_zero_point));
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
-    mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
+    mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -156,8 +157,8 @@ static inline __attribute__((always_inline)) void inner_prod_5x5_packed_(
       _mm256_set1_epi8(static_cast<std::uint8_t>(A_zero_point));
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
-    mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
+    mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler
@@ -1600,24 +1601,24 @@ FBGEMM_API void depthwise_3x3_pad_1(
 
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_3x3_per_channel_quantization_pad_1(
-   int N,
-   int H,
-   int W,
-   int K,
-   int stride_h,
-   int stride_w,
-   std::int32_t A_zero_point,
-   const std::uint8_t* A,
-   const std::int32_t* B_zero_point,
-   const PackedDepthWiseConvMatrix& Bp,
-   const float* C_multiplier,
-   std::int32_t C_zero_point,
-   std::uint8_t* C,
-   const std::int32_t* col_offsets,
-   const BIAS_TYPE* bias,
-   bool fuse_relu = false,
-   const float* act_times_w_scale = nullptr,
-   int thread_id = 0,
-   int num_threads = 1);
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    const float* act_times_w_scale = nullptr,
+    int thread_id = 0,
+    int num_threads = 1);
 
 } // namespace fbgemm
