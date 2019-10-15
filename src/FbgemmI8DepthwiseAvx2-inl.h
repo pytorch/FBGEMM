@@ -16,21 +16,6 @@
 
 namespace fbgemm {
 
-// clang-format off
-static int masks[8][8] = {
-  // NOTE: clang-format wants to use a different formatting but the current
-  // formatting should be easier to read.
-  {  0,  0,  0,  0,  0,  0,  0,  0,  },
-  { -1,  0,  0,  0,  0,  0,  0,  0,  },
-  { -1, -1,  0,  0,  0,  0,  0,  0,  },
-  { -1, -1, -1,  0,  0,  0,  0,  0,  },
-  { -1, -1, -1, -1,  0,  0,  0,  0,  },
-  { -1, -1, -1, -1, -1,  0,  0,  0,  },
-  { -1, -1, -1, -1, -1, -1,  0,  0,  },
-  { -1, -1, -1, -1, -1, -1, -1,  0,  },
-};
-// clang-format on
-
 // c = a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
 // A is in uint8_t
 // B is in int8_t and pre-interleaved

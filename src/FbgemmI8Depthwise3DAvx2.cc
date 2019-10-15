@@ -10,6 +10,7 @@
 #include <tuple> // for tie
 
 #include "FbgemmI8DepthwiseAvx2-inl.h"
+#include "MaskAvx2.h"
 
 using namespace std;
 
@@ -37,8 +38,8 @@ static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
   __m256i A_zero_point_v = _mm256_set1_epi8(static_cast<uint8_t>(A_zero_point));
   __m256i mask_v = _mm256_setzero_si256();
   if (REMAINDER) {
-    mask_v = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(masks[remainder / 4]));
+    mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[remainder / 4]));
   }
 
   // The code below can be written as a simple R*S loop but the compiler

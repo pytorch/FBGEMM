@@ -10,6 +10,7 @@
 #include <algorithm> //for std::min/std::max
 #include <cmath> //for nearbyint
 #include <limits> //for numeric_limits
+#include "MaskAvx2.h"
 #include "fbgemm/Fbgemm.h" //for ReQuantizeOutput
 
 namespace fbgemm {
@@ -99,19 +100,16 @@ void QuantizeAvx2(
 }
 
 // Instantiate QuantizeAvx2 for known datatypes
-template
-void QuantizeAvx2<uint8_t>(
+template void QuantizeAvx2<uint8_t>(
     const float* src,
     uint8_t* dst,
     int len,
     const TensorQuantizationParams& qparams);
-template
-void QuantizeAvx2<int8_t>(
+template void QuantizeAvx2<int8_t>(
     const float* src,
     int8_t* dst,
     int len,
     const TensorQuantizationParams& qparams);
-
 
 void FindMinMax(const float* a, float* min, float* max, int len) {
   if (len <= 0) {
@@ -160,7 +158,7 @@ void RequantizeAvx2(
     int len,
     const RequantizationParams& params) {
   DoNothing<> doNothingObj{};
-  int32_t Bq_zero_point[] = { 0 };
+  int32_t Bq_zero_point[] = {0};
   ReQuantizeOutput<false /* FUSE_RELU */> requantizeObj(
       doNothingObj,
       &params.real_multiplier,
@@ -670,29 +668,14 @@ void requantizeOutputProcessingAvx2(
 
     int remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
-      // clang-format off
-      alignas(64) const int masks[8][8] = {
-        // NOTE: clang-format wants to use a different formatting but the
-        // current formatting should be easier to read.
-        {  0,  0,  0,  0,  0,  0,  0,  0,  },
-        { -1,  0,  0,  0,  0,  0,  0,  0,  },
-        { -1, -1,  0,  0,  0,  0,  0,  0,  },
-        { -1, -1, -1,  0,  0,  0,  0,  0,  },
-        { -1, -1, -1, -1,  0,  0,  0,  0,  },
-        { -1, -1, -1, -1, -1,  0,  0,  0,  },
-        { -1, -1, -1, -1, -1, -1,  0,  0,  },
-        { -1, -1, -1, -1, -1, -1, -1,  0,  },
-      };
-      // clang-format on
-      __m256i mask_v = _mm256_load_si256(
-          reinterpret_cast<const __m256i*>(masks[remainder]));
+      __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+          internal::avx2_ps_or_epi32_masks[remainder]));
 
       __m256i x_v = _mm256_maskload_epi32(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start),
-          mask_v);
+          inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
 
       if (!A_SYMMETRIC) {
-         __m256i col_off_v = _mm256_mullo_epi32(
+        __m256i col_off_v = _mm256_mullo_epi32(
             A_zero_point_v, _mm256_maskload_epi32(r.col_offsets + j, mask_v));
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
@@ -880,29 +863,14 @@ void requantizeForFloatAvx2(
 
     int remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
-      // clang-format off
-      alignas(64) const int masks[8][8] = {
-        // NOTE: clang-format wants to use a different formatting but the
-        // current formatting should be easier to read.
-        {  0,  0,  0,  0,  0,  0,  0,  0,  },
-        { -1,  0,  0,  0,  0,  0,  0,  0,  },
-        { -1, -1,  0,  0,  0,  0,  0,  0,  },
-        { -1, -1, -1,  0,  0,  0,  0,  0,  },
-        { -1, -1, -1, -1,  0,  0,  0,  0,  },
-        { -1, -1, -1, -1, -1,  0,  0,  0,  },
-        { -1, -1, -1, -1, -1, -1,  0,  0,  },
-        { -1, -1, -1, -1, -1, -1, -1,  0,  },
-      };
-      // clang-format on
-      __m256i mask_v = _mm256_load_si256(
-          reinterpret_cast<const __m256i*>(masks[remainder]));
+      __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+          internal::avx2_ps_or_epi32_masks[remainder]));
 
       __m256i x_v = _mm256_maskload_epi32(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start),
-          mask_v);
+          inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
 
       if (!A_SYMMETRIC) {
-         __m256i col_off_v = _mm256_mullo_epi32(
+        __m256i col_off_v = _mm256_mullo_epi32(
             A_zero_point_v, _mm256_maskload_epi32(r.col_offsets + j, mask_v));
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
