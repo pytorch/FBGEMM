@@ -180,9 +180,9 @@ void transpose_simd(
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
-      internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
+      internal::transpose_16x16(M, N, src, ld_src, dst, ld_dst);
     } else if (fbgemmHasAvx2Support()) {
-      internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
+      internal::transpose_8x8(M, N, src, ld_src, dst, ld_dst);
     } else {
       transpose_ref(M, N, src, ld_src, dst, ld_dst);
       return;
