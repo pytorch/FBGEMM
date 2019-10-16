@@ -13,7 +13,7 @@ namespace internal {
 // A constant array to initialize an AVX2 register to be used as a 32-bit
 // granularity mask.
 // clang-format off
-alignas(64) static const int avx2_ps_or_epi32_masks[9][8] = {
+alignas(64) static const int avx2_ps_or_epi32_masks[8][8] = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
   {  0,  0,  0,  0,  0,  0,  0,  0,  },
@@ -24,7 +24,6 @@ alignas(64) static const int avx2_ps_or_epi32_masks[9][8] = {
   { -1, -1, -1, -1, -1,  0,  0,  0,  },
   { -1, -1, -1, -1, -1, -1,  0,  0,  },
   { -1, -1, -1, -1, -1, -1, -1,  0,  },
-  { -1, -1, -1, -1, -1, -1, -1, -1,  },
 };
 // clang-format on
 
