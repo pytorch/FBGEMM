@@ -1627,7 +1627,7 @@ void fbgemmGroupwiseConvBase_(
               W,
               rowOffsetBuf);
           // Transpose to get row offsets in the format G x IH*IW
-          internal::transpose_8x8(
+          internal::transpose_avx2(
               ih_iw,
               8,
               reinterpret_cast<const float*>(rowOffsetBuf),
@@ -1843,7 +1843,7 @@ void fbgemmGroupwiseConv(
         fpRowoffset(
             actStartBatch + gOuter * C_per_G, a_zero_point, H, W, rowOffsetBuf);
         // Transpose to get row offsets in the format G x IH*IW
-        internal::transpose_8x8(
+        internal::transpose_avx2(
             ih_iw,
             8,
             reinterpret_cast<const float*>(rowOffsetBuf),
