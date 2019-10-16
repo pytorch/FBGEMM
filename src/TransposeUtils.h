@@ -32,7 +32,7 @@ namespace internal {
  *
  * This is called if the code is running on a CPU with Intel AVX2 support.
  */
-void transpose_8x8(
+void transpose_avx2(
     int M,
     int N,
     const float* src,
@@ -45,7 +45,7 @@ void transpose_8x8(
  *
  * This is called if the code is running on a CPU with Intel AVX512 support.
  */
-void transpose_16x16(
+void transpose_avx512(
     int M,
     int N,
     const float* src,
