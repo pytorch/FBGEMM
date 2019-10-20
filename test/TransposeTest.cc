@@ -24,7 +24,7 @@ TEST(TransposeTest, TransposeTest) {
     int n = dist(generator);
     int ld_src = n + dist(generator);
     int ld_dst = m + dist(generator);
-    shapes.push_back({m, n, ld_src, ld_dst});
+    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
   }
 
   for (const auto& shape : shapes) {
