@@ -21,7 +21,7 @@ void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  normal_distribution dist;
+  normal_distribution<float> dist;
   default_random_engine engine;
 
   cout << setw(4) << "M" << setw(4) << "N" << " B_elements_per_sec" << endl;
