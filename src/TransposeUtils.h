@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+#include "fbgemm/FbgemmBuild.h"
 
 namespace fbgemm {
 
@@ -17,7 +18,7 @@ namespace fbgemm {
  * @param dst The memory buffer of the destination matrix B.
  * @param ld_dst The leading dimension of the destination matrix B.
  */
-void transpose_ref(
+FBGEMM_API void transpose_ref(
     int M,
     int N,
     const float* src,

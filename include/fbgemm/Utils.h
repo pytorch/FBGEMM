@@ -82,7 +82,7 @@ void printMatrix(
  * @param M the number of rows of input matrix
  * @param N the number of columns of input matrix
  */
-void transpose_simd(
+FBGEMM_API void transpose_simd(
     int M,
     int N,
     const float* src,
