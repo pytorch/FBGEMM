@@ -416,7 +416,7 @@ FBGEMM_API void cblas_gemm_compute(
       use_avx512 ? KernelInfo::partition_avx512 : KernelInfo::partition_avx2;
 
   int i_begin, i_end;
-  // fbgemmGetRange(num_threads, thread_id, m, 1, i_begin, i_end);
+  // fbgemmPartition1D(thread_id, num_threads, m, i_begin, i_end);
   i_begin = 0;
   i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
@@ -470,8 +470,8 @@ FBGEMM_API void cblas_gemm_compute(
 
           if ((n % Bp.blockColSize()) == 0) {
             int jb_begin, jb_end;
-            fbgemmGetRange(
-                num_threads, thread_id, gp.b_block_cols, 1, jb_begin, jb_end);
+            fbgemmPartition1D(
+                thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
             gp.B += gp.k * Bp.blockColSize() * jb_begin;
             gp.C += Bp.blockColSize() * jb_begin;
             gp.b_block_cols = jb_end - jb_begin;
@@ -486,8 +486,8 @@ FBGEMM_API void cblas_gemm_compute(
             int last_blk_col = nbcol * Bp.blockColSize();
             if (nbcol) {
               int jb_begin, jb_end;
-              fbgemmGetRange(
-                  num_threads, thread_id, gp.b_block_cols, 1, jb_begin, jb_end);
+              fbgemmPartition1D(
+                  thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
               gp.B += gp.k * Bp.blockColSize() * jb_begin;
               gp.C += Bp.blockColSize() * jb_begin;
               gp.b_block_cols = jb_end - jb_begin;

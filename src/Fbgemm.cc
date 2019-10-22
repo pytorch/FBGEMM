@@ -140,7 +140,7 @@ void fbgemmPacked(
     // When G >= nthreads, just parallelize over G
     // TODO: when G == nthreads + 1, we'll have a big load imbalance because
     // only one thread will get 2 groups.
-    fbgemmGetRange(num_threads, thread_id, G, 1, g_begin, g_end);
+    fbgemmPartition1D(thread_id, num_threads, G, g_begin, g_end);
     i_begin = 0;
     i_end = MDim;
   } else {
@@ -157,8 +157,8 @@ void fbgemmPacked(
         num_threads);
     int nthreads_within_group = tid_of_g_end - tid_of_g_begin;
     int tid_within_group = thread_id - tid_of_g_begin;
-    fbgemmGetRange(
-        nthreads_within_group, tid_within_group, MDim, MR, i_begin, i_end);
+    fbgemmPartition1DBlocked(
+        tid_within_group, nthreads_within_group, MDim, MR, i_begin, i_end);
   }
 
   for (int g = g_begin; g < g_end; ++g) {

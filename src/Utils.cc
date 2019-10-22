@@ -205,4 +205,35 @@ bool fbgemmHasAvx2Support() {
 bool fbgemmHasAvx512VnniSupport() {
   return (cpuinfo_has_x86_avx512vnni());
 }
+
+void fbgemmPartition1D(
+    int thread_id,
+    int num_threads,
+    int total_work,
+    int& start,
+    int& end) {
+  int work_per_thread = std::ceil(static_cast<float>(total_work) / num_threads);
+  start = std::min(thread_id * work_per_thread, total_work);
+  end = std::min((thread_id + 1) * work_per_thread, total_work);
+}
+
+void fbgemmPartition1DBlocked(
+    int thread_id,
+    int num_threads,
+    int total_work,
+    int block_size,
+    int& start,
+    int& end) {
+  if (block_size == 1) {
+    return fbgemmPartition1D(thread_id, num_threads, total_work, start, end);
+  }
+  int total_work_in_blocks = total_work / block_size;
+  int start_block, end_block;
+  fbgemmPartition1D(
+      thread_id, num_threads, total_work_in_blocks, start_block, end_block);
+  start = std::min(start_block * block_size, total_work);
+  end = thread_id == num_threads - 1
+      ? std::max(end_block * block_size, total_work)
+      : std::min(end_block * block_size, total_work);
+}
 } // namespace fbgemm

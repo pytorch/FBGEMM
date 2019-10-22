@@ -183,4 +183,64 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
   }
   return true;
 }
+
+/**
+ * @brief Partition work across given number of threads
+ *
+ * @param start Given thread_id should execute starting from the index
+ *              start
+ * @param stop Given thread_id should stop executing at the index stop
+ *
+ * i.e., the loop should be equivalent to for(int i = start; i < end; ++i)
+ */
+FBGEMM_API void fbgemmPartition1D(
+    int thread_id,
+    int num_threads,
+    int total_work,
+    int& start,
+    int& end);
+
+/**
+ * @brief Partition work across given number of threads in blocks
+ *        of size block_size. Each thread gets a multiple of block_size
+ *        work or nothing, except the last one. The last one might
+ *        receive the fringe case.
+ *
+ * @param start Given thread_id should execute starting from the index
+ *              start
+ * @param stop Given thread_id should stop executing at the index stop
+ *
+ * The loop can be equivalent to for(int i = start; i < end; i+=block_size)
+ * except for the last thread. (i.e., thread_id = num_threads - 1)
+ *
+ * Example 1: block_size = 2, num_threads = 2
+ *  total_work  start(th 0) end(th 0) start(th 1) end(th 1)
+ *      4         0           2          2          4
+ *      5         0           2          2          5
+ *
+ * Example 2: block_size = 2, num_threads = 3
+ *  total_work  start(th 0) end(th 0) start(th 1) end(th 1)
+ *      4         0           2          2          4
+ *      5         0           2          2          4
+ *
+ *  total_work  start(th 2) end(th 2)
+ *      4         4           4
+ *      5         4           5
+ *
+ * Example 3: block_size = 2, num_threads = 4
+ *  total_work  start(th 0) end(th 0) start(th 1) end(th 1)
+ *      4         0           2          2          4
+ *      5         0           2          2          4
+ *
+ *  total_work  start(th 2) end(th 2) start(th 3) end(th 3)
+ *      4         4           4          4          4
+ *      5         4           4          4          5
+ */
+FBGEMM_API void fbgemmPartition1DBlocked(
+    int thread_id,
+    int num_threads,
+    int total_work,
+    int block_size,
+    int& start,
+    int& end);
 } // namespace fbgemm
