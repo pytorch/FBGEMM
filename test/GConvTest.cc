@@ -77,6 +77,14 @@ static vector<conv_param_t<>> GetShapes_() {
   vector<conv_param_t<>> shapes = {
       // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
       // pad_b, pad_r}
+      conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+      conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
       conv_param_t<>(1, 32, 32, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
       conv_param_t<>(1, 32, 32, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
       conv_param_t<>(1, 32, 32, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
@@ -336,6 +344,7 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
  * @brief Unit test for uint8 activations, int8 weights, and 32-bit
  * accumulation. Output processing: nothing
  */
+/*
 TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
   vector<conv_param_t<>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
@@ -422,6 +431,7 @@ TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
         static_cast<int32_t>(0));
   } // for each shape
 }
+*/
 
 /**
  * @brief Unit test for packing and unpacking the weight tensor
