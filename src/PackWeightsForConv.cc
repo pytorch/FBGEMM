@@ -4,9 +4,10 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include "fbgemm/Fbgemm.h"
+
 #include <algorithm>
 #include <memory>
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
@@ -23,10 +24,11 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
   // FbgemmConv.cc
   switch (ConvFastPath<SPATIAL_DIM, accT>(conv_p)) {
     case optimized_conv_t::depthwise: {
+      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
+      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       W_dw_packed_ = std::make_shared<PackedDepthWiseConvMatrix>(
-          conv_p.G,
-          SPATIAL_DIM == 3 ? 3 * 3 * 3 : conv_p.K[0] * conv_p.K[1],
-          sdata);
+          conv_p.G, kernel_d * kernel_h * kernel_w, sdata);
       break;
     }
     case optimized_conv_t::groupwise: {
@@ -36,28 +38,34 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       break;
     }
     case optimized_conv_t::pointwise: {
-      int NDim = conv_p.OC / conv_p.G;
-      int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
+      const int N = conv_p.OC / conv_p.G;
+      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
+      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
+      const int K = kernel_d * kernel_h * kernel_w * conv_p.IC;
       W_pointwise_packed_ = std::make_shared<PackBMatrix<T, accT>>(
           matrix_op_t::Transpose,
-          KDim,
-          NDim,
+          K,
+          N,
           sdata,
-          KDim / conv_p.G,
+          K / conv_p.G,
           nullptr,
           conv_p.G,
           blocking_params);
       break;
     }
     case optimized_conv_t::im2col: {
-      int NDim = conv_p.OC / conv_p.G;
-      int KDim = conv_p.K[0] * conv_p.K[1] * conv_p.IC;
+      const int N = conv_p.OC / conv_p.G;
+      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
+      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
+      const int K = kernel_d * kernel_h * kernel_w * conv_p.IC;
       W_im2col_packed_ = std::make_shared<PackBMatrix<T, accT>>(
           matrix_op_t::Transpose,
-          KDim,
-          NDim,
+          K,
+          N,
           sdata,
-          KDim / conv_p.G,
+          K / conv_p.G,
           nullptr,
           conv_p.G,
           blocking_params);
