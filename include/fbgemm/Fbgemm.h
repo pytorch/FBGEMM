@@ -512,6 +512,13 @@ class FBGEMM_API PackWeightMatrixForGConv {
       inpType* pdata = nullptr);
 
   /**
+   * Number of groups we work at a time to fill the full simd width
+   * e.g., IC_PER_G = 4 and OC_PER_G = 4, we work on two groups at a time
+   * to fill the avx2 width of 256 bits.
+   */
+  static int numOfGroupsTogether(const conv_param_t<SPATIAL_DIM>& conv_param);
+
+  /**
    * @brief Packs a block of source matrix into pmat buffer.
    */
   void pack();
@@ -540,6 +547,8 @@ class FBGEMM_API PackWeightMatrixForGConv {
   const T* sdata_;
   T* pdata_;
   bool bufAllocatedHere_;
+  // Number of groups we work at a time to fill the full simd width
+  int GTogether_;
 
   /**
    * @brief Internal function performing both pack & unpack
