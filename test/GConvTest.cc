@@ -44,7 +44,7 @@ class fbgemmGConvAcc32WithQuantGranularityTest
           bool,
           bool>> {};
 class fbgemmGConvPackTest
-    : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
+    : public testing::TestWithParam<matrix_op_t> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -67,58 +67,103 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     fbgemmGConvPackTest,
-    ::testing::Combine(
-        ::testing::Values(matrix_op_t::NoTranspose),
-        ::testing::ValuesIn(transposeVals)));
+    ::testing::ValuesIn(transposeVals));
 /**
- * @brief Shapes for unit test.
+ * @brief 3D Shapes for unit test.
  */
-static vector<conv_param_t<>> GetShapes_() {
-  vector<conv_param_t<>> shapes = {
-      // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
-      // pad_b, pad_r}
-      conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 32, 32, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 8, 8, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // the line below is from resnext101-32x4d
-      conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+template <int SPATIAL_DIM>
+static typename std::enable_if<SPATIAL_DIM == 3, vector<conv_param_t<3>>>::type
+GetShapes_() {
+  // clang-format off
+    vector<conv_param_t<3>> shapes = {
+        // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW},
+        // {stride_t, stride_h, stride_w}, {pad_p, pad_t, pad_l,
+        //                                  pad_n, pad_b, pad_r}
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 8, {3, 3, 3},
+            {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 4, {3, 3, 3},
+            {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 2, {3, 3, 3},
+            {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 1, {3, 3, 3},
+            {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 8, {3, 3, 3},
+            {2, 2, 2}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 4, {3, 3, 3},
+            {2, 2, 2}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 2, {3, 3, 3},
+            {2, 2, 2}, {1, 1, 1, 1, 1, 1}),
+        conv_param_t<3>(1, 16, 16, {5, 5, 5}, 1, {3, 3, 3},
+            {2, 2, 2}, {1, 1, 1, 1, 1, 1})
+      };
+    return shapes;
+    // clang-format off
+}
 
-      // The following lines are commented to reduce test time but still valid
-      // when we want more extensive testings.
-      // conv_param_t<>(1, 64, 64, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 64, 64, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 64, 64, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 64, 64, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 256, 256, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 256, 256, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(2, 256, 256, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+/**
+ * @brief 2D Shapes for unit test.
+ */
+template <int SPATIAL_DIM = 2>
+static typename std::enable_if<SPATIAL_DIM == 2, vector<conv_param_t<2>>>::type
+GetShapes_() {
+    vector<conv_param_t<>> shapes = {
+        // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w},
+        // {pad_t, pad_l, pad_b, pad_r}
+        conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 4, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 16, 16, {5, 5}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 32, 32, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 32, 32, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 32, 32, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 32, 32, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 8, 8, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // the line below is from resnext101-32x4d
+        conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
 
-      // conv_param_t<>(1, 128, 128, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 128, 128, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 128, 128, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 128, 128, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 32, 32, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 512, 512, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 512, 512, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 512, 512, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(2, 512, 512, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-  };
-  return shapes;
+        // The following lines are commented to reduce test time but still valid
+        // when we want more extensive testings.
+        // conv_param_t<>(1, 64, 64, {3, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // conv_param_t<>(1, 64, 64, {4, 4}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // conv_param_t<>(1, 64, 64, {3, 5}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // conv_param_t<>(1, 64, 64, {5, 3}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // conv_param_t<>(1, 16, 16, {5, 5}, 2, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+        // conv_param_t<>(1, 256, 256, {56, 48}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 256, 256, {48, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(2, 256, 256, {56, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+
+        // conv_param_t<>(1, 128, 128, {3, 3}, 8, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 128, 128, {4, 4}, 8, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 128, 128, {3, 5}, 8, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 128, 128, {5, 3}, 8, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 32, 32, {5, 5}, 2, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 512, 512, {56, 48}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 512, 512, {48, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(1, 512, 512, {56, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+        // conv_param_t<>(2, 512, 512, {56, 56}, 32, {3, 3}, {1, 1},
+        // {1, 1, 1, 1}),
+    };
+    return shapes;
 }
 
 /**
@@ -433,31 +478,28 @@ TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
 }
 */
 
-/**
- * @brief Unit test for packing and unpacking the weight tensor
- */
-TEST_P(fbgemmGConvPackTest, PackUnpackTest) {
-  vector<conv_param_t<>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
-  tie(atrans, btrans) = GetParam();
+template <int SPATIAL_DIM = 2>
+void runPackUnpackTest(matrix_op_t btrans) {
+  vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
 
   for (auto conv_p : shapes) {
-    int R = conv_p.K[0];
-    int S = conv_p.K[1];
+    int T = SPATIAL_DIM == 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
+    int R = conv_p.K[SPATIAL_DIM - 2];
+    int S = conv_p.K[SPATIAL_DIM - 1];
     int IC_per_G = conv_p.IC / conv_p.G;
     int OC_per_G = conv_p.OC / conv_p.G;
 
     // Weights -- test the packing/unpacking of only the weights
-    // when btrans == Transpose, the weight matrix is in layout G K/G (R S C/G)
-    // instead of G (R S C/G) K/G
-    int weight_len = R * S * conv_p.G * IC_per_G * OC_per_G;
+    // when btrans == Transpose, the weight matrix is in
+    // layout G K/G (T R S C/G) instead of G (T R S C/G) K/G
+    int weight_len = T * R * S * conv_p.G * IC_per_G * OC_per_G;
     aligned_vector<int8_t> Bint8(weight_len, 0);
 
     // Random fill the weights
     randFill<int8_t>(Bint8, -4, 4);
 
     // Instantiate the object
-    PackWeightMatrixForGConv<int8_t> packedWeights(
+    PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM> packedWeights(
         btrans, conv_p, Bint8.data(), nullptr);
 
     // Setup a buffer to get pack -> unpacked results
@@ -479,4 +521,13 @@ TEST_P(fbgemmGConvPackTest, PackUnpackTest) {
         << ", Pack-Unpacked: " << static_cast<int>(unpack_buf.data()[i]);
     }
   } // for each shape
+}
+
+/**
+ * @brief Unit test for packing and unpacking the weight tensor
+ */
+TEST_P(fbgemmGConvPackTest, PackUnpackTest) {
+  matrix_op_t btrans = GetParam();
+  runPackUnpackTest<2>(btrans);
+  runPackUnpackTest<3>(btrans);
 }

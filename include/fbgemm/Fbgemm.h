@@ -558,13 +558,12 @@ class FBGEMM_API PackWeightMatrixForGConv {
   /**
    * @brief Get the index of the unpacked data
    */
-  int unpacked_index_(int r, int s, int k, int g, int c, bool tr);
+  int unpacked_index_(int t, int r, int s, int k, int g, int c, bool tr);
 
   /**
    * @brief Get the index of the packed data
    */
-  int packed_index_(int r, int s, int k, int g, int c);
-
+  int packed_index_(int t, int r, int s, int k, int g, int c);
 };
 
 /**
