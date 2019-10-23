@@ -212,7 +212,7 @@ void fbgemmPartition1D(
     int total_work,
     int& start,
     int& end) {
-  int work_per_thread = std::ceil(static_cast<float>(total_work) / num_threads);
+  int work_per_thread = (total_work + num_threads - 1) / num_threads;
   start = std::min(thread_id * work_per_thread, total_work);
   end = std::min((thread_id + 1) * work_per_thread, total_work);
 }
