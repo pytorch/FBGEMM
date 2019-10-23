@@ -967,19 +967,9 @@ void requantizeOutputProcessingGConvAvx2(
   constexpr int VLEN = 8;
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     int j = block.col_start;
-    for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
-         j += (VLEN * 4)) {
+    for (; j < block.col_start + (block.col_size / VLEN * VLEN); j += VLEN) {
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
-      __m256i y_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          1 * VLEN));
-      __m256i z_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          2 * VLEN));
-      __m256i w_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-          inp + (i - block.row_start) * ld_in + (j - block.col_start) +
-          3 * VLEN));
 
       if (!A_SYMMETRIC) {
         __m256i col_off_v = _mm256_mullo_epi32(
@@ -987,26 +977,24 @@ void requantizeOutputProcessingGConvAvx2(
             _mm256_loadu_si256(
                 reinterpret_cast<const __m256i*>(r.col_offsets + j)));
         x_v = _mm256_sub_epi32(x_v, col_off_v);
-        col_off_v = _mm256_mullo_epi32(
-            A_zero_point_v,
-            _mm256_loadu_si256(
-                reinterpret_cast<const __m256i*>(r.col_offsets + j + VLEN)));
-        y_v = _mm256_sub_epi32(y_v, col_off_v);
-        col_off_v = _mm256_mullo_epi32(
-            A_zero_point_v,
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.col_offsets + j + 2 * VLEN)));
-        z_v = _mm256_sub_epi32(z_v, col_off_v);
-        col_off_v = _mm256_mullo_epi32(
-            A_zero_point_v,
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-                r.col_offsets + j + 3 * VLEN)));
-        w_v = _mm256_sub_epi32(w_v, col_off_v);
       }
 
       if (!B_SYMMETRIC) {
         __m256i row_offset_v;
 
+        if (C_PER_G == 2) {
+          // When C_PER_G == 2, we need to handle 4 groups at a time to fully
+          // utilize 32B AVX2 vector register (C_PER_G * 4 * sizeof(int32_t) ==
+          // 32B)
+          // Load row_offsets for 4 groups and broadcast by 2 times.
+          row_offset_v =
+              _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(reinterpret_cast<const float*>(
+                          r.row_offsets + (i - block.row_start) * 4))),
+                  permute_mask_v)));
+
+        }
         // When C_PER_G == 4, we need to handle 2 groups at a time to fully
         // utilize 32B AVX2 vector register (C_PER_G * 2 * sizeof(int32_t) ==
         // 32B)
@@ -1014,308 +1002,93 @@ void requantizeOutputProcessingGConvAvx2(
 
         // Groups 0 and 1 when C_PER_G == 4
         // Group 0 when C_PER_G == 8
-        if (C_PER_G == 4) {
+        else if (C_PER_G == 4) {
           // Load row_offsets for 2 groups and broadcast by 4 times each because
           // we have 4 channels per group.
           // groups 0 and 1
           row_offset_v = _mm256_insertf128_si256(
               _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 0])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 1]),
+                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 0])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 1]),
               1);
         } else if (C_PER_G == 8) {
           row_offset_v =
-              _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
-                                     (j - block.col_start) / (VLEN * 4) * 4]);
+              _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
         } else {
           assert(C_PER_G == 16);
           row_offset_v =
-              _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
-                                     (j - block.col_start) / (VLEN * 4) * 2]);
+              _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
         }
+
         __m256i B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[0]);
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           B_zero_point_v = _mm256_loadu_si256(
               reinterpret_cast<const __m256i*>(r.B_zero_point + j));
         } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 4) {
+          if (C_PER_G == 2) {
+            B_zero_point_v =
+                _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                    _mm256_castps128_ps256(
+                        _mm_loadu_ps(reinterpret_cast<const float*>(
+                            r.B_zero_point + quant_param_idx))),
+                    permute_mask_v)));
+          } else if (C_PER_G == 4) {
             B_zero_point_v = _mm256_insertf128_si256(
                 _mm256_castsi128_si256(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
                 1);
           } else if (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4]);
+            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2]);
+            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           }
         }
         row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
-
-        // Groups 2 and 3 when C_PER_G == 4
-        // Group 1 when C_PER_G == 8
-        if (C_PER_G == 4) {
-          // + 2 and + 3 here are for groups 2 and 3
-          row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 2])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 3]),
-              1);
-        } else if (C_PER_G == 8) {
-          // + 1 here is for group 1
-          row_offset_v = _mm256_set1_epi32(
-              r.row_offsets
-                  [(i - block.row_start) * 8 +
-                   (j - block.col_start) / (VLEN * 4) * 4 + 1]);
-        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          row_offset_v =
-              _mm256_set1_epi32(r.row_offsets
-                                    [(i - block.row_start) * 8 +
-                                     (j - block.col_start) / (VLEN * 4) * 2]);
-        }
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          B_zero_point_v = _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(r.B_zero_point + j + VLEN));
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 4) {
-            B_zero_point_v = _mm256_insertf128_si256(
-                _mm256_castsi128_si256(
-                    _mm_set1_epi32(r.B_zero_point[quant_param_idx + 2])),
-                _mm_set1_epi32(r.B_zero_point[quant_param_idx + 3]),
-                1);
-          } else if (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                     1]);
-          }
-        }
-        if (C_PER_G != 16 || Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
-        }
-        y_v = _mm256_sub_epi32(y_v, row_offset_v);
-
-        // Groups 4 and 5 when C_PER_G == 4
-        // Group 2 when C_PER_G == 8
-        if (C_PER_G == 4) {
-          row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 4])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 5]),
-              1);
-        } else if (C_PER_G == 8) {
-          row_offset_v = _mm256_set1_epi32(
-              r.row_offsets
-                  [(i - block.row_start) * 8 +
-                   (j - block.col_start) / (VLEN * 4) * 4 + 2]);
-        } else {
-          row_offset_v = _mm256_set1_epi32(
-              r.row_offsets
-                  [(i - block.row_start) * 8 +
-                   (j - block.col_start) / (VLEN * 4) * 2 + 1]);
-        }
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          B_zero_point_v = _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(r.B_zero_point + j + 2 * VLEN));
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 4) {
-            B_zero_point_v = _mm256_insertf128_si256(
-                _mm256_castsi128_si256(
-                    _mm_set1_epi32(r.B_zero_point[quant_param_idx + 4])),
-                _mm_set1_epi32(r.B_zero_point[quant_param_idx + 5]),
-                1);
-          } else if (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                     2]);
-          } else {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2 +
-                     1]);
-          }
-        }
-        row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
-        z_v = _mm256_sub_epi32(z_v, row_offset_v);
-
-        // Groups 6 and 7 when C_PER_G == 4
-        // Group 3 when C_PER_G == 8
-        if (C_PER_G == 4) {
-          row_offset_v = _mm256_insertf128_si256(
-              _mm256_castsi128_si256(
-                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 6])),
-              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 8 + 7]),
-              1);
-        } else if (C_PER_G == 8) {
-          row_offset_v = _mm256_set1_epi32(
-              r.row_offsets
-                  [(i - block.row_start) * 8 +
-                   (j - block.col_start) / (VLEN * 4) * 4 + 3]);
-        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          row_offset_v = _mm256_set1_epi32(
-              r.row_offsets
-                  [(i - block.row_start) * 8 +
-                   (j - block.col_start) / (VLEN * 4) * 2 + 1]);
-        }
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          B_zero_point_v = _mm256_loadu_si256(
-              reinterpret_cast<const __m256i*>(r.B_zero_point + j + 3 * VLEN));
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 4) {
-            B_zero_point_v = _mm256_insertf128_si256(
-                _mm256_castsi128_si256(
-                    _mm_set1_epi32(r.B_zero_point[quant_param_idx + 6])),
-                _mm_set1_epi32(r.B_zero_point[quant_param_idx + 7]),
-                1);
-          } else if (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(
-                r.B_zero_point
-                    [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4 +
-                     3]);
-          }
-        }
-        if (C_PER_G != 16 || Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
-        }
-        w_v = _mm256_sub_epi32(w_v, row_offset_v);
       }
-      __m256 xf_v, yf_v, zf_v, wf_v;
+      __m256 xf_v;
       if (HAS_BIAS) {
         if (is_same<BIAS_TYPE, float>::value) {
-          __m256 x_bias_v = _mm256_loadu_ps(
-              reinterpret_cast<const float*>(r.bias + j + 0 * VLEN));
-          __m256 y_bias_v = _mm256_loadu_ps(
-              reinterpret_cast<const float*>(r.bias + j + 1 * VLEN));
-          __m256 z_bias_v = _mm256_loadu_ps(
-              reinterpret_cast<const float*>(r.bias + j + 2 * VLEN));
-          __m256 w_bias_v = _mm256_loadu_ps(
-              reinterpret_cast<const float*>(r.bias + j + 3 * VLEN));
+          __m256 x_bias_v =
+              _mm256_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
-                x_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j + 0 * VLEN));
-            y_bias_v = _mm256_div_ps(
-                y_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j + 1 * VLEN));
-            z_bias_v = _mm256_div_ps(
-                z_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j + 2 * VLEN));
-            w_bias_v = _mm256_div_ps(
-                w_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j + 3 * VLEN));
+                x_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j));
           } else if (Q_GRAN == QuantizationGranularity::GROUP) {
             __m256 diviser_v;
-            if (C_PER_G == 4) {
+            if (C_PER_G == 2) {
+              diviser_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(r.act_times_w_scale + quant_param_idx)),
+                  permute_mask_v));
+            } else if (C_PER_G == 4) {
               diviser_v = _mm256_insertf128_ps(
                   _mm256_castps128_ps256(
                       _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 0])),
                   _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 1]),
                   1);
-              x_bias_v = _mm256_div_ps(x_bias_v, diviser_v);
-
-              diviser_v = _mm256_insertf128_ps(
-                  _mm256_castps128_ps256(
-                      _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 2])),
-                  _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 3]),
-                  1);
-              y_bias_v = _mm256_div_ps(y_bias_v, diviser_v);
-
-              diviser_v = _mm256_insertf128_ps(
-                  _mm256_castps128_ps256(
-                      _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 4])),
-                  _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 5]),
-                  1);
-              z_bias_v = _mm256_div_ps(z_bias_v, diviser_v);
-
-              diviser_v = _mm256_insertf128_ps(
-                  _mm256_castps128_ps256(
-                      _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 6])),
-                  _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 7]),
-                  1);
-              w_bias_v = _mm256_div_ps(w_bias_v, diviser_v);
 
             } else if (C_PER_G == 8) {
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 4 + 0]);
-              x_bias_v = _mm256_div_ps(x_bias_v, diviser_v);
-
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 4 + 1]);
-              y_bias_v = _mm256_div_ps(y_bias_v, diviser_v);
-
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 4 + 2]);
-              z_bias_v = _mm256_div_ps(z_bias_v, diviser_v);
-
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 4 + 3]);
-              w_bias_v = _mm256_div_ps(w_bias_v, diviser_v);
+              diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);
 
             } else {
               assert(C_PER_G == 16);
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 2 + 0]);
-              x_bias_v = _mm256_div_ps(x_bias_v, diviser_v);
-              y_bias_v = _mm256_div_ps(y_bias_v, diviser_v);
-
-              diviser_v = _mm256_set1_ps(
-                  r.act_times_w_scale
-                      [quant_param_idx +
-                       (j - block.col_start) / (VLEN * 4) * 2 + 1]);
-              z_bias_v = _mm256_div_ps(z_bias_v, diviser_v);
-              w_bias_v = _mm256_div_ps(w_bias_v, diviser_v);
+              diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);
             }
+            x_bias_v = _mm256_div_ps(x_bias_v, diviser_v);
           } else {
             x_bias_v = _mm256_mul_ps(x_bias_v, act_times_w_rcp_v);
-            y_bias_v = _mm256_mul_ps(y_bias_v, act_times_w_rcp_v);
-            z_bias_v = _mm256_mul_ps(z_bias_v, act_times_w_rcp_v);
-            w_bias_v = _mm256_mul_ps(w_bias_v, act_times_w_rcp_v);
           }
           xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), x_bias_v);
-          yf_v = _mm256_add_ps(_mm256_cvtepi32_ps(y_v), y_bias_v);
-          zf_v = _mm256_add_ps(_mm256_cvtepi32_ps(z_v), z_bias_v);
-          wf_v = _mm256_add_ps(_mm256_cvtepi32_ps(w_v), w_bias_v);
         } else {
           x_v = _mm256_add_epi32(
               x_v,
-              _mm256_loadu_si256(
-                  reinterpret_cast<const __m256i*>(r.bias + j + 0 * VLEN)));
-          y_v = _mm256_add_epi32(
-              y_v,
-              _mm256_loadu_si256(
-                  reinterpret_cast<const __m256i*>(r.bias + j + 1 * VLEN)));
-          z_v = _mm256_add_epi32(
-              z_v,
-              _mm256_loadu_si256(
-                  reinterpret_cast<const __m256i*>(r.bias + j + 2 * VLEN)));
-          w_v = _mm256_add_epi32(
-              w_v,
-              _mm256_loadu_si256(
-                  reinterpret_cast<const __m256i*>(r.bias + j + 3 * VLEN)));
+              _mm256_loadu_si256(reinterpret_cast<const __m256i*>(r.bias + j)));
           xf_v = _mm256_cvtepi32_ps(x_v);
-          yf_v = _mm256_cvtepi32_ps(y_v);
-          zf_v = _mm256_cvtepi32_ps(z_v);
-          wf_v = _mm256_cvtepi32_ps(w_v);
         }
       } else {
         xf_v = _mm256_cvtepi32_ps(x_v);
-        yf_v = _mm256_cvtepi32_ps(y_v);
-        zf_v = _mm256_cvtepi32_ps(z_v);
-        wf_v = _mm256_cvtepi32_ps(w_v);
       }
 
       /*
@@ -1330,86 +1103,29 @@ void requantizeOutputProcessingGConvAvx2(
        * representation as an FP32 value, and will be rounded to nearest
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
-      __m256 x_scaled_v, y_scaled_v, z_scaled_v, w_scaled_v;
+      __m256 x_scaled_v;
       if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v = _mm256_mul_ps(xf_v, _mm256_loadu_ps(r.C_multiplier + j));
-        y_scaled_v =
-            _mm256_mul_ps(yf_v, _mm256_loadu_ps(r.C_multiplier + j + VLEN));
-        z_scaled_v =
-            _mm256_mul_ps(zf_v, _mm256_loadu_ps(r.C_multiplier + j + 2 * VLEN));
-        w_scaled_v =
-            _mm256_mul_ps(wf_v, _mm256_loadu_ps(r.C_multiplier + j + 3 * VLEN));
       } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-        if (C_PER_G == 4) {
+        if (C_PER_G == 2) {
+          multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+              _mm256_castps128_ps256(
+                  _mm_loadu_ps(r.C_multiplier + quant_param_idx)),
+              permute_mask_v));
+        } else if (C_PER_G == 4) {
           multiplier_v = _mm256_insertf128_ps(
               _mm256_castps128_ps256(
                   _mm_set1_ps(r.C_multiplier[quant_param_idx])),
               _mm_set1_ps(r.C_multiplier[quant_param_idx + 1]),
               1);
-          x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-
-          multiplier_v = _mm256_insertf128_ps(
-              _mm256_castps128_ps256(
-                  _mm_set1_ps(r.C_multiplier[quant_param_idx + 2])),
-              _mm_set1_ps(r.C_multiplier[quant_param_idx + 3]),
-              1);
-          y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
-
-          multiplier_v = _mm256_insertf128_ps(
-              _mm256_castps128_ps256(
-                  _mm_set1_ps(r.C_multiplier[quant_param_idx + 4])),
-              _mm_set1_ps(r.C_multiplier[quant_param_idx + 5]),
-              1);
-          z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
-
-          multiplier_v = _mm256_insertf128_ps(
-              _mm256_castps128_ps256(
-                  _mm_set1_ps(r.C_multiplier[quant_param_idx + 6])),
-              _mm_set1_ps(r.C_multiplier[quant_param_idx + 7]),
-              1);
-          w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
         } else if (C_PER_G == 8) {
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 4]);
-          x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-
-          multiplier_v =
-              _mm256_set1_ps(r.C_multiplier
-                                 [quant_param_idx +
-                                  (j - block.col_start) / (VLEN * 4) * 4 + 1]);
-          y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
-
-          multiplier_v =
-              _mm256_set1_ps(r.C_multiplier
-                                 [quant_param_idx +
-                                  (j - block.col_start) / (VLEN * 4) * 4 + 2]);
-          z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
-
-          multiplier_v =
-              _mm256_set1_ps(r.C_multiplier
-                                 [quant_param_idx +
-                                  (j - block.col_start) / (VLEN * 4) * 4 + 3]);
-          w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
+          multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
-          multiplier_v = _mm256_set1_ps(
-              r.C_multiplier
-                  [quant_param_idx + (j - block.col_start) / (VLEN * 4) * 2]);
-          x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-          y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
-
-          multiplier_v =
-              _mm256_set1_ps(r.C_multiplier
-                                 [quant_param_idx +
-                                  (j - block.col_start) / (VLEN * 4) * 2 + 1]);
-          z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
-          w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
+          multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         }
+        x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
       } else {
         x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-        y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
-        z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
-        w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
       }
 
       /*
@@ -1431,9 +1147,6 @@ void requantizeOutputProcessingGConvAvx2(
        * fits into int32_t without overflow.
        */
       __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
-      __m256i y_rounded_v = _mm256_cvtps_epi32(y_scaled_v);
-      __m256i z_rounded_v = _mm256_cvtps_epi32(z_scaled_v);
-      __m256i w_rounded_v = _mm256_cvtps_epi32(w_scaled_v);
 
       /*
        * Standard final sequence on x86 AVX2:
@@ -1442,38 +1155,38 @@ void requantizeOutputProcessingGConvAvx2(
        * - Pack to uint8_t and saturate
        * - Clamp between qmin and qmax
        */
-      __m256i xy_packed_v = _mm256_adds_epi16(
-          _mm256_packs_epi32(x_rounded_v, y_rounded_v), C_zero_point_epi16_v);
-      __m256i zw_packed_v = _mm256_adds_epi16(
-          _mm256_packs_epi32(z_rounded_v, w_rounded_v), C_zero_point_epi16_v);
-      __m256i xyzw_packed_v = _mm256_packus_epi16(xy_packed_v, zw_packed_v);
-      __m256i xyzw_clamped_v = _mm256_max_epu8(
+      __m256i x_packed_v = _mm256_adds_epi16(
+          _mm256_packs_epi32(x_rounded_v, _mm256_setzero_si256()),
+          C_zero_point_epi16_v);
+      x_packed_v = _mm256_packus_epi16(x_packed_v, _mm256_setzero_si256());
+      __m256i x_clamped_v = _mm256_max_epu8(
           FUSE_RELU ? C_zero_point_epi8_v : min_v,
-          _mm256_min_epu8(xyzw_packed_v, max_v));
+          _mm256_min_epu8(x_packed_v, max_v));
 
       /*
-       * xyzw_clamped_v has results in the following layout so we need to
-       * permute: x0-3 y0-3 z0-3 w0-3 x4-7 y4-7 z4-7 w4-7
+       * x_clamped_v has results in the following layout so we need to
+       * permute: x0-3 garbage0-11 x4-7 garbage12-23
        */
-      xyzw_clamped_v =
-          _mm256_permutevar8x32_epi32(xyzw_clamped_v, permute_mask_v);
+      x_clamped_v = _mm256_permutevar8x32_epi32(x_clamped_v, permute_mask_v);
 
       /*
-       * 4x CVTDQ2PS
-       * 4x MULPS
-       * 4x CVTPS2DQ
-       * 2x PACKSSDW
+       * 1x CVTDQ2PS
+       * 1x MULPS
+       * 1x CVTPS2DQ
+       * 1x PACKSSDW
        * 1x PACKUSWB
-       * 2x PADDW
+       * 1x PADDW
        * 1x PMAXUB
        * 1x PMINUB
        * 1x PERMD
        * ---------------------
-       * 20 instructions total
+       * 9 instructions total
        */
-      _mm256_storeu_si256(
-          reinterpret_cast<__m256i*>(out + i * ld_out + j), xyzw_clamped_v);
-    } // j loop vectorized and unrolled 4x
+
+      _mm_storel_epi64(
+          reinterpret_cast<__m128i*>(out + i * ld_out + j),
+          _mm256_castsi256_si128(x_clamped_v));
+    } // j loop vectorized
 
     int remainder = block.col_start + block.col_size - j;
     assert(remainder == 0);
@@ -1484,6 +1197,20 @@ void requantizeOutputProcessingGConvAvx2(
     A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE)                               \
   template void                                                                \
   requantizeOutputProcessingAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE>( \
+      uint8_t * out,                                                           \
+      const int32_t* inp,                                                      \
+      const block_type_t& block,                                               \
+      int ld_out,                                                              \
+      int ld_in,                                                               \
+      const requantizationParams_t<BIAS_TYPE>& r);                             \
+  template void requantizeOutputProcessingGConvAvx2<                           \
+      A_SYM,                                                                   \
+      B_SYM,                                                                   \
+      Q_GRAN,                                                                  \
+      BIAS,                                                                    \
+      RELU,                                                                    \
+      2,                                                                       \
+      BIAS_TYPE>(                                                              \
       uint8_t * out,                                                           \
       const int32_t* inp,                                                      \
       const block_type_t& block,                                               \

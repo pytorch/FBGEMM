@@ -23,16 +23,46 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
 
   if (!pdata) {
     bufAllocatedHere_ = true;
+    // we make it a multiple of 4
+    int paddedICPerG = ((conv_param_.IC / conv_param_.G) + 3) / 4 * 4;
     pdata_ = static_cast<T*>(fbgemmAlignedAlloc(
         64,
         conv_param_.G * conv_param_.K[0] * conv_param_.K[1] *
-            (conv_param_.OC / conv_param_.G) *
-            (conv_param_.IC / conv_param_.G) * sizeof(T)));
+            (conv_param_.OC / conv_param_.G) * paddedICPerG * sizeof(T)));
   } else {
     bufAllocatedHere_ = false;
     pdata_ = pdata;
   }
+
+  GTogether_ = numOfGroupsTogether(conv_param_);
+  assert(
+      GTogether_ <= conv_param_.G &&
+      "Number of groups together smaller than total number of groups");
   pack();
+}
+
+template <typename T, typename accT, int SPATIAL_DIM>
+int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::numOfGroupsTogether(
+    const conv_param_t<SPATIAL_DIM>& conv_param) {
+  if (fbgemmHasAvx512Support()) {
+    int OC_per_G = conv_param.OC / conv_param.G;
+    int IC_per_G = conv_param.IC / conv_param.G;
+    // TODO: change to avx512 when avx512 support is available
+    return std::max(
+        simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
+            std::max(IC_per_G, 4),
+        1);
+  } else {
+    // avx2
+    // e.g., IC_per_G == 4, we need to work on 2 groups at a time
+    int OC_per_G = conv_param.OC / conv_param.G;
+    int IC_per_G = conv_param.IC / conv_param.G;
+    return std::max(
+        simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
+            std::max(IC_per_G, 4),
+        1);
+  }
+  return 1;
 }
 
 /**
@@ -69,23 +99,24 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::unpacked_index_(
  */
 template <typename T, typename accT, int SPATIAL_DIM>
 inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::packed_index_(
-    int r, int s, int k, int g, int c) {
+    int r,
+    int s,
+    int k,
+    int g,
+    int c) {
   // Get the full dimensions
   int R = conv_param_.K[0];
   int S = conv_param_.K[1];
   int G = conv_param_.G;
   int IC_per_G = conv_param_.IC / G;
   int OC_per_G = conv_param_.OC / G;
+  int paddedICPerG = (IC_per_G + 3) / 4 * 4;
 
-  int idx;
-  // For IC_per_G == 4, we need to work on 2 groups at a time
-  if (IC_per_G == 4) {
-    idx = (((((g / 2) * R + r) * S + s) * OC_per_G + k) * 2 + (g % 2))
-      * IC_per_G + c;
-  } else {
-    idx = ((((g * (IC_per_G / 4) + (c / 4)) * R + r) * S + s) * OC_per_G + k)
-      * 4 + (c % 4);
-  }
+  int idx =
+      (((((g / GTogether_) * R + r) * S + s) * OC_per_G + k) * GTogether_ +
+       (g % GTogether_)) *
+          paddedICPerG +
+      c;
   return idx;
 }
 
@@ -117,6 +148,7 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack_unpack_(
   int G = conv_param_.G;
   int IC_per_G = conv_param_.IC / G;
   int OC_per_G = conv_param_.OC / G;
+  int paddedICPerG = (IC_per_G + 3) / 4 * 4;
 
   // If transpose option is set, the weight matrix is in layout G K/G (R S C/G)
   // instead of G (R S C/G) K/G
@@ -135,6 +167,12 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack_unpack_(
                 dst[p_idx] = src[up_idx];
               } else {
                 dst[up_idx] = src[p_idx];
+              }
+            }
+            if (ispack) {
+              for (int c = IC_per_G; c < paddedICPerG; ++c) {
+                int p_idx = packed_index_(r, s, k, g, c);
+                dst[p_idx] = 0;
               }
             }
           }

@@ -24,51 +24,43 @@ using namespace std;
 using namespace fbgemm;
 
 void performance_test() {
+  // clang-format off
   vector<conv_param_t<>> shapes = {
-      // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, pad_t, pad_l,
-      // pad_b, pad_r
-      // conv_param_t<>(1, 16, 16, {16, 14}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      // conv_param_t<>(1, 256, 256, {56, 56}, 64, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
-      // conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 512, 512, {28, 28}, 32, {3, 3}, {2, 2}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 1024, 1024, {14, 14}, 32, {3, 3}, {2, 2}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
-      // BatchSize > 1
-      // conv_param_t<>(2, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1,
-      // 1}),
+    // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, pad_t, pad_l,
+    // pad_b, pad_r
+    // conv_param_t<>(1, 16, 16, {16, 14}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 128, 128, {48, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(2, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 256, 256, {56, 56}, 64, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
+    // conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 256, 256, {56, 56}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 512, 512, {28, 28}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 1024, 1024, {14, 14}, 32, {3, 3}, {2, 2},
+    //               {1, 1, 1, 1}),
+    // conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // conv_param_t<>(1, 1024, 1024, {7, 7}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
 
-      conv_param_t<>(1, 256, 256, {28, 24}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 256, 256, {24, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    // BatchSize > 1
+    // conv_param_t<>(2, 128, 128, {56, 48}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
 
-      conv_param_t<>(1, 512, 512, {14, 12}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 512, 512, {12, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-      conv_param_t<>(2, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 256, 256, {28, 24}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 256, 256, {24, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(2, 256, 256, {28, 28}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+
+    conv_param_t<>(1, 512, 512, {14, 12}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 512, 512, {12, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(2, 512, 512, {14, 14}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
   };
+  // clang-format on
 
   bool flush = true;
   std::vector<char> llc;
@@ -424,17 +416,39 @@ void performance_test() {
       // printMatrix(matrix_op_t::NoTranspose, Aint8_im2col.data(), MDim, KDim,
       // KDim, "A_out after im2col unpacked");
 
-      fbgemmGroupwiseConv(
-          conv_p,
-          Aint8.data(),
-          Aint8_zero_point,
-          row_offset_buf_direct.data(),
-          packedWeights,
-          Cint8_fb_direct.data(),
-          Cint32_fb_direct.data(),
-          reqObj,
-          0,
-          1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+        fbgemmGroupwiseConv(
+            conv_p,
+            Aint8.data(),
+            Aint8_zero_point,
+            row_offset_buf_direct.data(),
+            packedWeights,
+            Cint8_fb_direct.data(),
+            Cint32_fb_direct.data(),
+            reqObj,
+            tid,
+            num_threads);
+      }
+
+      //printMatrix(
+      //    matrix_op_t::NoTranspose,
+      //    Cint8_ref.data(),
+      //    MDim,
+      //    NDim * conv_p.G,
+      //    NDim * conv_p.G,
+      //    "reference:");
+      //printMatrix(
+      //    matrix_op_t::NoTranspose,
+      //    Cint8_fb_direct.data(),
+      //    MDim,
+      //    NDim * conv_p.G,
+      //    NDim * conv_p.G,
+      //    "Opt:");
 
       end = chrono::high_resolution_clock::now();
 
@@ -510,12 +524,11 @@ void performance_test() {
 
 int main() {
 #ifdef _OPENMP
-  // TODO: enable once fbgemmGroupwiseConv support multi-threading
-  /*// Use 1 thread unless OMP_NUM_THREADS is explicit set.
+  // Use 1 thread unless OMP_NUM_THREADS is explicit set.
   const char* val = getenv("OMP_NUM_THREADS");
-  if (val == nullptr || !*val) {*/
+  if (val == nullptr || !*val) {
     omp_set_num_threads(1);
-  /*}*/
+  }
 #endif
   performance_test();
   return 0;
