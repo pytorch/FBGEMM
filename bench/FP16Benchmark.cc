@@ -97,10 +97,8 @@ void performance_test() {
       C_fb = C_ref;
     }
 
-    double nflops = 2.0 * (double)m * (double)n * (double)k * (double)NITER;
-    double nbytes = (4.0 * (double)m * (double)k + 2.0 * (double)k * (double)n +
-                     4.0 * (double)m * (double)n) *
-        NITER;
+    double nflops = 2.0 * m * n * k;
+    double nbytes = 4.0 * m * k + 2.0 * k * n + 4.0 * m * n;
 
     // warm up MKL and fbgemm
     // check correctness at the same time
@@ -154,7 +152,6 @@ void performance_test() {
 #endif
     }
 
-    chrono::time_point<chrono::system_clock> t_begin, t_end;
 #if defined(USE_MKL) || defined(USE_BLAS)
     // Gold via MKL sgemm
 #if defined(USE_MKL)
@@ -162,35 +159,29 @@ void performance_test() {
 #else
     type = "BLAS_FP32";
 #endif
-    ttot = 0;
-    for (auto it = -3; it < NITER; it++) {
-      if (flush) {
-        for (auto i = 0; i < llc.size(); i++) {
-          llc[i]++;
-        }
-      }
-      t_begin = chrono::system_clock::now();
-      cblas_sgemm(
-          CblasRowMajor,
-          CblasNoTrans,
-          btran == matrix_op_t::Transpose ? CblasTrans : CblasNoTrans,
-          m,
-          n,
-          k,
-          alpha,
-          A.data(),
-          k,
-          B.data(),
-          (btran == matrix_op_t::NoTranspose) ? n : k,
-          beta,
-          C_ref.data(),
-          n);
-      t_end = chrono::system_clock::now();
-      if (it >= 0) {
-        double dt = chrono::duration<double>(t_end - t_begin).count();
-        ttot += dt;
-      }
-    }
+
+    ttot = measureWithWarmup(
+        [&]() {
+          cblas_sgemm(
+              CblasRowMajor,
+              CblasNoTrans,
+              btran == matrix_op_t::Transpose ? CblasTrans : CblasNoTrans,
+              m,
+              n,
+              k,
+              alpha,
+              A.data(),
+              k,
+              B.data(),
+              (btran == matrix_op_t::NoTranspose) ? n : k,
+              beta,
+              C_ref.data(),
+              n);
+        },
+        3,
+        NITER,
+        flush ? &llc : nullptr);
+
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(
@@ -206,41 +197,26 @@ void performance_test() {
 
     type = "FBP_" + std::string(typeid(btype).name());
 
-    ttot = 0;
-    for (auto it = -3; it < NITER; it++) {
-      if (flush) {
-        for (auto i = 0; i < llc.size(); i++) {
-          llc[i]++;
-        }
-      }
+    ttot = measureWithWarmup(
+        [&]() {
+          int num_threads = fbgemm_get_num_threads();
+          int tid = fbgemm_get_thread_num();
 
-      t_begin = chrono::system_clock::now();
+          cblas_gemm_compute(
+              matrix_op_t::NoTranspose,
+              m,
+              A.data(),
+              Bp,
+              beta,
+              C_fb.data(),
+              tid,
+              num_threads);
+        },
+        3,
+        NITER,
+        flush ? &llc : nullptr,
+        true /*useOpenMP*/);
 
-#ifdef _OPENMP
-#pragma omp parallel
-#endif
-      {
-        int num_threads = fbgemm_get_num_threads();
-        int tid = fbgemm_get_thread_num();
-
-        cblas_gemm_compute(
-            matrix_op_t::NoTranspose,
-            m,
-            A.data(),
-            Bp,
-            beta,
-            C_fb.data(),
-            tid,
-            num_threads);
-      }
-
-      t_end = chrono::system_clock::now();
-
-      if (it >= 0) {
-        double dt = chrono::duration<double>(t_end - t_begin).count();
-        ttot += dt;
-      }
-    }
     gflops = nflops / ttot / 1e9;
     gbs = nbytes / ttot / 1e9;
     printf(

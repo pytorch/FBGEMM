@@ -135,35 +135,33 @@ void performance_test() {
     col_offsets_with_zero_pt_s8acc32_ref(
         k, n, n, Bint8.data(), &Bint8_zero_point, col_offsets.data(), n);
 
-    double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
+    double nops = 2.0 * m * n * k;
     double ttot = 0.0;
     string runType;
 #ifdef USE_MKL
     runType = "MKL_fp32";
-    for (auto i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush(llc);
-      start = chrono::high_resolution_clock::now();
-      cblas_sgemm(
-          CblasRowMajor,
-          CblasNoTrans,
-          CblasNoTrans,
-          m,
-          n,
-          k,
-          alpha,
-          Afp32.data(),
-          k,
-          Bfp32.data(),
-          n,
-          beta,
-          Cfp32_mkl.data(),
-          n);
-      end = chrono::high_resolution_clock::now();
-      if (i >= NWARMUP) {
-        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
-        ttot += dur.count();
-      }
-    }
+    ttot = measureWithWarmup(
+        [&]() {
+          cblas_sgemm(
+              CblasRowMajor,
+              CblasNoTrans,
+              CblasNoTrans,
+              m,
+              n,
+              k,
+              alpha,
+              Afp32.data(),
+              k,
+              Bfp32.data(),
+              n,
+              beta,
+              Cfp32_mkl.data(),
+              n);
+        },
+        NWARMUP,
+        NITER,
+        flush ? &llc : nullptr);
+
     ((volatile char*)(llc.data()));
 
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
@@ -314,7 +312,7 @@ void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
     cout << setw(16) << runType << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << nops / ttot << endl;
+         << setprecision(1) << NITER * nops / ttot << endl;
     cout << endl;
 
 #ifdef USE_MKL

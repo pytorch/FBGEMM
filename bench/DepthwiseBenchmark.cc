@@ -148,10 +148,6 @@ int main() {
   if (flush) {
     llc.resize(128 * 1024 * 1024, 1.0);
   }
-#define llc_flush()                       \
-  for (auto i = 0; i < llc.size(); i++) { \
-    llc[i]++;                             \
-  }
 
   constexpr int NWARMUP = 4;
   constexpr int NITER = 16;
@@ -239,46 +235,40 @@ int main() {
 
     PackedDepthWiseConvMatrix Bp(K, R * S, B.data());
 
-    double ttot = 0;
-    double bytes = double(NITER) *
-        (K * (N * (2 * sizeof(int32_t) * H_OUT * W_OUT + H * W) + R * S));
-    double ops = double(NITER) * N * H_OUT * W_OUT * K * R * S * 2;
-    chrono::time_point<chrono::system_clock> t_begin, t_end;
-    for (int i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush();
+    double bytes =
+        (K * (N * (2. * sizeof(int32_t) * H_OUT * W_OUT + H * W) + R * S));
+    double ops = 2.0 * N * H_OUT * W_OUT * K * R * S;
 
-      t_begin = chrono::system_clock::now();
-#pragma omp parallel
-      {
-        int num_threads = fbgemm_get_num_threads();
-        int tid = fbgemm_get_thread_num();
-        depthwise_2d_same_pad(
-            N,
-            H,
-            W,
-            K,
-            stride_h,
-            stride_w,
-            A_zero_point,
-            A.data(),
-            B_zero_point,
-            Bp,
-            C_multiplier[0],
-            C_zero_point,
-            C_uint8.data(),
-            col_offsets.data(),
-            bias.data(),
-            false, /* fuse_relu */
-            1.0f, /* act_scale * w_scale */
-            tid,
-            num_threads);
-      }
-      t_end = chrono::system_clock::now();
-      if (i >= NWARMUP) {
-        double dt = chrono::duration<double>(t_end - t_begin).count();
-        ttot += dt;
-      }
-    }
+    double ttot = measureWithWarmup(
+        [&]() {
+          int num_threads = fbgemm_get_num_threads();
+          int tid = fbgemm_get_thread_num();
+
+          depthwise_2d_same_pad(
+              N,
+              H,
+              W,
+              K,
+              stride_h,
+              stride_w,
+              A_zero_point,
+              A.data(),
+              B_zero_point,
+              Bp,
+              C_multiplier[0],
+              C_zero_point,
+              C_uint8.data(),
+              col_offsets.data(),
+              bias.data(),
+              false, /* fuse_relu */
+              1.0f, /* act_scale * w_scale */
+              tid,
+              num_threads);
+        },
+        NWARMUP,
+        NITER,
+        flush ? &llc : nullptr,
+        true /*useOpenMP*/);
 
     // correctness check
     for (int n = 0; n < N; ++n) {
