@@ -86,22 +86,17 @@ class PackedGemmMatrixFP16 {
     bcol_ = (fbgemmHasAvx512Support() ? 16 : 8) * kernelNumColBlocks();
 
     // set up internal packing parameters
-    nbrow_ = ((numRows() % blockRowSize()) == 0)
-        ? (numRows() / blockRowSize())
-        : ((numRows() + blockRowSize()) / blockRowSize());
+    nbrow_ = (numRows() + blockRowSize() - 1) / blockRowSize();
     last_brow_ = ((nrow_ % blockRowSize()) == 0) ? blockRowSize()
                                                  : (nrow_ % blockRowSize());
-    nbcol_ = ((numCols() % blockColSize()) == 0)
-        ? (numCols() / blockColSize())
-        : ((numCols() + blockColSize()) / blockColSize());
+    nbcol_ = (numCols() + blockColSize() - 1) / blockColSize();
 
     if (numCols() != blockColSize() * nbcol_) {
 #ifdef VLOG
       VLOG(0) << "Packer warning: ncol(" << numCols()
               << ") is not a multiple of internal block size ("
               << blockColSize() << ")";
-      VLOG(0)
-          << "lefover is currently done via MKL: hence overhead will inccur";
+      VLOG(0) << "lefover is not super optimized hence overhead will inccur";
 #endif
     }
   }
