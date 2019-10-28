@@ -11,6 +11,7 @@
 #include <random>
 #include <vector>
 
+#include "BenchUtils.h"
 #include "fbgemm/Utils.h"
 #include "src/TransposeUtils.h"
 
@@ -36,19 +37,14 @@ void performance_test() {
       generate(a.begin(), a.end(), [&dist, &engine] { return dist(engine); });
       transpose_ref(M, N, a.data(), N, b_ref.data(), M);
 
-      chrono::time_point<chrono::high_resolution_clock> begin, end;
-      for (int i = 0; i < NWARMUP + NITER; ++i) {
-        if (i == NWARMUP) {
-          begin = chrono::high_resolution_clock::now();
-        }
-        transpose_simd(M, N, a.data(), N, b.data(), M);
-      }
-      end = chrono::high_resolution_clock::now();
-
-      auto duration = chrono::duration_cast<chrono::nanoseconds>(end - begin);
+      double duration = measureWithWarmup(
+          [&]() { transpose_simd(M, N, a.data(), N, b.data(), M); },
+          NWARMUP,
+          NITER);
+      duration *= 1e9; // convert to ns
 
       cout << setw(4) << M << setw(4) << N << setw(10) << setprecision(3)
-           << static_cast<double>(M * N) * NITER / duration.count() << endl;
+           << (M * N) / duration << endl;
 
       compare_buffers(b_ref.data(), b.data(), M, N, N, 5);
     } // N

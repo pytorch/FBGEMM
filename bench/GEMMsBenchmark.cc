@@ -89,35 +89,33 @@ void performance_test() {
 
     aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
-    double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
+    double nops = 2.0 * m * n * k;
     double ttot = 0.0;
     string runType;
 #ifdef USE_MKL
     runType = "MKL_fp32";
-    for (auto i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush(llc);
-      start = chrono::high_resolution_clock::now();
-      cblas_sgemm(
-          CblasRowMajor,
-          CblasNoTrans,
-          CblasNoTrans,
-          m,
-          n,
-          k,
-          alpha,
-          Afp32.data(),
-          k,
-          Bfp32.data(),
-          n,
-          beta,
-          Cfp32_mkl.data(),
-          n);
-      end = chrono::high_resolution_clock::now();
-      if (i >= NWARMUP) {
-        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
-        ttot += dur.count();
-      }
-    }
+    ttot = measureWithWarmup(
+        [&]() {
+          cblas_sgemm(
+              CblasRowMajor,
+              CblasNoTrans,
+              CblasNoTrans,
+              m,
+              n,
+              k,
+              alpha,
+              Afp32.data(),
+              k,
+              Bfp32.data(),
+              n,
+              beta,
+              Cfp32_mkl.data(),
+              n);
+        },
+        NWARMUP,
+        NITER,
+        flush ? &llc : nullptr);
+
     ((volatile char*)(llc.data()));
 
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
@@ -224,7 +222,7 @@ void performance_test() {
          << setw(16) << total_run_time / (double)NITER / 1e3;
 #endif
     cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-         << nops / ttot << endl;
+         << NITER * nops / ttot << endl;
 
     compare_buffers(Cint32_ref.data(), Cint32_fb_acc32.data(), m, n, n, 5);
 
@@ -308,7 +306,7 @@ void performance_test() {
          << setw(16) << total_run_time / (double)NITER / 1e3;
 #endif
     cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-         << nops / ttot << endl;
+         << NITER * nops / ttot << endl;
     cout << endl;
 
     compare_buffers(Cint32_ref.data(), Cint32_fb_acc16.data(), m, n, n, 5);

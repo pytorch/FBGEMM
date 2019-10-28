@@ -14,8 +14,8 @@
 #endif
 
 #include "BenchUtils.h"
-#include "src/OptimizedKernelsAvx2.h"
 #include "fbgemm/Fbgemm.h"
+#include "src/OptimizedKernelsAvx2.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -31,19 +31,12 @@ void performance_test() {
                   31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256}) {
     aligned_vector<uint8_t> a(len);
 
-    chrono::time_point<chrono::high_resolution_clock> begin, end;
-    for (int i = 0; i < NWARMUP + NITER; ++i) {
-      if (i == NWARMUP) {
-        begin = chrono::high_resolution_clock::now();
-      }
-      reduceAvx2(a.data(), len);
-    }
-    end = chrono::high_resolution_clock::now();
-
-    auto duration = chrono::duration_cast<chrono::nanoseconds>(end - begin);
+    double duration =
+        measureWithWarmup([&]() { reduceAvx2(a.data(), len); }, NWARMUP, NITER);
+    duration *= 1e9; // convert to ns
 
     cout << setw(4) << len << ", " << setw(10) << setprecision(3)
-         << static_cast<double>(len) * NITER / duration.count() << endl;
+         << len / duration << endl;
   } // for each length
 } // performance_test
 

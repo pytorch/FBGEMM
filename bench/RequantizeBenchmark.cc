@@ -54,8 +54,6 @@ void performance_test() {
 
     aligned_vector<uint8_t> output(len);
 
-    chrono::time_point<chrono::high_resolution_clock> begin, end;
-
     for (BenchmarkType bench_type : {BenchmarkType::BARE_BONE,
                                      BenchmarkType::BIAS,
                                      BenchmarkType::A_ASYMMETRIC,
@@ -68,6 +66,8 @@ void performance_test() {
       }
       const int32_t* bias =
           bench_type == BenchmarkType::BARE_BONE ? nullptr : bias_vector.data();
+
+      double duration = 0.0;
 
       DoNothing<> doNothingObj{};
       if (bench_type == BenchmarkType::PER_CHANNEL) {
@@ -82,14 +82,13 @@ void performance_test() {
             bias,
             len);
 
-        for (int i = 0; i < NWARMUP + NITER; ++i) {
-          if (i == NWARMUP) {
-            begin = chrono::high_resolution_clock::now();
-          }
-          reqObj.f<inst_set_t::avx2>(
-              output.data(), input.data(), block, len, len);
-        }
-        end = chrono::high_resolution_clock::now();
+        duration = measureWithWarmup(
+            [&]() {
+              reqObj.f<inst_set_t::avx2>(
+                  output.data(), input.data(), block, len, len);
+            },
+            NWARMUP,
+            NITER);
       } else {
         ReQuantizeOutput<false> reqObj(
             doNothingObj,
@@ -102,17 +101,16 @@ void performance_test() {
             bias,
             len);
 
-        for (int i = 0; i < NWARMUP + NITER; ++i) {
-          if (i == NWARMUP) {
-            begin = chrono::high_resolution_clock::now();
-          }
-          reqObj.f<inst_set_t::avx2>(
-              output.data(), input.data(), block, len, len);
-        }
-        end = chrono::high_resolution_clock::now();
+        duration = measureWithWarmup(
+            [&]() {
+              reqObj.f<inst_set_t::avx2>(
+                  output.data(), input.data(), block, len, len);
+            },
+            NWARMUP,
+            NITER);
       }
 
-      auto duration = chrono::duration_cast<chrono::nanoseconds>(end - begin);
+      duration *= 1e9; // convert to ns
 
       cout << setw(4) << len << ", ";
       switch (bench_type) {
@@ -132,8 +130,7 @@ void performance_test() {
           cout << setw(10) << "per_channel";
           break;
       }
-      cout << ", " << setw(10) << setprecision(3)
-           << static_cast<double>(len) * NITER / duration.count() << endl;
+      cout << ", " << setw(10) << setprecision(3) << len / duration << endl;
     } // for each bench_type
   } // for each length
 } // performance_test

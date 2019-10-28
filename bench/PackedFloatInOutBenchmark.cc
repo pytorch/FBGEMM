@@ -137,34 +137,31 @@ void performance_test() {
 
     double ttot = 0;
     std::string type;
-    double nops = 2.0 * (double)m * (double)n * (double)k * (double)NITER;
+    double nops = 2.0 * m * n * k;
 #ifdef USE_MKL
     type = "MKL_FP32";
-    for (auto i = 0; i < NWARMUP + NITER; ++i) {
-      llc_flush(llc);
-      start = chrono::high_resolution_clock::now();
-      cblas_sgemm(
-          CblasRowMajor,
-          CblasNoTrans,
-          CblasNoTrans,
-          m,
-          n,
-          k,
-          alpha,
-          Afp32.data(),
-          k,
-          Bfp32.data(),
-          n,
-          beta,
-          Cfp32_mkl.data(),
-          n);
-      end = chrono::high_resolution_clock::now();
+    ttot = measureWithWarmup(
+        [&]() {
+          cblas_sgemm(
+              CblasRowMajor,
+              CblasNoTrans,
+              CblasNoTrans,
+              m,
+              n,
+              k,
+              alpha,
+              Afp32.data(),
+              k,
+              Bfp32.data(),
+              n,
+              beta,
+              Cfp32_mkl.data(),
+              n);
+        },
+        NWARMUP,
+        NITER,
+        flush ? &llc : nullptr);
 
-      if (i >= NWARMUP) {
-        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
-        ttot += dur.count();
-      }
-    }
     ((volatile char*)(llc.data()));
     cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
          << setw(16) << type << ", " << setw(5) << fixed << setw(5)
@@ -283,7 +280,7 @@ void performance_test() {
 #endif
     cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
          << setw(16) << type << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << nops / ttot << endl;
+         << setprecision(1) << NITER * nops / ttot << endl;
     cout << endl;
     // cout << "total time: " << ttot << " ns" << endl;
 

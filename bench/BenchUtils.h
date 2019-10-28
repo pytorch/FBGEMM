@@ -7,6 +7,9 @@
 #pragma once
 #include <chrono>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "AlignedVec.h"
 
 namespace fbgemm {
@@ -27,7 +30,8 @@ double measureWithWarmup(
     Fn&& fn,
     int warmupIterations,
     int measuredIterations,
-    std::vector<char>* llc = nullptr) {
+    std::vector<char>* llc = nullptr,
+    bool useOpenMP = false) {
   for (int i = 0; i < warmupIterations; ++i) {
     if (llc) {
       llc_flush(*llc);
@@ -36,21 +40,40 @@ double measureWithWarmup(
   }
 
   double ttot = 0.0;
-  std::chrono::time_point<std::chrono::high_resolution_clock>
-      start = std::chrono::high_resolution_clock::now(),
-      end;
 
+#ifdef _OPENMP
+#pragma omp parallel if (useOpenMP)
+#endif
   for (int i = 0; i < measuredIterations; ++i) {
-    if (llc) {
+    int thread_id = 0;
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+
+#ifdef _OPENMP
+    if (useOpenMP) {
+      thread_id = omp_get_thread_num();
+    }
+#endif
+    if (llc && thread_id == 0) {
       llc_flush(*llc);
     }
-    start = std::chrono::high_resolution_clock::now();
-    fn();
-    end = std::chrono::high_resolution_clock::now();
 
+#ifdef _OPENMP
+    if (useOpenMP) {
+#pragma omp barrier
+    }
+#endif
+    start = std::chrono::high_resolution_clock::now();
+
+    fn();
+
+    end = std::chrono::high_resolution_clock::now();
     auto dur =
         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-    ttot += dur.count();
+
+    if (thread_id == 0) {
+      // TODO: measure load imbalance
+      ttot += dur.count();
+    }
   }
 
   return ttot / 1e9 / measuredIterations;
