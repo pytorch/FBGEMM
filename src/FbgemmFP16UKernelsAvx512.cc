@@ -8,7 +8,7 @@
 
 namespace fbgemm {
 
-void __attribute__((noinline)) gemmkernel_1x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_1x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -45,6 +45,7 @@ void __attribute__((noinline)) gemmkernel_1x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "mov r14, 0\t\n"
       "vxorps zmm0,zmm0,zmm0\t\n"
       "vxorps zmm1,zmm1,zmm1\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -105,7 +106,7 @@ void __attribute__((noinline)) gemmkernel_1x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_2x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_2x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -144,6 +145,7 @@ void __attribute__((noinline)) gemmkernel_2x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm1,zmm1,zmm1\t\n"
       "vxorps zmm2,zmm2,zmm2\t\n"
       "vxorps zmm3,zmm3,zmm3\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -215,7 +217,7 @@ void __attribute__((noinline)) gemmkernel_2x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_3x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_3x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -256,6 +258,7 @@ void __attribute__((noinline)) gemmkernel_3x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm3,zmm3,zmm3\t\n"
       "vxorps zmm4,zmm4,zmm4\t\n"
       "vxorps zmm5,zmm5,zmm5\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -338,7 +341,7 @@ void __attribute__((noinline)) gemmkernel_3x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_4x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_4x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -381,6 +384,7 @@ void __attribute__((noinline)) gemmkernel_4x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm5,zmm5,zmm5\t\n"
       "vxorps zmm6,zmm6,zmm6\t\n"
       "vxorps zmm7,zmm7,zmm7\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -474,7 +478,7 @@ void __attribute__((noinline)) gemmkernel_4x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_5x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_5x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -519,6 +523,7 @@ void __attribute__((noinline)) gemmkernel_5x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm7,zmm7,zmm7\t\n"
       "vxorps zmm8,zmm8,zmm8\t\n"
       "vxorps zmm9,zmm9,zmm9\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -623,7 +628,7 @@ void __attribute__((noinline)) gemmkernel_5x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_6x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_6x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -670,6 +675,7 @@ void __attribute__((noinline)) gemmkernel_6x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm9,zmm9,zmm9\t\n"
       "vxorps zmm10,zmm10,zmm10\t\n"
       "vxorps zmm11,zmm11,zmm11\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -785,7 +791,7 @@ void __attribute__((noinline)) gemmkernel_6x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_7x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_7x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -834,6 +840,7 @@ void __attribute__((noinline)) gemmkernel_7x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm11,zmm11,zmm11\t\n"
       "vxorps zmm12,zmm12,zmm12\t\n"
       "vxorps zmm13,zmm13,zmm13\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -960,7 +967,7 @@ void __attribute__((noinline)) gemmkernel_7x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_8x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_8x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1011,6 +1018,7 @@ void __attribute__((noinline)) gemmkernel_8x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm13,zmm13,zmm13\t\n"
       "vxorps zmm14,zmm14,zmm14\t\n"
       "vxorps zmm15,zmm15,zmm15\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -1148,7 +1156,7 @@ void __attribute__((noinline)) gemmkernel_8x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_9x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_9x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1201,6 +1209,7 @@ void __attribute__((noinline)) gemmkernel_9x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm15,zmm15,zmm15\t\n"
       "vxorps zmm16,zmm16,zmm16\t\n"
       "vxorps zmm17,zmm17,zmm17\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -1349,8 +1358,7 @@ void __attribute__((noinline)) gemmkernel_9x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_10x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_10x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1405,6 +1413,7 @@ gemmkernel_10x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm17,zmm17,zmm17\t\n"
       "vxorps zmm18,zmm18,zmm18\t\n"
       "vxorps zmm19,zmm19,zmm19\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -1564,8 +1573,7 @@ gemmkernel_10x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_11x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_11x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1622,6 +1630,7 @@ gemmkernel_11x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm19,zmm19,zmm19\t\n"
       "vxorps zmm20,zmm20,zmm20\t\n"
       "vxorps zmm21,zmm21,zmm21\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -1792,8 +1801,7 @@ gemmkernel_11x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_12x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_12x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1852,6 +1860,7 @@ gemmkernel_12x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm21,zmm21,zmm21\t\n"
       "vxorps zmm22,zmm22,zmm22\t\n"
       "vxorps zmm23,zmm23,zmm23\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -2033,8 +2042,7 @@ gemmkernel_12x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_13x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_13x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -2095,6 +2103,7 @@ gemmkernel_13x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm23,zmm23,zmm23\t\n"
       "vxorps zmm24,zmm24,zmm24\t\n"
       "vxorps zmm25,zmm25,zmm25\t\n"
+
 
       "loop_inner%=:\t\n"
 
@@ -2287,8 +2296,7 @@ gemmkernel_13x2_AVX512_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_14x2_AVX512_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_14x2_Avx512_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -2351,6 +2359,7 @@ gemmkernel_14x2_AVX512_fA0fB0fC0(GemmParams* gp) {
       "vxorps zmm25,zmm25,zmm25\t\n"
       "vxorps zmm26,zmm26,zmm26\t\n"
       "vxorps zmm27,zmm27,zmm27\t\n"
+
 
       "loop_inner%=:\t\n"
 

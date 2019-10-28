@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string.h>
 #include "TransposeUtils.h"
 
 namespace fbgemm {
@@ -177,19 +178,36 @@ void transpose_simd(
     int ld_src,
     float* dst,
     int ld_dst) {
+  static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
-  if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512Support()) {
-      internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
-    } else if (fbgemmHasAvx2Support()) {
-      internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
-    } else {
-      transpose_ref(M, N, src, ld_src, dst, ld_dst);
-      return;
-    }
+  if (iset == fbgemm::avx512) {
+    internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
+  } else if (iset == fbgemm::avx2 || iset == fbgemm::avx512_256) {
+    internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    transpose_ref(M, N, src, ld_src, dst, ld_dst);
   }
+}
+
+ISA fbgemmInstructionSet() {
+  if (cpuinfo_initialize()) {
+    if (fbgemmHasAvx512VnniSupport()) return fbgemm::avx512_vnni;
+    auto const isXeonD = fbgemmIsIntelXeonD();
+    auto const hasAVX512 = fbgemmHasAvx512Support();
+    if (hasAVX512 && !isXeonD) return fbgemm::avx512;
+    if (hasAVX512 && isXeonD) return fbgemm::avx512_256;
+    if (fbgemmHasAvx2Support()) return fbgemm::avx2;
+  }
+  return fbgemm::unknown;
+}
+
+bool fbgemmIsIntelXeonD() {
+  auto const pkgInfo = cpuinfo_get_packages();
+  if (strstr(pkgInfo->name, "Intel(R) Xeon(R) D-") ||
+      cpuinfo_get_processors_count() == 1) {
+    return true;
+  }
+  return false;
 }
 
 bool fbgemmHasAvx512Support() {

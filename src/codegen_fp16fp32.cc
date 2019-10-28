@@ -24,7 +24,13 @@ void addi(ofstream& of, string i, bool disable = false) {
 }
 
 struct ISA {
-  unsigned avx; // 1, 2 or 3
+  enum isaType {
+      avx = 1,
+      avx2 = 2,
+      avx512 = 3,
+      avx512_256 = 4
+  };
+  isaType iset;
   string name;
   vector<vector<unsigned>> shapes;
 };
@@ -44,8 +50,8 @@ int main() {
   vector<ISA> isa = {
       // {1, "AVX", {{4, 1, 0}, {4, 2, 0}, {4, 3, 0}, {3, 1, 0}, {3, 2, 0}, {3,
       // 3, 0}}},
-      {2,
-       "AVX2",
+      {ISA::avx2,
+       "Avx2",
        {
            // 4x3 register layout
            // {1, 3, 0},
@@ -77,8 +83,8 @@ int main() {
            // {13, 1, 0},
            // {14, 1, 0},
        }},
-      {3,
-       "AVX512",
+      {ISA::avx512,
+       "Avx512",
        {
            // 14x2 register layout
            {1, 2, 0},
@@ -95,10 +101,30 @@ int main() {
            {12, 2, 0},
            {13, 2, 0},
            {14, 2, 0},
-       }}};
+       }},
+       {ISA::avx512_256,
+        "Avx512_256",
+        {
+            // 14x2 register layout
+            // Implemented by AVX2
+            //{1, 2, 0},
+            //{2, 2, 0},
+            //{3, 2, 0},
+            //{4, 2, 0},
+            //{5, 2, 0},
+            //{6, 2, 0},
+            {7, 2, 0},
+            {8, 2, 0},
+            {9, 2, 0},
+            {10, 2, 0},
+            {11, 2, 0},
+            {12, 2, 0},
+            {13, 2, 0},
+            {14, 2, 0},
+        }}};
 
   for (auto s : isa) {
-    string isa_file_name = s.avx <= 2 ? "Avx2" : "Avx512";
+    auto const isa_file_name = s.name;
 
     // open all files
     ofstream srcfile;
@@ -128,12 +154,12 @@ int main() {
 
     hdrfile << "#pragma once\n";
     hdrfile << "#include <cstdint>\n";
-    if (s.avx == 3) {
+    if (s.iset == ISA::avx512 || s.iset == ISA::avx512_256) {
       hdrfile << "#include \"FbgemmFP16UKernelsAvx2.h\"\n";
     }
     hdrfile << "#include \"fbgemm/Types.h\"\n\n";
     hdrfile << "namespace fbgemm {\n\n";
-    if (s.avx == 2) {
+    if (s.iset == ISA::avx2) {
       hdrfile << "using fp16 = float16;\n";
       hdrfile << "using fp32 = float;\n";
       hdrfile
@@ -158,13 +184,13 @@ int main() {
     string fargs;
 
     string B_type = ((fp16) ? "fp16" : "fp32");
-    string prefix = s.name + /*"_" + B_type */ +"_" + "fA" + to_string(fixedA) +
-        "fB" + to_string(fixedB) + "fC" + to_string(fixedC);
+    string prefix = s.name + /*"_" + B_type */ +"_" + "fA" +
+        to_string(fixedA) + "fB" + to_string(fixedB) + "fC" + to_string(fixedC);
     cout << "Generating code for " << s.name << " " << B_type << "\n";
 
-    string vec_reg_prefix = s.avx <= 2 ? "ymm" : "zmm";
-    int num_vec_regs = s.avx <= 2 ? 16 : 32;
-    int vec_len_in_bytes = s.avx <= 2 ? 32 : 64;
+    string vec_reg_prefix = s.iset == ISA::avx512 ? "zmm" : "ymm";
+    int num_vec_regs = s.iset == ISA::avx2 ? 16 : 32;
+    int vec_len_in_bytes = s.iset == ISA::avx512 ? 64 : 32;
 
     for (unsigned k = 0; k < ukernel_shape.size(); k++) {
       printf("shape: %d x %d * 32\n", ukernel_shape[k][0], ukernel_shape[k][1]);
@@ -268,7 +294,8 @@ int main() {
       for (int c = 0; c < vCtile[0].size(); c++) {
         addi(
             srcfile,
-            "vcvtph2ps " + vBcol[c] + "," + (s.avx <= 2 ? "XMM" : "YMM") +
+            "vcvtph2ps " + vBcol[c] + "," +
+                (s.iset == ISA::avx512 ? "YMM" : "XMM") +
                 "WORD PTR [r10 + " + to_string(vec_len_in_bytes / 2 * c) + "]");
       }
 
@@ -332,7 +359,8 @@ int main() {
       srcfile << "      // Dump C with accumulate\n";
 
       string r_spare =
-          vec_reg_prefix + to_string(num_vec_regs - (s.avx == 1 ? 2 : 1));
+          vec_reg_prefix + to_string(num_vec_regs -
+              (s.iset == ISA::avx ? 2 : 1));
       string r_last = vec_reg_prefix + to_string(num_vec_regs - 1);
       addi(
           srcfile,
@@ -341,8 +369,8 @@ int main() {
       // store out C
       for (auto r = 0; r < vCtile.size(); r++) {
         for (auto c = 0; c < vCtile[r].size(); c++) {
-          switch (s.avx) {
-            case 1:
+          switch (s.iset) {
+            case ISA::avx:
               addi(
                   srcfile,
                   string("vmulps " + r_last + ", ") + r_spare + comma +
@@ -354,8 +382,9 @@ int main() {
                   "vaddps " + vCtile[r][c] + "," + vCtile[r][c] + "," + r_last,
                   fixedC);
               break;
-            case 2:
-            case 3:
+            case ISA::avx2:
+            case ISA::avx512:
+            case ISA::avx512_256:
               addi(
                   srcfile,
                   "vfmadd231ps " + vCtile[r][c] + "," + r_spare + "," +
