@@ -99,12 +99,12 @@ class aligned_allocator {
 
     // Mallocator wraps malloc().
     void* pv = nullptr;
-    posix_memalign(&pv, Alignment, n * sizeof(T));
+    int ret = posix_memalign(&pv, Alignment, n * sizeof(T));
     // pv = aligned_alloc(Alignment, n * sizeof(T));
 
     // Allocators should throw std::bad_alloc in the case of memory allocation
     // failure.
-    if (pv == nullptr) {
+    if (ret || pv == nullptr) {
       throw std::bad_alloc();
     }
 
