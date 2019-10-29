@@ -72,8 +72,8 @@ PackAMatrix<T, accT>::PackAMatrix(
     BaseType::buf_ = pmat;
   } else {
     BaseType::bufAllocatedHere_ = true;
-    BaseType::buf_ = (T*)fbgemmAlignedAlloc(
-        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T));
+    BaseType::buf_ = static_cast<T*>(fbgemmAlignedAlloc(
+        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
 }
 
