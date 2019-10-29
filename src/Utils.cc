@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <new>
 #include <stdexcept>
 #include "TransposeUtils.h"
 
@@ -236,4 +237,19 @@ void fbgemmPartition1DBlocked(
       ? std::max(end_block * block_size, total_work)
       : std::min(end_block * block_size, total_work);
 }
+
+void* fbgemmAlignedAlloc(
+    size_t align,
+    size_t size,
+    bool raiseException /*=false*/) {
+  void* aligned_mem;
+  if (posix_memalign(&aligned_mem, align, size)) {
+    if (raiseException) {
+      throw std::bad_alloc();
+    }
+    return nullptr;
+  }
+  return aligned_mem;
+}
+
 } // namespace fbgemm

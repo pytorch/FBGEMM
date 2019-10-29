@@ -1452,17 +1452,6 @@ template <int SPATIAL_DIM>
 FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 /**
- * @brief Allocate __size bytes of uninitialized storage whose alignment is
- * specified by __align.
- */
-static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
-  void* aligned_mem;
-  if (posix_memalign(&aligned_mem, __align, __size))
-    return 0;
-  return aligned_mem;
-}
-
-/**
  * @brief Are we running on a fbgemm supported cpu?
  */
 FBGEMM_API bool fbgemmSupportedCPU();
