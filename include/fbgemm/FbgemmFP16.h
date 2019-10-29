@@ -48,10 +48,7 @@ class PackedGemmMatrixFP16 {
       const float alpha,
       const float* smat,
       const int brow = 512)
-      : nrow_(nrow),
-        ncol_(ncol),
-        brow_(brow),
-        kernel_ncol_blocks_(2) {
+      : nrow_(nrow), ncol_(ncol), brow_(brow), kernel_ncol_blocks_(2) {
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
@@ -113,9 +110,8 @@ class PackedGemmMatrixFP16 {
     // allocate and initialize packed memory
     const int padding = 1024; // required by sw pipelined kernels
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
-    // pmat_ = (float16 *)aligned_alloc(64, matSize() * sizeof(float16) +
-    // padding);
-    posix_memalign((void**)&pmat_, 64, matSize() * sizeof(float16) + padding);
+    pmat_ = static_cast<float16*>(
+        fbgemmAlignedAlloc(64, matSize() * sizeof(float16) + padding));
     for (auto i = 0; i < matSize(); i++) {
       pmat_[i] = tconv(0.f, pmat_[i]);
     }

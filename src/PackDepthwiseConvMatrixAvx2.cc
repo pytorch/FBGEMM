@@ -9,6 +9,7 @@
 #include <immintrin.h>
 
 #include "MaskAvx2.h"
+#include "fbgemm/UtilsAvx2.h"
 
 using namespace std;
 
@@ -29,12 +30,8 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
 
   // Allocate packed arrays
   int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
-  // pmat_ = static_cast<int8_t *>(fbgemmAlignedAlloc(
-  //     64, ((K + 31) / 32) * KERNEL_PROD_ALIGNED * 32 * sizeof(int8_t)));
-  posix_memalign(
-      (void**)&pmat_,
-      64,
-      ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t));
+  pmat_ = static_cast<int8_t*>(fbgemmAlignedAlloc(
+      64, ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
 
   // Pack input matrix
   // The layout is optimized to use vpmaddubsw efficiently (see
