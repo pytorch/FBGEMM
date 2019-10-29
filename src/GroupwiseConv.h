@@ -26,7 +26,7 @@ namespace fbgemm {
 namespace x86 = asmjit::x86;
 
 template <typename>
-class is_requantization : std::false_type {};
+struct is_requantization : std::false_type {};
 
 template <
     bool FUSE_RELU,
@@ -35,7 +35,7 @@ template <
     typename outT,
     typename inT,
     typename nextOPType>
-class is_requantization<
+struct is_requantization<
     ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>>
     : std::true_type {};
 
