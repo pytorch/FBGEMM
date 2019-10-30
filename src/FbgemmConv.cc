@@ -217,26 +217,20 @@ int fbgemmConv(
     case optimized_conv_t::groupwise: {
       // optimized groupwise convolution
       // std::cout << "Groupwise fast path" << std::endl;
-      assert(
-          SPATIAL_DIM == 2 && "Only 2D groupwise convolutions are supported");
-      // thread 0 does all the work.
-      // TODO: Remove this when fbgemmGroupwiseConv supports threads
-      if (thread_id == 0) {
-        std::vector<int32_t> row_offset_buf(
-            rowOffsetBufferSizeGConv<SPATIAL_DIM>(conv_p));
-        outProcess.setRowOffsets(row_offset_buf.data());
-        fbgemmGroupwiseConv(
-            conv_p,
-            activations,
-            outProcess.getAZeroPoint(),
-            row_offset_buf.data(),
-            *(packed_weights.getPackedWForGroupwise()),
-            out,
-            outBuffer,
-            outProcess,
-            0,
-            1);
-      }
+      std::vector<int32_t> row_offset_buf(
+          rowOffsetBufferSizeGConv<SPATIAL_DIM>(conv_p));
+      outProcess.setRowOffsets(row_offset_buf.data());
+      fbgemmGroupwiseConv(
+          conv_p,
+          activations,
+          outProcess.getAZeroPoint(),
+          row_offset_buf.data(),
+          *(packed_weights.getPackedWForGroupwise()),
+          out,
+          outBuffer,
+          outProcess,
+          thread_id,
+          num_threads);
       break;
     }
     case optimized_conv_t::pointwise: {

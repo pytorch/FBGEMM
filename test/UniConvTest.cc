@@ -219,7 +219,14 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::groupwise: {
-      ASSERT_TRUE(false) << "groupwise are not supported for 3D";
+      ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
+      ASSERT_NE(packedB_3D.getPackedWForGroupwise(), nullptr)
+          << "Groupwise packed matrix is null";
       break;
     }
     case optimized_conv_t::pointwise: {

@@ -222,17 +222,40 @@ FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_p);
 
-  return (SPATIAL_DIM == 2) && (C_per_G == K_per_G) &&
+  return (C_per_G == K_per_G) &&
       (C_per_G == 2 || C_per_G == 4 || C_per_G == 8 || C_per_G == 16) &&
-      (conv_p.G >= G_together) && (conv_p.K[0] == conv_p.K[1]) &&
-      (conv_p.K[0] == 3) && (conv_p.pad[0] == 1) && (conv_p.pad[1] == 1) &&
-      ((conv_p.IN_DIM[0] % 2 == 0) == (conv_p.IN_DIM[1] % 2 == 0)) &&
-      (conv_p.IN_DIM[0] >= conv_p.K[0]) && (conv_p.OUT_DIM[0] >= conv_p.K[0]) &&
-      (conv_p.IN_DIM[1] >= conv_p.K[1]) && (conv_p.OUT_DIM[1] >= conv_p.K[1]) &&
-      (conv_p.pad[0] == conv_p.pad[2]) && (conv_p.pad[1] == conv_p.pad[3]) &&
-      (conv_p.dilation[0] == 1) && (conv_p.dilation[0] == conv_p.dilation[1]) &&
-      (conv_p.stride[0] == 1 || conv_p.stride[0] == 2) &&
-      (conv_p.stride[0] == conv_p.stride[1]);
+      (conv_p.G >= G_together) &&
+
+      std::all_of(
+             conv_p.K.begin(), conv_p.K.end(), [](int i) { return i == 3; }) &&
+
+      std::all_of(
+             conv_p.pad.begin(),
+             conv_p.pad.end(),
+             [](int i) { return i == 1; }) &&
+      std::all_of(
+             conv_p.dilation.begin(),
+             conv_p.dilation.end(),
+             [](int i) { return i == 1; }) &&
+      // All strides should be the same and
+      // should be either 1 or 2
+      (std::all_of(
+           conv_p.stride.begin(),
+           conv_p.stride.end(),
+           [](int i) { return i == 1; }) ||
+       std::all_of(
+           conv_p.stride.begin(),
+           conv_p.stride.end(),
+           [](int i) { return i == 2; })) &&
+      // Height and Width should be both even or both odd
+      // and at least as big as filter size
+      (conv_p.IN_DIM[SPATIAL_DIM - 2] % 2 ==
+       conv_p.IN_DIM[SPATIAL_DIM - 1] % 2) &&
+      (conv_p.IN_DIM[SPATIAL_DIM - 2] >= conv_p.K[SPATIAL_DIM - 2]) &&
+      (conv_p.IN_DIM[SPATIAL_DIM - 1] >= conv_p.K[SPATIAL_DIM - 1]) &&
+
+      (conv_p.OUT_DIM[SPATIAL_DIM - 2] >= conv_p.K[SPATIAL_DIM - 2]) &&
+      (conv_p.OUT_DIM[SPATIAL_DIM - 1] >= conv_p.K[SPATIAL_DIM - 1]);
 }
 
 template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
