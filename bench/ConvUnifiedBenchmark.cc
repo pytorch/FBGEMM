@@ -26,35 +26,48 @@ using namespace fbgemm;
 // clang-format off
 // 2D conv shapes
 vector<conv_param_t<2>> shapes_2d = {
-    // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
-    // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
-    // 2D convolutions
-    // regular
-    conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    // regular with dilation
-    conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
-    // groupwise
-    conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    // DW
-    conv_param_t<>(1, 272, 272, {47, 125}, 272, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    // Pointwise
-    conv_param_t<>(1, 128, 128, {56, 56}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0})
+  // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
+  // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
+  // 2D convolutions
+  // regular
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}),
+  // regular with dilation
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}, {2, 2}),
+  // groupwise
+  conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3},
+      {1, 1}, {1, 1, 1, 1}),
+  // DW
+  conv_param_t<>(1, 272, 272, {47, 125}, 272, {3, 3},
+      {1, 1}, {1, 1, 1, 1}),
+  // Pointwise
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {1, 1},
+      {1, 1}, {0, 0, 0, 0})
 
 };
 
 // 3D conv shapes
 vector<conv_param_t<3>> shapes_3d = {
-    // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
-    // stride_w},
-    // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right}
-    // Regular
-    conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
-    //With dilations
-    conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {2, 2, 2}),
-    // Depthwise
-    conv_param_t<3>(1, 64, 64, {8, 14, 14}, 64, {3, 3, 3}, {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
-    // Pointwise
-    conv_param_t<3>(1, 128, 128, {8, 14, 14}, 1, {1, 1, 1}, {1, 1, 1}, {0, 0, 0, 0})};
+  // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
+  // stride_w},
+  // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right}
+  // Regular
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  //With dilations
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {2, 2, 2}),
+  // Groupwise
+  conv_param_t<3>(1, 256, 256, {1, 7, 7}, 64, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  // Depthwise
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 64, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  // Pointwise
+  conv_param_t<3>(1, 128, 128, {8, 14, 14}, 1, {1, 1, 1},
+      {1, 1, 1}, {0, 0, 0, 0})
+};
 // clang-format on
 
 template <int SPATIAL_DIM, typename Acc_t>
@@ -214,20 +227,6 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
 
     PackWeightsForConv<SPATIAL_DIM> packedB(conv_p, Bint8.data());
 
-    // no-op output process objects
-    DoNothing<> doNothingObj{};
-    ReQuantizeOutput<false, QuantizationGranularity::TENSOR> outputProcObj(
-        doNothingObj,
-        C_multiplier.data(),
-        C_zero_point,
-        Aint8_zero_point,
-        Bint8_zero_point.data(),
-        nullptr, // row offsets
-        col_offsets.data(),
-        nullptr, // bias
-        conv_p.OC,
-        conv_p.G);
-
     runType = "UniConv";
     ttot = 0;
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -249,15 +248,36 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
 #endif
       llc_flush(llc);
       begin = chrono::high_resolution_clock::now();
-      fbgemmConv(
-          conv_p,
-          Aint8.data(),
-          packedB,
-          Cint8_fb.data(),
-          Cint32_fb.data(),
-          outputProcObj,
-          0,
-          1);
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+      {
+        int num_threads = fbgemm_get_num_threads();
+        int tid = fbgemm_get_thread_num();
+        // no-op output process objects
+        DoNothing<> doNothingObj{};
+        ReQuantizeOutput<false, QuantizationGranularity::TENSOR> outputProcObj(
+            doNothingObj,
+            C_multiplier.data(),
+            C_zero_point,
+            Aint8_zero_point,
+            Bint8_zero_point.data(),
+            nullptr, // row offsets
+            col_offsets.data(),
+            nullptr, // bias
+            conv_p.OC,
+            conv_p.G);
+
+        fbgemmConv(
+            conv_p,
+            Aint8.data(),
+            packedB,
+            Cint8_fb.data(),
+            Cint32_fb.data(),
+            outputProcObj,
+            tid,
+            num_threads);
+      }
       end = chrono::high_resolution_clock::now();
 
       if (i >= NWARMUP) {

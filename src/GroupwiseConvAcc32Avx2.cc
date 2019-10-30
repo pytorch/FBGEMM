@@ -71,7 +71,8 @@ kernel_sig_t getKernelSig(
     bool isAZeroPointZero,
     bool needRowOffset,
     bool isTopEdgeIncluded,
-    bool isBottomEdgeIncluded) {
+    bool isBottomEdgeIncluded,
+    bool accum) {
   // kernel is specialized on number of input channels per group, number of
   // output channels per group, whether stride is 1 or stride is 2, whether or
   // not zero point for activations is 0 or not, whether or not row offset
@@ -79,6 +80,7 @@ kernel_sig_t getKernelSig(
   // not bottom edge is included.
   // use_padding_: If false, the right padding on the width side and bottom
   // padding on height side are not used for the case of stride = 2
+  // accum: accumulate results for output and rowoffset
   int C_per_G = conv_param.IC / conv_param.G;
   int K_per_G = conv_param.OC / conv_param.G;
   auto kernelSig = std::make_tuple(
@@ -86,7 +88,8 @@ kernel_sig_t getKernelSig(
       needRowOffset,
       isTopEdgeIncluded,
       isBottomEdgeIncluded,
-      conv_param.IN_DIM[1] % 2 == 0,
+      conv_param.IN_DIM[1] % 2 == 0 && conv_param.stride[0] == 2,
+      accum,
       conv_param.G,
       conv_param.stride[0],
       C_per_G,
@@ -100,7 +103,8 @@ jit_conv_kernel_fp getOrCreateConvKernel(
     int a_zero_point,
     bool needRowOffset,
     bool isTopEdgeIncluded,
-    bool isBottomEdgeIncluded) {
+    bool isBottomEdgeIncluded,
+    bool accum) {
   // Note: Wrong code is generated if it's not one of the supported convolution
   assert(fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param));
   auto kernelSig = getKernelSig(
@@ -108,7 +112,8 @@ jit_conv_kernel_fp getOrCreateConvKernel(
       a_zero_point == 0,
       needRowOffset,
       isTopEdgeIncluded,
-      isBottomEdgeIncluded);
+      isBottomEdgeIncluded,
+      accum);
 
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
@@ -120,7 +125,8 @@ jit_conv_kernel_fp getOrCreateConvKernel(
                 a_zero_point,
                 needRowOffset,
                 isTopEdgeIncluded,
-                isBottomEdgeIncluded);
+                isBottomEdgeIncluded,
+                accum);
             return genObj.getOrCreate();
           });
     } else if (fbgemmHasAvx2Support()) {
@@ -131,7 +137,8 @@ jit_conv_kernel_fp getOrCreateConvKernel(
                 a_zero_point,
                 needRowOffset,
                 isTopEdgeIncluded,
-                isBottomEdgeIncluded);
+                isBottomEdgeIncluded,
+                accum);
             return genObj.getOrCreate();
           });
     } else {
@@ -159,6 +166,7 @@ GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
       this->isTopEdgeIncluded_,
       this->isBottomEdgeIncluded_,
       this->use_padding_,
+      this->accum_,
       this->G_,
       this->STRIDE_,
       this->C_per_G_,
@@ -351,12 +359,18 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeResult(
   if (GTogether_ > 1) {
     // store with permutation
     a->vpermd(x86::Ymm(9), stPermReg_V_, x86::Ymm(9));
+    if (this->accum_) {
+      a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
+    }
     a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
   } else {
     // horizontal add and store
     if (this->C_per_G_ == 8) {
       a->vphaddd(x86::Ymm(9), x86::Ymm(9), x86::Ymm(8));
       a->vpermq(x86::Ymm(9), x86::Ymm(9), static_cast<asmjit::Imm>(0xd8));
+      if (this->accum_) {
+        a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
+      }
       a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
     } else if (this->K_per_G_ == 16) {
       a->vphaddd(x86::Ymm(9), x86::Ymm(9), x86::Ymm(8));
@@ -377,6 +391,10 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeResult(
       a->vphaddd(x86::Ymm(5), x86::Ymm(5), x86::Ymm(3));
       a->vpermq(x86::Ymm(5), x86::Ymm(5), static_cast<asmjit::Imm>(0xd8));
 
+      if (this->accum_) {
+        a->vpaddd(x86::Ymm(9), x86::Ymm(9), x86::dword_ptr(out_acts_R_));
+        a->vpaddd(x86::Ymm(5), x86::Ymm(5), x86::dword_ptr(out_acts_R_, 32));
+      }
       a->vmovups(x86::dword_ptr(out_acts_R_), x86::Ymm(9));
       a->vmovups(x86::dword_ptr(out_acts_R_, 32), x86::Ymm(5));
     }
@@ -389,13 +407,24 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeOffset(
   switch (this->C_per_G_) {
     case 2:
       // store 128-bits containing rowoffset for four groups
+      if (this->accum_) {
+        a->paddd(rowOffsetReg_V_.half(), x86::dword_ptr(row_offset_R_));
+      }
       a->vmovdqu(x86::dword_ptr(row_offset_R_), rowOffsetReg_V_.half());
       break;
     case 4:
       // store 64-bits containing rowoffset for two groups
+      if (this->accum_) {
+        a->vmovq(tmpReg1_V_.half(), x86::dword_ptr(row_offset_R_));
+        a->paddd(rowOffsetReg_V_.half(), tmpReg1_V_.half());
+      }
       a->vmovq(x86::dword_ptr(row_offset_R_), rowOffsetReg_V_.half());
       break;
     case 8:
+      if (this->accum_) {
+        a->vmovd(tmpReg1_V_.half(), x86::dword_ptr(row_offset_R_));
+        a->paddd(rowOffsetReg_V_.half(), tmpReg1_V_.half());
+      }
       a->vmovd(x86::dword_ptr(row_offset_R_), rowOffsetReg_V_.half());
       break;
     case 16:
@@ -404,6 +433,10 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeOffset(
       // execute vphaddd twice to sum the two
       a->vphaddd(rowOffsetReg_V_, rowOffsetReg_V_, rowOffsetReg_V_);
       a->vphaddd(rowOffsetReg_V_, rowOffsetReg_V_, rowOffsetReg_V_);
+      if (this->accum_) {
+        a->vmovd(tmpReg1_V_.half(), x86::dword_ptr(row_offset_R_));
+        a->paddd(rowOffsetReg_V_.half(), tmpReg1_V_.half());
+      }
       a->vmovd(x86::dword_ptr(row_offset_R_), rowOffsetReg_V_.half());
       break;
     default:
@@ -975,7 +1008,8 @@ void kernel_compute(
     int32_t h_start,
     int32_t h_end,
     int32_t width,
-    int32_t* rowOffset) {
+    int32_t* rowOffset,
+    bool accum) {
   int IW = conv_p.IN_DIM[1];
   int IC = conv_p.IC;
   int OC = conv_p.OC;
@@ -994,7 +1028,7 @@ void kernel_compute(
           int sum = 0;
           int rowSum = 0;
           for (int r = 0; r < R; ++r) {
-            int h_in = -conv_p.pad[1] + h * conv_p.stride[1] + r;
+            int h_in = -conv_p.pad[0] + h * conv_p.stride[0] + r;
             for (int s = 0; s < S; ++s) {
               int w_in = -conv_p.pad[1] + w * conv_p.stride[1] + s;
               for (int c = 0; c < IC_per_G; ++c) {
@@ -1016,8 +1050,17 @@ void kernel_compute(
               }
             }
           }
-          out_acts[((h - h_start) * width + w) * OC + g * OC_per_G + k] = sum;
-          rowOffset[((h - h_start) * width + w) * G_together + g] = rowSum;
+          if (accum) {
+            out_acts[((h - h_start) * width + w) * OC + g * OC_per_G + k] +=
+                sum;
+            if (k == 0) {
+              // only accumulate for k == 0
+              rowOffset[((h - h_start) * width + w) * G_together + g] += rowSum;
+            }
+          } else {
+            out_acts[((h - h_start) * width + w) * OC + g * OC_per_G + k] = sum;
+            rowOffset[((h - h_start) * width + w) * G_together + g] = rowSum;
+          }
         }
       }
     }
@@ -1396,121 +1439,269 @@ void fbgemmGroupwiseConv(
   }
 
   int MB = conv_param.MB;
-  int OH = conv_param.OUT_DIM[0];
-  int OW = conv_param.OUT_DIM[1];
-  int R = conv_param.K[0];
-  int S = conv_param.K[1];
+  int OT = SPATIAL_DIM == 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
+  int OH = conv_param.OUT_DIM[SPATIAL_DIM - 2];
+  int OW = conv_param.OUT_DIM[SPATIAL_DIM - 1];
+  int T = SPATIAL_DIM == 2 ? 1 : conv_param.K[SPATIAL_DIM - 3];
+  int R = conv_param.K[SPATIAL_DIM - 2];
+  int S = conv_param.K[SPATIAL_DIM - 1];
   int G = conv_param.G;
   int OC = conv_param.OC;
   int IC = conv_param.IC;
   int K_per_G = conv_param.OC / G;
   int C_per_G = conv_param.IC / G;
-  int OH_OW = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
-  int IW = conv_param.IN_DIM[1];
-  int IH_IW = conv_param.IN_DIM[0] * conv_param.IN_DIM[1];
+  int OH_OW = OH * OW;
+  int OT_OH_OW = OT * OH * OW;
+  int IT = SPATIAL_DIM == 2 ? 1 : conv_param.IN_DIM[SPATIAL_DIM - 3];
+  int IH = conv_param.IN_DIM[SPATIAL_DIM - 2];
+  int IW = conv_param.IN_DIM[SPATIAL_DIM - 1];
+  int IH_IW = IH * IW;
+  int IT_IH_IW = IT * IH * IW;
   int paddedCPerG = (C_per_G + 3) / 4 * 4;
 
   bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
                       outProcess.getBZeroPoint()[0] == 0) ||
       rowOffsetBuf == nullptr;
-
-  assert(SPATIAL_DIM == 2 && "3D conv not supported yet");
-
-  // Parallelization:
-  int batch_start = 0;
-  int batch_end = MB;
-  int oh_start = 0;
-  int oh_end = OH;
-  if (MB >= num_threads) {
-    fbgemmPartition1D(thread_id, num_threads, MB, batch_start, batch_end);
-  } else {
-    fbgemmPartition1D(thread_id, num_threads, OH, oh_start, oh_end);
-  }
-
-  if (batch_start >= batch_end || oh_start >= oh_end) {
-    // There is no work for this thread
-    return;
-  }
-
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
 
-  // generate convolution  + rowOffset kernel
-  bool calculateRowOffset = !b_symmetric;
-  bool isTopEdgeIncluded = oh_start == 0;
-  bool isBottomEdgeIncluded = oh_end == OH;
-  jit_conv_kernel_fp fpConv = getOrCreateConvKernel<SPATIAL_DIM>(
-      conv_param,
-      a_zero_point,
-      calculateRowOffset,
-      isTopEdgeIncluded,
-      isBottomEdgeIncluded);
 
-  int ih_start = 0;
-  if (oh_start > 0) {
-    ih_start = -conv_param.pad[0] + oh_start * conv_param.stride[0];
-  }
-  int32_t* out_start = outBuffer + oh_start * OW * OC;
-  const uint8_t* in_start = activations + ih_start * IW * IC;
-  int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
-  for (int i = batch_start; i < batch_end; ++i) {
-    const uint8_t* in_start_batch = in_start + i * IH_IW * conv_param.IC;
-    int32_t* out_start_batch = out_start + i * OH_OW * OC;
-    int32_t* rowOffsetBuf_start_batch =
-        rowOffsetBuf_start + i * OH_OW * G_together;
-    for (int g = 0; g < G; g += G_together) {
-      const uint8_t* in_start_group = in_start_batch + g * C_per_G;
-      int8_t* weight_start =
-          packed_weights.getBuf() + g * R * S * K_per_G * paddedCPerG;
-      int32_t* out_start_group = out_start_batch;
-      int32_t* rowOffsetBuf_start_group = rowOffsetBuf_start_batch;
-      // Uncomment the following two lines to stop
-      // reuse of output and rowoffset buffer
-      // out_start_group = out_start_batch + g * K_per_G;
-      // rowOffsetBuf_start_group = rowOffsetBuf_start_batch + g * MB * OH_OW;
+  if (SPATIAL_DIM == 2) {
+    // Parallelization:
+    int batch_start = 0;
+    int batch_end = MB;
+    int oh_start = 0;
+    int oh_end = OH;
+    if (MB >= num_threads) {
+      fbgemmPartition1D(thread_id, num_threads, MB, batch_start, batch_end);
+    } else {
+      fbgemmPartition1D(thread_id, num_threads, OH, oh_start, oh_end);
+    }
 
-      // exactly the same compute as the JIT'ed below
-      // kernel_compute(
-      //    conv_param,
-      //    in_start_group,
-      //    weight_start,
-      //    out_start_group,
-      //    a_zero_point,
-      //    oh_start,
-      //    oh_end,
-      //    OW,
-      //    rowOffsetBuf_start_group);
+    if (batch_start >= batch_end || oh_start >= oh_end) {
+      // There is no work for this thread
+      return;
+    }
 
-      fpConv(
-          in_start_group,
-          weight_start,
-          out_start_group,
-          a_zero_point,
-          oh_start,
-          oh_end,
-          OW,
-          rowOffsetBuf_start_group);
+    // generate convolution  + rowOffset kernel
+    bool calculateRowOffset = !b_symmetric;
+    bool isTopEdgeIncluded = oh_start == 0;
+    bool isBottomEdgeIncluded = oh_end == OH;
+    jit_conv_kernel_fp fpConv = getOrCreateConvKernel<SPATIAL_DIM>(
+        conv_param,
+        a_zero_point,
+        calculateRowOffset,
+        isTopEdgeIncluded,
+        isBottomEdgeIncluded,
+        false);
 
-      const std::int32_t* inp = out_start_group;
-      block_type_t block{i * OH_OW + oh_start * OW,
-                         (oh_end - oh_start) * OW,
-                         g * K_per_G,
-                         G_together * K_per_G};
-      int ld_out = G * K_per_G;
-      int ld_in = G * K_per_G;
+    int ih_start = 0;
+    if (oh_start > 0) {
+      ih_start = -conv_param.pad[SPATIAL_DIM - 2] +
+          oh_start * conv_param.stride[SPATIAL_DIM - 2];
+    }
+    int32_t* out_start = outBuffer + oh_start * OW * OC;
+    const uint8_t* in_start = activations + ih_start * IW * IC;
+    int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
+    for (int i = batch_start; i < batch_end; ++i) {
+      const uint8_t* in_start_batch = in_start + i * IH_IW * conv_param.IC;
+      int32_t* out_start_batch = out_start + i * OH_OW * OC;
+      int32_t* rowOffsetBuf_start_batch =
+          rowOffsetBuf_start + i * OH_OW * G_together;
+      for (int g = 0; g < G; g += G_together) {
+        const uint8_t* in_start_group = in_start_batch + g * C_per_G;
+        int8_t* weight_start =
+            packed_weights.getBuf() + g * R * S * K_per_G * paddedCPerG;
+        int32_t* out_start_group = out_start_batch;
+        int32_t* rowOffsetBuf_start_group = rowOffsetBuf_start_batch;
+        // Uncomment the following two lines to stop
+        // reuse of output and rowoffset buffer
+        // out_start_group = out_start_batch + g * K_per_G;
+        // rowOffsetBuf_start_group = rowOffsetBuf_start_batch + g * MB * OH_OW;
 
-      dispatchOutputProcessing(
-          outProcess,
-          rowOffsetBuf_start_group,
-          a_zero_point,
-          out,
-          inp,
-          block,
-          ld_out,
-          ld_in,
-          G,
-          C_per_G,
-          is_requantization<processOutputType>());
+        // exactly the same compute as the JIT'ed below
+        // kernel_compute(
+        //    conv_param,
+        //    in_start_group,
+        //    weight_start,
+        //    out_start_group,
+        //    a_zero_point,
+        //    oh_start,
+        //    oh_end,
+        //    OW,
+        //    rowOffsetBuf_start_group);
+
+        fpConv(
+            in_start_group,
+            weight_start,
+            out_start_group,
+            a_zero_point,
+            oh_start,
+            oh_end,
+            OW,
+            rowOffsetBuf_start_group);
+
+        const std::int32_t* inp = out_start_group;
+        block_type_t block{i * OH_OW + oh_start * OW,
+                           (oh_end - oh_start) * OW,
+                           g * K_per_G,
+                           G_together * K_per_G};
+        int ld_out = G * K_per_G;
+        int ld_in = G * K_per_G;
+
+        dispatchOutputProcessing(
+            outProcess,
+            rowOffsetBuf_start_group,
+            a_zero_point,
+            out,
+            inp,
+            block,
+            ld_out,
+            ld_in,
+            G,
+            C_per_G,
+            is_requantization<processOutputType>());
+      }
+    }
+  } else {
+    assert(SPATIAL_DIM == 3 && "Unsupported SPATIAL_DIM");
+
+    conv_param_t<> conv_p_2d(
+        conv_param.MB,
+        conv_param.IC,
+        conv_param.OC,
+        {conv_param.IN_DIM[SPATIAL_DIM - 2],
+         conv_param.IN_DIM[SPATIAL_DIM - 1]},
+        conv_param.G,
+        {conv_param.K[SPATIAL_DIM - 2], conv_param.K[SPATIAL_DIM - 1]},
+        {conv_param.stride[SPATIAL_DIM - 2],
+         conv_param.stride[SPATIAL_DIM - 1]},
+        {conv_param.pad[1],
+         conv_param.pad[2],
+         conv_param.pad[4],
+         conv_param.pad[5]});
+
+    // Parallelization:
+    int batch_start = 0;
+    int batch_end = MB;
+    int oh_start = 0;
+    int oh_end = OH;
+    if (MB >= num_threads) {
+      fbgemmPartition1D(thread_id, num_threads, MB, batch_start, batch_end);
+    } else {
+      fbgemmPartition1D(thread_id, num_threads, OH, oh_start, oh_end);
+    }
+
+    if (batch_start >= batch_end || oh_start >= oh_end) {
+      // There is no work for this thread
+      return;
+    }
+
+    // generate convolution  + rowOffset kernel
+    bool calculateRowOffset = !b_symmetric;
+    bool isTopEdgeIncluded = oh_start == 0;
+    bool isBottomEdgeIncluded = oh_end == OH;
+    jit_conv_kernel_fp fpConvNoAccum = getOrCreateConvKernel<2>(
+        conv_p_2d,
+        a_zero_point,
+        calculateRowOffset,
+        isTopEdgeIncluded,
+        isBottomEdgeIncluded,
+        false);
+    jit_conv_kernel_fp fpConvAccum = getOrCreateConvKernel<2>(
+        conv_p_2d,
+        a_zero_point,
+        calculateRowOffset,
+        isTopEdgeIncluded,
+        isBottomEdgeIncluded,
+        true);
+    jit_conv_kernel_fp fpConv;
+
+    int ih_start = 0;
+    if (oh_start > 0) {
+      ih_start = -conv_p_2d.pad[0] + oh_start * conv_p_2d.stride[0];
+    }
+
+    std::vector<std::uint8_t> zero_points(IH * IW * IC, a_zero_point);
+    int32_t* out_start = outBuffer + oh_start * OW * OC;
+    const uint8_t* in_start = activations + ih_start * IW * IC;
+    int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
+    for (int i = batch_start; i < batch_end; ++i) {
+      const uint8_t* in_start_batch = in_start + i * IT_IH_IW * IC;
+      int32_t* out_start_batch = out_start + i * OT_OH_OW * OC;
+      int32_t* rowOffsetBuf_start_batch =
+          rowOffsetBuf_start + i * OT_OH_OW * G_together;
+      for (int g = 0; g < G; g += G_together) {
+        const uint8_t* in_start_group = in_start_batch + g * C_per_G;
+        int8_t* weight_start =
+            packed_weights.getBuf() + g * T * R * S * K_per_G * paddedCPerG;
+        int32_t* out_start_group = out_start_batch;
+        int32_t* rowOffsetBuf_start_group = rowOffsetBuf_start_batch;
+        // Uncomment the following two lines to stop
+        // reuse of output and rowoffset buffer
+        // out_start_group = out_start_batch + g * K_per_G;
+        // rowOffsetBuf_start_group = rowOffsetBuf_start_batch + g * MB *
+        // OT_OH_OW;
+
+        for (int ot = 0; ot < OT; ++ot) {
+          int32_t* out_start_t = out_start_group + ot * OH_OW * OC;
+          int32_t* rowOffsetBuf_start_t =
+              rowOffsetBuf_start_group + ot * OH_OW * G_together;
+          for (int t = 0; t < T; ++t) {
+            int t_in = -conv_param.pad[0] + ot * conv_param.stride[0] + t;
+            const uint8_t* in_start_t = in_start_group + t_in * IH_IW * IC;
+            int8_t* weight_start_t =
+                weight_start + t * R * S * K_per_G * G_together * paddedCPerG;
+            if (t_in < 0 || t_in >= IT) {
+              in_start_t = zero_points.data();
+            }
+            // exactly the same compute as the JIT'ed below
+            // kernel_compute(
+            // conv_p_2d,
+            // in_start_t,
+            // weight_start_t,
+            // out_start_t,
+            // a_zero_point,
+            // oh_start,
+            // oh_end,
+            // OW,
+            // rowOffsetBuf_start_t,
+            // t > 0);
+
+            fpConv = t > 0 ? fpConvAccum : fpConvNoAccum;
+            fpConv(
+                in_start_t,
+                weight_start_t,
+                out_start_t,
+                a_zero_point,
+                oh_start,
+                oh_end,
+                OW,
+                rowOffsetBuf_start_t);
+          }
+
+          const std::int32_t* inp = out_start_t;
+          block_type_t block{i * OH_OW + oh_start * OW,
+                             (oh_end - oh_start) * OW,
+                             g * K_per_G,
+                             G_together * K_per_G};
+          int ld_out = G * K_per_G;
+          int ld_in = G * K_per_G;
+
+          dispatchOutputProcessing(
+              outProcess,
+              rowOffsetBuf_start_t,
+              a_zero_point,
+              out + ot * OH_OW * OC,
+              inp,
+              block,
+              ld_out,
+              ld_in,
+              G,
+              C_per_G,
+              is_requantization<processOutputType>());
+        }
+      }
     }
   }
 }
@@ -1519,9 +1710,10 @@ template <int SPATIAL_DIM>
 int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   // row offset buffer should be a able to hold row offsets for however
   // number of groups we process at a time.
-  assert(SPATIAL_DIM == 2 && "Only 2D is supported currently");
   if (cpuinfo_initialize()) {
-    int bufferSize = conv_param.OUT_DIM[0] * conv_param.OUT_DIM[1];
+    int OT = SPATIAL_DIM == 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
+    int bufferSize = OT * conv_param.OUT_DIM[SPATIAL_DIM - 2] *
+        conv_param.OUT_DIM[SPATIAL_DIM - 1];
     if (fbgemmHasAvx512Support()) {
       return conv_param.MB * bufferSize * conv_param.G;
     } else if (fbgemmHasAvx2Support()) {
@@ -1535,7 +1727,6 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
 }
-
 
 template int rowOffsetBufferSizeGConv<2>(const conv_param_t<2>& conv_param);
 template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
