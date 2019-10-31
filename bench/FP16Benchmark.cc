@@ -50,7 +50,7 @@ void performance_test() {
   std::vector<std::vector<int>> shapes;
   for (auto m = 1; m < 120; m++) {
     // shapes.push_back({m, 128, 512});
-    shapes.push_back({m, 512, 512});
+    shapes.push_back({264, 1980, 100});
   }
 
 #elif dataset == 2
