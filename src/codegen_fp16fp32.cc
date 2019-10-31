@@ -45,7 +45,7 @@ int main() {
       // {1, "AVX", {{4, 1, 0}, {4, 2, 0}, {4, 3, 0}, {3, 1, 0}, {3, 2, 0}, {3,
       // 3, 0}}},
       {2,
-       "AVX2",
+       "Avx2",
        {
            // 4x3 register layout
            // {1, 3, 0},
@@ -78,7 +78,7 @@ int main() {
            // {14, 1, 0},
        }},
       {3,
-       "AVX512",
+       "Avx512",
        {
            // 14x2 register layout
            {1, 2, 0},
@@ -98,7 +98,7 @@ int main() {
        }}};
 
   for (auto s : isa) {
-    string isa_file_name = s.avx <= 2 ? "Avx2" : "Avx512";
+    string const& isa_file_name = s.name;
 
     // open all files
     ofstream srcfile;
@@ -158,8 +158,8 @@ int main() {
     string fargs;
 
     string B_type = ((fp16) ? "fp16" : "fp32");
-    string prefix = s.name + /*"_" + B_type */ +"_" + "fA" + to_string(fixedA) +
-        "fB" + to_string(fixedB) + "fC" + to_string(fixedC);
+    string prefix = s.name + /*"_" + B_type */ + "_" + "fA" +
+        to_string(fixedA) + "fB" + to_string(fixedB) + "fC" + to_string(fixedC);
     cout << "Generating code for " << s.name << " " << B_type << "\n";
 
     string vec_reg_prefix = s.avx <= 2 ? "ymm" : "zmm";

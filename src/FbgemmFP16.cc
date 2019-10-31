@@ -45,34 +45,34 @@ inline void PackA(int nrow, int ncol, const float* from, int ldim, float* to) {
 // }
 
 struct KernelInfo {
-  using knl_ptr = funcptr_fp16;
-  // optimized kernels to cover all cases
-  // 2 in ?x2 should be the same as kernel_ncol_blocks.
-  // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
-  // the restrictions of ymm register numbers (16).
-  static constexpr knl_ptr kernel_avx2[] = {nullptr,
-                                            gemmkernel_1x2_AVX2_fA0fB0fC0,
-                                            gemmkernel_2x2_AVX2_fA0fB0fC0,
-                                            gemmkernel_3x2_AVX2_fA0fB0fC0,
-                                            gemmkernel_4x2_AVX2_fA0fB0fC0,
-                                            gemmkernel_5x2_AVX2_fA0fB0fC0,
-                                            gemmkernel_6x2_AVX2_fA0fB0fC0};
+using knl_ptr = funcptr_fp16;
+// optimized kernels to cover all cases
+// 2 in ?x2 should be the same as kernel_ncol_blocks.
+// Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
+// the restrictions of ymm register numbers (16).
+static constexpr knl_ptr kernel_avx2[] = {nullptr,
+                                          gemmkernel_1x2_Avx2_fA0fB0fC0,
+                                          gemmkernel_2x2_Avx2_fA0fB0fC0,
+                                          gemmkernel_3x2_Avx2_fA0fB0fC0,
+                                          gemmkernel_4x2_Avx2_fA0fB0fC0,
+                                          gemmkernel_5x2_Avx2_fA0fB0fC0,
+                                          gemmkernel_6x2_Avx2_fA0fB0fC0};
 
-  static constexpr knl_ptr kernel_avx512[] = {nullptr,
-                                              gemmkernel_1x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_2x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_3x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_4x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_5x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_6x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_7x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_8x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_9x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_10x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_11x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_12x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_13x2_AVX512_fA0fB0fC0,
-                                              gemmkernel_14x2_AVX512_fA0fB0fC0};
+static constexpr knl_ptr kernel_avx512[] = {nullptr,
+                                            gemmkernel_1x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_2x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_3x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_4x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_5x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_6x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_7x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_8x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_9x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_10x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_11x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_12x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_13x2_Avx512_fA0fB0fC0,
+                                            gemmkernel_14x2_Avx512_fA0fB0fC0};
 
   // autotuned kernel splits for various cases m = 1:mb_max
   // may need re-autotuning for new uarch
