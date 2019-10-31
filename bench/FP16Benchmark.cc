@@ -8,6 +8,8 @@
 #include <cmath>
 #include <random>
 
+#include <immintrin.h>
+
 #ifdef USE_MKL
 #include <mkl.h>
 #endif
@@ -16,6 +18,7 @@
 #include <cblas.h>
 #endif
 
+#undef _OPENMP
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -29,7 +32,7 @@ using namespace fbgemm;
 
 void performance_test() {
   // cache flush
-  bool flush = true;
+  bool flush = false;
   std::vector<char> llc;
   if (flush) {
     llc.resize(64L * 1024L * 1024L, 1.0);
