@@ -8,7 +8,7 @@
 
 namespace fbgemm {
 
-void __attribute__((noinline)) gemmkernel_1x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_1x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -106,7 +106,7 @@ void __attribute__((noinline)) gemmkernel_1x2_AVX2_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_2x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_2x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -217,7 +217,7 @@ void __attribute__((noinline)) gemmkernel_2x2_AVX2_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_3x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_3x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -341,7 +341,7 @@ void __attribute__((noinline)) gemmkernel_3x2_AVX2_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_4x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_4x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -478,7 +478,7 @@ void __attribute__((noinline)) gemmkernel_4x2_AVX2_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_5x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_5x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -628,7 +628,7 @@ void __attribute__((noinline)) gemmkernel_5x2_AVX2_fA0fB0fC0(GemmParams* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline)) gemmkernel_6x2_AVX2_fA0fB0fC0(GemmParams* gp) {
+void __attribute__((noinline)) gemmkernel_6x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
