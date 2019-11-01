@@ -78,7 +78,7 @@ struct requantizationForFloatParams_t {
  * @brief Allocate size bytes of uninitialized storage whose alignment is
  * specified by align.
  */
-void* fbgemmAlignedAlloc(
+FBGEMM_API void* fbgemmAlignedAlloc(
     size_t align,
     size_t size,
     bool raiseException = false);
