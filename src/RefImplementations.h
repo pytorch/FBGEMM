@@ -123,8 +123,7 @@ void FBGEMM_API cblas_sgemm_ref(
     int ldb,
     float beta,
     float* Cfp32,
-    int ldc
-    );
+    int ldc);
 
 /**
  * @brief Reference implementation to compute row_offsets (sums of rows of A).

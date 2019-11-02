@@ -13,6 +13,14 @@
 #include "FbgemmBuild.h"
 #include "UtilsAvx2.h"
 
+// forward declarations to asmjit
+namespace asmjit {
+namespace x86 {
+class Ymm;
+class Zmm;
+}
+}
+
 namespace fbgemm {
 
 /**
@@ -64,6 +72,9 @@ struct simd_info<inst_set_t::avx2> {
   static constexpr int WIDTH_BITS = 256;
   static constexpr int WIDTH_BYTES = 32;
   static constexpr int WIDTH_32BIT_ELEMS = 8;
+  static constexpr int NUM_VEC_REGS = 16;
+
+  using vec_reg_t = asmjit::x86::Ymm;
 };
 
 template <>
@@ -71,14 +82,14 @@ struct simd_info<inst_set_t::avx512> {
   static constexpr int WIDTH_BITS = 512;
   static constexpr int WIDTH_BYTES = 64;
   static constexpr int WIDTH_32BIT_ELEMS = 16;
+  static constexpr int NUM_VEC_REGS = 32;
+
+  using vec_reg_t = asmjit::x86::Zmm;
 };
 
 template <>
-struct simd_info<inst_set_t::avx512_vnni> {
-  static constexpr int WIDTH_BITS = 512;
-  static constexpr int WIDTH_BYTES = 64;
-  static constexpr int WIDTH_32BIT_ELEMS = 16;
-};
+struct simd_info<inst_set_t::avx512_vnni>
+    : public simd_info<inst_set_t::avx512> {};
 
 /**
  * @brief A function to compare data in two buffers for closeness/equality.

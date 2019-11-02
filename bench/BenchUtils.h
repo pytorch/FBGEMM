@@ -17,6 +17,10 @@ namespace fbgemm {
 template <typename T>
 void randFill(aligned_vector<T>& vec, T low, T high);
 
+aligned_vector<float> getRandomSparseVector(
+    unsigned size,
+    float fractionNonZeros = 1.0);
+
 void llc_flush(std::vector<char>& llc);
 
 int fbgemm_get_num_threads();

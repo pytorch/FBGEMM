@@ -43,6 +43,27 @@ template void
 randFill<int8_t>(aligned_vector<int8_t>& vec, int8_t low, int8_t high);
 template void randFill<int>(aligned_vector<int>& vec, int low, int high);
 
+aligned_vector<float> getRandomSparseVector(
+    unsigned size,
+    float fractionNonZeros /*= 1.0*/) {
+  aligned_vector<float> res(size);
+
+  std::random_device rd;
+  std::mt19937 gen(345);
+
+  std::uniform_real_distribution<float> dis(0.0, 1.0);
+
+  for (auto& f : res) {
+    if (dis(gen) <= fractionNonZeros) {
+      f = dis(gen);
+    } else {
+      f = 0;
+    }
+  }
+
+  return res;
+}
+
 void llc_flush(std::vector<char>& llc) {
   volatile char* data = llc.data();
   for (int i = 0; i < llc.size(); i++) {
