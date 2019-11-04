@@ -349,7 +349,8 @@ void ref_kernel(
     int m_total,
     int n_total,
     bool use_avx512) {
-  int vlen = use_avx512 ? 16 : 8;
+  int vlen = use_avx512 ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
+                        : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
   int kernel_ncol_blocks = 2;
   int block_col_size = vlen * kernel_ncol_blocks;
   for (int jb = 0; jb < gp->b_block_cols; ++jb) {
@@ -396,13 +397,12 @@ FBGEMM_API void cblas_gemm_compute(
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
-  int kernel_ncol_blocks = Bp.kernelNumColBlocks();
   // By some reason, if packed B is using packing layout for avx2, we just use
   // avx2 even if avx512 is available.
   bool use_avx512 = fbgemmHasAvx512Support() &&
-      (Bp.blockColSize() == 16 * kernel_ncol_blocks);
-  int simd_width = use_avx512 ? 16 : 8;
-  int kernel_ncols = kernel_ncol_blocks * simd_width;
+      (Bp.blockColSize() ==
+       simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS *
+           Bp.kernelNumColBlocks());
 
   // private scratchpad storage
   static thread_local unique_ptr<std::array<float, 256 * 1024>> scratchpad(
@@ -504,7 +504,7 @@ FBGEMM_API void cblas_gemm_compute(
             if (thread_id == num_threads - 1) {
               // leftover
               int rem = n - last_blk_col;
-              assert(rem < kernel_ncols);
+              assert(rem < Bp.blockColSize());
 
               // small temporary buffer: the size should be larger than the
               // required kernel_nrow x kernel_ncols elements computed in the
@@ -512,11 +512,11 @@ FBGEMM_API void cblas_gemm_compute(
               float c_tmp[14 * 32] = {0};
               assert(
                   sizeof(c_tmp) / sizeof(c_tmp[0]) >=
-                  kernel_nrows * kernel_ncols);
+                  kernel_nrows * Bp.blockColSize());
 
               gp.B = &(Bp(k_ind, last_blk_col));
               gp.C = c_tmp;
-              gp.ldc = kernel_ncols * sizeof(C[0]);
+              gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
               ref_kernel(kernel_nrows, &gp, c_tmp, 14, 32, use_avx512);
@@ -527,14 +527,14 @@ FBGEMM_API void cblas_gemm_compute(
                 // Todo: use assembly
                 for (int j = last_blk_col; j < n; j++) {
                   assert(
-                      i * kernel_ncols + (j - last_blk_col) <
+                      i * Bp.blockColSize() + (j - last_blk_col) <
                       sizeof(c_tmp) / sizeof(c_tmp[0]));
                   if (accum == 0) {
                     C[(m2 + i) * ldc + j] =
-                        c_tmp[i * kernel_ncols + (j - last_blk_col)];
+                        c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];
                   } else {
                     C[(m2 + i) * ldc + j] = beta_ * C[(m2 + i) * ldc + j] +
-                        c_tmp[i * kernel_ncols + (j - last_blk_col)];
+                        c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];
                   }
                 }
               }
