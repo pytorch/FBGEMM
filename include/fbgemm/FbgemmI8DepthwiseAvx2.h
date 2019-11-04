@@ -14,10 +14,10 @@ namespace fbgemm {
 class FBGEMM_API PackedDepthWiseConvMatrix {
  public:
   /**
-   * @params K the number of channels (same as the number of groups because
-   *           depth-wise convolution has one input/output channel per group)
-   * @params kernel_prod the product of all kernels. For example, kernel_prod =
-   *                     9 for 3x3 conv, and 27 for 3x3x3 conv.
+   * @param K the number of channels (same as the number of groups because
+   *          depth-wise convolution has one input/output channel per group)
+   * @param kernel_prod the product of all kernels. For example, kernel_prod =
+   *                    9 for 3x3 conv, and 27 for 3x3x3 conv.
    * @param smat the source unpacked weight in GRS layout
    */
   PackedDepthWiseConvMatrix(int K, int kernel_prod, const std::int8_t* smat);

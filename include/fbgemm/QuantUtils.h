@@ -91,16 +91,16 @@ FBGEMM_API void Quantize(
  *                  KXC corresponds to KRSC or KTRSC (for weight tensors with
  *                  time dimension)
  *
- * @params K Output channels for weight tensors
- * @params C Number of channels
- * @params X R*S or T*R*S
- * @params G Groups (if G == C the function performs channelwise quantization;
- *                   if 1 < G < C the function performs groupwise quantization;
- *                   if G == 1 the function performs per tensor quantization;)
- * @params scales floating point scales.
- *                Size should be equal G
- * @params zero_points zero points (should be reprsentable in type T).
- *                     Size should be equal G
+ * @param K Output channels for weight tensors
+ * @param C Number of channels
+ * @param X R*S or T*R*S
+ * @param G Groups (if G == C the function performs channelwise quantization;
+ *                  if 1 < G < C the function performs groupwise quantization;
+ *                  if G == 1 the function performs per tensor quantization;)
+ * @param scales floating point scales.
+ *               Size should be equal G
+ * @param zero_points zero points (should be reprsentable in type T).
+ *                    Size should be equal G
  */
 template <typename T, layout_t LAYOUT = layout_t::KCX>
 FBGEMM_API void QuantizeGroupwise(

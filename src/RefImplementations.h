@@ -17,7 +17,7 @@ namespace fbgemm {
 /**
  * @brief Reference implementation of requantization step.
  * int32 multiplier
- * @params bias can be nullptr
+ * @param bias can be nullptr
  */
 FBGEMM_API void requantize_u8acc32_ref(
     int M,
@@ -38,12 +38,12 @@ FBGEMM_API void requantize_u8acc32_ref(
 /**
  * @brief Reference implementation of requantization step.
  * float multiplier
- * @params bias can be nullptr
- * @params ncols_per_quant_group the number of columns share the same
- *         quantization parameter.
- *         ncols_per_quant_group == N : per-tensor quantization
- *         ncols_per_quant_group == N / groups : per-group quantization
- *         ncols_per_quant_group == 1 : per-channel quantization
+ * @param bias can be nullptr
+ * @param ncols_per_quant_group the number of columns share the same
+ *        quantization parameter.
+ *        ncols_per_quant_group == N : per-tensor quantization
+ *        ncols_per_quant_group == N / groups : per-group quantization
+ *        ncols_per_quant_group == 1 : per-channel quantization
  */
 FBGEMM_API void requantize_u8acc32_ref(
     int M,
@@ -139,8 +139,8 @@ FBGEMM_API void row_offsets_u8acc32_ref(
  * @brief Reference implementation to compute adjusted col_offsets (sum of
  * columns of B and adjusted with B_zero_point)
  *
- * @params ncols_per_quant_group see ncols_per_quant_group in
- *         requantize_u8acc32_ref
+ * @param ncols_per_quant_group see ncols_per_quant_group in
+ *        requantize_u8acc32_ref
  */
 FBGEMM_API void col_offsets_with_zero_pt_s8acc32_ref(
     int K,

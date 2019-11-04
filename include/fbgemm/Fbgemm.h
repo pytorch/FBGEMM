@@ -392,14 +392,14 @@ class FBGEMM_API PackBMatrix final
   PackBMatrix() = delete; // no default constructor
 
   /**
-   * @params groups if > 1 and trans == NoTranspose, smat is nRow x nCol with
-   *                groups are vertically concatenated: each group is
-   *                (nRow / groups) x nCol .
-   *                if > 1 and trans == Transpose, smat is (nCol * groups) x
-   *                (nRow / groups) with groups are horizontally concatenated:
-   *                each group is nCol x (nRow / groups) . Each group is
-   *                transposed and vertically concatenated to match with the
-   *                NoTranspose case.
+   * @param groups if > 1 and trans == NoTranspose, smat is nRow x nCol with
+   *               groups are vertically concatenated: each group is
+   *               (nRow / groups) x nCol .
+   *               if > 1 and trans == Transpose, smat is (nCol * groups) x
+   *               (nRow / groups) with groups are horizontally concatenated:
+   *               each group is nCol x (nRow / groups) . Each group is
+   *               transposed and vertically concatenated to match with the
+   *               NoTranspose case.
    */
   PackBMatrix(
       matrix_op_t trans,
@@ -502,8 +502,7 @@ class FBGEMM_API PackWeightMatrixForGConv {
   PackWeightMatrixForGConv() = delete; // no default constructor
 
   /**
-   * @params pmat if nullptr, a buffer is allocated and owned by this class.
-   *
+   * @param pmat if nullptr, a buffer is allocated and owned by this class.
    */
   PackWeightMatrixForGConv(
       matrix_op_t trans,
@@ -674,11 +673,11 @@ class FBGEMM_API PackAWithIm2Col
   PackAWithIm2Col() = delete; // no default constructor
   /**
    * @param zero_pt the quantized value that maps to 0.0f floating-point number.
-   * @params row_offset If nullptr, this constructor internally allocates a
-   *                    buffer and owns it. Otherwise, this class doesn't own
-   *                    the buffer. The buffer will be populated when pack
-   *                    function is called.
-   * @params b_symmetric if true we skip row offset computation
+   * @param row_offset If nullptr, this constructor internally allocates a
+   *                   buffer and owns it. Otherwise, this class doesn't own
+   *                   the buffer. The buffer will be populated when pack
+   *                   function is called.
+   * @param b_symmetric if true we skip row offset computation
    */
   PackAWithIm2Col(
       const conv_param_t<SPATIAL_DIM>& conv_param,
@@ -758,10 +757,10 @@ class FBGEMM_API PackAWithRowOffset final
 
   PackAWithRowOffset() = delete; // no default constructor
   /**
-   * @params row_offset If nullptr, this constructor internally allocates a
-   *                    buffer and owns it. Otherwise, this class doesn't own
-   *                    the buffer. The buffer will be populated when pack
-   *                    function is called.
+   * @param row_offset If nullptr, this constructor internally allocates a
+   *                   buffer and owns it. Otherwise, this class doesn't own
+   *                   the buffer. The buffer will be populated when pack
+   *                   function is called.
    */
   PackAWithRowOffset(
       matrix_op_t trans,
@@ -849,10 +848,10 @@ class FBGEMM_API PackAWithQuantRowOffset final
 
   PackAWithQuantRowOffset() = delete; // no default constructor
   /**
-   * @params row_offset If nullptr, this constructor internally allocates a
-   *                    buffer and owns it. Otherwise, this class doesn't own
-   *                    the buffer. The buffer will be populated when pack
-   *                    function is called.
+   * @param row_offset If nullptr, this constructor internally allocates a
+   *                   buffer and owns it. Otherwise, this class doesn't own
+   *                   the buffer. The buffer will be populated when pack
+   *                   function is called.
    */
   PackAWithQuantRowOffset(
       matrix_op_t trans,
@@ -1142,25 +1141,25 @@ class FBGEMM_API ReQuantizeOutput {
   using outType = outT;
   using inpType = inT;
   /**
-   * @params C_multiplier The length of this array is
-   *                      1 when Q_GRAN == QuantizationGranularity::TENSOR,
-   *                      groups when Q_GRAN == QuantizationGranularity::GROUP,
-   *                      nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
-   * @params Bq_zero_point The length of this array should be the same as
-   *                       C_multiplier.
-   * @params row_offsets Typically, this should've been computed by a
-   *                     PackAMatrix and should be obtained by
-   *                     PackMatrix::getRowOffsetBuffer().
-   *                     If Bq_zero_point == 0 (symmetric quantization of B
-   *                     matrix), we can pass nullptr.
-   * @params col_offsets This should be pre-computed for example using
-   *                     col_offsets_with_zero_pt_s8acc32_ref.
-   *                     The length should be nCol.
-   *                     See PackedRequantizeTest.cc for an example.
-   *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
-   * @params bias can be nullptr otherwise the length should be nCol
-   * @params act_times_w_scale activation_scale * weight_scale. This is only
-   *                           used if bias is unquantized (i.e., float).
+   * @param C_multiplier The length of this array is
+   *                     1 when Q_GRAN == QuantizationGranularity::TENSOR,
+   *                     groups when Q_GRAN == QuantizationGranularity::GROUP,
+   *                     nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
+   * @param Bq_zero_point The length of this array should be the same as
+   *                      C_multiplier.
+   * @param row_offsets Typically, this should've been computed by a
+   *                    PackAMatrix and should be obtained by
+   *                    PackMatrix::getRowOffsetBuffer().
+   *                    If Bq_zero_point == 0 (symmetric quantization of B
+   *                    matrix), we can pass nullptr.
+   * @param col_offsets This should be pre-computed for example using
+   *                    col_offsets_with_zero_pt_s8acc32_ref.
+   *                    The length should be nCol.
+   *                    See PackedRequantizeTest.cc for an example.
+   *                    TODO: if Aq_zero_point == 0, allow passing nullptr.
+   * @param bias can be nullptr otherwise the length should be nCol
+   * @param act_times_w_scale activation_scale * weight_scale. This is only
+   *                          used if bias is unquantized (i.e., float).
    */
   ReQuantizeOutput(
       nextOPType& nextop,
@@ -1255,23 +1254,23 @@ class FBGEMM_API ReQuantizeForFloat {
   using outType = outT;
   using inpType = inT;
   /**
-   * @params Bq_scale The length of this array is
-   *                  1 when Q_GRAN == QuantizationGranularity::TENSOR,
-   *                  groups when Q_GRAN == QuantizationGranularity::GROUP,
-   *                  nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
-   * @params Bq_zero_point The length of this array should be the same as
-   *                       Bq_scale.
-   * @params row_offsets Typically, this should've been computed by a
-   *                     PackAMatrix and should be obtained by
-   *                     PackMatrix::getRowOffsetBuffer().
-   *                     If Bq_zero_point == 0 (symmetric quantization of B
-   *                     matrix), we can pass nullptr.
-   * @params col_offsets This should be pre-computed for example using
-   *                     col_offsets_with_zero_pt_s8acc32_ref.
-   *                     The length should be nCol.
-   *                     See PackedRequantizeTest.cc for an example.
-   *                     TODO: if Aq_zero_point == 0, allow passing nullptr.
-   * @params bias can be nullptr otherwise the length should be nCol
+   * @param Bq_scale The length of this array is
+   *                 1 when Q_GRAN == QuantizationGranularity::TENSOR,
+   *                 groups when Q_GRAN == QuantizationGranularity::GROUP,
+   *                 nCol if Q_GRAN == QuantizationGranularity::OUT_CHANNEL
+   * @param Bq_zero_point The length of this array should be the same as
+   *                      Bq_scale.
+   * @param row_offsets Typically, this should've been computed by a
+   *                    PackAMatrix and should be obtained by
+   *                    PackMatrix::getRowOffsetBuffer().
+   *                    If Bq_zero_point == 0 (symmetric quantization of B
+   *                    matrix), we can pass nullptr.
+   * @param col_offsets This should be pre-computed for example using
+   *                    col_offsets_with_zero_pt_s8acc32_ref.
+   *                    The length should be nCol.
+   *                    See PackedRequantizeTest.cc for an example.
+   *                    TODO: if Aq_zero_point == 0, allow passing nullptr.
+   * @param bias can be nullptr otherwise the length should be nCol
    */
   ReQuantizeForFloat(
       nextOPType& nextop,
@@ -1364,7 +1363,7 @@ FBGEMM_API void fbgemmPacked(
  *        Note: Currently threading is not supported. This function does
  *              nothing for thread_ids > 0, i.e., returns early.
  *
- * @params rowOffsetBuf nullptr if B uses symmetric quantization
+ * @param rowOffsetBuf nullptr if B uses symmetric quantization
  */
 
 template <
@@ -1385,7 +1384,7 @@ FBGEMM_API void fbgemmGroupwiseConv(
     int num_threads);
 
 /**
- * @params rowOffsetBuf nullptr if B uses symmetric quantization
+ * @param rowOffsetBuf nullptr if B uses symmetric quantization
  *        Note: Currently threading is not supported. This function does
  *              nothing for thread_ids > 0, i.e., returns early.
  */

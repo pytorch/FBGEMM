@@ -27,7 +27,7 @@ int fbgemm_get_num_threads();
 int fbgemm_get_thread_num();
 
 /**
- * @params llc if not nullptr, flush llc
+ * @param llc if not nullptr, flush llc
  */
 template <class Fn>
 double measureWithWarmup(
