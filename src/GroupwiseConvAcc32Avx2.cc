@@ -1681,7 +1681,7 @@ void fbgemmGroupwiseConv(
           }
 
           const std::int32_t* inp = out_start_t;
-          block_type_t block{i * OH_OW + oh_start * OW,
+          block_type_t block{i * OT_OH_OW + oh_start * OW,
                              (oh_end - oh_start) * OW,
                              g * K_per_G,
                              G_together * K_per_G};
