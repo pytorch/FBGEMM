@@ -29,7 +29,7 @@ nop) fused with inner GEMM macro kernel.
 FBGEMM uses the standard CMAKE-based build flow.
 
 ### Dependencies
-FBGEMM requires gcc 4.9+ and a CPU with support for avx2 instruction set or
+FBGEMM requires gcc 5+ and a CPU with support for avx2 instruction set or
 higher. It's been tested on Mac OS X and Linux.
 
 + ###### asmjit
