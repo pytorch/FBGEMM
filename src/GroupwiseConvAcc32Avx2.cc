@@ -83,7 +83,7 @@ kernel_sig_t getKernelSig(
   // accum: accumulate results for output and rowoffset
   int C_per_G = conv_param.IC / conv_param.G;
   int K_per_G = conv_param.OC / conv_param.G;
-  auto kernelSig = std::make_tuple(
+  auto kernelSig = make_tuple(
       isAZeroPointZero,
       needRowOffset,
       isTopEdgeIncluded,
@@ -146,21 +146,20 @@ jit_conv_kernel_fp getOrCreateConvKernel(
       assert(0 && "unsupported architecture");
     }
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    throw runtime_error("Failed to initialize cpuinfo!");
   }
   return nullptr;
 }
 
 template <int SPATIAL_DIM>
-jit_conv_kernel_fp
-GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
+jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   asmjit::CodeHolder code;
   code.init(this->runtime().codeInfo());
   x86::Assembler assembler(&code);
   x86::Emitter* a = assembler.as<x86::Emitter>();
 
 #if defined(FBGEMM_LOG_CODE)
-  auto kernelSig = std::make_tuple(
+  auto kernelSig = make_tuple(
       this->isAZeroPointZero_,
       this->needRowOffset_,
       this->isTopEdgeIncluded_,
@@ -273,12 +272,12 @@ GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   jit_conv_kernel_fp fn;
   asmjit::Error err;
   {
-    std::unique_lock<std::mutex> lock(this->rtMutex_);
+    unique_lock<mutex> lock(this->rtMutex_);
     err = this->runtime().add(&fn, &code);
   }
 
   if (err) {
-    std::cout << "Error: in fn add" << std::endl;
+    cout << "Error: in fn add" << endl;
     return nullptr;
   }
 
@@ -303,8 +302,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::initResultRegs(
 }
 
 template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::
-    genConstForPermutations(x86::Emitter* a) {
+void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genConstForPermutations(
+    x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
     x86::Gp permute_const_reg = a->gpz(12);
     x86::Xmm const_reg_xmm = x86::xmm11;
@@ -448,7 +447,6 @@ template <int SPATIAL_DIM>
 void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForTopOrBottomEdge(
     x86::Emitter* a,
     bool isTopEdge) {
-
   if (isTopEdge) {
     // top-left corner code
     genForSingleOutput(
@@ -633,13 +631,12 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
 }
 
 template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::
-    genForSingleFilterPoint(
-        x86::Emitter* a,
-        int r,
-        int s,
-        int act_s,
-        bool use_zero_reg) {
+void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleFilterPoint(
+    x86::Emitter* a,
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg) {
   using WRegs = x86::Ymm;
 
   if (GTogether_ > 1) {
@@ -663,12 +660,7 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::
     }
     // row offset
     if (this->needRowOffset_) {
-      genU8Sum4(
-          a,
-          actReg_V_,
-          rowOffsetReg_V_,
-          oneReg16Bit_V_,
-          tmpReg1_V_);
+      genU8Sum4(a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
     }
     genU8I8S32FMA(
         a,
@@ -709,12 +701,7 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::
               (((r * this->S_ + s) * this->K_per_G_) + k * kLoopMultiplier) *
                   this->C_per_G_ * sizeof(int8_t)));
       genU8I8S32FMA(
-          a,
-          actReg_V_,
-          WRegs(0),
-          x86::Ymm(9 - k),
-          oneReg16Bit_V_,
-          tmpReg1_V_);
+          a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
 }
@@ -808,9 +795,9 @@ template <
     int SPATIAL_DIM>
 void fbgemmGroupwiseConvBase_(
     const conv_param_t<SPATIAL_DIM>& conv_param,
-    const std::uint8_t* activations,
-    std::int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
+    const uint8_t* activations,
+    int32_t a_zero_point,
+    int32_t* rowOffsetBuf,
     packed_W& packed_weights,
     outType* out,
     int32_t* outBuffer,
@@ -961,9 +948,9 @@ template <
     int SPATIAL_DIM>
 void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
-    const std::uint8_t* activations,
-    std::int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
+    const uint8_t* activations,
+    int32_t a_zero_point,
+    int32_t* rowOffsetBuf,
     packed_W& packed_weights,
     outType* out,
     int32_t* outBuffer,
@@ -1070,8 +1057,7 @@ void kernel_compute(
 template <typename processOutputType, typename outT, typename inT>
 void dispatchOutputProcessing(
     const processOutputType& outProcess,
-    std::int32_t* rowOffsetBuf,
-    std::int32_t a_zero_point,
+    int32_t* rowOffsetBuf,
     outT* out,
     const inT* inp,
     const block_type_t& block,
@@ -1079,12 +1065,13 @@ void dispatchOutputProcessing(
     int ld_in,
     int groups,
     int C_per_G,
-    std::true_type) {
+    true_type) {
   constexpr QuantizationGranularity Q_GRAN = processOutputType::QGRANType;
   constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
   bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
                       outProcess.getBZeroPoint()[0] == 0) ||
       rowOffsetBuf == nullptr;
+  int32_t a_zero_point = outProcess.getAZeroPoint();
 
   // Requantization
   requantizationParams_t<typename processOutputType::BIAS_T> r = {
@@ -1423,9 +1410,9 @@ template <
     typename BIAS_TYPE>
 void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
-    const std::uint8_t* activations,
-    std::int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
+    const uint8_t* activations,
+    int32_t a_zero_point,
+    int32_t* rowOffsetBuf,
     packed_W& packed_weights,
     outType* out,
     int32_t* outBuffer,
@@ -1435,7 +1422,7 @@ void fbgemmGroupwiseConv(
   using processOutputType = ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>;
 
   if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    throw runtime_error("Failed to initialize cpuinfo!");
   }
 
   int MB = conv_param.MB;
@@ -1464,7 +1451,6 @@ void fbgemmGroupwiseConv(
       rowOffsetBuf == nullptr;
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
-
 
   if (SPATIAL_DIM == 2) {
     // Parallelization:
@@ -1541,8 +1527,8 @@ void fbgemmGroupwiseConv(
             OW,
             rowOffsetBuf_start_group);
 
-        const std::int32_t* inp = out_start_group;
-        block_type_t block{i * OH_OW + oh_start * OW,
+        const int32_t* inp = out_start_group;
+        block_type_t block{i * OT_OH_OW + oh_start * OW,
                            (oh_end - oh_start) * OW,
                            g * K_per_G,
                            G_together * K_per_G};
@@ -1552,7 +1538,6 @@ void fbgemmGroupwiseConv(
         dispatchOutputProcessing(
             outProcess,
             rowOffsetBuf_start_group,
-            a_zero_point,
             out,
             inp,
             block,
@@ -1622,7 +1607,7 @@ void fbgemmGroupwiseConv(
       ih_start = -conv_p_2d.pad[0] + oh_start * conv_p_2d.stride[0];
     }
 
-    std::vector<std::uint8_t> zero_points(IH * IW * IC, a_zero_point);
+    vector<uint8_t> zero_points(IH * IW * IC, a_zero_point);
     int32_t* out_start = outBuffer + oh_start * OW * OC;
     const uint8_t* in_start = activations + ih_start * IW * IC;
     int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
@@ -1680,7 +1665,7 @@ void fbgemmGroupwiseConv(
                 rowOffsetBuf_start_t);
           }
 
-          const std::int32_t* inp = out_start_t;
+          const int32_t* inp = out_start_t;
           block_type_t block{i * OT_OH_OW + oh_start * OW,
                              (oh_end - oh_start) * OW,
                              g * K_per_G,
@@ -1691,7 +1676,6 @@ void fbgemmGroupwiseConv(
           dispatchOutputProcessing(
               outProcess,
               rowOffsetBuf_start_t,
-              a_zero_point,
               out + ot * OH_OW * OC,
               inp,
               block,
@@ -1724,7 +1708,7 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
       return -1;
     }
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    throw runtime_error("Failed to initialize cpuinfo!");
   }
 }
 
@@ -1736,7 +1720,7 @@ template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
       const conv_param_t<SPATIAL_DIM>& conv_param,                            \
       const uint8_t* activations,                                             \
       int32_t a_zero_point,                                                   \
-      std::int32_t* rowOffsetBuf,                                             \
+      int32_t* rowOffsetBuf,                                                  \
       PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>& packed_weights, \
       uint8_t* out,                                                           \
       int32_t* outBuffer,                                                     \
@@ -1770,7 +1754,7 @@ template void fbgemmGroupwiseConv(
     const conv_param_t<2>& conv_param,
     const uint8_t* activations,
     int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
+    int32_t* rowOffsetBuf,
     PackWeightMatrixForGConv<int8_t, int32_t, 2>& packed_weights,
     int32_t* out,
     int32_t* outBuffer,
