@@ -7,6 +7,7 @@
 #include "fbgemm/Fbgemm.h"
 #include <cpuinfo.h>
 #include <stdexcept>
+#include <functional>
 #include "ExecuteKernel.h"
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -216,37 +217,46 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  assert(SPATIAL_DIM >= 2 && "Unsupported spatial dims");
   int C_per_G = conv_p.IC / conv_p.G;
   int K_per_G = conv_p.OC / conv_p.G;
 
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_p);
 
+  auto areEqual = [](int a, int b) { return a == b; };
+
   return (C_per_G == K_per_G) &&
       (C_per_G == 2 || C_per_G == 4 || C_per_G == 8 || C_per_G == 16) &&
       (conv_p.G >= G_together) &&
 
       std::all_of(
-             conv_p.K.begin(), conv_p.K.end(), [](int i) { return i == 3; }) &&
+             conv_p.K.begin(),
+             conv_p.K.end(),
+             std::bind(areEqual, std::placeholders::_1, 3)) &&
 
       std::all_of(
              conv_p.pad.begin(),
              conv_p.pad.end(),
-             [](int i) { return i == 1; }) &&
+             std::bind(areEqual, std::placeholders::_1, 1)) &&
+
       std::all_of(
              conv_p.dilation.begin(),
              conv_p.dilation.end(),
-             [](int i) { return i == 1; }) &&
-      // All strides should be the same and
+             std::bind(areEqual, std::placeholders::_1, 1)) &&
+
+      // Height/Width strides should be the same and
       // should be either 1 or 2
+      // Temporal stride can be anything.
       (std::all_of(
-           conv_p.stride.begin(),
+           conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           [](int i) { return i == 1; }) ||
+           std::bind(areEqual, std::placeholders::_1, 1)) ||
        std::all_of(
-           conv_p.stride.begin(),
+           conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           [](int i) { return i == 2; })) &&
+           std::bind(areEqual, std::placeholders::_1, 2))) &&
+
       // Height and Width should be both even or both odd
       // and at least as big as filter size
       (conv_p.IN_DIM[SPATIAL_DIM - 2] % 2 ==
