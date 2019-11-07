@@ -30,9 +30,6 @@ class SpMMTypeTrait<float> {
   using b_type = float;
   // Type used to store values in the data section
   using a_temp_type = float;
-
-  using microkernel_function_type =
-      void (*)(b_type const*, float*, std::uint64_t);
 };
 
 template <>
@@ -42,9 +39,6 @@ class SpMMTypeTrait<std::int32_t> {
   using b_type = std::uint8_t;
   // Type used to store values in the data section
   using a_temp_type = std::uint32_t;
-
-  using microkernel_function_type =
-      void (*)(b_type const*, std::int32_t*, std::uint64_t);
 };
 
 } // namespace internal

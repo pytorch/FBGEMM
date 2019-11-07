@@ -37,16 +37,16 @@ class SpMM_JitterASMJIT {
   using a_temp_type = typename SpMMTypeTrait<ACC_T>::a_temp_type;
   a_temp_type const* AData_;
 
-  unsigned ArCr_;
-  unsigned AcBr_;
-  unsigned BcCc_;
+  int M_;
+  int N_;
+  int K_;
   int LDA_, LDB_, LDC_;
 
   x86::Gp Breg_ = x86::rdi;
   x86::Gp Creg_ = x86::rsi;
   x86::Gp flagsReg_ = x86::rdx;
   x86::Gp dataReg_ = x86::rcx;
-  x86::Gp BcCcLoopReg_ = x86::r8;
+  x86::Gp NLoopReg_ = x86::r8;
   x86::Gpd tmpReg_ = x86::r9.r32();
 
   vector<a_temp_type> compressedAData_;
@@ -56,6 +56,9 @@ class SpMM_JitterASMJIT {
   // For AVX2
   asmjit::Label fullMaskLabel_;
   asmjit::Label partialMaskLabel_;
+
+  using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
+  vec_reg_t onesVReg_;
 
   // For AVX512
   x86::KReg maskReg_ = x86::k(1);
@@ -76,8 +79,7 @@ class SpMM_JitterASMJIT {
     return val == 0;
   }
 
-  static bool
-  has_any_non_zeros(a_temp_type const* data, unsigned N, int stride) {
+  static bool has_any_non_zeros(a_temp_type const* data, int N, int stride) {
     for (int n = 0; n < N; ++n) {
       if (!is_zero(data[n * stride])) {
         return true;
@@ -101,7 +103,6 @@ class SpMM_JitterASMJIT {
     constexpr int TYPE_SCALE_FACTOR = is_same<ACC_T, int32_t>::value ? 4 : 1;
     a_temp_type const* Adata = AData_ + AOffset / TYPE_SCALE_FACTOR;
 
-    using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
     vector<vec_reg_t> Cvalues(rowRegBlock);
 
     bool needAuxRegisters = is_same<ACC_T, int32_t>::value && !canUseVNNI_;
@@ -117,7 +118,7 @@ class SpMM_JitterASMJIT {
     a.cmp(flagsReg_, 0);
     a.je(initZeros);
 
-    for (unsigned r = 0; r < rowRegBlock; ++r) {
+    for (int r = 0; r < rowRegBlock; ++r) {
       auto src_ptr = x86::ptr(Creg_, r * LDC_ * sizeof(a_temp_type));
       if (hasMask) {
         if (useAvx512_) {
@@ -185,15 +186,15 @@ class SpMM_JitterASMJIT {
 
     int dataOffset = 0;
     constexpr int MAX_DATA_OFFSET = 256;
-    for (int acbr = 0; acbr < AcBr_; acbr += TYPE_SCALE_FACTOR) {
+    for (int k = 0; k < K_; k += TYPE_SCALE_FACTOR) {
       if (has_any_non_zeros(
-              Adata + acbr / TYPE_SCALE_FACTOR,
+              Adata + k / TYPE_SCALE_FACTOR,
               rowRegBlock,
               LDA_ / TYPE_SCALE_FACTOR)) {
         delayedFMAs[delayedIndex]();
 
         auto src_ptr = x86::ptr(
-            Breg_, acbr * LDB_ * sizeof(typename SpMMTypeTrait<ACC_T>::b_type));
+            Breg_, k * LDB_ * sizeof(typename SpMMTypeTrait<ACC_T>::b_type));
         if (hasMask) {
           if (useAvx512_) {
             a.k(maskReg_).vmovups(activationRegisters[delayedIndex], src_ptr);
@@ -207,14 +208,14 @@ class SpMM_JitterASMJIT {
           a.vmovups(activationRegisters[delayedIndex], src_ptr);
         }
 
-        delayedFMAs[delayedIndex] = [&, acbr, delayedIndex]() {
-          for (unsigned r = 0; r < rowRegBlock; ++r) {
+        delayedFMAs[delayedIndex] = [&, k, delayedIndex]() {
+          for (int r = 0; r < rowRegBlock; ++r) {
             if (!is_zero(Adata
-                             [acbr / TYPE_SCALE_FACTOR +
+                             [k / TYPE_SCALE_FACTOR +
                               r * (LDA_ / TYPE_SCALE_FACTOR)])) {
-              compressedAData_.push_back(Adata
-                                             [acbr / TYPE_SCALE_FACTOR +
-                                              r * (LDA_ / TYPE_SCALE_FACTOR)]);
+              compressedAData_.push_back(
+                  Adata
+                      [k / TYPE_SCALE_FACTOR + r * (LDA_ / TYPE_SCALE_FACTOR)]);
 
               if (dataOffset * sizeof(a_temp_type) == MAX_DATA_OFFSET) {
                 a.add(dataReg_, MAX_DATA_OFFSET);
@@ -250,7 +251,7 @@ class SpMM_JitterASMJIT {
 
                 a.vpmaddwd(
                     auxRegisters[delayedIndex],
-                    vec_reg_t(0),
+                    onesVReg_,
                     auxRegisters[delayedIndex]);
 
                 a.vpaddd(Cvalues[r], Cvalues[r], auxRegisters[delayedIndex]);
@@ -299,9 +300,9 @@ class SpMM_JitterASMJIT {
   }
 
   // Multiply rowRegBlock rows of A with B
-  void loopOverBcCc(int AOffset, int rowRegBlock, bool restorePointers) {
-    int fullIterations = BcCc_ / WIDTH_32BIT_ELEMS;
-    int rest = BcCc_ % WIDTH_32BIT_ELEMS;
+  void loopOverN(int AOffset, int rowRegBlock, bool restorePointers) {
+    int fullIterations = N_ / WIDTH_32BIT_ELEMS;
+    int rest = N_ % WIDTH_32BIT_ELEMS;
 
     asmjit::Label fnLabel = registerBlockedLoop(AOffset, rowRegBlock, rest);
 
@@ -330,19 +331,19 @@ class SpMM_JitterASMJIT {
         a.add(Creg_, WIDTH_BYTES);
       }
     } else if (fullIterations > 1) {
-      a.mov(BcCcLoopReg_, static_cast<asmjit::Imm>(0));
+      a.mov(NLoopReg_, static_cast<asmjit::Imm>(0));
 
       asmjit::Label loopLabel = a.newLabel();
       a.bind(loopLabel);
 
-      a.add(BcCcLoopReg_, 1);
+      a.add(NLoopReg_, 1);
 
       a.call(fnLabel);
 
       a.add(Breg_, WIDTH_BYTES);
       a.add(Creg_, WIDTH_BYTES);
 
-      a.cmp(BcCcLoopReg_, static_cast<asmjit::Imm>(fullIterations));
+      a.cmp(NLoopReg_, static_cast<asmjit::Imm>(fullIterations));
       a.jl(loopLabel);
     }
 
@@ -363,14 +364,14 @@ class SpMM_JitterASMJIT {
     }
   }
 
-  void loopOverArCr(unsigned rowRegBlock) {
+  void loopOverM(int rowRegBlock) {
     int AOffset = 0;
-    unsigned numFullIterations = ArCr_ / rowRegBlock;
-    unsigned restSize = ArCr_ % rowRegBlock;
+    int numFullIterations = M_ / rowRegBlock;
+    int restSize = M_ % rowRegBlock;
 
-    for (unsigned n = 0; n < numFullIterations; ++n) {
+    for (int n = 0; n < numFullIterations; ++n) {
       bool restorePointers = n < numFullIterations - 1 || restSize;
-      loopOverBcCc(AOffset, rowRegBlock, restorePointers);
+      loopOverN(AOffset, rowRegBlock, restorePointers);
 
       if (restorePointers) {
         AOffset += LDA_ * rowRegBlock;
@@ -381,25 +382,25 @@ class SpMM_JitterASMJIT {
     }
 
     if (restSize) {
-      loopOverBcCc(AOffset, restSize, false);
+      loopOverN(AOffset, restSize, false);
     }
   }
 
  public:
   SpMM_JitterASMJIT(
       asmjit::CodeHolder& code,
-      unsigned ArCr,
-      unsigned AcBr,
-      unsigned BcCc,
+      int M,
+      int N,
+      int K,
       int LDA,
       int LDB,
       int LDC,
-      typename SpMMTypeTrait<ACC_T>::a_type const* aData,
+      const typename SpMMTypeTrait<ACC_T>::a_type* aData,
       bool canUseVNNI = false)
-      : AData_(reinterpret_cast<a_temp_type const*>(aData)),
-        ArCr_(ArCr),
-        AcBr_(AcBr),
-        BcCc_(BcCc),
+      : AData_(reinterpret_cast<const a_temp_type*>(aData)),
+        M_(M),
+        N_(N),
+        K_(K),
         LDA_(LDA),
         LDB_(LDB),
         LDC_(LDC),
@@ -417,23 +418,18 @@ class SpMM_JitterASMJIT {
       WIDTH_32BIT_ELEMS = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
     }
 
-    int rest = BcCc % WIDTH_32BIT_ELEMS;
+    int rest = N % WIDTH_32BIT_ELEMS;
 
     asmjit::Label onesLabel;
     firstAvailableVecRegister_ = 0;
     if (is_same<ACC_T, int32_t>::value) {
-      assert(AcBr % 4 == 0);
+      assert(K % 4 == 0);
 
       if (!canUseVNNI) {
         onesLabel = a.newLabel();
-        if (useAvx512_) {
-          a.vbroadcastss(
-              x86::Zmm(firstAvailableVecRegister_), x86::ptr(onesLabel));
-        } else {
-          a.vbroadcastss(
-              x86::Ymm(firstAvailableVecRegister_), x86::ptr(onesLabel));
-        }
+        onesVReg_ = vec_reg_t(firstAvailableVecRegister_);
         ++firstAvailableVecRegister_;
+        a.vbroadcastss(onesVReg_, x86::ptr(onesLabel));
       }
     }
     if (!useAvx512_) {
@@ -443,8 +439,8 @@ class SpMM_JitterASMJIT {
       }
       if (is_same<ACC_T, float>::value) {
         broadcastVReg_ = x86::Ymm(firstAvailableVecRegister_);
+        ++firstAvailableVecRegister_;
       }
-      ++firstAvailableVecRegister_;
     }
 
 #ifdef FBGEMM_LOG_CODE
@@ -464,9 +460,9 @@ class SpMM_JitterASMJIT {
     } else {
       oss << "avx2";
     }
-    oss << "_M-" << ArCr;
-    oss << "_N-" << BcCc;
-    oss << "_K-" << AcBr;
+    oss << "_M-" << M;
+    oss << "_N-" << N;
+    oss << "_K-" << K;
     oss << "_LDA-" << LDA;
     oss << "_LDB-" << LDB;
     oss << "_LDC-" << LDC;
@@ -481,7 +477,7 @@ class SpMM_JitterASMJIT {
               void,
               typename internal::SpMMTypeTrait<ACC_T>::b_type const*,
               ACC_T*,
-              std::uint64_t>(asmjit::CallConv::kIdHost));
+              uint64_t>(asmjit::CallConv::kIdHost));
 
     asmjit::FuncFrame frame;
     frame.init(func);
@@ -538,7 +534,7 @@ class SpMM_JitterASMJIT {
         rowRegBlock = 11;
       }
     }
-    loopOverArCr(rowRegBlock);
+    loopOverM(rowRegBlock);
     a.emitEpilog(frame);
 
     for (auto const& f : toAppend_) {
@@ -566,7 +562,7 @@ class SpMM_JitterASMJIT {
 
     if (rest && !useAvx512_) {
       // alignTo(32);
-      if (BcCc > WIDTH_32BIT_ELEMS) {
+      if (N > WIDTH_32BIT_ELEMS) {
         a.bind(fullMaskLabel_);
         for (int i = 0; i < WIDTH_32BIT_ELEMS; ++i) {
           a.dd(0xffffffffu);
@@ -595,16 +591,33 @@ class SpMM_JitterASMJIT {
   }
 };
 
+namespace {
 template <typename ACC_T>
-typename SpMMTypeTrait<ACC_T>::microkernel_function_type
-generateSpMMfp32_microkernel(
-    unsigned ArCr,
-    unsigned AcBr,
-    unsigned BcCc,
+class MicroKernelFunctionTrait {};
+
+template <>
+class MicroKernelFunctionTrait<float> {
+ public:
+  using type = void (*)(const SpMMTypeTrait<float>::b_type*, float*, uint64_t);
+};
+
+template <>
+class MicroKernelFunctionTrait<int32_t> {
+ public:
+  using type =
+      void (*)(const SpMMTypeTrait<int32_t>::b_type*, int32_t*, uint64_t);
+};
+}; // anonymous namespace
+
+template <typename ACC_T>
+typename MicroKernelFunctionTrait<ACC_T>::type generateSpMMfp32_microkernel(
+    int M,
+    int N,
+    int K,
     int LDA,
     int LDB,
     int LDC,
-    typename SpMMTypeTrait<ACC_T>::a_type const* AData,
+    const typename SpMMTypeTrait<ACC_T>::a_type* AData,
     bool canUseVNNI) {
   static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
                                 // depents on other static
@@ -614,19 +627,18 @@ generateSpMMfp32_microkernel(
   asmjit::CodeHolder code;
   code.init(rt.codeInfo());
 
-  cpuinfo_initialize();
   if (fbgemmHasAvx512Support()) {
     SpMM_JitterASMJIT<ACC_T, inst_set_t::avx512> JITSpMM(
-        code, ArCr, AcBr, BcCc, LDA, LDB, LDC, AData, canUseVNNI);
+        code, M, N, K, LDA, LDB, LDC, AData, canUseVNNI);
   } else {
     SpMM_JitterASMJIT<ACC_T, inst_set_t::avx2> JITSpMM(
-        code, ArCr, AcBr, BcCc, LDA, LDB, LDC, AData, canUseVNNI);
+        code, M, N, K, LDA, LDB, LDC, AData, canUseVNNI);
   }
 
   code.flatten();
   code.resolveUnresolvedLinks();
 
-  typename SpMMTypeTrait<ACC_T>::microkernel_function_type ret;
+  typename MicroKernelFunctionTrait<ACC_T>::type ret;
   rt.add(&ret, &code);
 
   return ret;
@@ -647,37 +659,37 @@ generateSpMM(
     int lda,
     int ldb,
     int ldc) {
+  cpuinfo_initialize();
   bool canUseVNNI = fbgemmHasAvx512VnniSupport();
   constexpr int TYPE_SCALE_FACTOR = is_same<ACC_T, int32_t>::value ? 4 : 1;
   assert((k % TYPE_SCALE_FACTOR) == 0);
 
-  // Block AcBr so that each block in B has 192K numbers.
+  // Block K so that each block in B has 192K numbers.
   // TODO: tune based on cache size
-  int effAcBr = (192) * 1024 / 4 / n;
+  int effK = (192) * 1024 / 4 / n;
 
-  effAcBr = min(effAcBr, k / TYPE_SCALE_FACTOR);
+  effK = min(effK, k / TYPE_SCALE_FACTOR);
   auto ceil_div = [](int a, int b) { return (a + b - 1) / b; };
 
-  // divide as evenly as possible but not larger than effAcBr
-  effAcBr =
-      ceil_div(
-          k / TYPE_SCALE_FACTOR, ceil_div(k / TYPE_SCALE_FACTOR, effAcBr)) *
+  // divide as evenly as possible but not larger than effK
+  effK =
+      ceil_div(k / TYPE_SCALE_FACTOR, ceil_div(k / TYPE_SCALE_FACTOR, effK)) *
       TYPE_SCALE_FACTOR;
 
-  int step = effAcBr * ldb;
+  int step = effK * ldb;
 
-  int full = k / effAcBr;
-  int rest = k % effAcBr;
+  int full = k / effK;
+  int rest = k % effK;
 
-  vector<typename SpMMTypeTrait<ACC_T>::microkernel_function_type> fns;
+  vector<typename MicroKernelFunctionTrait<ACC_T>::type> fns;
 
   fns.resize(full + (rest ? 1 : 0));
 
   for (int i = 0; i < full; ++i) {
     fns[i] = generateSpMMfp32_microkernel<ACC_T>(
-        m, effAcBr, n, lda, ldb, ldc, AData, canUseVNNI);
+        m, n, effK, lda, ldb, ldc, AData, canUseVNNI);
 
-    AData += effAcBr;
+    AData += effK;
   }
 
   if (rest) {
@@ -691,7 +703,7 @@ generateSpMM(
     fns[0](b, c, flags);
     b += step;
 
-    for (unsigned i = 1; i < fns.size(); ++i) {
+    for (int i = 1; i < fns.size(); ++i) {
       fns[i](b, c, 1);
       b += step;
     }
