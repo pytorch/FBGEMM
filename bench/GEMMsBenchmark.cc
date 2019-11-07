@@ -115,6 +115,7 @@ void performance_test() {
         NWARMUP,
         NITER,
         flush ? &llc : nullptr);
+    ttot *= 1e9; // convert to ns
 
     ((volatile char*)(llc.data()));
 
