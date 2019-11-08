@@ -93,6 +93,7 @@ set(FBGEMM_AVX512_SRCS
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
                           include/fbgemm/FbgemmFP16.h
+                          include/fbgemm/FbgemmI8DepthwiseAvx2.h
                           include/fbgemm/OutputProcessing-inl.h
                           include/fbgemm/PackingTraits-inl.h
                           include/fbgemm/QuantUtils.h
