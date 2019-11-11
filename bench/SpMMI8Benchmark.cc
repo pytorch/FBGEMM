@@ -32,23 +32,22 @@ int main(int, char**) {
     for (float fnz = 0.99; fnz >= 0.009999; fnz -= 0.01) {
       auto aData = getRandomSparseVector(m * k / 4, fnz);
       auto bData = getRandomSparseVector(k * n / 4);
-      auto cDataJIT = getRandomSparseVector(m * n);
+      auto cData = getRandomSparseVector(m * n);
 
-      auto aptr = reinterpret_cast<int8_t*>(aData.data());
+      auto aptr = reinterpret_cast<const int8_t*>(aData.data());
       auto bptr = reinterpret_cast<uint8_t*>(bData.data());
 
       for (int i = 0; i < k * n; ++i) {
-        bptr[i] = bptr[i] & 0x7F;
+        bptr[i] &= 0x7F;
       }
 
-      auto cptrJIT = reinterpret_cast<int32_t*>(cDataJIT.data());
+      auto cptr = reinterpret_cast<int32_t*>(cData.data());
 
       auto fn = generateSpMM<int32_t>(m, n, k, aptr, lda, ldb, ldc);
 
       double FLOPs = m * n * k * 2;
 
-      auto secs =
-          measureWithWarmup([&]() { fn(bptr, cptrJIT, 0); }, 5, 32, &llc);
+      auto secs = measureWithWarmup([&]() { fn(bptr, cptr, 0); }, 5, 32, &llc);
 
       cout << fnz << "," << (FLOPs / secs / 1e9) << ","
            << (fnz * FLOPs / secs / 1e9) << "\n";

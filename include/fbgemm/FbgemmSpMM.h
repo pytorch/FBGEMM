@@ -44,11 +44,11 @@ class SpMMTypeTrait<std::int32_t> {
 } // namespace internal
 
 /**
- * NOTE: this is an experimental feature
+ * NOTE: this is an experimental feature especially ACC_T==int32_t
  *
  * Generate a kernel that computes C = A * B with specialization for sparse
  * matrix A's structure and values.
- * @params flags 1 means we're accumulating to CData in the generated kernel.
+ * @param flags 1 means we're accumulating to CData in the generated kernel.
  *
  * Note on matrix order and layout:
  *   Unlike other fbgemm functions that follow PyTorch convention where A
@@ -72,6 +72,7 @@ class SpMMTypeTrait<std::int32_t> {
  * B should be in C/4 N c4 layout where 4 input channels are interleaved
  * (because of 4-way horizontal reduction in x86 SIMD int8 instructions).
  * Refer to SpMMI8Test.cc for an example.
+ * TODO: match C layout same as B layout
  *
  * Note on specialization for n.
  *   When A matrix is weight and B is activation, n corresponds to batch

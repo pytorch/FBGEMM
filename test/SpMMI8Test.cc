@@ -37,7 +37,7 @@ class SpMMTest : public testing::Test {
 };
 } // anonymous namespace
 
-TEST_F(SpMMTest, uint8) {
+TEST_F(SpMMTest, int8) {
   auto shapes = GenParams();
   int m, n, k;
   float fnz;
@@ -76,10 +76,6 @@ TEST_F(SpMMTest, uint8) {
     auto cptrNaive = reinterpret_cast<int32_t*>(cDataNaive.data());
     matmul_u8i8acc32_ref(m, n, k, k, n, n, aptr, bptr, cptrNaive);
 
-    for (int i = 0; i < cDataJIT.size(); ++i) {
-      float expected = cptrNaive[i];
-      float actual = cptrJIT[i];
-      EXPECT_EQ(expected, actual) << "Results differ at " << i;
-    }
+    compare_validate_buffers(cptrNaive, cptrJIT, m, n, n, 0);
   } // for each shape
 }
