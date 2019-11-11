@@ -59,8 +59,20 @@ TEST_F(SpMMTest, fp32) {
 
     transpose_matrix(cDataJIT.data(), n, m);
 
-    matmul_fp_ref(
-        m, n, k, k, n, n, aData.data(), bData.data(), cDataNaive.data());
+    cblas_sgemm_ref(
+        matrix_op_t::NoTranspose,
+        matrix_op_t::NoTranspose,
+        m,
+        n,
+        k,
+        1.0f,
+        aData.data(),
+        k,
+        bData.data(),
+        n,
+        0.0f,
+        cDataNaive.data(),
+        n);
 
     for (int i = 0; i < cDataJIT.size(); ++i) {
       float expected = cDataNaive[i];
