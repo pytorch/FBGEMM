@@ -93,21 +93,6 @@ void FBGEMM_API matmul_u8i8acc16_ref(
     std::int32_t* Cint32);
 
 /**
- * @brief Reference implementation of matrix multiply with fp32 (single
- * precision) floating point number.
- */
-void FBGEMM_API matmul_fp_ref(
-    int M,
-    int N,
-    int K,
-    int lda,
-    int ldb,
-    int ldc,
-    const float* Afp32,
-    const float* Bfp32,
-    float* Cfp32);
-
-/**
  * @brief Reference implementation of cblas_sgemm in MKL/BLAS.
  */
 void FBGEMM_API cblas_sgemm_ref(
