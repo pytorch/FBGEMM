@@ -59,7 +59,7 @@ class CodeGenBase {
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
     // vector width in elements
-    VLEN_ = vectorWidth_ / 8 * sizeof(TA);
+    VLEN_ = vectorWidth_ / (8 * sizeof(TA));
   }
 
   /**
