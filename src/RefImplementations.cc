@@ -147,27 +147,6 @@ void matmul_u8i8acc16_ref(
   }
 }
 
-void matmul_fp_ref(
-    int M,
-    int N,
-    int K,
-    int lda,
-    int ldb,
-    int ldc,
-    const float* Afp32,
-    const float* Bfp32,
-    float* Cfp32) {
-  for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < N; ++j) {
-      float sum = 0;
-      for (int k = 0; k < K; ++k) {
-        sum += Afp32[i * lda + k] * Bfp32[k * ldb + j];
-      }
-      Cfp32[i * ldc + j] = sum;
-    }
-  }
-}
-
 void cblas_sgemm_ref(
     const matrix_op_t transa,
     const matrix_op_t transb,

@@ -475,16 +475,20 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       }
 
       for (int g = 0; g < groups; ++g) {
-        matmul_fp_ref(
+        cblas_sgemm_ref(
+            matrix_op_t::NoTranspose,
+            matrix_op_t::NoTranspose,
             m,
             n_adjusted,
             k_per_group,
-            k,
-            n,
-            groups * n,
+            1.0f,
             Afp32.data() + g * k_per_group,
+            k,
             Bfp32.data() + g * k_per_group * n,
-            Cfp32_ref.data() + g * n_adjusted);
+            n,
+            0.0f,
+            Cfp32_ref.data() + g * n_adjusted,
+            groups * n);
       }
 
       if (atrans == matrix_op_t::Transpose) {
@@ -692,16 +696,20 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
       }
 
       for (int g = 0; g < groups; ++g) {
-        matmul_fp_ref(
+        cblas_sgemm_ref(
+            matrix_op_t::NoTranspose,
+            matrix_op_t::NoTranspose,
             m,
             n_adjusted,
             k_per_group,
-            k,
-            n,
-            groups * n,
+            1.0f,
             Afp32.data() + g * k_per_group,
+            k,
             Bfp32.data() + g * k_per_group * n,
-            Cfp32_ref.data() + g * n_adjusted);
+            n,
+            0.0f,
+            Cfp32_ref.data() + g * n_adjusted,
+            groups * n);
       }
 
       // B zero point defaults to 0
