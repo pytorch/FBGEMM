@@ -12,6 +12,29 @@ namespace fbgemm {
 namespace x86 = asmjit::x86;
 
 /**
+ * Generate AVX512 instructions for initializing the C registers to 0 in 32-bit
+ * Accumulation kernel.
+ */
+template <>
+template <>
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
+    inst_set_t::avx512_vnni>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    int leadingDimCReg) {
+  using CRegs = x86::Zmm;
+  for (int i = 0; i < rowRegs; ++i) {
+    for (int j = 0; j < colRegs; ++j) {
+      a->vxorps(
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j),
+          CRegs(i * leadingDimCReg + j));
+    }
+  }
+}
+
+/**
  * Generate AVX512 instructions for computing block in the rank-k update of
  * 32-bit Accmulation kernel.
  */
@@ -45,6 +68,42 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
       a->vpdpbusd(CRegs(i * leadingDimCReg + j), AReg, BReg);
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
+  }
+}
+
+/**
+ * Generate AVX512 instructions for storing the C registers back to the memory
+ * in 32-bit Accumulation kernel.
+ */
+template <>
+template <>
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
+    inst_set_t::avx512_vnni>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum,
+    int leadingDimCReg) {
+  using CRegs = x86::Zmm;
+  for (int i = 0; i < rowRegs; ++i) {
+    if (i != 0) {
+      a->add(C_Offset, ldcReg);
+    } else {
+      a->mov(C_Offset, static_cast<asmjit::Imm>(0));
+    }
+    for (int j = 0; j < colRegs; ++j) {
+      if (accum) {
+        a->vpaddd(
+            CRegs(i * leadingDimCReg + j),
+            CRegs(i * leadingDimCReg + j),
+            x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)));
+      }
+      a->vmovups(
+          x86::dword_ptr(a->zcx(), C_Offset, 0, j * 16 * sizeof(int32_t)),
+          CRegs(i * leadingDimCReg + j));
+    }
   }
 }
 
@@ -163,9 +222,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
     frame.setDirtyRegs(
         x86::Reg::kGroupVec,
         asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-            asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-            asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
     frame.setDirtyRegs(
         x86::Reg::kGroupGp,
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
@@ -220,7 +277,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       int rowRegs = mRegBlockSize;
 
       // init C registers
-      initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, colRegs);
+      initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, colRegs);
 
       // init k loop index
       a->mov(kIdx, 0);
@@ -250,7 +307,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx512>(
+      storeCRegs<inst_set_t::avx512_vnni>(
           a, rowRegs, colRegs, C_Offset, ldcReg, accum, colRegs);
 
       // reset A
@@ -307,7 +364,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       a->inc(jIdx);
 
       // init C registers
-      initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, colRegs);
+      initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, colRegs);
 
       // init k loop index
       a->mov(kIdx, 0);
@@ -349,7 +406,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       a->add(B_pf, C_Offset);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx512>(
+      storeCRegs<inst_set_t::avx512_vnni>(
           a, rowRegs, colRegs, C_Offset, ldcReg, accum, colRegs);
 
       // increment C for next B block
