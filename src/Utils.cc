@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -178,6 +179,12 @@ void transpose_simd(
     int ld_src,
     float* dst,
     int ld_dst) {
+  if ((M == 1 && ld_dst == 1) || (N == 1 && ld_src == 1)) {
+    if (dst != src) {
+      memcpy(dst, src, M * N * sizeof(float));
+    }
+    return;
+  }
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
