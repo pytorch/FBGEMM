@@ -105,10 +105,10 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
         a->vpaddd(
             CRegs(i * leadingDimCReg + j),
             CRegs(i * leadingDimCReg + j),
-            x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)));
+            x86::dword_ptr(a->zcx(), C_Offset, 0, j * 8 * sizeof(int32_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)),
+          x86::dword_ptr(a->zcx(), C_Offset, 0, j * 8 * sizeof(int32_t)),
           CRegs(i * leadingDimCReg + j));
     }
   }
@@ -189,16 +189,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
 #endif
 
     // assert(mc <= 12 && "mc must be <= 12 (available registers constraint)");
-    assert(
-        kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
-    assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
-    int maxMRegs = mRegBlockSize;
-    int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
-    assert(
-        maxMRegs * maxNRegs <= 12 &&
-        "MR*(NR*ROW_INTERLEAVE*8/256) \
-        must be <= 12(available registers constraint)");
-
     int mRegBlocks = mc / mRegBlockSize;
     int mRegBlocksRem = mc % mRegBlockSize;
 

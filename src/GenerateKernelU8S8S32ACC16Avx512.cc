@@ -230,9 +230,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
     frame.setDirtyRegs(
         x86::Reg::kGroupVec,
         asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-            asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-            asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
+            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
     frame.setDirtyRegs(
         x86::Reg::kGroupGp,
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
