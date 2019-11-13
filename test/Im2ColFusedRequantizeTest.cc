@@ -40,20 +40,22 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(qGranularityVals),
         ::testing::Bool()));
 
+// clang-format off
 // From Faster-RCNN with ShuffleNet
 static vector<conv_param_t<>> shapes = {
-    // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w, pad_h, pad_w
-    conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(2, 32, 32, {28, 14}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
-    conv_param_t<>(1, 32, 16, {12, 14}, 4, {3, 3}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(2, 32, 16, {16, 14}, 4, {3, 3}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
-    // first layer of resnet50
-    conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
+  // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w, pad_h, pad_w
+  conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}),
+  conv_param_t<>(1, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+  conv_param_t<>(2, 32, 32, {14, 14}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}),
+  conv_param_t<>(2, 32, 32, {28, 14}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
+  conv_param_t<>(1, 32, 16, {12, 14}, 4, {3, 3}, {1, 1}, {0, 0, 0, 0}),
+  conv_param_t<>(2, 32, 16, {16, 14}, 4, {3, 3}, {1, 1}, {0, 0, 0, 0}),
+  conv_param_t<>(1, 544, 544, {14, 14}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
+  conv_param_t<>(1, 8, 8, {4, 4}, 1, {3, 3}, {1, 1}, {1, 1, 0, 0}),
+  // first layer of resnet50
+  conv_param_t<>(1, 3, 64, {224, 224}, 1, {7, 7}, {2, 2}, {3, 3, 3, 3}),
 };
+// clang-format on
 
 template <typename ACC_T, QuantizationGranularity Q_GRAN>
 static void Im2colTest(bool b_symmetric) {
