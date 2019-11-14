@@ -156,6 +156,7 @@ void performance_test() {
         NWARMUP,
         NITER,
         flush ? &llc : nullptr);
+    ttot *= 1e9; // convert to ns
 
     ((volatile char*)(llc.data()));
     cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
