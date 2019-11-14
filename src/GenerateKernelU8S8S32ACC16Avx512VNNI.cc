@@ -18,17 +18,12 @@ namespace x86 = asmjit::x86;
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::initCRegs<
-    inst_set_t::avx512_vnni>(
-    x86::Emitter* a,
-    int rowRegs,
-    int colRegs,
-    int leadingDimCReg) {
+    inst_set_t::avx512_vnni>(x86::Emitter* a, int rowRegs, int colRegs) {
   assert(0 && "Accumulation to int16_t is not available for VNNI!");
 
   // For AVX512VNNI, redirect to int32_t accumulation.
   CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-  codeObj.initCRegs<inst_set_t::avx512_vnni>(
-      a, rowRegs, colRegs, leadingDimCReg);
+  codeObj.initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs);
 }
 
 /**
@@ -45,14 +40,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     x86::Gp /* unused (reserved for prefetching)*/,
     int rowRegs,
     int colRegs,
-    int lda,
-    int leadingDimCReg) {
+    int lda) {
   assert(0 && "Accumulation to int16_t is not available for VNNI!");
 
   // For AVX512VNNI, redirect to int32_t accumulation.
   CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
   codeObj.genComputeBlock<inst_set_t::avx512_vnni>(
-      a, buffer_A, buffer_B, buffer_B, rowRegs, colRegs, lda, leadingDimCReg);
+      a, buffer_A, buffer_B, buffer_B, rowRegs, colRegs, lda);
 }
 
 /**
@@ -68,14 +62,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     int colRegs,
     x86::Gp C_Offset,
     x86::Gp ldcReg,
-    bool accum,
-    int leadingDimCReg) {
+    bool accum) {
   assert(0 && "Accumulation to int16_t is not available for VNNI!");
 
   // For AVX512VNNI, redirect to int32_t accumulation.
   CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
   codeObj.storeCRegs<inst_set_t::avx512_vnni>(
-      a, rowRegs, colRegs, C_Offset, ldcReg, accum, leadingDimCReg);
+      a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 }
 
 /**
@@ -86,17 +79,12 @@ template <>
 template <>
 CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<
-    inst_set_t::avx512_vnni>(
-    bool accum,
-    int32_t mc,
-    int32_t nc,
-    int32_t kc,
-    int32_t /* unused */) {
+    inst_set_t::avx512_vnni>(bool accum, int32_t mc, int32_t nc, int32_t kc) {
   assert(0 && "Accumulation to int16_t is not available for VNNI!");
 
   // For AVX512VNNI, redirect to int32_t accumulation.
   CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-  return codeObj.getOrCreate<inst_set_t::avx512_vnni>(accum, mc, nc, kc, kc);
+  return codeObj.getOrCreate<inst_set_t::avx512_vnni>(accum, mc, nc, kc);
 }
 
 } // namespace fbgemm
