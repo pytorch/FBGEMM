@@ -106,18 +106,4 @@ static inline float cpu_half2float(float16 h) {
   return ret;
 }
 
-static inline uint8_t tconv(float x, int8_t /*rtype*/) {
-  return int8_t(x);
-}
-static inline uint8_t tconv(float x, uint8_t /*rtype*/) {
-  return uint8_t(x);
-}
-static inline float16 tconv(float x, float16 /*rtype*/) {
-  return cpu_float2half_rn(x);
-}
-
-template <typename T>
-T tconv(T x, T /*rtype*/) {
-  return x;
-}
 } // namespace fbgemm
