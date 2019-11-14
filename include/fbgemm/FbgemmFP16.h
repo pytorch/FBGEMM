@@ -116,7 +116,7 @@ class PackedGemmMatrixFP16 {
     pmat_ = static_cast<float16*>(
         fbgemmAlignedAlloc(64, matSize() * sizeof(float16) + padding));
     for (auto i = 0; i < matSize(); i++) {
-      pmat_[i] = tconv(0.f, pmat_[i]);
+      pmat_[i] = cpu_float2half_rn(0.0f);
     }
   }
 
@@ -162,11 +162,11 @@ class PackedGemmMatrixFP16 {
     // pack
     for (int i = 0; i < numRows(); i++) {
       for (int j = 0; j < numCols(); j++) {
-        pmat_[addr(i, j)] = tconv(
-            alpha *
-                ((tr == false) ? smat[i * numCols() + j]
-                               : smat[i + numRows() * j]),
-            pmat_[addr(i, j)]);
+        constexpr float FP16_MAX = 65504.f;
+        float src = alpha *
+            ((tr == false) ? smat[i * numCols() + j] : smat[i + numRows() * j]);
+        src = std::max(-FP16_MAX, std::min(src, FP16_MAX));
+        pmat_[addr(i, j)] = cpu_float2half_rn(src);
       }
     }
     packed_ = true;
