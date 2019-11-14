@@ -118,7 +118,6 @@ void fbgemmPacked(
 
   int MDim = packA.numRows();
   int KDimPerGroup = packB.numRows() / G;
-  int NDim = packB.numCols();
 
   int kBlocks = (KDimPerGroup + KCB - 1) / KCB;
 
@@ -137,19 +136,31 @@ void fbgemmPacked(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  thread_type_t th_info =
-      fbgemmGetThreadPartition(G, MDim, NDim, thread_id, num_threads);
-  // if (thread_id == 0)
-  //   std::cout << ", " << th_info.toString();
-
   int g_begin, g_end, i_begin, i_end;
+  if (G >= num_threads) {
+    // When G >= nthreads, just parallelize over G
+    // TODO: when G == nthreads + 1, we'll have a big load imbalance because
+    // only one thread will get 2 groups.
+    fbgemmPartition1D(thread_id, num_threads, G, g_begin, g_end);
+    i_begin = 0;
+    i_end = MDim;
+  } else {
+    // Otherwise, each group is parallelized by multiple threads.
+    // nthreads_per_group is floor(nthreads / G).
+    // If we use ceil, some groups won't be handled by any thread.
+    int nthreads_per_group = num_threads / G;
+    g_begin = std::max(std::min(thread_id / nthreads_per_group, G - 1), 0);
+    g_end = std::min(g_begin + 1, G);
 
-  // Calculate the begin and end index along the group dimension
-  fbgemmPartition1D(
-      th_info.g_thread_id, th_info.g_num_threads, G, g_begin, g_end);
-  // Calculate the begin and end index along the m dimension
-  fbgemmPartition1DBlocked(
-      th_info.m_thread_id, th_info.m_num_threads, MDim, MR, i_begin, i_end);
+    int tid_of_g_begin = std::min(g_begin * nthreads_per_group, num_threads);
+    int tid_of_g_end = std::min(
+        (g_end == G) ? num_threads : (tid_of_g_begin + nthreads_per_group),
+        num_threads);
+    int nthreads_within_group = tid_of_g_end - tid_of_g_begin;
+    int tid_within_group = thread_id - tid_of_g_begin;
+    fbgemmPartition1DBlocked(
+        tid_within_group, nthreads_within_group, MDim, MR, i_begin, i_end);
+  }
 
   for (int g = g_begin; g < g_end; ++g) {
     ExecuteKernel<packingAMatrix, packingBMatrix, cT, processOutputType>
@@ -160,8 +171,8 @@ void fbgemmPacked(
             C_buffer,
             ldc,
             outProcess,
-            th_info.n_thread_id,
-            th_info.n_num_threads,
+            thread_id,
+            num_threads,
             blocking_params);
     for (int i = i_begin; i < i_end; i += MCB) { // i is the element index
       mc = std::min(i_end - i, MCB);
