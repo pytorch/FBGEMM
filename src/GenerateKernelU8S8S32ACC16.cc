@@ -18,18 +18,14 @@ namespace x86 = asmjit::x86;
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::initCRegs<
-    inst_set_t::avx2>(
-    x86::Emitter* a,
-    int rowRegs,
-    int colRegs,
-    int leadingDimCReg) {
+    inst_set_t::avx2>(x86::Emitter* a, int rowRegs, int colRegs) {
   using CRegs = x86::Ymm;
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs(i * leadingDimCReg + j),
-          CRegs(i * leadingDimCReg + j),
-          CRegs(i * leadingDimCReg + j));
+          CRegs(i * colRegs + j),
+          CRegs(i * colRegs + j),
+          CRegs(i * colRegs + j));
     }
   }
 }
@@ -48,10 +44,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     x86::Gp /* unused (reserved for prefetching)*/,
     int rowRegs,
     int colRegs,
-    int lda,
-    int leadingDimCReg) {
+    int lda) {
   // used for matrix A
-  x86::Ymm AReg = x86::ymm12;
+  x86::Ymm AReg = x86::ymm13;
 
   x86::Ymm tmpReg = x86::ymm14;
 
@@ -64,8 +59,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     for (int j = 0; j < colRegs; ++j) {
       a->vpmaddubsw(
           tmpReg, AReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
-      a->vpaddsw(
-          CRegs(i * leadingDimCReg + j), tmpReg, CRegs(i * leadingDimCReg + j));
+      a->vpaddsw(CRegs(i * colRegs + j), tmpReg, CRegs(i * colRegs + j));
       // Prefetching is hurting performance in some cases
       // because prefetch instructions itself consumes a slot
       // in pipeline issue thus slowing down the kernel.
@@ -89,8 +83,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     int colRegs,
     x86::Gp C_Offset,
     x86::Gp ldcReg,
-    bool accum,
-    int leadingDimCReg) {
+    bool accum) {
   x86::Xmm extractDest128 = x86::xmm15;
   x86::Ymm extractDest256 = x86::ymm15;
 
@@ -99,7 +92,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
-        a->vextracti128(extractDest128, CRegs(i * leadingDimCReg + j), idx);
+        a->vextracti128(extractDest128, CRegs(i * colRegs + j), idx);
         a->vpmovsxwd(extractDest256, extractDest128);
         x86::Mem destAddr = x86::dword_ptr(
             a->zcx(), C_Offset, 0, (j * 2 + idx) * 8 * sizeof(int32_t));
@@ -123,9 +116,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc,
-    int32_t /* unused */) {
-  std::tuple<bool, int, int, int, int, int, int, int> kernelSig;
+    int32_t kc) {
+  std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
   int nBlock;
   int mRegBlockSize;
@@ -152,14 +144,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
   }
 
   kernelSig = std::make_tuple(
-      accum,
-      mc,
-      nc,
-      nBlock,
-      kBlock,
-      mRegBlockSize,
-      nRegBlockSize,
-      nRegBlockSizeMin);
+      accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;
@@ -187,10 +172,19 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     }
 #endif
 
-    int mRegBlocks = mc / mRegBlockSize;
-    int mRegBlocksRem = mc % mRegBlockSize;
     assert(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
+    assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
+    int maxMRegs = mRegBlockSize;
+    int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
+    assert(
+        maxMRegs * maxNRegs <= 13 &&
+        "MR*(NR*ROW_INTERLEAVE*8/256"
+        "must be <= 13(available registers constraint)");
+
+    int mRegBlocks = mc / mRegBlockSize;
+    int mRegBlocksRem = mc % mRegBlockSize;
+
     // assert((nc == nRegBlockSize) &&
     //"nc must be equal to the number of register blocks");
 
@@ -239,7 +233,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     x86::Gp iIdx = a->gpz(13);
     x86::Gp kIdx = a->gpz(14);
 
-    int colRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
+    int colRegs = nc * row_interleave / VLEN_;
     if (mRegBlocks > 0) {
       // move 0 to iteration variables
       a->mov(iIdx, 0);

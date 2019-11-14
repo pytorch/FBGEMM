@@ -21,15 +21,14 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
     inst_set_t::avx2>(
     x86::Emitter* a,
     int rowRegs,
-    int colRegs,
-    int leadingDimCReg) {
+    int colRegs) {
   using CRegs = x86::Ymm;
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
       a->vxorps(
-          CRegs(i * leadingDimCReg + j),
-          CRegs(i * leadingDimCReg + j),
-          CRegs(i * leadingDimCReg + j));
+          CRegs(i * colRegs + j),
+          CRegs(i * colRegs + j),
+          CRegs(i * colRegs + j));
     }
   }
 }
@@ -48,8 +47,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
     x86::Gp B_pf,
     int rowRegs,
     int colRegs,
-    int lda,
-    int leadingDimCReg) {
+    int lda) {
   // used for matrix A
   x86::Ymm AReg = x86::ymm12;
 
@@ -74,7 +72,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
       a->vpaddd(
-          CRegs(i * leadingDimCReg + j), res1, CRegs(i * leadingDimCReg + j));
+          CRegs(i * colRegs + j), res1, CRegs(i * colRegs + j));
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
@@ -93,8 +91,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     int colRegs,
     x86::Gp C_Offset,
     x86::Gp ldcReg,
-    bool accum,
-    int leadingDimCReg) {
+    bool accum) {
   using CRegs = x86::Ymm;
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
@@ -103,13 +100,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
         a->vpaddd(
-            CRegs(i * leadingDimCReg + j),
-            CRegs(i * leadingDimCReg + j),
+            CRegs(i * colRegs + j),
+            CRegs(i * colRegs + j),
             x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)));
       }
       a->vmovups(
           x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)),
-          CRegs(i * leadingDimCReg + j));
+          CRegs(i * colRegs + j));
     }
   }
 }
@@ -125,9 +122,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc,
+#ifndef NDEBUG
+    int32_t kc) {
+#else
     int32_t /* unused */) {
-  std::tuple<bool, int, int, int, int, int, int, int> kernelSig;
+#endif
+  std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
   int nBlock;
   int mRegBlockSize;
@@ -160,8 +160,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       nBlock,
       kBlock,
       mRegBlockSize,
-      nRegBlockSize,
-      nRegBlockSizeMin);
+      nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;
@@ -256,13 +255,13 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
     a->mov(C_Offset, 0);
 
-    int colRegs = nc * row_interleave * sizeof(int8_t) / VLEN_;
+    int colRegs = nc * row_interleave / VLEN_;
 
     auto issueLoopOverK = [&](int rowRegs) {
       asmjit::Label LoopKLabel = a->newLabel();
 
       // Init C (result) vector registers
-      initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, colRegs);
+      initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs);
 
       // Loops over K
       a->mov(kIdx, 0);
@@ -272,7 +271,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
       genComputeBlock<inst_set_t::avx2>(
-          a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock, colRegs);
+          a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock);
 
       // update buffer_A address for next k iteration
       a->add(
@@ -291,7 +290,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
 
       // store C matrix
       storeCRegs<inst_set_t::avx2>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum, colRegs);
+          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     };
 
     if (mRegBlocks > 0) {

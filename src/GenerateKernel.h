@@ -32,9 +32,9 @@ template <typename TA, typename TB, typename TC, typename accT>
 class CodeGenBase {
  public:
   using jit_micro_kernel_fp = void (*)(
-      TA* bufferA,
-      TB* bufferB,
-      TB* b_pf,
+      const TA* bufferA,
+      const TB* bufferB,
+      const TB* b_pf,
       TC* bufferC,
       int kc,
       int ldc);
@@ -72,17 +72,13 @@ class CodeGenBase {
    */
   template <inst_set_t instSet>
   jit_micro_kernel_fp
-  getOrCreate(bool accum, int32_t mc, int32_t nc, int32_t kc, int32_t ldc);
+  getOrCreate(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
   /**
    * @brief Generate instructions for initializing the C registers to 0.
    */
   template <inst_set_t instSet>
-  void initCRegs(
-      x86::Emitter* a,
-      int rowRegs,
-      int colRegs,
-      int leadingDimCRegAssign = 4);
+  void initCRegs(x86::Emitter* a, int rowRegs, int colRegs);
 
   /**
    * @brief Generate instructions for computing block in the rank-k update.
@@ -95,8 +91,7 @@ class CodeGenBase {
       x86::Gp B_pf,
       int rowRegs,
       int colRegs,
-      int lda,
-      int leadingDimCRegAssign = 4);
+      int lda);
 
   /**
    * @brief Generate instructions for storing the C registers back to the
@@ -109,8 +104,7 @@ class CodeGenBase {
       int colRegs,
       x86::Gp C_Offset,
       x86::Gp ldcReg,
-      bool accum,
-      int leadingDimCRegAssign = 4);
+      bool accum);
 
   const BlockingFactors* blocking_params;
   /**
@@ -125,8 +119,7 @@ class CodeGenBase {
       int NCB,
       int KCB,
       int MR,
-      int NR,
-      int NR_MIN) {
+      int NR) {
     std::ostringstream oss;
     oss << "gemm_";
     if (std::is_same<accT, std::int16_t>::value) {
@@ -136,14 +129,10 @@ class CodeGenBase {
     } else {
       oss << "unknown_";
     }
-    oss << "accum-" + std::to_string(accum)
-        << "_MC-" + std::to_string(mc)
-        << "_NC-" + std::to_string(nc)
-        << "_NCB-" + std::to_string(NCB)
-        << "_NCB-" + std::to_string(KCB)
-        << "_MR-" + std::to_string(MR)
-        << "_NR-" + std::to_string(NR)
-        << "_NR_MIN-" + std::to_string(NR_MIN);
+    oss << "accum-" + std::to_string(accum) << "_MC-" + std::to_string(mc)
+        << "_NC-" + std::to_string(nc) << "_NCB-" + std::to_string(NCB)
+        << "_NCB-" + std::to_string(KCB) << "_MR-" + std::to_string(MR)
+        << "_NR-" + std::to_string(NR);
     if (instSet == inst_set_t::avx512_vnni) {
       oss << "_avx512vnni";
     } else if (instSet == inst_set_t::avx512) {
@@ -159,7 +148,7 @@ class CodeGenBase {
   int vectorWidth_; ///< Vector width in bits.
   int VLEN_; ///< Vector width in elements.
 
-  static asmjit::JitRuntime &runtime() {
+  static asmjit::JitRuntime& runtime() {
     static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
                                   // depents on other static
                                   // variables.  Required to prevent
@@ -167,11 +156,12 @@ class CodeGenBase {
     return rt;
   }
 
-  static std::mutex rtMutex_;    ///< Controll access to runtime;
+  static std::mutex rtMutex_; ///< Controll access to runtime;
 
-  // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr, nr_min
-  static CodeCache<std::tuple<bool, int, int, int, int, int, int, int>,
-                   jit_micro_kernel_fp>
+  // The hash depends on accumulate, mc, nc, ncb, kcb, nr, mr
+  static CodeCache<
+      std::tuple<bool, int, int, int, int, int, int>,
+      jit_micro_kernel_fp>
       codeCache_; ///< JIT Code Cache for reuse.
 };
 
@@ -179,8 +169,9 @@ template <typename TA, typename TB, typename TC, typename accT>
 std::mutex CodeGenBase<TA, TB, TC, accT>::rtMutex_;
 
 template <typename TA, typename TB, typename TC, typename accT>
-CodeCache<std::tuple<bool, int, int, int, int, int, int, int>,
-          typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
+CodeCache<
+    std::tuple<bool, int, int, int, int, int, int>,
+    typename CodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp>
     CodeGenBase<TA, TB, TC, accT>::codeCache_;
 
 } // namespace fbgemm
