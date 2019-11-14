@@ -162,58 +162,6 @@ struct FBGEMM_API BlockingFactors {
   int NCB;
 };
 
-/**
- * @brief A struct to represent the partition information for the threads on the
- * m and n dimensions.
- */
-struct FBGEMM_API thread_type_t {
-  int g_num_threads;
-  int m_num_threads;
-  int n_num_threads;
-  int g_thread_id;
-  int m_thread_id;
-  int n_thread_id;
-
-  std::string toString() const {
-    std::string out = "";
-    out += "g num threads: " + std::to_string(g_num_threads) + ", ";
-    out += "m num threads: " + std::to_string(m_num_threads) + ", ";
-    out += "n num threads: " + std::to_string(n_num_threads) + ", ";
-    out += "g thread id: " + std::to_string(g_thread_id) + ", ";
-    out += "m thread id: " + std::to_string(m_thread_id) + ", ";
-    out += "n thread id: " + std::to_string(n_thread_id);
-    return out;
-  }
-};
-
-/**
- * @brief A heuristic algorithm to partition the threads across m and n
- * dimensions for parallelization, ensuring the ratio between the number of rows
- * allocated to each thread in the m dimension and the number of columns
- * allocated to each thread in the n dimension is approximately aspect_ratio.
- *
- * The less aspect_ratio is, the more favorable it is to parallelize the m
- * dimension over the n dimension.
- */
-FBGEMM_API int fbgemmGet2DPartition(
-    int m,
-    int n,
-    int nthreads,
-    int n_align,
-    double aspect_ratio);
-
-/**
- * @brief A heuristic way to partition the threads across g, m and n dimensions
- * for parallelization.
- */
-FBGEMM_API thread_type_t fbgemmGetThreadPartition(
-    int g,
-    int m,
-    int n,
-    int num_threads,
-    int thread_id,
-    int n_align = 64);
-
 template <int SIZE, typename T = std::int32_t>
 FBGEMM_API std::string arrayToString(const std::array<T, SIZE>& inp) {
   std::string out = "[";
