@@ -98,7 +98,7 @@ ExecuteKernel<
       nrMinSize_ = PackingTraits<
           int8_t,
           typename packingAMatrix::accType,
-          inst_set_t::avx2>::NR;
+          inst_set_t::avx2>::NR_MIN;
     } else {
       assert(0 && "unsupported architecure");
     }
@@ -140,30 +140,26 @@ void ExecuteKernel<
           accum,
           packed_rows_A,
           packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
+          packedA_.numPackedCols());
     } else {
       fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
           accum,
           packed_rows_A,
           packedB_.blockColSize(),
-          packedA_.numPackedCols(),
-          nbSize_);
+          packedA_.numPackedCols());
     }
   } else if (fbgemmHasAvx512Support()) {
     fn = BaseType::template getOrCreate<inst_set_t::avx512>(
         accum,
         packed_rows_A,
         packedB_.blockColSize(),
-        packedA_.numPackedCols(),
-        nbSize_);
+        packedA_.numPackedCols());
   } else if (fbgemmHasAvx2Support()) {
     fn = BaseType::template getOrCreate<inst_set_t::avx2>(
         accum,
         packed_rows_A,
         packedB_.blockColSize(),
-        packedA_.numPackedCols(),
-        nbSize_);
+        packedA_.numPackedCols());
   } else {
     // TODO: Have default slower path
     assert(0 && "unsupported architecture");
@@ -186,17 +182,17 @@ void ExecuteKernel<
             // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
             CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
             fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
-                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+                accum, packed_rows_A, nc, packedA_.numPackedCols());
           } else {
             fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
-                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+                accum, packed_rows_A, nc, packedA_.numPackedCols());
           }
         } else if (fbgemmHasAvx512Support()) {
           fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+              accum, packed_rows_A, nc, packedA_.numPackedCols());
         } else if (fbgemmHasAvx2Support()) {
           fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+              accum, packed_rows_A, nc, packedA_.numPackedCols());
         } else {
           // TODO: Have default slower path
           assert(0 && "unsupported architecture");
