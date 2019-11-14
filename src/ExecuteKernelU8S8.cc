@@ -181,8 +181,16 @@ void ExecuteKernel<
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
         if (fbgemmHasAvx512VnniSupport()) {
-          fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
-              accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+          if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
+                  value) {
+            // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+            CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+            fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+          } else {
+            fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
+          }
         } else if (fbgemmHasAvx512Support()) {
           fn = BaseType::template getOrCreate<inst_set_t::avx512>(
               accum, packed_rows_A, nc, packedA_.numPackedCols(), nbSize_);
