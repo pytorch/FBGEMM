@@ -12,9 +12,7 @@
 
 namespace fbgemm {
 
-typedef struct __attribute__((aligned(2))) __f16 {
-  uint16_t x;
-} float16;
+using float16 = std::uint16_t;
 
 static inline float16 cpu_float2half_rn(float f) {
   float16 ret;
@@ -30,7 +28,7 @@ static inline float16 cpu_float2half_rn(float f) {
 
   // Get rid of +NaN/-NaN case first.
   if (u > 0x7f800000) {
-    ret.x = 0x7fffU;
+    ret = 0x7fffU;
     return ret;
   }
 
@@ -38,11 +36,11 @@ static inline float16 cpu_float2half_rn(float f) {
 
   // Get rid of +Inf/-Inf, +0/-0.
   if (u > 0x477fefff) {
-    ret.x = sign | 0x7c00U;
+    ret = sign | 0x7c00U;
     return ret;
   }
   if (u < 0x33000001) {
-    ret.x = (sign | 0x0000);
+    ret = (sign | 0x0000);
     return ret;
   }
 
@@ -72,15 +70,15 @@ static inline float16 cpu_float2half_rn(float f) {
     }
   }
 
-  ret.x = (sign | (exponent << 10) | mantissa);
+  ret = (sign | (exponent << 10) | mantissa);
 
   return ret;
 }
 
 static inline float cpu_half2float(float16 h) {
-  unsigned sign = ((h.x >> 15) & 1);
-  unsigned exponent = ((h.x >> 10) & 0x1f);
-  unsigned mantissa = ((h.x & 0x3ff) << 13);
+  unsigned sign = ((h >> 15) & 1);
+  unsigned exponent = ((h >> 10) & 0x1f);
+  unsigned mantissa = ((h & 0x3ff) << 13);
 
   if (exponent == 0x1f) { /* NaN or Inf */
     mantissa = (mantissa ? (sign = 0, 0x7fffff) : 0);
