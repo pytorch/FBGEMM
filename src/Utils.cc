@@ -259,4 +259,108 @@ void* fbgemmAlignedAlloc(
   return aligned_mem;
 }
 
+int fbgemmGet2DPartition(
+    int m,
+    int n,
+    int nthreads,
+    int n_align,
+    double aspect_ratio) {
+  // mb: number of thread blocks within a socket along m.
+  // nb: number of thread blocks along n.
+  // mb * nb = nthreads.
+  // bm: number of rows assigned per thread block (bm = ceil(m/mb)).
+  // bn: number of cols assigned per thread block (bn = ceil(n/nb)).
+  // find mb and nb such that bm / bn is as close as possible to aspect_ratio.
+  int mb = 1;
+  int nb = nthreads / mb;
+  int bm = (m + mb - 1) / mb;
+  int bn = ((n + n_align - 1) / n_align + nb - 1) / nb * n_align;
+  double best_delta = std::abs(static_cast<double>(bm) / bn - aspect_ratio);
+  for (int mb_candidate = 2; mb_candidate <= nthreads; mb_candidate++) {
+    if (nthreads % mb_candidate != 0) {
+      continue;
+    }
+    int nb_candidate = nthreads / mb_candidate;
+    if ((n + nb_candidate - 1) / nb_candidate <= n_align / 2) {
+      continue;
+    }
+    int bm_candidate = (m + mb_candidate - 1) / mb_candidate;
+    int bn_candidate = ((n + n_align - 1) / n_align + nb_candidate - 1) /
+        nb_candidate * n_align;
+    double delta = std::abs(
+        static_cast<double>(bm_candidate) / bn_candidate - aspect_ratio);
+    if (delta < best_delta) {
+      best_delta = delta;
+      mb = mb_candidate;
+    } else {
+      break;
+    }
+  }
+  return mb;
+}
+
+thread_type_t fbgemmGetThreadPartition(
+    int g,
+    int m,
+    int n,
+    int thread_id,
+    int num_threads,
+    int n_align) {
+  assert(num_threads >= 1);
+
+  // Fast path for the single thread case.
+  if (num_threads == 1) {
+    return thread_type_t{1, 1, 1, 0, 0, 0};
+  }
+
+  thread_type_t th_info;
+
+  // Heuristic for determine the thread partitions for parallelizing across g, m
+  // or n dimensions.
+  // TODO: more smart ways for thread partitions considering the
+  // grain size (MR, NR) parameters
+  if (g > num_threads) {
+    // TODO: when G == nthreads + 1, we'll have a big load imbalance because
+    // only one thread will get 2 groups.
+    th_info.g_num_threads = num_threads;
+  } else {
+    if (num_threads % g == 0) {
+      th_info.g_num_threads = g;
+    } else {
+      th_info.g_num_threads = 1;
+    }
+  }
+  num_threads /= th_info.g_num_threads;
+
+  // We favor the parallelization on the m dimension compared to the n
+  // dimension, so we set aspect_ratio to 0.5 here.
+  th_info.m_num_threads = fbgemmGet2DPartition(m, n, num_threads, n_align, 0.5);
+
+  assert(num_threads % (th_info.m_num_threads) == 0);
+  th_info.n_num_threads = num_threads / th_info.m_num_threads;
+
+  // When there are 12 threads (num_threads = 12) and g_nthreads = 2, m_nthreads
+  // = 2, the threads will be organized as the following 2x2x3 layout (thread is
+  // partitioned in the last-dim index (i.e., n, m, g, row-major for 2D) major
+  // order):
+  //
+  // thread 0, thread 1, thread 2      thread 6, thread 7,  thread 8
+  // thread 3, thread 4, thread 5      thread 9, thread 10, thread 11
+  //
+  // And the corresponding (g_thread_id, m_thread_id, n_thread_id) for
+  // each thread is listed as the following:
+  //
+  // (0, 0, 0), (0, 0, 1), (0, 0, 2)            (1, 0, 0), (1, 0, 1), (1, 0, 2)
+  // (0, 1, 0), (0, 1, 1), (0, 1, 2)            (1, 1, 0), (1, 1, 1), (1, 1, 2)
+
+  // We can view the thread as the ternary with 3-dim base: {g,m,n}_num_threads.
+  th_info.n_thread_id = thread_id % th_info.n_num_threads;
+  thread_id /= th_info.n_num_threads;
+  th_info.m_thread_id = thread_id % th_info.m_num_threads;
+  thread_id /= th_info.m_num_threads;
+  th_info.g_thread_id = thread_id % th_info.g_num_threads;
+
+  return th_info;
+}
+
 } // namespace fbgemm

@@ -172,7 +172,9 @@ void ExecuteKernel<
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  for (int jb = 0; jb < bColBlocks; ++jb) {
+  int jb_begin, jb_end;
+  fbgemmPartition1D(thread_id_, num_threads_, bColBlocks, jb_begin, jb_end);
+  for (int jb = jb_begin; jb < jb_end; ++jb) {
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
