@@ -32,8 +32,7 @@ ExecuteKernel<
         int32_t* C_buffer,
         int32_t ldc,
         const processOutputType& outputProcess,
-        int thread_id,
-        int num_threads,
+        thread_type_t th_info,
         const BlockingFactors* params)
     : CodeGenBase<uint8_t, int8_t, int32_t, typename packingAMatrix::accType>(
           params),
@@ -43,8 +42,7 @@ ExecuteKernel<
       C_buffer_(C_buffer),
       ldc_(ldc),
       outputProcess_(outputProcess),
-      thread_id_(thread_id),
-      num_threads_(num_threads) {
+      th_info_(th_info) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -172,7 +170,14 @@ void ExecuteKernel<
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  for (int jb = 0; jb < bColBlocks; ++jb) {
+  int jb_begin, jb_end;
+  fbgemmPartition1D(
+      th_info_.n_thread_id,
+      th_info_.n_num_threads,
+      bColBlocks,
+      jb_begin,
+      jb_end);
+  for (int jb = jb_begin; jb < jb_end; ++jb) {
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
@@ -209,16 +214,16 @@ void ExecuteKernel<
     // processing), then each thread use the different parts of output buffer
     // matC_;
     // Otherwise, each thread uses different portions of the accumulation
-    // buffer C_buffer_. If m is large enough (m >= nthreads * MC), then we only
-    // need to use (nthreads * MC) x n portion of C_buffer_, each thread access
-    // the C_buffer_row_start as tid * MC * ldc_; else when m is very small, we
-    // juse use the whole m x n C_buffer_: each thread use the different
-    // portion.
+    // buffer C_buffer_. If m is large enough (m >= m_nthreads * MC), then we
+    // only need to use (m_nthreads * MC) x n portion of C_buffer_, each thread
+    // access the C_buffer_row_start as tid * MC * ldc_; else when m is very
+    // small, we juse use the whole m x n C_buffer_: each thread use the
+    // different portion.
     int32_t* C_buffer_row_start = C_buffer_ +
         ((C_buffer_ == reinterpret_cast<int32_t*>(matC_) ||
-          num_threads_ * mbSize_ > packedA_.numRows())
+          th_info_.m_num_threads * mbSize_ > packedA_.numRows())
              ? row_start_A * ldc_ + NDim * group
-             : thread_id_ * mbSize_ * ldc_ + NDim * group);
+             : th_info_.m_thread_id * mbSize_ * ldc_ + NDim * group);
 
     int32_t* C_buffer_start = C_buffer_row_start + jb * nbSize_;
     int32_t leadingDim = ldc_;
@@ -246,26 +251,33 @@ void ExecuteKernel<
 
     // Output processing is done only once per rowblock to amortize overhead
     // and for better spatial locality.
-    if (lastKBlock && jb == bColBlocks - 1) {
+    if (lastKBlock && jb == jb_end - 1) {
       // When C_tile_ is used for the last column block, we need a separate
       // handling for the last column block.
       int32_t nSize =
-          C_buffer_start == C_tile_ ? jb * nbSize_ : packedB_.numCols();
+          (C_buffer_start == C_tile_ ? (jb - jb_begin) * nbSize_
+                                     : (jb_end - jb_begin) * nbSize_);
       if (nSize) {
         if (fbgemmHasAvx512VnniSupport() || fbgemmHasAvx512Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
-              C_buffer_row_start,
-              {row_start_A, packed_rows_A, NDim * group, nSize},
+              C_buffer_row_start + jb_begin * nbSize_,
+              {row_start_A,
+               packed_rows_A,
+               NDim * group + jb_begin * nbSize_,
+               nSize},
               ldc_,
               ldc_);
         } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
-              C_buffer_row_start,
-              {row_start_A, packed_rows_A, NDim * group, nSize},
+              C_buffer_row_start + jb_begin * nbSize_,
+              {row_start_A,
+               packed_rows_A,
+               NDim * group + jb_begin * nbSize_,
+               nSize},
               ldc_,
               ldc_);
         } else {
