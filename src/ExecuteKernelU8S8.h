@@ -43,8 +43,7 @@ class ExecuteKernel<
       int32_t* C_buffer,
       int32_t ldc,
       const processOutputType& outputProcess,
-      int thread_id,
-      int num_threads,
+      thread_type_t th_info,
       const BlockingFactors* params = nullptr);
   void execute(int kBlock);
 
@@ -64,8 +63,9 @@ class ExecuteKernel<
   int32_t ldc_; ///< the leading dimension of matrix C.
   const processOutputType& outputProcess_; ///< output processing function for
                                            ///< matrix C in the macro-kernel.
-  int thread_id_; ///< the thread id.
-  int num_threads_; ///< the total number of threads
+  thread_type_t
+      th_info_; ///<< the thread partition information (thread id and the number
+                ///< of threads across the group, m, n dimensions.
   int32_t* C_tile_; ///< buffer for the last N block when NCB is not an exact
                     ///< multiple of N.
   int mbSize_; ///< block size in the m dimension.
