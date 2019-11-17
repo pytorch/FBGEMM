@@ -30,6 +30,7 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/Fbgemm.cc
                 src/FbgemmFP16.cc
                 src/FbgemmConv.cc
+                src/FbgemmI64.cc
                 src/FbgemmI8Spmdm.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc

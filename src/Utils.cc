@@ -129,6 +129,15 @@ template int compare_buffers<uint8_t>(
     int max_mismatches_to_report,
     float atol);
 
+template int compare_buffers<int64_t>(
+    const int64_t* ref,
+    const int64_t* test,
+    int m,
+    int n,
+    int ld,
+    int max_mismatches_to_report,
+    float atol);
+
 template void printMatrix<float>(
     matrix_op_t op,
     const float* inp,

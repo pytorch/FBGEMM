@@ -60,6 +60,14 @@ template int compare_validate_buffers<uint8_t>(
     int ld,
     uint8_t atol);
 
+template int compare_validate_buffers<int64_t>(
+    const int64_t* ref,
+    const int64_t* test,
+    int m,
+    int n,
+    int ld,
+    int64_t atol);
+
 template <typename T>
 bool check_all_zero_entries(const T* test, int m, int n) {
   for (int i = 0; i < m; ++i) {
