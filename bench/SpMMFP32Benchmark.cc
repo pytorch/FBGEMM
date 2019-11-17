@@ -31,15 +31,34 @@ int main(int, char**) {
       auto cData = getRandomSparseVector(m * n);
 
       auto fn = generateSpMM<float>(m, n, k, aData.data(), lda, ldb, ldc);
+      auto fn_varying_n = generateSpMM<float>(m, k, aData.data(), lda);
 
       double effective_flop = m * n * k * 2;
 
+      constexpr int NWARMUP = 5;
+      constexpr int NITER = 32;
       auto secs = measureWithWarmup(
-          [&]() { fn(bData.data(), cData.data(), 0); }, 5, 10, &llc);
+          [&]() { fn(bData.data(), cData.data(), 0); }, NWARMUP, NITER, &llc);
+
+      auto secs_varying_n = measureWithWarmup(
+          [&]() {
+            fn_varying_n(
+                bData.data(),
+                cData.data(),
+                n,
+                n, /* ldb */
+                n, /* ldc */
+                0 /* accum_flag */);
+          },
+          NWARMUP,
+          NITER,
+          &llc);
 
       double effective_gflops = effective_flop / secs / 1e9;
+      double effective_gflops_varying_n = effective_flop / secs_varying_n / 1e9;
       cout << fnz << "," << effective_gflops << "," << fnz * effective_gflops
-           << endl;
+           << "," << effective_gflops_varying_n << ","
+           << fnz * effective_gflops_varying_n << endl;
     }
   }
 }

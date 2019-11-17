@@ -44,13 +44,28 @@ int main(int, char**) {
       auto cptr = reinterpret_cast<int32_t*>(cData.data());
 
       auto fn = generateSpMM<int32_t>(m, n, k, aptr, lda, ldb, ldc);
+      auto fn_varying_n = generateSpMM<int32_t>(m, k, aptr, lda);
 
       double FLOPs = m * n * k * 2;
 
-      auto secs = measureWithWarmup([&]() { fn(bptr, cptr, 0); }, 5, 32, &llc);
+      constexpr int NWARMUP = 5;
+      constexpr int NITER = 32;
+      auto secs =
+          measureWithWarmup([&]() { fn(bptr, cptr, 0); }, NWARMUP, NITER, &llc);
+
+      auto secs_varying_n = measureWithWarmup(
+          [&]() {
+            fn_varying_n(
+                bptr, cptr, n, n /* ldb */, n /* ldc */, 0 /* accum_flag */);
+          },
+          NWARMUP,
+          NITER,
+          &llc);
 
       cout << fnz << "," << (FLOPs / secs / 1e9) << ","
-           << (fnz * FLOPs / secs / 1e9) << "\n";
+           << (fnz * FLOPs / secs / 1e9) << ","
+           << (FLOPs / secs_varying_n / 1e9) << ","
+           << (fnz * FLOPs / secs_varying_n / 1e9) << endl;
     }
   }
 }

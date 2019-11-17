@@ -48,7 +48,9 @@ class SpMMTypeTrait<std::int32_t> {
  *
  * Generate a kernel that computes C = A * B with specialization for sparse
  * matrix A's structure and values.
- * @param flags 1 means we're accumulating to CData in the generated kernel.
+ * @param accum_flags currently only controls accumulation.
+ *                    1 means we're accumulating to CData in the generated
+ *                    kernel.
  *
  * Note on matrix order and layout:
  *   Unlike other fbgemm functions that follow PyTorch convention where A
@@ -84,7 +86,7 @@ template <typename ACC_T>
 FBGEMM_API std::function<void(
     const typename internal::SpMMTypeTrait<ACC_T>::b_type* BData,
     ACC_T* CData,
-    std::uint64_t flags)>
+    std::uint64_t accum_flags)>
 generateSpMM(
     int m,
     int n,
@@ -93,5 +95,26 @@ generateSpMM(
     int lda,
     int ldb,
     int ldc);
+
+/**
+ * A version of kernel generator whose generated kernel doesn't depend on
+ * shapes of B and C (i.e., n, ldb, and ldc)
+ * @param accum_flags currently only controls accumulation.
+ *                    1 means we're accumulating to CData in the generated
+ *                    kernel.
+ */
+template <typename ACC_T>
+FBGEMM_API std::function<void(
+    const typename internal::SpMMTypeTrait<ACC_T>::b_type* BData,
+    ACC_T* CData,
+    int N,
+    int LDB,
+    int LDC,
+    std::uint64_t accum_flags)>
+generateSpMM(
+    int m,
+    int k,
+    const typename internal::SpMMTypeTrait<ACC_T>::a_type* AData,
+    int lda);
 
 } // namespace fbgemm
