@@ -182,6 +182,60 @@ void cblas_sgemm_ref(
   }
 }
 
+namespace {
+// From https://stackoverflow.com/questions/31652875
+uint64_t umul64wide(uint64_t a, uint64_t b) {
+  uint64_t a_lo = static_cast<uint32_t>(a);
+  uint64_t a_hi = a >> 32;
+  uint64_t b_lo = static_cast<uint32_t>(b);
+  uint64_t b_hi = b >> 32;
+
+  uint64_t p0 = a_lo * b_lo;
+  uint64_t p1 = a_lo * b_hi;
+  uint64_t p2 = a_hi * b_lo;
+
+  return p0 + (p1 << 32) + (p2 << 32);
+}
+} // anonymous namepsace
+
+#ifdef __clang__
+// Expected to have overflows
+__attribute__((no_sanitize("undefined")))
+#endif
+void cblas_gemm_i64_i64acc_ref(
+  matrix_op_t transa,
+    matrix_op_t transb,
+    int M,
+    int N,
+    int K,
+    const int64_t* A,
+    int lda,
+    const int64_t* B,
+    int ldb,
+    bool accumulate,
+    int64_t* C,
+    int ldc) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
+      int64_t acc;
+      if (accumulate) {
+        acc = C[i * ldc + j];
+      } else {
+        acc = 0;
+      }
+      for (int k = 0; k < K; ++k) {
+        int64_t a =
+            A[transa == matrix_op_t::Transpose ? i + k * lda : i * lda + k];
+        int64_t b =
+            B[transb == matrix_op_t::Transpose ? k + j * ldb : k * ldb + j];
+        int64_t lo = umul64wide(a, b);
+        acc += lo;
+      }
+      C[i * ldc + j] = acc;
+    } // j
+  } // i
+}
+
 void row_offsets_u8acc32_ref(
     int M,
     int K,

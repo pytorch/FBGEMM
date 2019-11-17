@@ -42,6 +42,8 @@ randFill<uint8_t>(aligned_vector<uint8_t>& vec, uint8_t low, uint8_t high);
 template void
 randFill<int8_t>(aligned_vector<int8_t>& vec, int8_t low, int8_t high);
 template void randFill<int>(aligned_vector<int>& vec, int low, int high);
+template void
+randFill<int64_t>(aligned_vector<int64_t>& vec, int64_t low, int64_t high);
 
 aligned_vector<float> getRandomSparseVector(
     unsigned size,

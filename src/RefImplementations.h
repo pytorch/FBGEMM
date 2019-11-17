@@ -80,7 +80,7 @@ FBGEMM_API void matmul_u8i8acc32_ref(
  * @brief Reference implementation of matrix multiply with uint 8 for A,
  * int8 for B, and 16-bit accumulation.
  */
-void FBGEMM_API matmul_u8i8acc16_ref(
+FBGEMM_API void matmul_u8i8acc16_ref(
     int M,
     int N,
     int K,
@@ -95,7 +95,7 @@ void FBGEMM_API matmul_u8i8acc16_ref(
 /**
  * @brief Reference implementation of cblas_sgemm in MKL/BLAS.
  */
-void FBGEMM_API cblas_sgemm_ref(
+FBGEMM_API void cblas_sgemm_ref(
     const matrix_op_t transa,
     const matrix_op_t transb,
     const int m,
@@ -108,6 +108,20 @@ void FBGEMM_API cblas_sgemm_ref(
     int ldb,
     float beta,
     float* Cfp32,
+    int ldc);
+
+FBGEMM_API void cblas_gemm_i64_i64acc_ref(
+    matrix_op_t transa,
+    matrix_op_t transb,
+    int M,
+    int N,
+    int K,
+    const std::int64_t* A,
+    int lda,
+    const std::int64_t* B,
+    int ldb,
+    bool accumulate,
+    std::int64_t* C,
     int ldc);
 
 /**
