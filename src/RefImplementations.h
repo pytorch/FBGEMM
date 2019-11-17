@@ -173,6 +173,18 @@ FBGEMM_API void conv_ref(
     std::int32_t* C);
 
 /*
+ * @brief Reference implementation of convolution operation.
+ * The activations A are assumed to be in NHiWiC format.
+ * The filters B are assumed to be in RSCK format.
+ * The output C is assumed to be in NHoWoC format.
+ */
+FBGEMM_API void conv_ref(
+    const conv_param_t<2>& conv_p,
+    const float* A,
+    const float* B,
+    float* C);
+
+/*
  * @brief Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
  */
 template <int SPATIAL_DIM = 2>

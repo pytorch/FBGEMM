@@ -459,6 +459,56 @@ void conv_ref(
   } // for each n
 }
 
+void conv_ref(
+    const conv_param_t<2>& conv_p,
+    const float* A,
+    const float* B,
+    float* C) {
+  // filters are assumed to be in G RS C/G x K format
+  int IC = conv_p.IC;
+  int OC = conv_p.OC;
+  int G = conv_p.G;
+  assert(IC % G == 0);
+  assert(OC % G == 0);
+  array<int, 2> IN_DIM = conv_p.IN_DIM;
+  array<int, 2> OUT_DIM = conv_p.OUT_DIM;
+  array<int, 2> K = conv_p.K;
+
+  for (int n = 0; n < conv_p.MB; ++n) {
+    for (int h = 0; h < OUT_DIM[0]; ++h) {
+      for (int w = 0; w < OUT_DIM[1]; ++w) {
+        for (int g = 0; g < G; ++g) {
+          for (int m = 0; m < OC / G; ++m) {
+            float sum = 0.0f;
+            for (int r = 0; r < K[0]; ++r) {
+              int h_in = -conv_p.pad[0] + h * conv_p.stride[0] +
+                  r * conv_p.dilation[0];
+              for (int s = 0; s < K[1]; ++s) {
+                int w_in = -conv_p.pad[1] + w * conv_p.stride[1] +
+                    s * conv_p.dilation[1];
+                for (int c = 0; c < IC / G; ++c) {
+                  float a = h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
+                          w_in >= IN_DIM[1]
+                      ? 0.0f
+                      : A[((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
+                          g * (IC / G) + c];
+                  float b =
+                      B[(((g * K[0] + r) * K[1] + s) * (IC / G) + c) *
+                            (OC / G) +
+                        m];
+                  sum = std::fma(a, b, sum);
+                } // for each c
+              } // for each s
+            } // for each r
+            C[((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * OC + g * (OC / G) + m] =
+                sum;
+          } // for each m
+        } // for each group
+      } // for each w
+    } // for each h
+  } // for each n
+}
+
 // 3D Conv
 template <>
 void conv_ref(
