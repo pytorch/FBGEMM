@@ -303,7 +303,7 @@ generateSpMM(
 
   if (rest) {
     fns[full] = generateSpMMfp32_microkernel<ACC_T>(
-        m, rest, n, lda, ldb, ldc, AData, canUseVNNI);
+        m, n, rest, lda, ldb, ldc, AData, canUseVNNI);
   }
 
   return [=](typename SpMMTypeTrait<ACC_T>::b_type const* b,

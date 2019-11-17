@@ -22,7 +22,8 @@ class SpMMTest : public testing::Test {
   vector<tuple<int, int, int, float>> GenParams() {
     vector<tuple<int, int, int, float>> shapes;
     default_random_engine generator;
-    uniform_int_distribution<int> dist_dim(1, 128);
+    // The maximum value should be bigger than 192 to test multiple k blocks
+    uniform_int_distribution<int> dist_dim(1, 256);
     uniform_real_distribution<float> dist_fnz(0, 1.0);
     for (int i = 0; i < 256; ++i) {
       shapes.push_back(make_tuple(
