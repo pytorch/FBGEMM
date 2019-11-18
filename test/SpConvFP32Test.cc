@@ -25,11 +25,12 @@ class SpConvTest : public testing::Test {
     uniform_int_distribution<int> dist_dim(2, 64);
     uniform_real_distribution<float> dist_fnz(0, 1.0);
     for (int i = 0; i < 16; ++i) {
-      shapes.push_back({dist_dim(generator),
-                        dist_dim(generator),
-                        dist_dim(generator),
-                        dist_dim(generator),
-                        dist_fnz(generator)});
+      shapes.push_back(make_tuple(
+          dist_dim(generator),
+          dist_dim(generator),
+          dist_dim(generator),
+          dist_dim(generator),
+          dist_fnz(generator)));
     }
     return shapes;
   }
