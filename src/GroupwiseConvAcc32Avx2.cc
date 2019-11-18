@@ -13,10 +13,10 @@
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
-#include "CodeGenHelpers.h"
-#include "GroupwiseConv.h"
-#include "RefImplementations.h"
-#include "TransposeUtils.h"
+#include "./CodeGenHelpers.h"
+#include "./GroupwiseConv.h"
+#include "./RefImplementations.h"
+#include "./TransposeUtils.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

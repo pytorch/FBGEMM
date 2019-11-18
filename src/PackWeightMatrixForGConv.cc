@@ -8,7 +8,7 @@
 #include <cassert>
 #include <iomanip>
 #include <numeric>
-#include "RefImplementations.h"
+#include "./RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

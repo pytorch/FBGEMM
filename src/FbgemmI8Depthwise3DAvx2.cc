@@ -9,8 +9,8 @@
 #include <string>
 #include <tuple> // for tie
 
-#include "FbgemmI8DepthwiseAvx2-inl.h"
-#include "MaskAvx2.h"
+#include "./FbgemmI8DepthwiseAvx2-inl.h"
+#include "./MaskAvx2.h"
 
 using namespace std;
 

@@ -5,9 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include "FbgemmBuild.h"
-#include "QuantUtilsAvx2.h"
-#include "Utils.h"
+#include "./FbgemmBuild.h"
+#include "./QuantUtilsAvx2.h"
+#include "./Utils.h"
 
 namespace fbgemm {
 

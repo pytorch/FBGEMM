@@ -13,8 +13,8 @@
 #include <cmath>
 #include <utility>
 
-#include "FbgemmFP16UKernelsAvx2.h"
-#include "FbgemmFP16UKernelsAvx512.h"
+#include "./FbgemmFP16UKernelsAvx2.h"
+#include "./FbgemmFP16UKernelsAvx512.h"
 
 using namespace std;
 

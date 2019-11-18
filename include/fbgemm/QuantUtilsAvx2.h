@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include "FbgemmBuild.h"
-#include "UtilsAvx2.h"
+#include "./FbgemmBuild.h"
+#include "./UtilsAvx2.h"
 
 namespace fbgemm {
 

@@ -15,8 +15,8 @@
 #include <memory>
 #include <vector>
 
-#include "Types.h"
-#include "Utils.h"
+#include "./Types.h"
+#include "./Utils.h"
 
 namespace fbgemm {
 

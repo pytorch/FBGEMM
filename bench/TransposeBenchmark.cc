@@ -11,7 +11,7 @@
 #include <random>
 #include <vector>
 
-#include "BenchUtils.h"
+#include "./BenchUtils.h"
 #include "fbgemm/Utils.h"
 #include "src/TransposeUtils.h"
 
