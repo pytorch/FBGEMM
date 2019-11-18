@@ -17,7 +17,7 @@
 #include <omp.h>
 #endif
 
-#include "BenchUtils.h"
+#include "./BenchUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
 #include "src/RefImplementations.h"
 

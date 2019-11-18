@@ -15,7 +15,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
-#include "CodeCache.h"
+#include "./CodeCache.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"

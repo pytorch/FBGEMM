@@ -6,8 +6,8 @@
  */
 
 #include <immintrin.h>
-#include "TransposeUtils.h"
-#include "TransposeUtilsAvx2.h"
+#include "./TransposeUtils.h"
+#include "./TransposeUtilsAvx2.h"
 
 namespace fbgemm {
 

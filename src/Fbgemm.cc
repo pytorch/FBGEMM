@@ -8,7 +8,7 @@
 #include <cpuinfo.h>
 #include <stdexcept>
 #include <functional>
-#include "ExecuteKernel.h"
+#include "./ExecuteKernel.h"
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double packing_time = 0.0;

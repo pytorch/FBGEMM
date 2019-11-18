@@ -6,7 +6,7 @@
  */
 #pragma once
 #include <cstdint>
-#include "FbgemmFP16UKernelsAvx2.h"
+#include "./FbgemmFP16UKernelsAvx2.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {

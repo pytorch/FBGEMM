@@ -6,7 +6,7 @@
  */
 #pragma once
 #include <cstdint>
-#include "GenerateKernel.h"
+#include "./GenerateKernel.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

@@ -8,7 +8,7 @@
 
 #include <immintrin.h>
 
-#include "MaskAvx2.h"
+#include "./MaskAvx2.h"
 #include "fbgemm/UtilsAvx2.h"
 
 using namespace std;

@@ -304,7 +304,7 @@ generateSpConv(
       to_exec;
   to_exec.reserve(9);
 
-  to_exec.push_back({sgemms[1][1], 0, 0, 0, groupsOf16[0][0]});
+  to_exec.push_back(make_tuple(sgemms[1][1], 0, 0, 0, groupsOf16[0][0]));
 
   for (int ky = 0; ky < 3; ++ky) {
     for (int kx = 0; kx < 3; ++kx) {
@@ -325,12 +325,13 @@ generateSpConv(
           del_in += 1;
         }
 
-        to_exec.push_back({sgemms[ky][kx],
-                           // When ACC_T == int32_t, 4 rows are interleaved in B
-                           del_in * (is_same<ACC_T, int32_t>::value ? 4 : 1),
-                           del_out,
-                           maskOffsets[ky != 1][kx != 1],
-                           groupsOf16[ky != 1][kx != 1]});
+        to_exec.push_back(make_tuple(
+            sgemms[ky][kx],
+            // When ACC_T == int32_t, 4 rows are interleaved in B
+            del_in * (is_same<ACC_T, int32_t>::value ? 4 : 1),
+            del_out,
+            maskOffsets[ky != 1][kx != 1],
+            groupsOf16[ky != 1][kx != 1]));
       }
     }
   }

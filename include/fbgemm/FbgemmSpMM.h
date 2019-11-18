@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <functional>
 
-#include "FbgemmBuild.h"
+#include "./FbgemmBuild.h"
 
 namespace fbgemm {
 

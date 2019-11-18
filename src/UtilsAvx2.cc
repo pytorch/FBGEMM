@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <immintrin.h>
-#include "TransposeUtils.h"
-#include "TransposeUtilsAvx2.h"
+#include "./TransposeUtils.h"
+#include "./TransposeUtilsAvx2.h"
 
 namespace fbgemm {
 

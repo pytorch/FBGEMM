@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "TestUtils.h"
+#include "./TestUtils.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 

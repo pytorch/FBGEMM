@@ -10,8 +10,8 @@
 #include <cmath>
 #include <string>
 #include <type_traits>
-#include "FbgemmBuild.h"
-#include "UtilsAvx2.h"
+#include "./FbgemmBuild.h"
+#include "./UtilsAvx2.h"
 
 // forward declarations to asmjit
 namespace asmjit {
