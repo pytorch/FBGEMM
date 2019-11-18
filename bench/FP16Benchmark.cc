@@ -20,10 +20,9 @@
 #include <omp.h>
 #endif
 
-#include "./AlignedVec.h"
+#include "AlignedVec.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmFP16.h"
-#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
@@ -120,21 +119,6 @@ void performance_test() {
           beta,
           C_ref.data(),
           n);
-#else
-      cblas_sgemm_ref(
-          matrix_op_t::NoTranspose,
-          btran,
-          m,
-          n,
-          k,
-          alpha,
-          A.data(),
-          k,
-          B.data(),
-          (btran == matrix_op_t::NoTranspose) ? n : k,
-          beta,
-          C_ref.data(),
-          n);
 #endif
 #ifdef _OPENMP
 #pragma omp parallel
@@ -168,18 +152,16 @@ void performance_test() {
 #endif
     }
 
-#if defined(USE_MKL)
+#if defined(USE_MKL) || defined(USE_BLAS)
     // Gold via MKL sgemm
+#if defined(USE_MKL)
     type = "MKL_FP32";
-#elif defined(USE_BLAS)
-    type = "BLAS_FP32";
 #else
-    type = "REF_FP32";
+    type = "BLAS_FP32";
 #endif
 
     ttot = measureWithWarmup(
         [&]() {
-#if defined(USE_MKL) || defined(USE_BLAS)
           cblas_sgemm(
               CblasRowMajor,
               CblasNoTrans,
@@ -195,22 +177,6 @@ void performance_test() {
               beta,
               C_ref.data(),
               n);
-#else
-          cblas_sgemm_ref(
-              matrix_op_t::NoTranspose,
-              btran,
-              m,
-              n,
-              k,
-              alpha,
-              A.data(),
-              k,
-              B.data(),
-              (btran == matrix_op_t::NoTranspose) ? n : k,
-              beta,
-              C_ref.data(),
-              n);
-#endif
         },
         3,
         NITER,
@@ -227,6 +193,7 @@ void performance_test() {
         gflops,
         gbs);
     ((volatile char*)(llc.data()));
+#endif
 
     type = "FBP_" + std::string(typeid(btype).name());
 
