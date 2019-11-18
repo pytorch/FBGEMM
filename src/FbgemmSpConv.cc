@@ -1,6 +1,6 @@
 #include "fbgemm/FbgemmSpConv.h"
 #include "fbgemm/Utils.h"
-#include "fbgemm/src/FbgemmSpMM-inl.h"
+#include "./FbgemmSpMM-inl.h"
 
 #include <cpuinfo.h>
 #include <algorithm>
