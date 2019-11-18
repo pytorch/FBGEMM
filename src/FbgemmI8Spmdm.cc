@@ -11,7 +11,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
-#include "OptimizedKernelsAvx2.h"
+#include "./OptimizedKernelsAvx2.h"
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double spmdm_initial_time = 0.0;

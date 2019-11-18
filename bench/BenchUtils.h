@@ -10,7 +10,7 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
-#include "AlignedVec.h"
+#include "./AlignedVec.h"
 
 namespace fbgemm {
 

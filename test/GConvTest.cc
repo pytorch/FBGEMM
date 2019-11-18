@@ -16,8 +16,8 @@
 
 #include <gtest/gtest.h>
 
-#include "QuantizationHelpers.h"
-#include "TestUtils.h"
+#include "./QuantizationHelpers.h"
+#include "./TestUtils.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"

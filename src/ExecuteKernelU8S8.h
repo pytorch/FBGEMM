@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
-#include "ExecuteKernel.h"
+#include "./ExecuteKernel.h"
 
 namespace fbgemm {
 

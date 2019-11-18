@@ -15,7 +15,7 @@
 #include <limits>
 #include <new>
 #include <stdexcept>
-#include "TransposeUtils.h"
+#include "./TransposeUtils.h"
 
 namespace fbgemm {
 

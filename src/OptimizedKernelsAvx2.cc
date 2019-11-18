@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "OptimizedKernelsAvx2.h"
+#include "./OptimizedKernelsAvx2.h"
 #include <immintrin.h>
 
 using namespace std;
