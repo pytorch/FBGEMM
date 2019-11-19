@@ -134,6 +134,16 @@ class PackedGemmMatrixFP16 {
     packed_ = false;
   }
 
+  void unpack(float16* origin_buf, const matrix_op_t trans) {
+    assert(packed_);
+    bool tr = (trans == matrix_op_t::Transpose);
+    for (int i = 0; i < numRows(); i++) {
+      for (int j = 0; j < numCols(); j++) {
+        origin_buf[tr ? i + numRows() * j : i * numCols() + j] = pmat_[addr(i, j)];
+      }
+    }
+  }
+
   // protected:
   // blocked row-major format address arithmetic
   uint64_t addr(const int r_, const int c_) const {
