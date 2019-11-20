@@ -58,7 +58,7 @@ void CompressedSparseColumn::SpMDM(
   int K = NumOfRows();
   int N = block.col_size;
 
-  if (K == 0 || N == 0) {
+  if (K == 0 || N == 0 || block.row_size == 0) {
     return;
   }
 
