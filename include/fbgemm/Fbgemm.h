@@ -450,8 +450,9 @@ class FBGEMM_API PackBMatrix final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name,
-                         const BlockingFactors* params = nullptr);
+  void printPackedMatrix(
+      std::string name,
+      const BlockingFactors* params = nullptr);
 
   /**
    * @return true if meta information like matrix shape is the same.
@@ -723,8 +724,7 @@ class FBGEMM_API PackAWithIm2Col
   /**
    * @return Size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize(
-      const BlockingFactors* params = nullptr);
+  static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
   ~PackAWithIm2Col() {
     if (rowOffsetAllocatedHere) {
@@ -814,8 +814,7 @@ class FBGEMM_API PackAWithRowOffset final
   /**
    * @return size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize(
-      const BlockingFactors* params = nullptr);
+  static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
   ~PackAWithRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -907,8 +906,7 @@ class FBGEMM_API PackAWithQuantRowOffset final
   /**
    * @return Size of row offset buffer in number of elements
    */
-  static int rowOffsetBufferSize(
-      const BlockingFactors* params = nullptr);
+  static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
   ~PackAWithQuantRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -1487,5 +1485,20 @@ FBGEMM_API int fbgemmConv(
 template <int SPATIAL_DIM = 2, typename ACC_T = std::int32_t>
 FBGEMM_API optimized_conv_t
 ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+template <typename IndexType = std::int64_t >
+FBGEMM_API bool Fused8BitRowwiseEmbeddingLookup(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const IndexType* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch = 16, // prefetch distance -- 0 for no prefetch
+    bool IS_WEIGHT_POSITIONAL = false);
 
 } // namespace fbgemm

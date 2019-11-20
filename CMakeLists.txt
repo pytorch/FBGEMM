@@ -34,6 +34,7 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/FbgemmI8Spmdm.cc
                 src/FbgemmSpConv.cc
                 src/FbgemmSpMM.cc
+                src/Fused8BitRowwiseEmbeddingLookup.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc
