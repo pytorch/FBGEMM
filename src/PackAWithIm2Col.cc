@@ -105,30 +105,33 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
 
 template <
     int SPATIAL_DIM,
-    int IC,
-    int IN_DIM_H,
-    int IN_DIM_W,
-    int K_H,
-    int K_W,
-    int STRIDE_H,
-    int STRIDE_W,
-    int PAD_W,
-    int PAD_H,
-    int OUT_DIM_H,
-    int OUT_DIM_W,
-    int BCOL,
-    int COL_SIZE,
-    int COL_P_SIZE>
+    int BCOL>
 void pack_a_with_im2col_opt(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
     const block_type_t& block,
     const uint8_t* sdata,
     uint8_t* out,
     int32_t a_zero_pt,
     int32_t* row_offset_buf,
+    int COL_SIZE,
+    int COL_P_SIZE,
     bool row_offset_acc) {
+  constexpr int IC = 3;
+  int IN_DIM_H = conv_p.IN_DIM[0];
+  int IN_DIM_W = conv_p.IN_DIM[1];
+  int K_H = conv_p.K[0];
+  int K_W = conv_p.K[1];
+  constexpr int STRIDE_H = 2;
+  constexpr int STRIDE_W = 2;
+  int PAD_H = conv_p.pad[0];
+  int PAD_W = conv_p.pad[1];
+  int OUT_DIM_H = conv_p.OUT_DIM[0];
+  int OUT_DIM_W = conv_p.OUT_DIM[1];
+  int OUT_DIM_HW = OUT_DIM_H * OUT_DIM_W;
+
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    int n = i / (OUT_DIM_H * OUT_DIM_W);
-    int hw = i % (OUT_DIM_H * OUT_DIM_W);
+    int n = i / OUT_DIM_HW;
+    int hw = i % OUT_DIM_HW;
     int w = hw % OUT_DIM_W;
     int h = hw / OUT_DIM_W;
 
@@ -270,59 +273,35 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
   int ic_per_group = conv_p_.IC / conv_p_.G;
 
-  if (SPATIAL_DIM == 2 && conv_p_.IC == 3 && conv_p_.IN_DIM[0] == 224 &&
-      conv_p_.IN_DIM[1] == 224 && conv_p_.G == 1 && conv_p_.K[0] == 7 &&
-      conv_p_.K[1] == 7 && conv_p_.stride[0] == 2 && conv_p_.stride[1] == 2 &&
-      conv_p_.pad[0] == 3 && conv_p_.pad[1] == 3 && block.col_size == 147 &&
-      block_p.col_size == 148 && block.col_start == 0 &&
+  if (SPATIAL_DIM == 2 && conv_p_.IC == 3 && conv_p_.G == 1 &&
+      conv_p_.stride[0] == 2 && conv_p_.stride[1] == 2 &&
+      block.col_start == 0 && conv_p_.pad[0] == ((conv_p_.K[0] - 1) / 2) &&
+      conv_p_.pad[1] == ((conv_p_.K[1] - 1) / 2) &&
+      block_p.col_size <= BaseType::blockColSize() &&
       conv_p_.dilation[0] == 1 && conv_p_.dilation[1] == 1 &&
       std::is_same<T, uint8_t>::value) {
     if (BaseType::blockColSize() == 256) {
-      pack_a_with_im2col_opt<
-          SPATIAL_DIM,
-          3,
-          224,
-          224,
-          7,
-          7,
-          2,
-          2,
-          3,
-          3,
-          112,
-          112,
-          256,
-          147,
-          148>(
+      pack_a_with_im2col_opt<SPATIAL_DIM, 256>(
+          conv_p_,
           block,
           reinterpret_cast<const uint8_t*>(sdata_),
           reinterpret_cast<uint8_t*>(out),
           a_zero_pt_,
           row_offset_buf,
+          block.col_size,
+          block_p.col_size,
           row_offset_acc);
       return;
     } else if (BaseType::blockColSize() == 512) {
-      pack_a_with_im2col_opt<
-          SPATIAL_DIM,
-          3,
-          224,
-          224,
-          7,
-          7,
-          2,
-          2,
-          3,
-          3,
-          112,
-          112,
-          512,
-          147,
-          148>(
+      pack_a_with_im2col_opt<SPATIAL_DIM, 512>(
+          conv_p_,
           block,
           reinterpret_cast<const uint8_t*>(sdata_),
           reinterpret_cast<uint8_t*>(out),
           a_zero_pt_,
           row_offset_buf,
+          block.col_size,
+          block_p.col_size,
           row_offset_acc);
       return;
     }
