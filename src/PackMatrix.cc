@@ -36,54 +36,42 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
+       !fbgemmHasAvx2Support())) {
+    assert(0 && "unknown architecure");
+  }
+
   int MCB, KCB, NCB;
   if (params) {
-    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
-      MCB = params->MCB;
-      NCB = params->NCB;
-      KCB = params->KCB;
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecure");
-    }
+    MCB = params->MCB;
+    NCB = params->NCB;
+    KCB = params->KCB;
   } else {
-    if (fbgemmHasAvx512Support()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      MCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::MCB;
+      NCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::NCB;
+      KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::KCB;
+    } else if (fbgemmHasAvx512Support()) {
       MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;
       NCB = PackingTraits<inpType, accType, inst_set_t::avx512>::NCB;
       KCB = PackingTraits<inpType, accType, inst_set_t::avx512>::KCB;
-    } else if (fbgemmHasAvx2Support()) {
+    } else {
+      // AVX2
       MCB = PackingTraits<inpType, accType, inst_set_t::avx2>::MCB;
       NCB = PackingTraits<inpType, accType, inst_set_t::avx2>::NCB;
       KCB = PackingTraits<inpType, accType, inst_set_t::avx2>::KCB;
-    } else {
-      // TODO: Have default slower path
-      assert(0 && "unsupported architecure");
-      return -1;
     }
   }
 
-  if (fbgemmHasAvx512Support()) {
-    if (isA()) {
-      return MCB * KCB;
-    } else {
-      int rowBlock = KCB;
-      int colBlock = NCB;
-      return (((rows + rowBlock - 1) / rowBlock) * rowBlock) *
-          (((cols + colBlock - 1) / colBlock) * colBlock);
-    }
-  } else if (fbgemmHasAvx2Support()) {
-    if (isA()) {
-      return MCB * KCB;
-    } else {
-      int rowBlock = KCB;
-      int colBlock = NCB;
-      return (((rows + rowBlock - 1) / rowBlock) * rowBlock) *
-          (((cols + colBlock - 1) / colBlock) * colBlock);
-    }
+  if (isA()) {
+    return MCB * KCB;
   } else {
-    // TODO: Have default slower path
-    assert(0 && "unsupported architecure");
+    int rowBlock = KCB;
+    int colBlock = NCB;
+    return (((rows + rowBlock - 1) / rowBlock) * rowBlock) *
+        (((cols + colBlock - 1) / colBlock) * colBlock);
   }
+
   return -1;
 }
 

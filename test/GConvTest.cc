@@ -25,14 +25,6 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
-                                  matrix_op_t::Transpose};
-
-vector<QuantizationGranularity> qGranularityVals{
-    QuantizationGranularity::TENSOR,
-    QuantizationGranularity::GROUP,
-    QuantizationGranularity::OUT_CHANNEL};
-
 namespace {
 class fbgemmGConvAcc32Test
     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
@@ -43,6 +35,8 @@ class fbgemmGConvAcc32WithQuantGranularityTest
           QuantizationGranularity,
           bool,
           bool>> {};
+class fbgemmGConvPackTest
+    : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -61,6 +55,13 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(qGranularityVals),
         ::testing::Bool(), // A symmetric
         ::testing::Bool())); // B symmetric
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    fbgemmGConvPackTest,
+    ::testing::Combine(
+        ::testing::Values(matrix_op_t::NoTranspose),
+        ::testing::ValuesIn(transposeVals)));
 /**
  * @brief Shapes for unit test.
  */
@@ -411,5 +412,53 @@ TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
         NDim * G,
         NDim * G,
         static_cast<int32_t>(0));
+  } // for each shape
+}
+
+/**
+ * @brief Unit test for packing and unpacking the weight tensor
+ */
+TEST_P(fbgemmGConvPackTest, PackUnpackTest) {
+  vector<conv_param_t<>> shapes(GetShapes_());
+  matrix_op_t atrans, btrans;
+  tie(atrans, btrans) = GetParam();
+
+  for (auto conv_p : shapes) {
+    int R = conv_p.K[0];
+    int S = conv_p.K[1];
+    int IC_per_G = conv_p.IC / conv_p.G;
+    int OC_per_G = conv_p.OC / conv_p.G;
+
+    // Weights -- test the packing/unpacking of only the weights
+    // when btrans == Transpose, the weight matrix is in layout G K/G (R S C/G)
+    // instead of G (R S C/G) K/G
+    int weight_len = R * S * conv_p.G * IC_per_G * OC_per_G;
+    aligned_vector<int8_t> Bint8(weight_len, 0);
+
+    // Random fill the weights
+    randFill<int8_t>(Bint8, -4, 4);
+
+    // Instantiate the object
+    PackWeightMatrixForGConv<int8_t> packedWeights(
+        btrans, conv_p, Bint8.data(), nullptr);
+
+    // Setup a buffer to get pack -> unpacked results
+    aligned_vector<int8_t> unpack_buf(weight_len, 0);
+
+    // START Actual pack-unpack operations
+    // Perform packing first. This should populate pdata_ of packedWeights
+    packedWeights.pack();
+
+    // Next perform unpacking
+    packedWeights.unpack(unpack_buf.data());
+    // END actual pack-unpack operations
+
+    // Sanity check
+    for (int i = 0; i < weight_len; ++i) {
+      EXPECT_EQ(Bint8.data()[i], unpack_buf.data()[i])
+        << "Pack/Unpack results differ at index " << i
+        << ", Reference: " << static_cast<int>(Bint8.data()[i])
+        << ", Pack-Unpacked: " << static_cast<int>(unpack_buf.data()[i]);
+    }
   } // for each shape
 }

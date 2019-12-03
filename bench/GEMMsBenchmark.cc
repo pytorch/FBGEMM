@@ -28,6 +28,7 @@ using namespace std;
 using namespace fbgemm;
 
 void performance_test() {
+  // clang-format off
   static const vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
@@ -39,6 +40,7 @@ void performance_test() {
     {256, 512, 256},
     {1024, 1024, 1024},
   };
+  // clang-format on
   bool flush = true;
   std::vector<char> llc;
 

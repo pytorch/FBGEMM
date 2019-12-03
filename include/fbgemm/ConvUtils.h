@@ -8,8 +8,23 @@
 
 #include <array>
 #include <string>
+#include <type_traits>
 
 namespace fbgemm {
+
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
+    array_of_ones() {
+  return std::array<int, N>{{Vals...}};
+}
+
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
+    array_of_ones() {
+  return array_of_ones<N, Vals..., 1>();
+}
 
 /**
  * @brief A struct to conveniently store all convolution parameters.
@@ -34,7 +49,6 @@ struct conv_param_t {
 
   /**
    * @brief Constructor for initializing the convolution parameters.
-   * TODO: Dilation is not handled correctly.
    */
   conv_param_t(
       int mb,
@@ -44,7 +58,8 @@ struct conv_param_t {
       int g,
       std::array<int, SPATIAL_DIM> k,
       std::array<int, SPATIAL_DIM> strd,
-      std::array<int, SPATIAL_DIM * 2> pd)
+      std::array<int, SPATIAL_DIM * 2> pd,
+      std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>())
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -52,7 +67,8 @@ struct conv_param_t {
         G(g),
         K(k),
         stride(strd),
-        pad(pd) {
+        pad(pd),
+        dilation(dilations) {
     if (ic % g != 0) {
       throw std::runtime_error(
           "groups = " + std::to_string(g) +
@@ -63,10 +79,10 @@ struct conv_param_t {
           "groups = " + std::to_string(g) +
           " does not divide number of output channels = " + std::to_string(oc));
     }
+
     for (int d = 0; d < SPATIAL_DIM; ++d) {
-      dilation[d] = 1;
       IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
-      OUT_DIM[d] = (IN_DIMP[d] - K[d]) / stride[d] + 1;
+      OUT_DIM[d] = (IN_DIMP[d] - dilation[d] * (K[d] - 1) - 1) / stride[d] + 1;
     }
   }
 
@@ -102,8 +118,12 @@ struct conv_param_t {
       }
       for (int d = 0; d < SPATIAL_DIM * 2; ++d) {
         out += "pad_" + dim_string[3 - SPATIAL_DIM + (d % SPATIAL_DIM)] + ":" +
-            std::to_string(pad[d]);
-        if (d < SPATIAL_DIM * 2 - 1) {
+            std::to_string(pad[d]) + ", ";
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "dilation_" + dim_string[3 - SPATIAL_DIM + d] + ":" +
+            std::to_string(dilation[d]);
+        if (d < SPATIAL_DIM - 1) {
           out += ", ";
         }
       }
@@ -120,6 +140,10 @@ struct conv_param_t {
         if (d < SPATIAL_DIM * 2 - 1) {
           out += ", ";
         }
+      }
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "dilation_" + std::to_string(d) + ":" +
+            std::to_string(dilation[d]) + ", ";
       }
     }
     return out;

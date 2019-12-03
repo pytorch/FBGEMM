@@ -50,6 +50,7 @@ struct KernelInfo {
 
   // autotuned kernel splits for various cases m = 1:mb_max
   // may need re-autotuning for new uarch
+  // clang-format off
   static constexpr int partition[121][2][2] = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
@@ -175,6 +176,7 @@ struct KernelInfo {
       { { 6, 19 }, { 5, 1 } }, // 119
       { { 6, 20 }, { 0, 0 } }, // 120
   };
+  // clang-format on
 };
 constexpr KernelInfo::knl_ptr KernelInfo::kernel[7];;
 constexpr int KernelInfo::partition[121][2][2];

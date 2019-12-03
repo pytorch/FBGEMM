@@ -164,29 +164,142 @@ void ChooseRequantizationMultiplier(
       dst[i] = Quantize<T>(src[i], qparams);     \
     }                                            \
   }
-FBGEMM_SPECIALIZED_QUANTIZE(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 
+#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
+template <>                                                             \
+void Quantize<T>(                                                       \
+    const float* src,                                                   \
+    T* dst,                                                             \
+    int len,                                                            \
+    const TensorQuantizationParams& qparams) {                          \
+  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();   \
+  bool fma_support = cpuinfo_has_x86_fma3();                            \
+  if (avx2_support && fma_support && qparams.precision == 8) {          \
+    /* fast path  */                                                    \
+    QuantizeAvx2<T>(src, dst, len, qparams);                            \
+  } else {                                                              \
+    for (std::size_t i = 0; i < len; ++i) {                             \
+      dst[i] = Quantize<T>(src[i], qparams);                            \
+    }                                                                   \
+  }                                                                     \
+}
+
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t)
+#undef FBGEMM_SPECIALIZED_QUANTIZE_AVX2
+
+#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
+  template <>                                                     \
+  void QuantizeGroupwise<T, layout_t::KCX>(                       \
+      const float* src,                                           \
+      int N,                                                      \
+      int C,                                                      \
+      int X,                                                      \
+      int G,                                                      \
+      const float* scales,                                        \
+      const std::int32_t* zero_points,                            \
+      T* dst) {                                                   \
+    assert(C % G == 0);                                           \
+    int C_per_G = C / G;                                          \
+    for (int i = 0; i < N; ++i) {                                 \
+      for (int g = 0; g < G; ++g) {                               \
+        float scale = scales[g];                                  \
+        int32_t zero_point = zero_points[g];                      \
+        for (int c = 0; c < C / G; ++c) {                         \
+          for (int x = 0; x < X; ++x) {                           \
+            dst[(i * C + g * C_per_G + c) * X + x] = Quantize<T>( \
+                src[(i * C + g * C_per_G + c) * X + x],           \
+                zero_point,                                       \
+                scale,                                            \
+                8 * sizeof(T));                                   \
+          }                                                       \
+        }                                                         \
+      }                                                           \
+    }                                                             \
+  }
+FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int32_t)
+#undef FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX
+
 template <>
-void Quantize<uint8_t>(
+void QuantizeGroupwise<uint8_t, layout_t::KCX>(
     const float* src,
-    uint8_t* dst,
-    int len,
-    const TensorQuantizationParams& qparams) {
-  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();
-  bool fma_support = cpuinfo_has_x86_fma3();
-  if (avx2_support && fma_support && qparams.precision == 8) {
-    // fast path
-    QuantizeAvx2(src, dst, len, qparams);
-  } else {
-    for (std::size_t i = 0; i < len; ++i) {
-      dst[i] = Quantize<uint8_t>(src[i], qparams);
+    int K,
+    int C,
+    int X,
+    int G,
+    const float* scales,
+    const std::int32_t* zero_points,
+    uint8_t* dst) {
+  assert(C % G == 0);
+  int C_per_G = C / G;
+  fbgemm::TensorQuantizationParams qparams;
+  qparams.precision = 8 * sizeof(uint8_t);
+  bool takeFastPath =
+      cpuinfo_initialize() && fbgemmHasAvx2Support() && cpuinfo_has_x86_fma3();
+
+  for (int i = 0; i < K; ++i) {
+    for (int g = 0; g < G; ++g) {
+      qparams.scale = scales[g];
+      qparams.zero_point = zero_points[g];
+      if (takeFastPath) {
+        QuantizeAvx2(
+            src + (i * C + g * C_per_G) * X,
+            dst + (i * C + g * C_per_G) * X,
+            C_per_G * X,
+            qparams);
+      } else {
+        for (int c = 0; c < C / G; ++c) {
+          for (int x = 0; x < X; ++x) {
+            dst[(i * C + g * C_per_G + c) * X + x] = Quantize<uint8_t>(
+                src[(i * C + g * C_per_G + c) * X + x],
+                qparams.zero_point,
+                qparams.scale,
+                qparams.precision);
+          }
+        }
+      }
     }
   }
 }
+
+#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(T)                \
+  template <>                                                     \
+  void QuantizeGroupwise<T, layout_t::KXC>(                       \
+      const float* src,                                           \
+      int K,                                                      \
+      int C,                                                      \
+      int X,                                                      \
+      int G,                                                      \
+      const float* scales,                                        \
+      const std::int32_t* zero_points,                            \
+      T* dst) {                                                   \
+    assert(C % G == 0);                                           \
+    int C_per_G = C / G;                                          \
+    for (int i = 0; i < K; ++i) {                                 \
+      for (int x = 0; x < X; ++x) {                               \
+        for (int g = 0; g < G; ++g) {                             \
+          float scale = scales[g];                                \
+          int32_t zero_point = zero_points[g];                    \
+          for (int c = 0; c < C / G; ++c) {                       \
+            dst[(i * X + x) * C + g * C_per_G + c] = Quantize<T>( \
+                src[(i * X + x) * C + g * C_per_G + c],           \
+                zero_point,                                       \
+                scale,                                            \
+                8 * sizeof(T));                                   \
+          }                                                       \
+        }                                                         \
+      }                                                           \
+    }                                                             \
+  }
+FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(int8_t)
+FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(uint8_t)
+FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(int32_t)
+#undef FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC
 
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (pure fixed-point)

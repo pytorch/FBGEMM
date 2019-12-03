@@ -21,20 +21,6 @@ namespace fbgemm {
 
 using namespace std;
 
-template <int SPATIAL_DIM, typename accT>
-thread_local asmjit::JitRuntime GenConvKernel<SPATIAL_DIM, accT>::rt_;
-
-template <int SPATIAL_DIM, typename accT>
-thread_local asmjit::CodeHolder GenConvKernel<SPATIAL_DIM, accT>::code_;
-
-template <int SPATIAL_DIM, typename accT>
-thread_local std::map<std::tuple<bool, int, int, int>, jit_conv_kernel_fp>
-    GenConvKernel<SPATIAL_DIM, accT>::codeCache_;
-
-template <int SPATIAL_DIM, typename accT>
-thread_local std::map<std::tuple<bool, int, int, int>, jit_rowoffset_kernel_fp>
-    GenConvKernel<SPATIAL_DIM, accT>::codeCacheRowOffset_;
-
 namespace x86 = asmjit::x86;
 
 template <int SPATIAL_DIM>
@@ -91,20 +77,19 @@ jit_conv_kernel_fp getOrCreateConvKernel(
   // Note: Wrong code is generated if it's not one of the supported convolution
   assert(fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param));
   auto kernelSig = getKernelSig(conv_param, a_zero_point == 0);
-  if (GenConvKernel<SPATIAL_DIM, accT>::codeCache_.find(kernelSig) !=
-      GenConvKernel<SPATIAL_DIM, accT>::codeCache_.end()) {
-    return GenConvKernel<SPATIAL_DIM, accT>::codeCache_[kernelSig];
-  } else {
-    auto genObj = GenConvKernel<SPATIAL_DIM, accT>(conv_param, a_zero_point);
-    // TODO: Instruction set based dispatch
-    return genObj.template getOrCreate<inst_set_t::avx2>(conv_param);
-  }
+  return GenConvKernel<SPATIAL_DIM, accT>::codeCache_.getOrCreate(
+      kernelSig, [&]() {
+        auto genObj =
+            GenConvKernel<SPATIAL_DIM, accT>(conv_param, a_zero_point);
+        // TODO: Instruction set based dispatch
+        return genObj.template getOrCreate<inst_set_t::avx2>(conv_param);
+      });
 }
 
 template <>
 template <>
 void GenConvKernel<2, int32_t>::createVector8BitOne<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // create 8-bit 1s
   // i.e., oneReg16BitAvx2_[0:7] contains 0x01, oneReg8BitAvx2_[8:15] contains
   // 0x01 and so on
@@ -115,7 +100,7 @@ void GenConvKernel<2, int32_t>::createVector8BitOne<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::createVector16BitOne<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // create 16-bit 1s
   // i.e., oneReg16BitAvx2_[0:15] contains 0x0001, oneReg16BitAvx2_[16:31]
   // contains 0x0001 and so on
@@ -125,11 +110,11 @@ void GenConvKernel<2, int32_t>::createVector16BitOne<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::setToZeroPt<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    asmjit::X86Ymm destReg) {
+    x86::Emitter* a,
+    x86::Ymm destReg) {
   // make destReg all zeros
   a->vxorps(destReg, destReg, destReg);
-  asmjit::X86Xmm const_reg_xmm = x86::xmm10;
+  x86::Xmm const_reg_xmm = x86::xmm10;
   // move zero point to xmm10
   a->movq(const_reg_xmm, a_zero_pt_R_);
   // make copies of zero point
@@ -143,9 +128,9 @@ void GenConvKernel<2, int32_t>::setToZeroPt<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genConstForPermutations<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
-  asmjit::X86Gp permute_const_reg = a->gpzRef(12);
-  asmjit::X86Xmm const_reg_xmm = x86::xmm10;
+    x86::Emitter* a) {
+  x86::Gp permute_const_reg = a->gpz(12);
+  x86::Xmm const_reg_xmm = x86::xmm10;
   // We have 1st group in even lanes and 2nd group in odd lanes.
   // Permute to put 1st group to lower 128-bit and 2nd group in upper
   // 128-bit.
@@ -159,8 +144,7 @@ void GenConvKernel<2, int32_t>::genConstForPermutations<inst_set_t::avx2>(
 
 template <>
 template <>
-void GenConvKernel<2, int32_t>::storeResult<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+void GenConvKernel<2, int32_t>::storeResult<inst_set_t::avx2>(x86::Emitter* a) {
   if (C_per_G_ == 4) {
     // store with permutation
     a->vpermd(resultRegAvx2_, stPermRegAvx2_, resultRegAvx2_);
@@ -171,7 +155,7 @@ void GenConvKernel<2, int32_t>::storeResult<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::storeResultRowoffset<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int offset) {
   // store
   if (C_per_G_ == 4) {
@@ -198,7 +182,7 @@ void GenConvKernel<2, int32_t>::storeResultRowoffset<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForLoadingWeights<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // load weights
   for (int r = 0; r < R_; ++r) {
@@ -225,9 +209,9 @@ void GenConvKernel<2, int32_t>::genForLoadingWeights<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::gen8bitFMA<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    asmjit::X86Ymm aReg,
-    asmjit::X86Ymm wReg) {
+    x86::Emitter* a,
+    x86::Ymm aReg,
+    x86::Ymm wReg) {
   a->vpmaddubsw(tmpReg1Avx2_, aReg, wReg);
   a->vpmaddwd(tmpReg1Avx2_, oneReg16BitAvx2_, tmpReg1Avx2_);
   a->vpaddd(resultRegAvx2_, tmpReg1Avx2_, resultRegAvx2_);
@@ -236,8 +220,8 @@ void GenConvKernel<2, int32_t>::gen8bitFMA<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::gen8BitSumX4<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    asmjit::X86Ymm aReg) {
+    x86::Emitter* a,
+    x86::Ymm aReg) {
   a->vpmaddubsw(tmpReg1Avx2_, aReg, oneReg8BitAvx2_);
   a->vpmaddwd(tmpReg1Avx2_, tmpReg1Avx2_, oneReg16BitAvx2_);
   a->vpaddd(resultRegAvx2_, tmpReg1Avx2_, resultRegAvx2_);
@@ -246,9 +230,9 @@ void GenConvKernel<2, int32_t>::gen8BitSumX4<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::gen8BitSumX8<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    asmjit::X86Ymm aReg,
-    asmjit::X86Ymm bReg) {
+    x86::Emitter* a,
+    x86::Ymm aReg,
+    x86::Ymm bReg) {
   a->vxorps(tmpReg1Avx2_, tmpReg1Avx2_, tmpReg1Avx2_);
   // Let a[0] denote 0th (LSB) 8-bit of aReg
   // After vpsadbw, a[0:2] = a[0] + ... + a[7]
@@ -267,11 +251,11 @@ void GenConvKernel<2, int32_t>::gen8BitSumX8<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::gen8BitSumX16<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
-    asmjit::X86Ymm aReg,
-    asmjit::X86Ymm bReg,
-    asmjit::X86Ymm cReg,
-    asmjit::X86Ymm dReg) {
+    x86::Emitter* a,
+    x86::Ymm aReg,
+    x86::Ymm bReg,
+    x86::Ymm cReg,
+    x86::Ymm dReg) {
   a->vxorps(tmpReg1Avx2_, tmpReg1Avx2_, tmpReg1Avx2_);
   // After vpsadbw, a[0:2] = a[0] + ... + a[7]
   // a[8:10] = a[8] + ... + a[15]
@@ -319,7 +303,7 @@ void GenConvKernel<2, int32_t>::gen8BitSumX16<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::gen8BitSum<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int act_offset,
     bool use_scratch_reg1 /*=true*/) {
   if (use_scratch_reg1) {
@@ -385,11 +369,11 @@ void GenConvKernel<2, int32_t>::gen8BitSum<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genZeroPtSum<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int multiplier) {
   a->mov(scratchReg1_, static_cast<asmjit::Imm>(multiplier));
   // tmpReg1Avx2_ also uses xmm11
-  asmjit::X86Xmm const_reg_xmm = x86::xmm11;
+  x86::Xmm const_reg_xmm = x86::xmm11;
   a->movq(const_reg_xmm, scratchReg1_);
   a->vpbroadcastd(tmpReg1Avx2_, const_reg_xmm);
   a->vpmulld(tmpReg1Avx2_, zeroPTRegAvx2_, tmpReg1Avx2_);
@@ -399,7 +383,7 @@ void GenConvKernel<2, int32_t>::genZeroPtSum<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForTopEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // top-left corner code
   if (c_offset == 0) {
@@ -559,7 +543,7 @@ void GenConvKernel<2, int32_t>::genForTopEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForLeftEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // left edge excluding corners
   asmjit::Label LoopLeftEdge = a->newLabel();
@@ -626,7 +610,7 @@ void GenConvKernel<2, int32_t>::genForLeftEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForRightEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // right edge excluding corners
   asmjit::Label LoopRightEdge = a->newLabel();
@@ -714,7 +698,7 @@ void GenConvKernel<2, int32_t>::genForRightEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForBottomEdge<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // bottom-left corner
   // we updating the last row
@@ -906,7 +890,7 @@ void GenConvKernel<2, int32_t>::genForBottomEdge<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genCoreInsts<inst_set_t::avx2>(
-    asmjit::X86Emitter* a,
+    x86::Emitter* a,
     int c_offset) {
   // main compute
   asmjit::Label LoopH = a->newLabel();
@@ -1010,10 +994,10 @@ template <>
 template <>
 jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
     const conv_param_t<2>& conv_param) {
-  code_.reset(false);
-  code_.init(rt_.getCodeInfo());
-  asmjit::X86Assembler assembler(&code_);
-  asmjit::X86Emitter* a = assembler.asEmitter();
+  asmjit::CodeHolder code;
+  code.init(runtime().codeInfo());
+  x86::Assembler assembler(&code);
+  x86::Emitter* a = assembler.as<x86::Emitter>();
 
 #if defined(FBGEMM_LOG_CODE)
   // log code to a file
@@ -1021,25 +1005,34 @@ jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
       fopen(getCodeLoggingFile<inst_set_t::avx2>(false).c_str(), "w");
   asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
   if (codeLogger) {
-    code_.setLogger(codeLogger);
+    code.setLogger(codeLogger);
   }
 #endif
 
   // arguments to the function created
+#ifdef _MSC_VER
+  in_acts_R_ = a->zcx();
+  wghts_R_ = a->zdx();
+  out_acts_R_ = a->gpz(8);
+  a_zero_pt_R_ = a->gpz(9);
+  H_R_ = a->zdi();
+  W_R_ = a->zsi();
+#else
   in_acts_R_ = a->zdi();
   wghts_R_ = a->zsi();
   out_acts_R_ = a->zdx();
   a_zero_pt_R_ = a->zcx();
-  H_R_ = a->gpzRef(8);
-  W_R_ = a->gpzRef(9);
-  row_offset_R_ = a->gpzRef(10);
+  H_R_ = a->gpz(8);
+  W_R_ = a->gpz(9);
+#endif
+  row_offset_R_ = a->gpz(10);
 
   // register for temporary use
-  scratchReg1_ = a->gpzRef(12);
-  scratchReg2_ = a->gpzRef(13);
+  scratchReg1_ = a->gpz(12);
+  scratchReg2_ = a->gpz(13);
 
   asmjit::FuncDetail func;
-  func.init(asmjit::FuncSignature6<
+  func.init(asmjit::FuncSignatureT<
             void,
             uint8_t*,
             int8_t*,
@@ -1048,29 +1041,29 @@ jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
             int32_t,
             int32_t>(asmjit::CallConv::kIdHost));
 
-  asmjit::FuncFrameInfo ffi;
-  ffi.setDirtyRegs(
-      asmjit::X86Reg::kKindVec,
-      asmjit::Utils::mask(0, 1, 2, 3, 4, 5, 6, 7) |
-          asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
-  ffi.setDirtyRegs(
-      asmjit::X86Reg::kKindGp, asmjit::Utils::mask(10, 11, 12, 13, 14, 15));
+  asmjit::FuncFrame frame;
+  frame.init(func);
 
-  asmjit::FuncArgsMapper args(&func);
+  frame.setDirtyRegs(
+      x86::Reg::kGroupVec,
+      asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
+          asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+  frame.setDirtyRegs(
+      x86::Reg::kGroupGp, asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+
+  asmjit::FuncArgsAssignment args(&func);
   args.assignAll(in_acts_R_, wghts_R_, out_acts_R_, a_zero_pt_R_, H_R_, W_R_);
 
-  args.updateFrameInfo(ffi);
+  args.updateFuncFrame(frame);
+  frame.finalize();
 
-  asmjit::FuncFrameLayout layout;
-  layout.init(func, ffi);
-
-  asmjit::FuncUtils::emitProlog(a, layout);
-  asmjit::FuncUtils::allocArgs(a, layout, args);
+  a->emitProlog(frame);
+  a->emitArgsAssignment(frame, args);
 
   createVector16BitOne<inst_set_t::avx2>(a);
 
-  loopR1_ = a->gpzRef(14);
-  loopR2_ = a->gpzRef(15);
+  loopR1_ = a->gpz(14);
+  loopR2_ = a->gpz(15);
 
   if (!isAZeroPointZero_) {
     setToZeroPt<inst_set_t::avx2>(a, zeroPTRegAvx2_);
@@ -1095,16 +1088,18 @@ jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
     genCoreInsts<inst_set_t::avx2>(a, c);
   }
 
-  asmjit::FuncUtils::emitEpilog(a, layout);
+  a->emitEpilog(frame);
 
   jit_conv_kernel_fp fn;
-  asmjit::Error err = rt_.add(&fn, &code_);
+  asmjit::Error err;
+  {
+    std::unique_lock<std::mutex> lock(rtMutex_);
+    err = runtime().add(&fn, &code);
+  }
   if (err) {
     std::cout << "Error: in fn add" << std::endl;
     return nullptr;
   }
-  auto kernelSig = getKernelSig(conv_param, isAZeroPointZero_);
-  codeCache_[kernelSig] = fn;
 
 #if defined(FBGEMM_LOG_CODE)
   fclose(codeLogfile);
@@ -1117,7 +1112,7 @@ jit_conv_kernel_fp GenConvKernel<2, int32_t>::getOrCreate<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // top-left corner code
   // zero out the results register
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
@@ -1213,7 +1208,7 @@ void GenConvKernel<2, int32_t>::genForTopEdgeRowoffset<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForLeftEdgeRowoffset<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // left edge excluding corners
   asmjit::Label LoopLeftEdge = a->newLabel();
   a->mov(loopR1_, static_cast<asmjit::Imm>(H_PAD_));
@@ -1256,7 +1251,7 @@ void GenConvKernel<2, int32_t>::genForLeftEdgeRowoffset<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // right edge excluding corners
   asmjit::Label LoopRightEdge = a->newLabel();
 
@@ -1326,7 +1321,7 @@ void GenConvKernel<2, int32_t>::genForRightEdgeRowoffset<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // bottom-left corner
   // zero out
   a->vxorps(resultRegAvx2_, resultRegAvx2_, resultRegAvx2_);
@@ -1429,7 +1424,7 @@ void GenConvKernel<2, int32_t>::genForBottomEdgeRowoffset<inst_set_t::avx2>(
 template <>
 template <>
 void GenConvKernel<2, int32_t>::genRowoffsetCore<inst_set_t::avx2>(
-    asmjit::X86Emitter* a) {
+    x86::Emitter* a) {
   // number of uint8 elements in input channels should be a multiple of 32
   assert(C_ % 32 == 0);
 
@@ -1490,10 +1485,10 @@ template <>
 jit_rowoffset_kernel_fp
 GenConvKernel<2, int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
     const conv_param_t<2>& conv_param) {
-  code_.reset(false);
-  code_.init(rt_.getCodeInfo());
-  asmjit::X86Assembler assembler(&code_);
-  asmjit::X86Emitter* a = assembler.asEmitter();
+  asmjit::CodeHolder code;
+  code.init(runtime().codeInfo());
+  x86::Assembler assembler(&code);
+  x86::Emitter* a = assembler.as<x86::Emitter>();
 
 #if defined(FBGEMM_LOG_CODE)
   // log code to a file
@@ -1501,54 +1496,62 @@ GenConvKernel<2, int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
       fopen(getCodeLoggingFile<inst_set_t::avx2>(true).c_str(), "w");
   asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
   if (codeLogger) {
-    code_.setLogger(codeLogger);
+    code.setLogger(codeLogger);
   }
 #endif
 
   // arguments to the function created
+#ifdef _MSC_VER
+  in_acts_R_ = a->zcx();
+  a_zero_pt_R_ = a->zdx();
+  H_R_ = a->gpz(8);
+  W_R_ = a->gpz(9);
+  row_offset_R_ = a->zdi();
+#else
   in_acts_R_ = a->zdi();
   a_zero_pt_R_ = a->zsi();
   H_R_ = a->zdx();
   W_R_ = a->zcx();
-  row_offset_R_ = a->gpzRef(8);
+  row_offset_R_ = a->gpz(8);
+#endif
 
   // register for temporary use
-  scratchReg1_ = a->gpzRef(12);
-  scratchReg2_ = a->gpzRef(13);
+  scratchReg1_ = a->gpz(12);
+  scratchReg2_ = a->gpz(13);
 
-  loopR1_ = a->gpzRef(14);
-  loopR2_ = a->gpzRef(15);
+  loopR1_ = a->gpz(14);
+  loopR2_ = a->gpz(15);
 
   asmjit::FuncDetail func;
   func.init(
       asmjit::
-          FuncSignature5<void, uint8_t*, int32_t, int32_t, int32_t, int32_t*>(
+          FuncSignatureT<void, uint8_t*, int32_t, int32_t, int32_t, int32_t*>(
               asmjit::CallConv::kIdHost));
 
-  asmjit::FuncFrameInfo ffi;
-  ffi.setDirtyRegs(
-      asmjit::X86Reg::kKindVec,
-      asmjit::Utils::mask(0, 1, 2, 3, 4, 5, 6, 7) |
-          asmjit::Utils::mask(8, 9, 10, 11, 12, 13, 14, 15));
-  ffi.setDirtyRegs(
-      asmjit::X86Reg::kKindGp, asmjit::Utils::mask(10, 11, 12, 13, 14, 15));
+  asmjit::FuncFrame frame;
+  frame.init(func);
 
-  asmjit::FuncArgsMapper args(&func);
+  frame.setDirtyRegs(
+      x86::Reg::kGroupVec,
+      asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
+          asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+  frame.setDirtyRegs(
+      x86::Reg::kGroupGp, asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+
+  asmjit::FuncArgsAssignment args(&func);
   args.assignAll(in_acts_R_, a_zero_pt_R_, H_R_, W_R_, row_offset_R_);
 
-  args.updateFrameInfo(ffi);
+  args.updateFuncFrame(frame);
+  frame.finalize();
 
-  asmjit::FuncFrameLayout layout;
-  layout.init(func, ffi);
-
-  asmjit::FuncUtils::emitProlog(a, layout);
-  asmjit::FuncUtils::allocArgs(a, layout, args);
+  a->emitProlog(frame);
+  a->emitArgsAssignment(frame, args);
 
   // This uses xmm10 register temporarily. Should come before
   // createVector8BitOne
   if (!isAZeroPointZero_) {
     // we can use xmm11 because ymm11 is used by tmpReg1Avx2_
-    asmjit::X86Xmm const_reg_xmm = x86::xmm11;
+    x86::Xmm const_reg_xmm = x86::xmm11;
     a->movq(const_reg_xmm, a_zero_pt_R_);
     a->vpbroadcastd(zeroPTRegAvx2_, const_reg_xmm);
 
@@ -1569,16 +1572,18 @@ GenConvKernel<2, int32_t>::getOrCreateRowOffset<inst_set_t::avx2>(
 
   genRowoffsetCore<inst_set_t::avx2>(a);
 
-  asmjit::FuncUtils::emitEpilog(a, layout);
+  a->emitEpilog(frame);
 
+  asmjit::Error err;
   jit_rowoffset_kernel_fp fn;
-  asmjit::Error err = rt_.add(&fn, &code_);
+  {
+    std::unique_lock<std::mutex> lock(rtMutex_);
+    err = runtime().add(&fn, &code);
+  }
   if (err) {
     std::cout << "Error: in fn add" << std::endl;
     return nullptr;
   }
-  auto kernelSig = getKernelSig(conv_param, isAZeroPointZero_);
-  codeCacheRowOffset_[kernelSig] = fn;
 
 #if defined(FBGEMM_LOG_CODE)
   delete codeLogger;
@@ -1781,7 +1786,8 @@ template <
     typename outType,
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
-    int SPATIAL_DIM>
+    int SPATIAL_DIM,
+    typename BIAS_TYPE>
 void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
@@ -1790,10 +1796,10 @@ void fbgemmGroupwiseConv(
     packed_W& packed_weights,
     outType* out,
     int32_t* outBuffer,
-    const ReQuantizeOutput<FUSE_RELU, Q_GRAN>& outProcess,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
     int thread_id,
     int num_threads) {
-  typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN> processOutputType;
+  typedef ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE> processOutputType;
 
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -1884,15 +1890,17 @@ void fbgemmGroupwiseConv(
                           outProcess.getBZeroPoint()[0] == 0) ||
           rowOffsetBuf == nullptr;
 
-      requantizationParams_t r = {a_zero_point,
-                                  outProcess.getBZeroPoint(),
-                                  outProcess.getCZeroPoint(),
-                                  outProcess.getCMultiplier(),
-                                  rowOffsetBuf,
-                                  outProcess.getColOffsets(),
-                                  outProcess.getBias(),
-                                  outProcess.getNCols(),
-                                  G};
+      requantizationParams_t<typename processOutputType::BIAS_T> r = {
+          a_zero_point,
+          outProcess.getBZeroPoint(),
+          outProcess.getCZeroPoint(),
+          outProcess.getCMultiplier(),
+          rowOffsetBuf,
+          outProcess.getColOffsets(),
+          outProcess.getBias(),
+          outProcess.getNCols(),
+          G,
+          outProcess.getActWScale()};
 
       const std::int32_t* inp = outBuffer;
       block_type_t block{i * oh_ow, oh_ow, gOuter * K_per_G, 8 * K_per_G};
@@ -2163,15 +2171,14 @@ jit_rowoffset_kernel_fp getOrCreateRowOffsetKernel(
   // Note: Wrong code is generated if it's not one of the supported convolution
   assert(fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param));
   auto kernelSig = getKernelSig(conv_param, a_zero_point == 0);
-  if (GenConvKernel<SPATIAL_DIM, int32_t>::codeCacheRowOffset_.find(
-          kernelSig) !=
-      GenConvKernel<SPATIAL_DIM, int32_t>::codeCacheRowOffset_.end()) {
-    return GenConvKernel<SPATIAL_DIM, int32_t>::codeCacheRowOffset_[kernelSig];
-  } else {
-    auto genObj = GenConvKernel<SPATIAL_DIM, int32_t>(conv_param, a_zero_point);
-    // TODO: Instruction set based dispatch
-    return genObj.template getOrCreateRowOffset<inst_set_t::avx2>(conv_param);
-  }
+  return GenConvKernel<SPATIAL_DIM, int32_t>::codeCacheRowOffset_.getOrCreate(
+      kernelSig, [&]() {
+        auto genObj =
+            GenConvKernel<SPATIAL_DIM, int32_t>(conv_param, a_zero_point);
+        // TODO: Instruction set based dispatch
+        return genObj.template getOrCreateRowOffset<inst_set_t::avx2>(
+            conv_param);
+      });
 }
 
 template <int SPATIAL_DIM>
@@ -2215,7 +2222,7 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
 template int rowOffsetBufferSizeGConv<2>(const conv_param_t<2>& conv_param);
 template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
 
-#define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM)                           \
+#define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, BIAS_TYPE)                \
   template void fbgemmGroupwiseConv(                                          \
       const conv_param_t<SPATIAL_DIM>& conv_param,                            \
       const uint8_t* activations,                                             \
@@ -2224,13 +2231,17 @@ template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
       PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>& packed_weights, \
       uint8_t* out,                                                           \
       int32_t* outBuffer,                                                     \
-      const ReQuantizeOutput<RELU, Q_GRAN>& outProcess,                       \
+      const ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>& outProcess,            \
       int thread_id,                                                          \
       int num_threads);
 
+#define INSTANTIATE_BIAS_T(RELU, Q_GRAN, SPATIAL_DIM) \
+  INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, float); \
+  INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, int32_t);
+
 #define INSTANTIATE_SPATIAL_DIM(RELU, Q_GRAN) \
-  INSTANTIATE_BASE(RELU, Q_GRAN, 2);          \
-  INSTANTIATE_BASE(RELU, Q_GRAN, 3);
+  INSTANTIATE_BIAS_T(RELU, Q_GRAN, 2);        \
+  INSTANTIATE_BIAS_T(RELU, Q_GRAN, 3);
 
 #define INSTANTIATE_Q_GRANS(RELU)                                 \
   INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::TENSOR); \
@@ -2242,6 +2253,7 @@ INSTANTIATE_Q_GRANS(true);
 
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_SPATIAL_DIM
+#undef INSTANTIATE_BIAS_T
 #undef INSTANTIATE_BASE
 
 template void fbgemmGroupwiseConv(

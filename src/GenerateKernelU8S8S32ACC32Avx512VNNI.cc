@@ -18,7 +18,7 @@ namespace x86 = asmjit::x86;
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
-    inst_set_t::avx512>(
+    inst_set_t::avx512_vnni>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -41,7 +41,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
-    inst_set_t::avx512>(
+    inst_set_t::avx512_vnni>(
     x86::Emitter* a,
     x86::Gp buffer_A,
     x86::Gp buffer_B,
@@ -56,13 +56,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
   // used for matrix B
   x86::Zmm BReg = x86::zmm30;
 
-  // Contains 16-bit 1s
-  x86::Zmm oneReg = x86::zmm29;
-
-  // temporary register
-  x86::Zmm res1 = x86::zmm28;
-
   using CRegs = x86::Zmm;
+
   for (int j = 0; j < colRegs; ++j) {
     // load B
     a->vmovaps(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
@@ -70,12 +65,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
     for (int i = 0; i < rowRegs; ++i) {
       a->vpbroadcastd(
           AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
-      a->vpmaddubsw(res1, AReg, BReg);
-      a->vpmaddwd(res1, oneReg, res1);
-      a->vpaddd(
-          CRegs(i * leadingDimCReg + j),
-          res1,
-          CRegs(i * leadingDimCReg + j));
+      a->vpdpbusd(CRegs(i * leadingDimCReg + j), AReg, BReg);
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
@@ -88,7 +78,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
-    inst_set_t::avx512>(
+    inst_set_t::avx512_vnni>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -132,7 +122,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
 template <>
 template <>
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
+    inst_set_t::avx512_vnni>(
     bool accum,
     int32_t mc,
     int32_t nc,
@@ -154,14 +145,16 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     nRegBlockSizeMin = blocking_params->NR_MIN;
     row_interleave = blocking_params->ROW_INTERLEAVE;
   } else {
-    kBlock = PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::KCB;
-    nBlock = PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::NCB;
-    mRegBlockSize = PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::MR;
-    nRegBlockSize = PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::NR;
+    kBlock = PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::KCB;
+    nBlock = PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::NCB;
+    mRegBlockSize =
+        PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::MR;
+    nRegBlockSize =
+        PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::NR;
     nRegBlockSizeMin =
-        PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::NR_MIN;
-    row_interleave =
-        PackingTraits<uint8_t, int32_t, inst_set_t::avx512>::ROW_INTERLEAVE;
+        PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::NR_MIN;
+    row_interleave = PackingTraits<uint8_t, int32_t, inst_set_t::avx512_vnni>::
+        ROW_INTERLEAVE;
   }
 
   kernelSig = std::make_tuple(
@@ -179,9 +172,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
     code.init(runtime().codeInfo());
     x86::Assembler assembler(&code);
     x86::Emitter *a = assembler.as<x86::Emitter>();
+
 #if defined(FBGEMM_LOG_CODE)
     // generated code logging
-    FILE *codeLogfile = fopen(getCodeLoggingFile<inst_set_t::avx512>(
+    FILE *codeLogfile = fopen(getCodeLoggingFile<inst_set_t::avx512_vnni>(
                                   accum, mc, nc, nBlock, kBlock, mRegBlockSize,
                                   nRegBlockSize, nRegBlockSizeMin)
                                   .c_str(),
@@ -285,7 +279,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       int rowRegs = mRegBlockSize;
 
       // init C registers
-      initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, colRegs);
+      initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, colRegs);
 
       // init k loop index
       a->mov(kIdx, 0);
@@ -294,8 +288,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       // k is incremented by row_interleave
       a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
-      genComputeBlock<inst_set_t::avx512>(a, buffer_A, buffer_B, B_pf, rowRegs,
-                                          colRegs, kBlock, colRegs);
+      genComputeBlock<inst_set_t::avx512_vnni>(
+          a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock, colRegs);
 
       // update buffer_A address for next k iteration
       a->add(buffer_A,
@@ -313,8 +307,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, C_Offset, ldcReg,
-                                     accum, colRegs);
+      storeCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, C_Offset, ldcReg,
+                                          accum, colRegs);
 
       // reset A
       a->sub(buffer_A, kSize);
@@ -365,7 +359,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       a->inc(jIdx);
 
       // init C registers
-      initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, colRegs);
+      initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, colRegs);
 
       // init k loop index
       a->mov(kIdx, 0);
@@ -374,8 +368,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       // k is incremented by row_interleave
       a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
 
-      genComputeBlock<inst_set_t::avx512>(a, buffer_A, buffer_B, B_pf, rowRegs,
-                                          colRegs, kBlock, colRegs);
+      genComputeBlock<inst_set_t::avx512_vnni>(
+          a, buffer_A, buffer_B, B_pf, rowRegs, colRegs, kBlock, colRegs);
 
       // update buffer_A address for next k iteration
       a->add(buffer_A,
@@ -392,7 +386,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
 
       // reset A
       a->sub(buffer_A, kSize);
-
       // B for next block
       // using C_Offset as temp reg
       a->imul(C_Offset, jIdx,
@@ -404,8 +397,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
       a->add(B_pf, C_Offset);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx512>(a, rowRegs, colRegs, C_Offset, ldcReg,
-                                     accum, colRegs);
+      storeCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs, C_Offset, ldcReg,
+                                          accum, colRegs);
 
       // increment C for next B block
       a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));
