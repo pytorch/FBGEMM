@@ -25,7 +25,7 @@ void QuantizeAvx2(
     int len,
     const TensorQuantizationParams& qparams) {
   // original compile condition - #if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
-  if (fbgemm::fbgemmHasAvx2Support()) {
+    if (fbgemm::fbgemmHasAvx2Support()) {
     constexpr int VLEN = 8;
     constexpr float min_val = std::numeric_limits<T>::min();
     constexpr float max_val = std::numeric_limits<T>::max();
