@@ -30,7 +30,8 @@ void QuantizeAvx2(
   constexpr float min_val = std::numeric_limits<T>::min();
   constexpr float max_val = std::numeric_limits<T>::max();
   std::size_t i = 0;
-  __m256 inverse_scale_v = _mm256_set1_ps(1.f / qparams.scale);
+  float inverse_scale = 1.f / qparams.scale;
+  __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   __m256i shuffle_mask_v = _mm256_set_epi8(
       0xff,
       0xff,
@@ -83,7 +84,7 @@ void QuantizeAvx2(
   }
 
   for (; i < len; ++i) {
-    float transformed = qparams.zero_point + src[i] / qparams.scale;
+    float transformed = qparams.zero_point + src[i] * inverse_scale;
     float clipped = std::min(std::max(transformed, min_val), max_val);
     // Not exactly the same behavior as the vectorized code.
     // The vectorized code above always rounds to even in halfway cases

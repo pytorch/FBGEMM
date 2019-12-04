@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <climits>
 #include <random>
 
 #include <gtest/gtest.h>
@@ -22,6 +23,8 @@ using namespace fbgemm;
 class QuantizeGroupwiseTest
     : public testing::TestWithParam<tuple<int, int, int, int, layout_t>> {};
 
+class QuantizeTest : public testing::TestWithParam<int> {};
+
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     QuantizeGroupwiseTest,
@@ -31,6 +34,11 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 10, 15, 30}), // X
         ::testing::ValuesIn({1, 4}), // G
         ::testing::ValuesIn({layout_t::KCX, layout_t::KXC})));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    QuantizeTest,
+    ::testing::Values(1, 2, 5, 8, 9, 16, 20, 28, 32, 33));
 
 template <typename T, layout_t LT>
 void ref_impl(
@@ -113,7 +121,7 @@ template <typename T>
 /**
  * Test for QuantizeGroupwise
  */
-TEST_P(QuantizeGroupwiseTest, quantizeTest) {
+TEST_P(QuantizeGroupwiseTest, quantizeGTest) {
   int K, C, X, G;
   layout_t layout;
   tie(K, C, X, G, layout) = GetParam();
@@ -180,4 +188,87 @@ TEST_P(QuantizeGroupwiseTest, quantizeTest) {
   EXPECT_TRUE(isNear(dstuint8, dstuint8_ref));
   EXPECT_TRUE(isNear(dstint8, dstint8_ref));
   EXPECT_TRUE(isNear(dstint32, dstint32_ref));
+}
+
+template <typename T>
+void runQuantizeTests(
+    const vector<float>& src,
+    float scale,
+    int zero_point,
+    vector<T>& dst,
+    vector<T>& dst_ref) {
+  // reference
+  for (int i = 0; i < src.size(); ++i) {
+    dst_ref[i] = Quantize<T>(src[i], zero_point, scale, CHAR_BIT * sizeof(T));
+  }
+
+  TensorQuantizationParams qparams;
+  qparams.scale = scale;
+  qparams.zero_point = zero_point;
+  qparams.precision = CHAR_BIT * sizeof(T);
+
+  Quantize<T>(src.data(), dst.data(), src.size(), qparams);
+}
+
+/**
+ * Test for QuantizeGroupwise
+ */
+TEST_P(QuantizeTest, quantizeTest) {
+  int len;
+  len = GetParam();
+
+  random_device rd;
+  mt19937 gen(rd());
+
+  uniform_real_distribution<float> disFP(-1.0e6, 1.0e6);
+
+  vector<float> inp(len);
+  generate(inp.begin(), inp.end(), [&, disFP]() mutable { return disFP(gen); });
+
+  float scale = disFP(gen);
+
+  // Generate a number between [0, 255] both inclusive
+  uniform_int_distribution<> disUInt8(0, 255);
+  int zero_point_uint8 = disUInt8(gen);
+
+  uniform_int_distribution<> disInt8(-128, 127);
+  int zero_point_int8 = disInt8(gen);
+
+  vector<uint8_t> dstuint8(len);
+  vector<uint8_t> dstuint8_ref(len);
+
+  vector<int8_t> dstint8(len);
+  vector<int8_t> dstint8_ref(len);
+
+  runQuantizeTests<uint8_t>(
+      inp, scale, zero_point_uint8, dstuint8, dstuint8_ref);
+  runQuantizeTests<int8_t>(inp, scale, zero_point_int8, dstint8, dstint8_ref);
+
+  EXPECT_TRUE(isNear(dstuint8, dstuint8_ref));
+  EXPECT_TRUE(isNear(dstint8, dstint8_ref));
+}
+
+// vector and scalar code should have the same behavior
+TEST(QuantizeTestSingle, vectorScalar) {
+  // This length will exercise both the vector and scalar path
+  int len = 33;
+  vector<float> src(len);
+  vector<uint8_t> dst(len);
+
+  for (int i = 0; i < len; ++i) {
+    src[i] = -2.9483526e-05;
+  }
+  float scale = 2.3124334356729307e-07;
+  int zero_point = 128;
+
+  TensorQuantizationParams qparams;
+  qparams.scale = scale;
+  qparams.zero_point = zero_point;
+  qparams.precision = CHAR_BIT * sizeof(uint8_t);
+
+  Quantize<uint8_t>(src.data(), dst.data(), len, qparams);
+
+  // Check if all elements are equal
+  EXPECT_TRUE(
+      adjacent_find(dst.begin(), dst.end(), not_equal_to<>()) == dst.end());
 }
