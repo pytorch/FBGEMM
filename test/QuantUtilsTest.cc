@@ -270,5 +270,5 @@ TEST(QuantizeTestSingle, vectorScalar) {
 
   // Check if all elements are equal
   EXPECT_TRUE(
-      adjacent_find(dst.begin(), dst.end(), not_equal_to<>()) == dst.end());
+      adjacent_find(dst.begin(), dst.end(), not_equal_to<int>()) == dst.end());
 }
