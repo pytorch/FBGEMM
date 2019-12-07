@@ -28,8 +28,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc
-                src/FbgemmFP16.cc
+                src/FbgemmBfloat16Convert.cc
                 src/FbgemmConv.cc
+                src/FbgemmFP16.cc
+                src/FbgemmFloat16Convert.cc
                 src/FbgemmI64.cc
                 src/FbgemmI8Spmdm.cc
                 src/Fused8BitRowwiseEmbeddingLookup.cc
@@ -76,7 +78,9 @@ endif()
 
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
+  src/FbgemmBfloat16ConvertAvx2.cc
   src/FbgemmFP16UKernelsAvx2.cc
+  src/FbgemmFloat16ConvertAvx2.cc
   src/FbgemmI8Depthwise3DAvx2.cc
   src/FbgemmI8Depthwise3x3Avx2.cc
   src/FbgemmI8DepthwiseAvx2.cc
@@ -88,7 +92,9 @@ set(FBGEMM_AVX2_SRCS
 
 #All the source files that use avx512 instructions statically
 set(FBGEMM_AVX512_SRCS
+  src/FbgemmBfloat16ConvertAvx512.cc
   src/FbgemmFP16UKernelsAvx512.cc
+  src/FbgemmFloat16ConvertAvx512.cc
   src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
@@ -116,7 +122,7 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_VISIBILITY_PRESET hidden)
 
 target_compile_options(fbgemm_avx2 PRIVATE
-  "-m64" "-mavx2" "-mfma" "-masm=intel")
+  "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
 target_compile_options(fbgemm_avx512 PRIVATE
   "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
   "-mavx512vl" "-masm=intel")
