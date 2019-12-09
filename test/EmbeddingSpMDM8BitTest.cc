@@ -129,7 +129,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 
     // Compute the number of indices
     int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
-    cout << "lenths sum " << lengths_sum;
+    //cout << "lenths sum " << lengths_sum;
 
     // Generate indices
     vector<int64_t> indices;
@@ -168,7 +168,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
               normalize_by_lengths,
               output_ref.data());
 
-      fbgemm::Fused8BitRowwiseEmbeddingLookup<int64_t>(
+      fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -195,7 +195,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
               normalize_by_lengths,
               output_ref.data());
 
-      fbgemm::Fused8BitRowwiseEmbeddingLookup<int32_t>(
+      fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
           embedding_dim,
           batch_size,
           lengths_sum,

@@ -25,7 +25,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
-set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
+set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
+                src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc
                 src/FbgemmBfloat16Convert.cc
@@ -36,7 +37,6 @@ set(FBGEMM_GENERIC_SRCS src/ExecuteKernel.cc
                 src/FbgemmI8Spmdm.cc
                 src/FbgemmSpConv.cc
                 src/FbgemmSpMM.cc
-                src/Fused8BitRowwiseEmbeddingLookup.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc
