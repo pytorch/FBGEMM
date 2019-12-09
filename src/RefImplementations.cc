@@ -196,7 +196,7 @@ uint64_t umul64wide(uint64_t a, uint64_t b) {
 
   return p0 + (p1 << 32) + (p2 << 32);
 }
-} // anonymous namepsace
+} // namespace
 
 #ifdef __clang__
 // Expected to have overflows
@@ -719,6 +719,104 @@ template bool Fused8BitRowwiseEmbeddingLookup_ref(
     bool normalize_by_lengths,
     float* out);
 
+template <typename inType, typename IndexType>
+bool EmbeddingSpMDM_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const inType* input,
+    const IndexType* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool IS_WEIGHT_POSITIONAL) {
+  bool is8bit = std::is_same<inType, std::uint8_t>::value;
+
+  if (is8bit) {
+    // block_size is the number of elements and fused_block_size is the size of
+    // an entire row, including scale and bias.
+    const auto scale_bias_offset = 8 / sizeof(inType);
+    const int64_t fused_block_size = block_size + scale_bias_offset;
+    int64_t current = 0;
+    for (int m = 0; m < output_size; ++m) {
+      memset(out, 0, sizeof(float) * block_size);
+      if (current + lengths[m] > index_size) {
+        return false;
+      }
+      for (int i = 0; i < lengths[m]; ++i) {
+        int64_t idx = indices[current];
+        if (idx < 0 || idx >= data_size) {
+          return false;
+        }
+
+        const float* scale_bias = reinterpret_cast<const float*>(
+            input + fused_block_size * indices[current] + block_size);
+
+        float weight = 1.0f;
+        if (weights) {
+          weight = weights[IS_WEIGHT_POSITIONAL ? i : current];
+        }
+        const float scale = weight * scale_bias[0];
+        const float bias = weight * scale_bias[1];
+
+        for (int j = 0; j < block_size; ++j) {
+          out[j] = std::fma(
+              scale,
+              input[fused_block_size * indices[current] + j],
+              out[j] + bias);
+        }
+
+        ++current;
+      }
+      if (normalize_by_lengths && lengths[m]) {
+        float scale = 1.f / lengths[m];
+        for (int j = 0; j < block_size; ++j) {
+          out[j] *= scale;
+        }
+      }
+      out += block_size;
+    }
+    return true;
+  } else {
+    // Reference implementation of FP32 SLS
+    int64_t current = 0;
+    for (int m = 0; m < output_size; ++m) {
+      memset(out, 0, sizeof(float) * block_size);
+      if (current + lengths[m] > index_size) {
+        return false;
+      }
+      for (int i = 0; i < lengths[m]; ++i) {
+        int64_t idx = indices[current];
+        if (idx < 0 || idx >= data_size) {
+          return false;
+        }
+
+        float w = 1.f;
+        if (weights) {
+          w = weights[IS_WEIGHT_POSITIONAL ? i : current];
+        }
+
+        for (int j = 0; j < block_size; ++j) {
+          out[j] =
+              std::fma(w, input[block_size * indices[current] + j], out[j]);
+        }
+
+        ++current;
+      }
+      if (normalize_by_lengths && lengths[m]) {
+        float scale = 1.f / lengths[m];
+        for (int j = 0; j < block_size; ++j) {
+          out[j] *= scale;
+        }
+      }
+      out += block_size;
+    }
+    return current == index_size;
+  }
+}
+
 template void transposeConvWeights(
     const conv_param_t<2>& conv_p,
     const std::int8_t* src,
@@ -729,4 +827,55 @@ template void transposeConvWeights(
     const std::int8_t* src,
     std::int8_t* dest);
 
+template bool EmbeddingSpMDM_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool IS_WEIGHT_POSITIONAL);
+
+template bool EmbeddingSpMDM_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool IS_WEIGHT_POSITIONAL);
+
+template bool EmbeddingSpMDM_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool IS_WEIGHT_POSITIONAL);
+
+template bool EmbeddingSpMDM_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool IS_WEIGHT_POSITIONAL);
 } // namespace fbgemm

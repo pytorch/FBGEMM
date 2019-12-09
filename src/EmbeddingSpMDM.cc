@@ -8,87 +8,29 @@
 #include <mutex>
 #include <string>
 #include <tuple>
-#include "CodeCache.h"
-#include "RefImplementations.h"
+#include "./CodeCache.h"
+#include "./RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
 namespace {
+
 namespace x86 = asmjit::x86;
 
-template <typename indxType = std::int64_t>
-class ReturnFunctionSignature {};
-
-template <>
-class ReturnFunctionSignature<std::int64_t> {
+template <typename inType = std::uint8_t, typename indxType = std::int64_t>
+class ReturnFunctionSignature {
  public:
-  using jit_fused8bitembedding_kernel = bool (*)(
+  using jit_embedding_kernel = bool (*)(
       std::int64_t output_size,
       std::int64_t index_size,
       std::int64_t data_size,
-      const uint8_t* input,
-      const std::int64_t* indices,
+      const inType* input,
+      const indxType* indices,
       const int* lengths,
       const float* weights,
       float* out);
 };
-
-template <>
-class ReturnFunctionSignature<std::int32_t> {
- public:
-  using jit_fused8bitembedding_kernel = bool (*)(
-      std::int64_t output_size,
-      std::int64_t index_size,
-      std::int64_t data_size,
-      const uint8_t* input,
-      const std::int32_t* indices,
-      const int* lengths,
-      const float* weights,
-      float* out);
-};
-
-template <typename indxType = std::int64_t>
-class GenFused8BitEmbeddingLookup {
- public:
-  GenFused8BitEmbeddingLookup() {}
-  template <inst_set_t instSet>
-  typename ReturnFunctionSignature<indxType>::jit_fused8bitembedding_kernel
-  getOrCreate(
-      int block_size,
-      bool has_weight,
-      bool is_weight_positional,
-      bool normalize_by_lengths,
-      int prefetch);
-
- private:
-  static asmjit::JitRuntime& runtime() {
-    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                  // depents on other static
-                                  // variables.  Required to prevent
-                                  // initialization order fiasco
-    return rt;
-  }
-
-  static std::mutex rtMutex_; ///< Controll access to runtime;
-
-  // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, and prefetch distance
-  static CodeCache<
-      std::tuple<int, bool, bool, bool, int>,
-      typename ReturnFunctionSignature<indxType>::jit_fused8bitembedding_kernel>
-      codeCache_; ///< JIT Code Cache for reuse.
-
-}; // GenEmbeddingLookup
-
-template <typename indxType>
-std::mutex GenFused8BitEmbeddingLookup<indxType>::rtMutex_;
-
-template <typename indxType>
-CodeCache<
-    std::tuple<int, bool, bool, bool, int>,
-    typename ReturnFunctionSignature<indxType>::jit_fused8bitembedding_kernel>
-    GenFused8BitEmbeddingLookup<indxType>::codeCache_;
 
 // A trait class to handle ISA specifics
 template <inst_set_t instSet>
@@ -116,26 +58,86 @@ struct InstSetTrait<inst_set_t::avx512> {
   }
 };
 
-template <typename indxType>
+template <typename inType = std::uint8_t, typename indxType = std::int64_t>
+class GenEmbeddingSpMDMLookup {
+ public:
+  GenEmbeddingSpMDMLookup() {}
+  template <inst_set_t instSet>
+  typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel
+  getOrCreate(
+      int block_size,
+      bool has_weight,
+      bool is_weight_positional,
+      bool normalize_by_lengths,
+      int prefetch);
+
+ private:
+  static asmjit::JitRuntime& runtime() {
+    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
+                                  // depents on other static
+                                  // variables.  Required to prevent
+                                  // initialization order fiasco
+    return rt;
+  }
+
+  static std::mutex rtMutex_; ///< Controll access to runtime;
+
+  // The hash depends on embedding dimension (block size), weighted sls,
+  // positional weights, normalize by lenths, and prefetch distance, is8bit
+  static CodeCache<
+      std::tuple<int, bool, bool, bool, int, bool>,
+      typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel>
+      codeCache_; ///< JIT Code Cache for reuse.
+
+  // These are the registers shared
+  // between uint8 and fp32 implementations
+  x86::Gp output_size;
+  x86::Gp index_size;
+  x86::Gp data_size;
+  x86::Gp input;
+  x86::Gp indices;
+  x86::Gp lengths;
+  x86::Gp weights;
+  x86::Gp out;
+  x86::Gp scratchReg1_;
+  x86::Gp scratchReg1D_;
+  x86::Gp scratchReg2_;
+  x86::Gp scratchReg3_;
+  x86::Gpd lengths_R_;
+
+}; // GenEmbeddingSpmDMLookup
+
+template <typename inType, typename indxType>
+std::mutex GenEmbeddingSpMDMLookup<inType, indxType>::rtMutex_;
+
+template <typename inType, typename indxType>
+CodeCache<
+    std::tuple<int, bool, bool, bool, int, bool>,
+    typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel>
+    GenEmbeddingSpMDMLookup<inType, indxType>::codeCache_;
+
+template <typename inType, typename indxType>
 template <inst_set_t instSet>
-typename ReturnFunctionSignature<indxType>::jit_fused8bitembedding_kernel
-GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
+typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel
+GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
     int block_size,
     bool has_weight,
     bool is_weight_positional,
     bool normalize_by_lengths,
     int prefetch) {
-  std::tuple<int, bool, bool, bool, int> kernelSig = std::make_tuple(
+  bool is8bit = std::is_same<inType, std::uint8_t>::value;
+  std::tuple<int, bool, bool, bool, int, bool> kernelSig = std::make_tuple(
       block_size,
       has_weight,
       is_weight_positional,
       normalize_by_lengths,
-      prefetch);
+      prefetch,
+      is8bit);
 
   return codeCache_.getOrCreate(
       kernelSig,
-      [&]() -> typename ReturnFunctionSignature<
-                indxType>::jit_fused8bitembedding_kernel {
+      [&]() ->
+      typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel {
         // TODO: Make this tunable
         int pref_dist = prefetch;
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
@@ -145,7 +147,7 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
-        std::string filename = "fused8bitsls";
+        std::string filename = "embeddinglookup_";
         filename += "_emd_dim_" + std::to_string(block_size);
         if (!areIndices64b)
           filename += "_32bit";
@@ -167,21 +169,21 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         code.setLogger(codeLogger);
 #endif
         // arguments to the function created
-        x86::Gp output_size = a->zdi();
+        output_size = a->zdi();
         // index_size will be overwritten to hold the end address of indices
-        x86::Gp index_size = a->zsi();
-        x86::Gp data_size = a->zdx();
-        x86::Gp input = a->zcx();
-        x86::Gp indices = a->gpz(8);
-        x86::Gp lengths = a->gpz(9);
-        x86::Gp weights = a->gpz(10);
-        x86::Gp out = a->gpz(11);
+        index_size = a->zsi();
+        data_size = a->zdx();
+        input = a->zcx();
+        indices = a->gpz(8);
+        lengths = a->gpz(9);
+        weights = a->gpz(10);
+        out = a->gpz(11);
+        lengths_R_ = a->gpz(12).r32();
 
-        x86::Gp scratchReg1_ = a->gpz(12);
-        x86::Gp scratchReg1D_ = a->gpz(12).r32();
-        x86::Gp scratchReg2_ = a->gpz(13);
-        x86::Gp scratchReg3_ = a->gpz(15);
-        x86::Gpd lengths_R_ = a->gpz(14).r32();
+        scratchReg1_ = a->gpz(13);
+        scratchReg1D_ = a->gpz(13).r32();
+        scratchReg2_ = a->gpz(14);
+        scratchReg3_ = a->gpz(15);
 
         asmjit::FuncDetail func;
 
@@ -190,7 +192,7 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
                   std::int64_t, // output_size
                   std::int64_t, // index_size
                   std::int64_t, // data_size
-                  const uint8_t*, // input
+                  const inType*, // input uint8_t or float
                   const indxType*, // indices
                   const int*, // lengths
                   const float*, // weights
@@ -253,18 +255,23 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         x86::Ymm mask_vreg; // mask for avx2
         x86::Xmm temp_xmm; // a shadow xmm reg of temp_vreg_cvt_uint2flt
         x86::Xmm vlen_inv_vreg_xmm; // a shadow xmm reg of vlen_inv_vreg
+        vec_reg_t temp_vreg;
 
-        // We need 2 vec registers for 1. scale 2. bias
-        --unroll_factor;
-        scale_vreg = inst_trait.GetVecReg(unroll_factor);
-        --unroll_factor;
-        bias_vreg = inst_trait.GetVecReg(unroll_factor);
+        if (is8bit) {
+          // We need 2 vec registers for 1. scale 2. bias
+          --unroll_factor;
+          scale_vreg = inst_trait.GetVecReg(unroll_factor);
+          --unroll_factor;
+          bias_vreg = inst_trait.GetVecReg(unroll_factor);
 
-        // We need 1 vec register to convert from uint8->int32->float
-        --unroll_factor;
-        temp_vreg_cvt_uint2flt = inst_trait.GetVecReg(unroll_factor);
-        if (instSet == inst_set_t::avx2) {
-          temp_xmm = x86::Xmm(temp_vreg_cvt_uint2flt.id());
+          // We need 1 vec register to convert from uint8->int32->float
+          --unroll_factor;
+          temp_vreg_cvt_uint2flt = inst_trait.GetVecReg(unroll_factor);
+          if (instSet == inst_set_t::avx2) {
+            temp_xmm = x86::Xmm(temp_vreg_cvt_uint2flt.id());
+          }
+        } else {
+          temp_xmm = x86::xmm0;
         }
 
         if (has_weight) {
@@ -275,6 +282,7 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         if (remainder) {
           // AVX512 doesn't need to use vector register for masking
           unroll_factor -= (instSet == inst_set_t::avx2 ? 2 : 1);
+          temp_vreg = inst_trait.GetVecReg(unroll_factor);
           if (instSet == inst_set_t::avx2) {
             mask_vreg = x86::ymm(unroll_factor + 1);
           }
@@ -282,8 +290,12 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
 
         if (normalize_by_lengths) {
           --unroll_factor;
-          vlen_inv_vreg = inst_trait.GetVecReg(
-              remainder ? unroll_factor + 1 : unroll_factor);
+          if (is8bit) {
+            vlen_inv_vreg = inst_trait.GetVecReg(
+                remainder ? unroll_factor + 1 : unroll_factor);
+          } else {
+            vlen_inv_vreg = inst_trait.GetVecReg(unroll_factor);
+          }
           if (instSet == inst_set_t::avx2) {
             vlen_inv_vreg_xmm = x86::Xmm(vlen_inv_vreg.id());
           }
@@ -346,14 +358,23 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
             a->cvtsi2ss(vlen_inv_vreg_xmm, lengths_R_);
             a->cvtsi2ss(temp_xmm, x86::dword_ptr(lengths));
             a->divss(vlen_inv_vreg_xmm, temp_xmm);
+            // a->cvtsi2ss(x86::xmm0, x86::dword_ptr(lengths));
+            // a->divss(vlen_inv_vreg_xmm, x86::xmm0);
             a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
           } else { // avx512
+            vec_reg_t temp_zmm = inst_trait.GetVecReg(0);
             a->mov(lengths_R_, 1);
             a->cvtsi2ss(x86::xmm0, lengths_R_);
             a->vpbroadcastd(vlen_inv_vreg, x86::xmm0);
-            a->vpbroadcastd(temp_vreg_cvt_uint2flt, x86::dword_ptr(lengths));
-            a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
-            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_vreg_cvt_uint2flt);
+            if (is8bit) {
+              a->vpbroadcastd(temp_vreg_cvt_uint2flt, x86::dword_ptr(lengths));
+              a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
+              a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_vreg_cvt_uint2flt);
+            } else {
+              a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
+              a->vcvtdq2ps(temp_zmm, temp_zmm);
+              a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
+            }
           }
           a->bind(IfLengthsEnd);
         }
@@ -405,7 +426,13 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
 
           int fused_block_size =
               block_size * sizeof(uint8_t) + 2 * sizeof(float);
-          a->imul(scratchReg1_, static_cast<asmjit::Imm>(fused_block_size));
+          if (is8bit) {
+            a->imul(scratchReg1_, static_cast<asmjit::Imm>(fused_block_size));
+          } else {
+            a->imul(
+                scratchReg1_,
+                static_cast<asmjit::Imm>(block_size * sizeof(float)));
+          }
 
           if (pref_dist) {
             asmjit::Label pref_dist_reset_start = a->newLabel();
@@ -427,7 +454,7 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
                   scratchReg2_.r32(),
                   x86::dword_ptr(indices, pref_dist * sizeof(indxType)));
             }
-            // Keeping these out for now for perf
+
             a->cmp(scratchReg2_, 0);
             a->jl(pref_dist_reset_start);
             a->cmp(scratchReg2_, data_size);
@@ -446,27 +473,38 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
             }
 
             a->bind(pref_dist_reset_end);
-            // This has to be fused_block_size
-            a->imul(scratchReg2_, static_cast<asmjit::Imm>(fused_block_size));
+            if (is8bit) {
+              // This has to be fused_block_size
+              a->imul(scratchReg2_, static_cast<asmjit::Imm>(fused_block_size));
+            } else {
+              a->imul(
+                  scratchReg2_,
+                  static_cast<asmjit::Imm>(block_size * sizeof(float)));
+            }
           }
 
           a->add(indices, static_cast<asmjit::Imm>(sizeof(indxType)));
 
           // broadcast the scale
-          auto scale_src = x86::dword_ptr(
-              input, scratchReg1_, 0, block_size * sizeof(uint8_t));
-          auto bias_src = x86::dword_ptr(
-              input,
-              scratchReg1_,
-              0,
-              block_size * sizeof(uint8_t) + sizeof(float));
-          a->vbroadcastss(scale_vreg, scale_src);
-          a->vbroadcastss(bias_vreg, bias_src);
+          x86::Mem scale_src, bias_src;
+          if (is8bit) {
+            scale_src = x86::dword_ptr(
+                input, scratchReg1_, 0, block_size * sizeof(uint8_t));
+            bias_src = x86::dword_ptr(
+                input,
+                scratchReg1_,
+                0,
+                block_size * sizeof(uint8_t) + sizeof(float));
+            a->vbroadcastss(scale_vreg, scale_src);
+            a->vbroadcastss(bias_vreg, bias_src);
+          }
 
           if (has_weight) {
             a->vbroadcastss(w_vreg, x86::dword_ptr(weights));
-            a->vmulps(scale_vreg, scale_vreg, w_vreg);
-            a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            if (is8bit) {
+              a->vmulps(scale_vreg, scale_vreg, w_vreg);
+              a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            }
             a->add(weights, static_cast<asmjit::Imm>(sizeof(float)));
           }
 
@@ -476,35 +514,67 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
                 input,
                 scratchReg1_,
                 0,
-                (vec_idx + v) * (vlen) * sizeof(uint8_t));
+                (vec_idx + v) * (vlen) * sizeof(inType));
             vec_reg_t out_vreg = inst_trait.GetVecReg(v);
 
-            // convert usigned 8-bit to 32bit int, then to float
+            // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
             // multiply with scale and then add with bias
-            if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
-                instSet == inst_set_t::avx512) {
-              a->k(x86::k(1)).vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
-              a->k(x86::k(1)).vcvtdq2ps(
-                  temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
-              a->k(x86::k(1)).vaddps(out_vreg, out_vreg, bias_vreg);
-              a->k(x86::k(1)).vfmadd231ps(
-                  out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+            if (is8bit) {
+              if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
+                  instSet == inst_set_t::avx512) {
+                a->k(x86::k(1)).vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
+                a->k(x86::k(1)).vcvtdq2ps(
+                    temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
+                a->k(x86::k(1)).vaddps(out_vreg, out_vreg, bias_vreg);
+                a->k(x86::k(1)).vfmadd231ps(
+                    out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+              } else {
+                // We don't use a mask for AVX2 since we can use the extra
+                //"padding" of the 2 floats (= 8 chars) scale and bias
+                // this ensures we never access out of bound data
+                a->vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
+                a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
+                a->vaddps(out_vreg, out_vreg, bias_vreg);
+                a->vfmadd231ps(out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+              }
             } else {
-              // We don't use a mask for AVX2 since we can use the extra
-              //"padding" of the 2 floats (= 8 chars) scale and bias
-              // this ensures we never access out of bound data
-              a->vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
-              a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
-              a->vaddps(out_vreg, out_vreg, bias_vreg);
-              a->vfmadd231ps(out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+              // This part for FP32 SLS
+              if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
+                  instSet == inst_set_t::avx2) {
+                a->vmaskmovps(
+                    x86::ymm(temp_vreg.id()),
+                    x86::ymm(mask_vreg.id()),
+                    src_addr);
+              }
+              if (has_weight) {
+                if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
+                  if (instSet == inst_set_t::avx2) {
+                    a->vfmadd231ps(out_vreg, w_vreg, temp_vreg);
+                  } else {
+                    a->k(x86::k(1)).vfmadd231ps(out_vreg, w_vreg, src_addr);
+                  }
+                } else {
+                  a->vfmadd231ps(out_vreg, w_vreg, src_addr);
+                }
+              } else {
+                if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
+                  if (instSet == inst_set_t::avx2) {
+                    a->vaddps(out_vreg, out_vreg, temp_vreg);
+                  } else {
+                    a->k(x86::k(1)).vaddps(out_vreg, out_vreg, src_addr);
+                  }
+                } else {
+                  a->vaddps(out_vreg, out_vreg, src_addr);
+                }
+              }
             }
 
-            if (pref_dist && v % (64 / vlen) == 0) {
+            if (pref_dist && v % (64 / (vlen * sizeof(inType))) == 0) {
               a->prefetcht0(x86::dword_ptr(
                   input,
                   scratchReg2_,
                   0,
-                  (vec_idx + v) * vlen * sizeof(uint8_t)));
+                  (vec_idx + v) * vlen * sizeof(inType)));
             }
           }
 
@@ -575,8 +645,8 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         a->emitEpilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
-        typename ReturnFunctionSignature<
-            indxType>::jit_fused8bitembedding_kernel fn;
+        typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel
+            fn;
         asmjit::Error err;
         {
           std::unique_lock<std::mutex> lock(rtMutex_);
@@ -594,15 +664,16 @@ GenFused8BitEmbeddingLookup<indxType>::getOrCreate(
         return fn;
       });
 }
+
 } // namespace
 
-template <typename indxType>
-bool Fused8BitRowwiseEmbeddingLookup(
+template <typename inType, typename indxType>
+bool EmbeddingSpMDM(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
     const std::int64_t data_size,
-    const std::uint8_t* input,
+    const inType* input,
     const indxType* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
@@ -610,11 +681,11 @@ bool Fused8BitRowwiseEmbeddingLookup(
     float* out,
     int prefetch,
     bool IS_WEIGHT_POSITIONAL) {
-  static GenFused8BitEmbeddingLookup<indxType> kernel_generator;
+  static GenEmbeddingSpMDMLookup<inType, indxType> kernel_generator;
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  typename ReturnFunctionSignature<indxType>::jit_fused8bitembedding_kernel fn;
+  typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel fn;
   if (fbgemmHasAvx512Support()) {
     fn = kernel_generator.template getOrCreate<inst_set_t::avx512>(
         block_size,
@@ -633,7 +704,7 @@ bool Fused8BitRowwiseEmbeddingLookup(
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
-    auto success = Fused8BitRowwiseEmbeddingLookup_ref(
+    auto success = EmbeddingSpMDM_ref(
         block_size,
         output_size,
         index_size,
@@ -641,7 +712,7 @@ bool Fused8BitRowwiseEmbeddingLookup(
         input,
         indices,
         lengths,
-        weights, // optional, can be null for non-weighted sum
+        weights,
         normalize_by_lengths,
         out);
     return success;
@@ -659,7 +730,35 @@ bool Fused8BitRowwiseEmbeddingLookup(
   return success;
 }
 
-template bool Fused8BitRowwiseEmbeddingLookup<std::int64_t>(
+template bool EmbeddingSpMDM(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch,
+    bool IS_WEIGHT_POSITIONAL);
+
+template bool EmbeddingSpMDM(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch,
+    bool IS_WEIGHT_POSITIONAL);
+
+template bool EmbeddingSpMDM(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -673,7 +772,7 @@ template bool Fused8BitRowwiseEmbeddingLookup<std::int64_t>(
     int prefetch,
     bool IS_WEIGHT_POSITIONAL);
 
-template bool Fused8BitRowwiseEmbeddingLookup<std::int32_t>(
+template bool EmbeddingSpMDM(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
