@@ -33,34 +33,19 @@ void llc_flush(std::vector<T>& v) {
   }
 }
 
-void llc_flush_fused_table(const uint8_t* table, int size) {
-  constexpr int CACHE_LINE_SIZE = 64;
-  for (int i = 0; i < size; i += CACHE_LINE_SIZE) {
-    _mm_clflush(&table[i]);
-  }
-}
-} // anonymous namespace
-
-void print_outupt(int rows, int embedding_dim, const float* output) {
+void print_table(int rows, int embedding_dim, const float* output) {
   for (int i = 0; i < rows; i++) {
-    std::cout << "output row: " << i << " : " << std::endl;
+    std::cout << "row: " << i << " : " << std::endl;
     for (int ii = 0; ii < embedding_dim; ii++) {
       std::cout << output[i * embedding_dim + ii] << ",";
     }
     std::cout << std::endl;
   }
 }
+} // anonymous namespace
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
-                << ",";
-    }
-    std::cout << std::endl;
-  }
-}
+
+
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -72,10 +57,10 @@ static vector<vector<int>> GetInputs_() {
       // {10, 4000000, 128, 100},
       // {10, 4000000, 256, 100},
       // Use these for debugging
-       {2, 16, 128, 10},
-       {10, 4000, 128, 100},
-       {10, 4000, 128, 100},
-       {10, 4000, 128, 100},
+      {2, 16, 128, 10},
+      {10, 4000, 128, 100},
+      {10, 4000, 128, 100},
+      {10, 4000, 128, 100},
   };
   return input_dims;
 }
@@ -89,25 +74,13 @@ int run_benchmark(
     bool use_32_bit_indices = false,
     bool prefetch = false) {
   // Create embedding table
-  vector<uint8_t> embedding_table(
-      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
   default_random_engine generator;
+
+  vector<float> embedding_table(num_unique_ids * embedding_dim);
   normal_distribution<float> embedding_distribution;
-
-  uint8_t* fused_embedding_table =
-      new uint8_t[num_unique_ids * (embedding_dim + 2 * sizeof(float))];
-  for (int i = 0; i < num_unique_ids; i++) {
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] = 2;
-    }
-    float* scale_bias = reinterpret_cast<float*>(
-        fused_embedding_table + i * (embedding_dim + 2 * sizeof(float)) +
-        embedding_dim);
-    scale_bias[0] = 2.0;
-    scale_bias[1] = 1.0;
+  for (int i = 0; i < embedding_table.size(); ++i) {
+    embedding_table[i] = embedding_distribution(generator);
   }
-
-  // print_fused_table(num_unique_ids, embedding_dim, fused_embedding_table);
 
   // Generate lengths
   uniform_int_distribution<int> length_distribution(1, 2 * average_len + 1);
@@ -125,7 +98,6 @@ int run_benchmark(
   vector<int32_t> indices_32;
 
   vector<int> container(num_unique_ids);
-  map<int64_t, set<int>> dedup_map; // index -> set(output index)
 
   // please note we generate unique indices
   for (int i = 0; i < batch_size; ++i) {
@@ -165,34 +137,33 @@ int run_benchmark(
   for (bool has_weight : {false, true}) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
+    bool success, success_ref;
+
     for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
       if (use_32_bit_indices) {
-        fbgemm::
-            Fused8BitRowwiseEmbeddingLookup_ref<int32_t, uint8_t, float, false>(
-                embedding_dim,
-                batch_size,
-                lengths_sum,
-                num_unique_ids,
-                fused_embedding_table,
-                indices_32.data(),
-                lengths.data(),
-                has_weight ? weights.data() : nullptr,
-                normalize_by_lengths,
-                output_ref.data());
-
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table.data(),
+            indices_32.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
       } else {
-        fbgemm::
-            Fused8BitRowwiseEmbeddingLookup_ref<int64_t, uint8_t, float, false>(
-                embedding_dim,
-                batch_size,
-                lengths_sum,
-                num_unique_ids,
-                fused_embedding_table,
-                indices.data(),
-                lengths.data(),
-                has_weight ? weights.data() : nullptr,
-                normalize_by_lengths,
-                output_ref.data());
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table.data(),
+            indices.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
       }
     }
 
@@ -202,8 +173,6 @@ int run_benchmark(
       for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
         if (flush_cache) {
           llc_flush(embedding_table);
-          llc_flush_fused_table(
-              fused_embedding_table, num_unique_ids * (embedding_dim + 8));
           llc_flush(indices);
           llc_flush(indices_32);
           llc_flush(lengths);
@@ -214,12 +183,12 @@ int run_benchmark(
         if (use_32_bit_indices) {
           t_begin = chrono::system_clock::now();
 
-          fbgemm::Fused8BitRowwiseEmbeddingLookup<int32_t>(
+          success = fbgemm::EmbeddingSpMDM<float, int32_t>(
               embedding_dim,
               batch_size,
               lengths_sum,
               num_unique_ids,
-              fused_embedding_table,
+              embedding_table.data(),
               indices_32.data(),
               lengths.data(),
               has_weight ? weights.data() : nullptr,
@@ -232,12 +201,12 @@ int run_benchmark(
         } else {
           t_begin = chrono::system_clock::now();
 
-          fbgemm::Fused8BitRowwiseEmbeddingLookup<int64_t>(
+          success = fbgemm::EmbeddingSpMDM<float, int64_t>(
               embedding_dim,
               batch_size,
               lengths_sum,
               num_unique_ids,
-              fused_embedding_table,
+              embedding_table.data(),
               indices.data(),
               lengths.data(),
               has_weight ? weights.data() : nullptr,
@@ -253,16 +222,19 @@ int run_benchmark(
         }
       }
 
-      // print_outupt(batch_size, embedding_dim, output.data());
-      // print_outupt(batch_size, embedding_dim, output_ref.data());
+      // print_table(batch_size, embedding_dim, output.data());
+      // cout << "reference data\n";
+      // print_table(batch_size, embedding_dim, output_ref.data());
       // Check correctness
       if (!flush_cache) {
-        // vector<float>& output_ref =
-        //     has_weight ? output_slws_ref : output_sls_ref;
-        for (int i = 0; i < output.size(); ++i) {
-          assert(fabs(output[i] - output_ref[i]) < 1e-3);
-          if (fabs(output[i] - output_ref[i]) >= 1e-3) {
-            cout << i << " " << output[i] << " " << output_ref[i] << endl;
+        if (success != success_ref) {
+          assert(0 && "ERROR: refernce impl and JIt imp did not both succeed");
+        } else if (success == true) {
+          for (int i = 0; i < output.size(); ++i) {
+            assert(output[i] == output_ref[i]);
+            if (output[i] != output_ref[i]) {
+              cout << i << " " << output[i] << " " << output_ref[i] << endl;
+            }
           }
         }
       }
@@ -341,17 +313,17 @@ int main() {
         true);
 
     // running with normalize by lengths
-    // run_benchmark(batch_size, num_unique_ids, embedding_dim, average_len,
-    // true); run_benchmark(
-    //     batch_size, num_unique_ids, embedding_dim, average_len, true, true);
-    // run_benchmark(
-    //     batch_size,
-    //     num_unique_ids,
-    //     embedding_dim,
-    //     average_len,
-    //     false,
-    //     true,
-    //     true);
+    run_benchmark(batch_size, num_unique_ids, embedding_dim, average_len, true);
+    run_benchmark(
+        batch_size, num_unique_ids, embedding_dim, average_len, true, true);
+    run_benchmark(
+        batch_size,
+        num_unique_ids,
+        embedding_dim,
+        average_len,
+        false,
+        true,
+        true);
   }
   return 0;
 }
