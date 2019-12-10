@@ -35,7 +35,8 @@ void test_xerbla(char* srname, const int* info, int){
   printf("\nXERBLA(MKL Error) is called :%s: %d\n", srname, *info);
 }
 
-void performance_test(int num_instances, bool flush) {
+void performance_test(
+    int num_instances, bool flush, int repetitions, bool is_mkl) {
 
 #if defined(USE_MKL)
   mkl_set_xerbla((XerblaEntry)test_xerbla);
@@ -217,77 +218,81 @@ void performance_test(int num_instances, bool flush) {
     }
 
 #if defined(USE_MKL)
-    // Gold via MKL sgemm
-    type = "MKL_FP32";
+    if (is_mkl) {
+      // Gold via MKL sgemm
+      type = "MKL_FP32";
 #elif defined(USE_BLAS)
-    type = "BLAS_FP32";
+      type = "BLAS_FP32";
 #else
-    type = "REF_FP32";
+      type = "REF_FP32";
 #endif
 
-    ttot = measureWithWarmup(
-        [&]() {
-          int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
-#if defined(USE_MKL) || defined(USE_BLAS)
-          cblas_sgemm(
-            CblasRowMajor,
-            CblasNoTrans,
-            CblasNoTrans,
-            m,
-            n,
-            k,
-            1.0,
-            A[copy].data(),
-            k,
-            Bt[copy].data(),
-            btran == matrix_op_t::NoTranspose ? kAligned : nAligned,
-            beta,
-            C_ref[copy].data(),
-            n);
-#else
-          cblas_sgemm_ref(
-              matrix_op_t::NoTranspose,
-              btran,
-              m,
-              n,
-              k,
-              alpha,
-              A[copy].data(),
-              k,
-              B[copy].data(),
-              (btran == matrix_op_t::NoTranspose) ? n : k,
-              beta,
-              C_ref[copy].data(),
-              n);
-#endif
-        },
-        3,
-        NITER,
-        [&]() {
-          if (flush) {
+      ttot = measureWithWarmup(
+          [&]() {
             int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
-            cache_evict(A[copy]);
+            for(int i = 0; i < repetitions; ++i) {
 #if defined(USE_MKL) || defined(USE_BLAS)
-            cache_evict(Bt[copy]);
+              cblas_sgemm(
+                CblasRowMajor,
+                CblasNoTrans,
+                CblasNoTrans,
+                m,
+                n,
+                k,
+                1.0,
+                A[copy].data(),
+                k,
+                Bt[copy].data(),
+                btran == matrix_op_t::NoTranspose ? kAligned : nAligned,
+                beta,
+                C_ref[copy].data(),
+                n);
 #else
-            cache_evict(B[copy]);
+              cblas_sgemm_ref(
+                  matrix_op_t::NoTranspose,
+                  btran,
+                  m,
+                  n,
+                  k,
+                  alpha,
+                  A[copy].data(),
+                  k,
+                  B[copy].data(),
+                  (btran == matrix_op_t::NoTranspose) ? n : k,
+                  beta,
+                  C_ref[copy].data(),
+                  n);
 #endif
-            cache_evict(C_ref[copy]);
-          }
-        },
-        // Use OpenMP if num instances > 1
-        num_instances > 1);
+            }
+          },
+          3,
+          NITER,
+          [&]() {
+            if (flush) {
+              int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
+              cache_evict(A[copy]);
+#if defined(USE_MKL) || defined(USE_BLAS)
+              cache_evict(Bt[copy]);
+#else
+              cache_evict(B[copy]);
+#endif
+              cache_evict(C_ref[copy]);
+            }
+          },
+          // Use OpenMP if num instances > 1
+          num_instances > 1);
 
-    gflops = nflops / ttot / 1e9;
-    gbs = nbytes / ttot / 1e9;
-    printf(
-        "\n%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
-        type.c_str(),
-        m,
-        n,
-        k,
-        gflops,
-        gbs);
+      gflops = nflops / ttot / 1e9;
+      gbs = nbytes / ttot / 1e9;
+      printf(
+          "\n%30s m = %5d n = %5d k = %5d Gflops = %8.4lf GBytes = %8.4lf\n",
+          type.c_str(),
+          m,
+          n,
+          k,
+          gflops * repetitions,
+          gbs * repetitions);
+    }
 
     type = "FBP_" + std::string(typeid(btype).name());
 
@@ -306,15 +311,17 @@ void performance_test(int num_instances, bool flush) {
           int num_threads = num_instances == 1 ? fbgemm_get_num_threads() : 1;
           int tid = num_instances == 1 ? fbgemm_get_thread_num() : 0;
 
-          cblas_gemm_compute(
-              matrix_op_t::NoTranspose,
-              m,
-              A[copy].data(),
-              *Bp[copy],
-              beta,
-              C_fb[copy].data(),
-              tid,
-              num_threads);
+          for(int i = 0; i < repetitions; ++i) {
+            cblas_gemm_compute(
+                matrix_op_t::NoTranspose,
+                m,
+                A[copy].data(),
+                *Bp[copy],
+                beta,
+                C_fb[copy].data(),
+                tid,
+                num_threads);
+            }
         },
         3,
         NITER,
@@ -336,27 +343,20 @@ void performance_test(int num_instances, bool flush) {
         m,
         n,
         k,
-        gflops,
-        gbs);
+        gflops * repetitions,
+        gbs * repetitions);
   }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, const char* argv[]) {
+  int num_instances = 1;
 #ifdef _OPENMP
   const char* inst = getenv("GEMMBENCH_NUM_INSTANCES");
-  int num_instances = 1;
   if (inst != nullptr && *inst) {
     num_instances = std::max(atoi(inst), num_instances);
   }
-
-  for (auto i = 1; i < argc; ++i) {
-    static const char param[] = "--inst=";
-    const char* ptr = strstr(argv[i], param);
-    if (ptr) {
-      ptr += sizeof(param) - 1; // null terminated
-      num_instances = std::max(atoi(ptr), num_instances);
-    }
-  }
+  num_instances = parseArgumentInt(
+      argc, argv, "--inst=", num_instances, num_instances);
   printf("Running %d instances\n", num_instances);
   if (num_instances > 1) {
       // Set-up execution for multi-instance mode
@@ -372,23 +372,19 @@ int main(int argc, char** argv) {
   } else {
     // When running single instance use OMP_NUM_THREADS to determine
     // parallelism. Default behaviour is using a single thread.
-    // Use 1 thread unless OMP_NUM_THREADS is explicit set.
+    int num_threads = parseArgumentInt(
+        argc, argv, "--num_threads=", 1, 1);
     const char* val = getenv("OMP_NUM_THREADS");
     if (val == nullptr || !*val) {
-      omp_set_num_threads(1);
+      omp_set_num_threads(num_threads);
     }
   }
 
 #endif
 
-  bool flush = true;
-  for (auto i = 1; i < argc; ++i) {
-    static const char param[] = "--no-flush";
-    const char* ptr = strstr(argv[i], param);
-    if (ptr) {
-      flush = false;
-    }
-  }
+  int repetitions = parseArgumentInt(argc, argv, "--repit=", 1, 1);
+  bool no_flush = parseArgumentBool(argc, argv, "--no-flush", false);
+  bool no_mkl = parseArgumentBool(argc, argv, "--no-mkl", false);
 
-  performance_test(num_instances, flush);
+  performance_test(num_instances, !no_flush, repetitions, !no_mkl);
 }

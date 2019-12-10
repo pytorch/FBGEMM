@@ -39,6 +39,19 @@ void cache_evict(const T& vec) {
 }
 
 /**
+ * Parse application command line arguments
+ *
+ */
+int parseArgumentInt(
+    int argc,
+    const char* argv[],
+    const char* arg,
+    int non_exist_val,
+    int def_val);
+bool parseArgumentBool(
+    int argc, const char* argv[], const char* arg, bool def_val);
+
+/**
  * @param Fn functor to execute
  * @param Fe data eviction functor
  */
