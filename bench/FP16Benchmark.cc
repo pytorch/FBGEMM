@@ -103,8 +103,8 @@ void performance_test(
 
     vector<unique_ptr<PackedGemmMatrixFP16>> Bp;
     for (int i = 0; i < num_instances; ++i) {
-      Bp.push_back(
-          make_unique<PackedGemmMatrixFP16>(btran, k, n, alpha, B.data()));
+      Bp.push_back(unique_ptr<PackedGemmMatrixFP16>(
+          new PackedGemmMatrixFP16(btran, k, n, alpha, B.data())));
     }
 
     auto kAligned = ((k * sizeof(float) + 64) & ~63) / sizeof(float);
