@@ -47,7 +47,15 @@ int main(int, char**) {
       double effective_flop = IY * IX * Cin * Cout * KY * KX * 2;
 
       auto secs =
-          fbgemm::measureWithWarmup([&]() { fn(bptr, cptr); }, 5, 10, &llc);
+          fbgemm::measureWithWarmup(
+            [&]() {
+              fn(bptr, cptr);
+            },
+            5,
+            10,
+            [&]() {
+              llc_flush(llc);
+            });
 
       double effective_gflops = effective_flop / secs / 1e9;
       cout << fnz << "," << effective_gflops << "," << fnz * effective_gflops

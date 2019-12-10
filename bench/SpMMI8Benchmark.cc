@@ -50,8 +50,15 @@ int main(int, char**) {
 
       constexpr int NWARMUP = 5;
       constexpr int NITER = 32;
-      auto secs =
-          measureWithWarmup([&]() { fn(bptr, cptr, 0); }, NWARMUP, NITER, &llc);
+      auto secs = measureWithWarmup(
+          [&]() {
+            fn(bptr, cptr, 0);
+          },
+          NWARMUP,
+          NITER,
+          [&]() {
+            llc_flush(llc);
+          });
 
       auto secs_varying_n = measureWithWarmup(
           [&]() {
@@ -60,7 +67,9 @@ int main(int, char**) {
           },
           NWARMUP,
           NITER,
-          &llc);
+          [&]() {
+            llc_flush(llc);
+          });
 
       cout << fnz << "," << (FLOPs / secs / 1e9) << ","
            << (fnz * FLOPs / secs / 1e9) << ","

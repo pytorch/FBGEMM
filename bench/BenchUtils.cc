@@ -68,7 +68,7 @@ aligned_vector<float> getRandomSparseVector(
 
 void llc_flush(std::vector<char>& llc) {
   volatile char* data = llc.data();
-  for (int i = 0; i < llc.size(); i++) {
+  for (auto i = 0; i < llc.size(); i++) {
     data[i]++;
   }
 }

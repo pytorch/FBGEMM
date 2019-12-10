@@ -38,7 +38,14 @@ int main(int, char**) {
       constexpr int NWARMUP = 5;
       constexpr int NITER = 32;
       auto secs = measureWithWarmup(
-          [&]() { fn(bData.data(), cData.data(), 0); }, NWARMUP, NITER, &llc);
+          [&]() {
+            fn(bData.data(), cData.data(), 0);
+          },
+          NWARMUP,
+          NITER,
+          [&]() {
+            llc_flush(llc);
+          });
 
       auto secs_varying_n = measureWithWarmup(
           [&]() {
@@ -52,7 +59,9 @@ int main(int, char**) {
           },
           NWARMUP,
           NITER,
-          &llc);
+          [&]() {
+            llc_flush(llc);
+          });
 
       double effective_gflops = effective_flop / secs / 1e9;
       double effective_gflops_varying_n = effective_flop / secs_varying_n / 1e9;
