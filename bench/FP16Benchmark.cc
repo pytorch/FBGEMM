@@ -6,6 +6,7 @@
  */
 #include <chrono>
 #include <cmath>
+#include <memory>
 #include <random>
 
 #ifdef USE_MKL
