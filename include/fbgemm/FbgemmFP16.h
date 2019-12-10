@@ -25,6 +25,9 @@ namespace fbgemm {
 /// internal packed blocked-row major format
 class PackedGemmMatrixFP16 {
  public:
+   using value_type = float16;
+   using size_type  = uint64_t;
+
   // takes smat input mamtrix in row-major format;
   // packs it into gemm-friendly blocked format;
   // allocate space and sets up all the internal variables;
@@ -231,6 +234,14 @@ class PackedGemmMatrixFP16 {
   }
   inline int kernelNumColBlocks() const {
     return kernel_ncol_blocks_;
+  }
+
+  const value_type* data() const {
+    return pmat_;
+  }
+
+  const uint64_t size() const {
+    return size_ / sizeof(value_type);
   }
 
   int nrow_, ncol_;

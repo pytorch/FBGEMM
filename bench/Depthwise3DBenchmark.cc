@@ -198,7 +198,11 @@ int main() {
         },
         NWARMUP,
         NITER,
-        flush ? &llc : nullptr,
+        [&]() {
+          if (flush) {
+            llc_flush(llc);
+          }
+        },
         true /*useOpenMP*/);
 
     // correctness check

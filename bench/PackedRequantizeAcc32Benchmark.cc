@@ -160,7 +160,11 @@ void performance_test() {
         },
         NWARMUP,
         NITER,
-        flush ? &llc : nullptr);
+        [&]() {
+          if (flush) {
+            llc_flush(llc);
+          }
+        });
     ttot *= 1e9; // convert to ns
 
     ((volatile char*)(llc.data()));
