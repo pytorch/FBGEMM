@@ -29,12 +29,14 @@
 using namespace std;
 using namespace fbgemm;
 
+#if defined(USE_MKL)
 void test_xerbla(char* srname, const int* info, int) {
   // srname - name of the function that called xerbla
   // info - position of the invalid parameter in the parameter list
   // len - length of the name in bytes
   printf("\nXERBLA(MKL Error) is called :%s: %d\n", srname, *info);
 }
+#endif
 
 void performance_test(
     int num_instances,
@@ -101,11 +103,10 @@ void performance_test(
 
     vector<unique_ptr<PackedGemmMatrixFP16>> Bp;
     for (int i = 0; i < num_instances; ++i) {
-      Bp.push_back(std::unique_ptr<PackedGemmMatrixFP16>(
-          new PackedGemmMatrixFP16(btran, k, n, alpha, B.data())));
+      Bp.push_back(
+          make_unique<PackedGemmMatrixFP16>(btran, k, n, alpha, B.data()));
     }
 
-#if defined(USE_MKL)
     auto kAligned = ((k * sizeof(float) + 64) & ~63) / sizeof(float);
     auto nAligned = ((n * sizeof(float) + 64) & ~63) / sizeof(float);
     vector<aligned_vector<float>> Bt(num_instances);
@@ -130,7 +131,6 @@ void performance_test(
     for (auto i = 1; i < num_instances; ++i) {
       Bt[i] = Bt_ref;
     }
-#endif
 
     vector<aligned_vector<float>> C_ref;
     vector<aligned_vector<float>> C_fb;
@@ -173,15 +173,15 @@ void performance_test(
 #else
       cblas_sgemm_ref(
           matrix_op_t::NoTranspose,
-          btran,
+          matrix_op_t::NoTranspose,
           m,
           n,
           k,
-          alpha,
+          1.0,
           A[0].data(),
           k,
-          B[0].data(),
-          (btran == matrix_op_t::NoTranspose) ? n : k,
+          Bt[0].data(),
+          (btran == matrix_op_t::NoTranspose) ? kAligned : nAligned,
           beta,
           C_ref[0].data(),
           n);
@@ -252,15 +252,15 @@ void performance_test(
 #else
             cblas_sgemm_ref(
                 matrix_op_t::NoTranspose,
-                btran,
+                matrix_op_t::NoTranspose,
                 m,
                 n,
                 k,
-                alpha,
+                1.0,
                 A[copy].data(),
                 k,
-                B[copy].data(),
-                (btran == matrix_op_t::NoTranspose) ? n : k,
+                Bt[copy].data(),
+                (btran == matrix_op_t::NoTranspose) ? kAligned : nAligned,
                 beta,
                 C_ref[copy].data(),
                 n);
@@ -273,11 +273,7 @@ void performance_test(
             if (flush) {
               int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
               cache_evict(A[copy]);
-#if defined(USE_MKL) || defined(USE_BLAS)
               cache_evict(Bt[copy]);
-#else
-            cache_evict(B[copy]);
-#endif
               cache_evict(C_ref[copy]);
             }
           },
@@ -294,8 +290,9 @@ void performance_test(
           k,
           gflops * repetitions,
           gbs * repetitions);
+#ifdef USE_MKL
     }
-
+#endif
     type = "FBP_" + std::string(typeid(btype).name());
 
     ttot = measureWithWarmup(
