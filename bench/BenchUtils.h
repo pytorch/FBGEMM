@@ -6,8 +6,8 @@
  */
 #pragma once
 #include <chrono>
-#include <vector>
 #include <functional>
+#include <vector>
 
 #include <immintrin.h>
 
@@ -33,7 +33,7 @@ void cache_evict(const T& vec) {
   auto const dataSize = size * elemSize;
 
   const char* data = (const char*)vec.data();
-  for(auto i = 0; i < dataSize; i += 64) {
+  for (auto i = 0; i < dataSize; i += 64) {
     _mm_clflush((void*)&data[i]);
   }
 }
@@ -49,8 +49,16 @@ int parseArgumentInt(
     int non_exist_val,
     int def_val);
 bool parseArgumentBool(
-    int argc, const char* argv[], const char* arg, bool def_val);
+    int argc,
+    const char* argv[],
+    const char* arg,
+    bool def_val);
 
+namespace {
+struct empty_flush {
+  void operator()() const {}
+};
+} // namespace
 /**
  * @param Fn functor to execute
  * @param Fe data eviction functor
@@ -60,7 +68,7 @@ double measureWithWarmup(
     Fn&& fn,
     int warmupIterations,
     int measuredIterations,
-    Fe&& fe = [] () {},
+    const Fe& fe = empty_flush(),
     bool useOpenMP = false) {
   for (int i = 0; i < warmupIterations; ++i) {
     // Evict data first
