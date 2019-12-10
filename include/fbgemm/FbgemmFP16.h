@@ -240,7 +240,7 @@ class PackedGemmMatrixFP16 {
     return pmat_;
   }
 
-  const uint64_t size() const {
+  uint64_t size() const {
     return size_ / sizeof(value_type);
   }
 
