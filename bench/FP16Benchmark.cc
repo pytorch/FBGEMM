@@ -28,7 +28,19 @@
 using namespace std;
 using namespace fbgemm;
 
+void test_xerbla(char* srname, const int* info, int){
+  // srname - name of the function that called xerbla
+  // info - position of the invalid parameter in the parameter list
+  // len - length of the name in bytes
+  printf("\nXERBLA(MKL Error) is called :%s: %d\n", srname, *info);
+}
+
 void performance_test(int num_instances, bool flush) {
+
+#if defined(USE_MKL)
+  mkl_set_xerbla((XerblaEntry)test_xerbla);
+#endif
+
   float alpha = 1.f, beta = 1.f;
   matrix_op_t btran = matrix_op_t::Transpose;
 
@@ -81,18 +93,41 @@ void performance_test(int num_instances, bool flush) {
 
     aligned_vector<int> Bint(k * n);
     randFill(Bint, 0, 4);
-    vector<aligned_vector<float>> B;
-    for(int i = 0; i < num_instances; ++i) {
-      B.push_back(aligned_vector<float>(Bint.begin(), Bint.end()));
-    }
-
+    aligned_vector<float> B(Bint.begin(), Bint.end());
 
     vector<unique_ptr<PackedGemmMatrixFP16>> Bp;
     for(int i = 0; i < num_instances; ++i) {
       Bp.push_back(
-        make_unique<PackedGemmMatrixFP16>(btran, k, n, alpha, B[i].data()));
+        make_unique<PackedGemmMatrixFP16>(btran, k, n, alpha, B.data()));
     }
 
+
+#if defined(USE_MKL)
+    auto kAligned = ((k * sizeof(float) + 64) & ~63)/sizeof(float);
+    auto nAligned = ((n * sizeof(float) + 64) & ~63)/sizeof(float);
+    vector<aligned_vector<float>> Bt(num_instances);
+    auto& Bt_ref = Bt[0];
+
+    if (btran == matrix_op_t::Transpose) {
+      Bt_ref.resize(k * nAligned);
+      for(auto row = 0; row < k; ++row) {
+        for(auto col = 0; col < n; ++col) {
+          Bt_ref[row * nAligned + col] = alpha * B[col * k + row];
+        }
+      }
+    } else {
+      Bt_ref.resize(kAligned * n);
+      for(auto row = 0; row < k; ++row) {
+        for(auto col = 0; col < n; ++col) {
+          Bt_ref[col * kAligned + row] = alpha * B[col * k + row];
+        }
+      }
+    }
+
+    for(auto i = 1; i < num_instances; ++i) {
+      Bt[i] = Bt_ref;
+    }
+#endif
 
     vector<aligned_vector<float>> C_ref;
     vector<aligned_vector<float>> C_fb;
@@ -120,15 +155,15 @@ void performance_test(int num_instances, bool flush) {
       cblas_sgemm(
           CblasRowMajor,
           CblasNoTrans,
-          btran == matrix_op_t::Transpose ? CblasTrans : CblasNoTrans,
+          CblasNoTrans,  // B is pretransposed, if required by operation
           m,
           n,
           k,
-          alpha,
+          1.0,  // Mutliplication by Alpha is done during transpose of B
           A[0].data(),
           k,
-          B[0].data(),
-          (btran == matrix_op_t::NoTranspose) ? n : k,
+          Bt[0].data(),
+          btran == matrix_op_t::NoTranspose ? kAligned : nAligned,
           beta,
           C_ref[0].data(),
           n);
@@ -195,20 +230,20 @@ void performance_test(int num_instances, bool flush) {
           int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
 #if defined(USE_MKL) || defined(USE_BLAS)
           cblas_sgemm(
-              CblasRowMajor,
-              CblasNoTrans,
-              btran == matrix_op_t::Transpose ? CblasTrans : CblasNoTrans,
-              m,
-              n,
-              k,
-              alpha,
-              A[copy].data(),
-              k,
-              B[copy].data(),
-              (btran == matrix_op_t::NoTranspose) ? n : k,
-              beta,
-              C_ref[copy].data(),
-              n);
+            CblasRowMajor,
+            CblasNoTrans,
+            CblasNoTrans,
+            m,
+            n,
+            k,
+            1.0,
+            A[copy].data(),
+            k,
+            Bt[copy].data(),
+            btran == matrix_op_t::NoTranspose ? kAligned : nAligned,
+            beta,
+            C_ref[copy].data(),
+            n);
 #else
           cblas_sgemm_ref(
               matrix_op_t::NoTranspose,
@@ -232,7 +267,11 @@ void performance_test(int num_instances, bool flush) {
           if (flush) {
             int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
             cache_evict(A[copy]);
+#if defined(USE_MKL) || defined(USE_BLAS)
+            cache_evict(Bt[copy]);
+#else
             cache_evict(B[copy]);
+#endif
             cache_evict(C_ref[copy]);
           }
         },
