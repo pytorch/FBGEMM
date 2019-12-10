@@ -7,6 +7,10 @@
 #pragma once
 #include <chrono>
 #include <vector>
+#include <functional>
+
+#include <immintrin.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -22,20 +26,32 @@ void llc_flush(std::vector<char>& llc);
 int fbgemm_get_num_threads();
 int fbgemm_get_thread_num();
 
+template <typename T>
+void cache_evict(const T& vec) {
+  auto const size = vec.size();
+  auto const elemSize = sizeof(typename T::value_type);
+  auto const dataSize = size * elemSize;
+
+  const char* data = (const char*)vec.data();
+  for(auto i = 0; i < dataSize; i += 64) {
+    _mm_clflush((void*)&data[i]);
+  }
+}
+
 /**
- * @param llc if not nullptr, flush llc
+ * @param Fn functor to execute
+ * @param Fe data eviction functor
  */
-template <class Fn>
+template <class Fn, class Fe = std::function<void()>>
 double measureWithWarmup(
     Fn&& fn,
     int warmupIterations,
     int measuredIterations,
-    std::vector<char>* llc = nullptr,
+    Fe&& fe = [] () {},
     bool useOpenMP = false) {
   for (int i = 0; i < warmupIterations; ++i) {
-    if (llc) {
-      llc_flush(*llc);
-    }
+    // Evict data first
+    fe();
     fn();
   }
 
@@ -53,8 +69,9 @@ double measureWithWarmup(
       thread_id = omp_get_thread_num();
     }
 #endif
-    if (llc && thread_id == 0) {
-      llc_flush(*llc);
+
+    if (thread_id == 0) {
+      fe();
     }
 
 #ifdef _OPENMP

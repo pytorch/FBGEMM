@@ -69,7 +69,9 @@ int main() {
         },
         NWARMUP,
         NITER,
-        &llc);
+        [&]() {
+          llc_flush(llc);
+        });
 
     const double ops = 2.0 * m * n * k;
     cout << "Gops/s = " << ops / ttot / 1e9 << endl;
@@ -122,7 +124,9 @@ int main() {
         },
         NWARMUP,
         NITER,
-        &llc);
+        [&]() {
+          llc_flush(llc);
+        });
 
     cout << "Gops/s = " << ops / ttot / 1e9 << endl;
     compare_buffers(C_ref.data(), C_acc.data(), m, n, n, 5);
