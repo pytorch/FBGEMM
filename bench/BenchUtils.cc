@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <random>
 #include <type_traits>
+#include <string.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -68,4 +69,37 @@ int fbgemm_get_thread_num() {
 #endif
 }
 
+int parseArgumentInt(
+    int argc,
+    const char* argv[],
+    const char* arg,
+    int non_exist_val,
+    int def_val) {
+  int val = non_exist_val;
+  int arg_len = strlen(arg);
+  for(auto i = 1; i < argc; ++i) {
+    const char* ptr = strstr(argv[i], arg);
+    if (ptr) {
+      int res;
+      sscanf(ptr + arg_len, "%d", &res);
+      val = (*(ptr + arg_len - 1) == '=') ? res : def_val;
+      break;
+    }
+  }
+  return val;
+}
+
+bool parseArgumentBool(
+    int argc,
+    const char* argv[],
+    const char* arg,
+    bool def_val) {
+  for(auto i = 1; i < argc; ++i) {
+    const char* ptr = strstr(argv[i], arg);
+    if (ptr) {
+      return true;
+    }
+  }
+  return def_val;
+}
 } // namespace fbgemm
