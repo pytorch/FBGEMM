@@ -8,21 +8,29 @@
 #include <cstdint>
 #include "fbgemm/Types.h"
 
-#include "./FbgemmFP16Common.h"
-
 namespace fbgemm {
 
-void __attribute__((noinline))
-gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
-gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
-gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
-gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
-gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
-gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
+using fp16 = float16;
+using fp32 = float;
+struct GemmParams {
+  uint64_t k;
+  float* A;
+  const fp16* B;
+  float* beta;
+  uint64_t accum;
+  float* C;
+  uint64_t ldc;
+  uint64_t b_block_cols;
+  uint64_t b_block_size;
+};
+void __attribute__((noinline)) gemmkernel_1x2_Avx2_fA0fB0fC0(GemmParams* gp);
+void __attribute__((noinline)) gemmkernel_2x2_Avx2_fA0fB0fC0(GemmParams* gp);
+void __attribute__((noinline)) gemmkernel_3x2_Avx2_fA0fB0fC0(GemmParams* gp);
+void __attribute__((noinline)) gemmkernel_4x2_Avx2_fA0fB0fC0(GemmParams* gp);
+void __attribute__((noinline)) gemmkernel_5x2_Avx2_fA0fB0fC0(GemmParams* gp);
+void __attribute__((noinline)) gemmkernel_6x2_Avx2_fA0fB0fC0(GemmParams* gp);
+typedef void (*funcptr_fp16)(GemmParams* gp);
+;
 
 } // namespace fbgemm
+

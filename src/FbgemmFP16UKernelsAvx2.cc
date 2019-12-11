@@ -8,8 +8,7 @@
 
 namespace fbgemm {
 
-void __attribute__((noinline))
-gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_1x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -26,16 +25,17 @@ gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -43,19 +43,9 @@ gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -70,9 +60,26 @@ gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -87,18 +94,19 @@ gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_2x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -115,16 +123,17 @@ gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -132,27 +141,11 @@ gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
+      "vxorps ymm2,ymm2,ymm2\t\n"
+      "vxorps ymm3,ymm3,ymm3\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm2, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm3, ymm15, [r12 + 32]\t\n"
-      "mov r12, rcx\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm2, ymm2, ymm2\t\n"
-      "vxorps ymm3, ymm3, ymm3\t\n"
-      "mov r12, rcx\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -170,12 +163,34 @@ gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
       "add r12, r13\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm2,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
+      "vfmadd231ps ymm3,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -190,18 +205,19 @@ gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_3x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -218,16 +234,17 @@ gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -235,33 +252,13 @@ gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
+      "vxorps ymm2,ymm2,ymm2\t\n"
+      "vxorps ymm3,ymm3,ymm3\t\n"
+      "vxorps ymm4,ymm4,ymm4\t\n"
+      "vxorps ymm5,ymm5,ymm5\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm2, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm3, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm4, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm5, ymm15, [r12 + 32]\t\n"
-      "mov r12, rcx\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm2, ymm2, ymm2\t\n"
-      "vxorps ymm3, ymm3, ymm3\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm4, ymm4, ymm4\t\n"
-      "vxorps ymm5, ymm5, ymm5\t\n"
-      "mov r12, rcx\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -282,6 +279,10 @@ gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
@@ -291,6 +292,29 @@ gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "add r12, r13\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm4\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm5\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm2,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
+      "vfmadd231ps ymm3,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm4,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm4\t\n"
+      "vfmadd231ps ymm5,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm5\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -305,18 +329,19 @@ gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_4x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -333,16 +358,17 @@ gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -350,39 +376,15 @@ gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
+      "vxorps ymm2,ymm2,ymm2\t\n"
+      "vxorps ymm3,ymm3,ymm3\t\n"
+      "vxorps ymm4,ymm4,ymm4\t\n"
+      "vxorps ymm5,ymm5,ymm5\t\n"
+      "vxorps ymm6,ymm6,ymm6\t\n"
+      "vxorps ymm7,ymm7,ymm7\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm2, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm3, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm4, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm5, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm6, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm7, ymm15, [r12 + 32]\t\n"
-      "mov r12, rcx\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm2, ymm2, ymm2\t\n"
-      "vxorps ymm3, ymm3, ymm3\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm4, ymm4, ymm4\t\n"
-      "vxorps ymm5, ymm5, ymm5\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm6, ymm6, ymm6\t\n"
-      "vxorps ymm7, ymm7, ymm7\t\n"
-      "mov r12, rcx\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -406,6 +408,10 @@ gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
@@ -418,6 +424,34 @@ gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "add r12, r13\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm6\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm7\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm2,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
+      "vfmadd231ps ymm3,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm4,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm4\t\n"
+      "vfmadd231ps ymm5,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm5\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm6,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm6\t\n"
+      "vfmadd231ps ymm7,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm7\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -432,18 +466,19 @@ gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_5x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -460,16 +495,17 @@ gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -477,45 +513,17 @@ gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
+      "vxorps ymm2,ymm2,ymm2\t\n"
+      "vxorps ymm3,ymm3,ymm3\t\n"
+      "vxorps ymm4,ymm4,ymm4\t\n"
+      "vxorps ymm5,ymm5,ymm5\t\n"
+      "vxorps ymm6,ymm6,ymm6\t\n"
+      "vxorps ymm7,ymm7,ymm7\t\n"
+      "vxorps ymm8,ymm8,ymm8\t\n"
+      "vxorps ymm9,ymm9,ymm9\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm2, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm3, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm4, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm5, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm6, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm7, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm8, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm9, ymm15, [r12 + 32]\t\n"
-      "mov r12, rcx\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm2, ymm2, ymm2\t\n"
-      "vxorps ymm3, ymm3, ymm3\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm4, ymm4, ymm4\t\n"
-      "vxorps ymm5, ymm5, ymm5\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm6, ymm6, ymm6\t\n"
-      "vxorps ymm7, ymm7, ymm7\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm8, ymm8, ymm8\t\n"
-      "vxorps ymm9, ymm9, ymm9\t\n"
-      "mov r12, rcx\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -542,6 +550,10 @@ gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
@@ -557,6 +569,39 @@ gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "add r12, r13\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm8\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm9\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm2,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
+      "vfmadd231ps ymm3,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm4,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm4\t\n"
+      "vfmadd231ps ymm5,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm5\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm6,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm6\t\n"
+      "vfmadd231ps ymm7,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm7\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm8,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm8\t\n"
+      "vfmadd231ps ymm9,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm9\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -571,18 +616,19 @@ gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
         "r12",
         "memory");
 }
-void __attribute__((noinline))
-gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void __attribute__((noinline)) gemmkernel_6x2_Avx2_fA0fB0fC0(GemmParams* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -599,16 +645,17 @@ gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       // B
       "mov r10, [r14 + 16]\t\n"
       // beta
-      "vbroadcastss ymm15,DWORD PTR [r14 + 24]\t\n"
+      "mov r15, [r14 + 24]\t\n"
+      // accum
+      "mov rdx, [r14 + 32]\t\n"
       // C
-      "mov r12, [r14 + 32]\t\n"
+      "mov r12, [r14 + 40]\t\n"
       // ldc
-      "mov r13, [r14 + 40]\t\n"
+      "mov r13, [r14 + 48]\t\n"
       // b_block_cols
-      "mov rdi, [r14 + 48]\t\n"
+      "mov rdi, [r14 + 56]\t\n"
       // b_block_size
-      "mov rsi, [r14 + 56]\t\n"
-
+      "mov rsi, [r14 + 64]\t\n"
       // Make copies of A and C
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
@@ -616,51 +663,19 @@ gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rbx, 0\t\n"
       "loop_outter%=:\t\n"
       "mov r14, 0\t\n"
-      "vxorps xmm0, xmm0, xmm0\t\n"
-      "vcomiss xmm15, xmm0\t\n"
-      "jz zero_regs%=\t\n"
+      "vxorps ymm0,ymm0,ymm0\t\n"
+      "vxorps ymm1,ymm1,ymm1\t\n"
+      "vxorps ymm2,ymm2,ymm2\t\n"
+      "vxorps ymm3,ymm3,ymm3\t\n"
+      "vxorps ymm4,ymm4,ymm4\t\n"
+      "vxorps ymm5,ymm5,ymm5\t\n"
+      "vxorps ymm6,ymm6,ymm6\t\n"
+      "vxorps ymm7,ymm7,ymm7\t\n"
+      "vxorps ymm8,ymm8,ymm8\t\n"
+      "vxorps ymm9,ymm9,ymm9\t\n"
+      "vxorps ymm10,ymm10,ymm10\t\n"
+      "vxorps ymm11,ymm11,ymm11\t\n"
 
-      // Setup values with beta multiplication
-      "vmulps ymm0, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm1, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm2, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm3, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm4, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm5, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm6, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm7, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm8, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm9, ymm15, [r12 + 32]\t\n"
-      "add r12, r13\t\n"
-      "vmulps ymm10, ymm15, [r12 + 0]\t\n"
-      "vmulps ymm11, ymm15, [r12 + 32]\t\n"
-      "mov r12, rcx\t\n"
-      "jmp loop_inner%=\t\n"
-
-      "zero_regs%=:\t\n"
-
-      "vxorps ymm0, ymm0, ymm0\t\n"
-      "vxorps ymm1, ymm1, ymm1\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm2, ymm2, ymm2\t\n"
-      "vxorps ymm3, ymm3, ymm3\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm4, ymm4, ymm4\t\n"
-      "vxorps ymm5, ymm5, ymm5\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm6, ymm6, ymm6\t\n"
-      "vxorps ymm7, ymm7, ymm7\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm8, ymm8, ymm8\t\n"
-      "vxorps ymm9, ymm9, ymm9\t\n"
-      "add r12, r13\t\n"
-      "vxorps ymm10, ymm10, ymm10\t\n"
-      "vxorps ymm11, ymm11, ymm11\t\n"
-      "mov r12, rcx\t\n"
 
       "loop_inner%=:\t\n"
 
@@ -690,6 +705,10 @@ gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "cmp r14, r8\t\n"
       "jl loop_inner%=\t\n"
 
+      "L_exit%=:\t\n"
+
+      "cmp rdx, 1\t\n"
+      "je L_accum%=\t\n"
       // Dump C
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
@@ -708,6 +727,44 @@ gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "add r12, r13\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm10\t\n"
       "vmovups ymmword PTR [r12 + 32], ymm11\t\n"
+      "add r12, r13\t\n"
+      "jmp L_done%=\t\n"
+
+      "L_accum%=:\t\n"
+      // Dump C with accumulate
+      "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
+      "vfmadd231ps ymm1,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm1\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm2,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm2\t\n"
+      "vfmadd231ps ymm3,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm3\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm4,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm4\t\n"
+      "vfmadd231ps ymm5,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm5\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm6,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm6\t\n"
+      "vfmadd231ps ymm7,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm7\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm8,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm8\t\n"
+      "vfmadd231ps ymm9,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm9\t\n"
+      "add r12, r13\t\n"
+      "vfmadd231ps ymm10,ymm15,ymmword PTR [r12 + 0]\t\n"
+      "vmovups ymmword PTR [r12 + 0], ymm10\t\n"
+      "vfmadd231ps ymm11,ymm15,ymmword PTR [r12 + 32]\t\n"
+      "vmovups ymmword PTR [r12 + 32], ymm11\t\n"
+      "add r12, r13\t\n"
+
+      "L_done%=:\t\n"
 
       // next outer iteration
       "add rcx, 64\t\n"
@@ -722,10 +779,12 @@ gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r9",
         "r10",
         "r11",
+        "r15",
         "r13",
         "r14",
         "rax",
         "rcx",
+        "rdx",
         "rsi",
         "rdi",
         "rbx",
