@@ -32,7 +32,7 @@ enum class matrix_op_t { NoTranspose, Transpose };
 /**
  * @brief Typed enum for supported instruction sets.
  */
-enum class inst_set_t { anyarch, avx2, avx512, avx512_vnni };
+enum class inst_set_t { anyarch, avx2, avx512, avx512_ymm, avx512_vnni };
 
 /**
  * @brief Typed enum for optimized paths for convolutions
@@ -120,6 +120,21 @@ FBGEMM_API void transpose_simd(
     int ld_dst);
 
 /**
+ * @brief Explicitly set instruction set to be used
+ */
+FBGEMM_API void fbgemmForceIsa(inst_set_t);
+
+/**
+ * @brief Enable AVX512-256 path for Intel(r) Xeon(r) D servers
+ */
+FBGEMM_API void fbgemmEnableAvx512Ymm(bool);
+
+/**
+ * @brief Are we running on a Xeon-D cpu?
+ */
+FBGEMM_API bool fbgemmIsIntelXeonD();
+
+/**
  * @brief Are we running on a AVX512 supported cpu?
  */
 FBGEMM_API bool fbgemmHasAvx512Support();
@@ -133,6 +148,21 @@ FBGEMM_API bool fbgemmHasAvx2Support();
  * @brief Are we running on a AVX512_VNNI supported cpu?
  */
 FBGEMM_API bool fbgemmHasAvx512VnniSupport();
+
+/**
+ * @brief Retrieve current CPU instruction set
+ */
+FBGEMM_API inst_set_t fbgemmInstructionSet();
+
+/**
+ * @brief Is ISA is wide vector ZMM
+ */
+FBGEMM_API bool isZmm(inst_set_t);
+
+/**
+ * @brief Is ISA is wide vector ZMM
+ */
+FBGEMM_API bool isYmm(inst_set_t);
 
 /**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
@@ -217,15 +247,16 @@ template <typename accT = std::int32_t>
 FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
   constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
   constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
+  static const auto iset = fbgemmInstructionSet();
 
   if (is_32bit) {
     if (param->ROW_INTERLEAVE != 4)
       return false;
 
-    if (fbgemmHasAvx512Support()) {
+    if (isZmm(iset)) {
       if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
         return false;
-    } else if (fbgemmHasAvx2Support()) {
+    } else if (isYmm(iset)) {
       if (param->NR_MIN != 8 || param->NR % param->NR_MIN)
         return false;
     }
@@ -233,10 +264,10 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
     if (param->ROW_INTERLEAVE != 2)
       return false;
 
-    if (fbgemmHasAvx512Support()) {
+    if (isZmm(iset)) {
       if (param->NR_MIN != 32 || param->NR % param->NR_MIN)
         return false;
-    } else if (fbgemmHasAvx2Support()) {
+    } else if (isYmm(iset)) {
       if (param->NR_MIN != 16 || param->NR % param->NR_MIN)
         return false;
     }
@@ -246,7 +277,7 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
     return false;
   if (param->NCB % param->NR)
     return false;
-  if (fbgemmHasAvx512Support()) {
+  if (isZmm(iset)) {
     if (is_32bit) {
       // Zmm register usage for C
       if (param->MR * (param->NR / param->NR_MIN) > 28)
@@ -258,7 +289,7 @@ FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
         return false;
     }
 
-  } else if (fbgemmHasAvx2Support()) {
+  } else if (isYmm(iset)) {
     if (param->MR * (param->NR / param->NR_MIN) > 12)
       return false;
   }
