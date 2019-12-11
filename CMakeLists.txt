@@ -96,7 +96,6 @@ set(FBGEMM_AVX512_SRCS
   src/FbgemmBfloat16ConvertAvx512.cc
   src/FbgemmFP16UKernelsAvx512.cc
   src/FbgemmFloat16ConvertAvx512.cc
-  src/FbgemmFP16UKernelsAvx512_256.cc
   src/UtilsAvx512.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
