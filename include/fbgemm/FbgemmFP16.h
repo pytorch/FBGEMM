@@ -83,7 +83,7 @@ class PackedGemmMatrixFP16 {
     if (!cpuinfo_initialize()) {
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
-    bcol_ = (fbgemmHasAvx512Support()
+    bcol_ = (isZmm(fbgemmInstructionSet())
                  ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
                  : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS) *
         kernelNumColBlocks();

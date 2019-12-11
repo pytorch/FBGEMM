@@ -15,6 +15,7 @@
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <unordered_map>
 #include "./TransposeUtils.h"
 
 namespace fbgemm {
@@ -194,19 +195,109 @@ void transpose_simd(
     }
     return;
   }
+  static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
-  if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512Support()) {
-      internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
-    } else if (fbgemmHasAvx2Support()) {
-      internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
-    } else {
-      transpose_ref(M, N, src, ld_src, dst, ld_dst);
-      return;
-    }
+  if (isZmm(iset)) {
+    internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
+  } else if (isYmm(iset)) {
+    internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
   } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    transpose_ref(M, N, src, ld_src, dst, ld_dst);
   }
+}
+
+namespace {
+inst_set_t g_forced_isa = inst_set_t::anyarch;
+bool g_Avx512_Ymm_enabled = false;
+
+inst_set_t fbgemmEnvGetIsa() {
+  static const char* isa_env = "FBGEMM_ENABLE_INSTRUCTIONS";
+  static const std::unordered_map<std::string, inst_set_t> isaMap = {
+      {"AVX2", inst_set_t::avx2},
+      {"AVX512", inst_set_t::avx512},
+      {"AVX512_E1", inst_set_t::avx512_vnni},
+      {"AVX512_256", inst_set_t::avx512_ymm},
+  };
+  const char* env = std::getenv(isa_env);
+  if (env == nullptr) {
+    return inst_set_t::anyarch;
+  }
+
+  std::string val(env);
+  std::transform(val.begin(), val.end(), val.begin(), ::toupper);
+  auto it = isaMap.find(val);
+  return it == isaMap.end() ? inst_set_t::anyarch : it->second;
+}
+
+bool fbgemmEnvAvx512_256Enabled() {
+  static const char* isa_env = "FBGEMM_ENABLE_AVX512_256";
+  const char* env = std::getenv(isa_env);
+  if (env == nullptr) {
+    return false;
+  }
+
+  std::string val(env);
+  std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+  return val == "true" || val == "1";
+}
+
+} // namespace
+
+void fbgemmForceIsa(inst_set_t isa) {
+  g_forced_isa = isa;
+};
+
+void fbgemmEnableAvx512Ymm(bool flag) {
+  g_Avx512_Ymm_enabled = flag;
+};
+
+inst_set_t fbgemmInstructionSet() {
+  static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
+  static const bool isAvx512_Ymm_enabled = fbgemmEnvAvx512_256Enabled();
+
+  if (g_forced_isa != inst_set_t::anyarch) {
+    return g_forced_isa;
+  }
+  if (env_forced_isa != inst_set_t::anyarch) {
+    return env_forced_isa;
+  }
+
+  // Check environment
+  if (cpuinfo_initialize()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      return inst_set_t::avx512_vnni;
+    }
+    auto const isXeonD =
+        fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
+    auto const hasAVX512 = fbgemmHasAvx512Support();
+    if (hasAVX512 && !isXeonD) {
+      return inst_set_t::avx512;
+    }
+    if (hasAVX512 && isXeonD) {
+      return inst_set_t::avx512_ymm;
+    }
+    if (fbgemmHasAvx2Support()) {
+      return inst_set_t::avx2;
+    }
+  }
+  return inst_set_t::anyarch;
+}
+
+bool isZmm(inst_set_t isa) {
+  return isa == inst_set_t::avx512 || isa == inst_set_t::avx512_vnni;
+}
+
+bool isYmm(inst_set_t isa) {
+  return isa == inst_set_t::avx512_ymm || isa == inst_set_t::avx2;
+}
+
+bool fbgemmIsIntelXeonD() {
+  auto const pkgInfo = cpuinfo_get_packages();
+  if (strstr(pkgInfo->name, "Intel Xeon D-") ||
+      cpuinfo_get_packages_count() == 1) {
+    return true;
+  }
+  return false;
 }
 
 bool fbgemmHasAvx512Support() {

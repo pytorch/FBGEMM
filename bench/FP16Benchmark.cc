@@ -383,6 +383,8 @@ int main(int argc, const char* argv[]) {
   int repetitions = parseArgumentInt(argc, argv, "--repit=", 1, 1);
   bool no_flush = parseArgumentBool(argc, argv, "--no-flush", false);
   bool no_mkl = parseArgumentBool(argc, argv, "--no-mkl", false);
+  bool enableAvx512_ymm = parseArgumentBool(argc, argv, "--avx512-256", false);
+  fbgemmEnableAvx512Ymm(enableAvx512_ymm);
 
   performance_test(num_instances, !no_flush, repetitions, !no_mkl);
 }

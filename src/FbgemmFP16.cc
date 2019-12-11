@@ -4,17 +4,17 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "fbgemm/FbgemmFP16.h"
-
-#include "fbgemm/Fbgemm.h"
-
 #include <cpuinfo.h>
 #include <array>
 #include <cmath>
 #include <utility>
 
+#include "./FbgemmFP16Common.h"
 #include "./FbgemmFP16UKernelsAvx2.h"
 #include "./FbgemmFP16UKernelsAvx512.h"
+#include "./FbgemmFP16UKernelsAvx512_256.h"
+#include "fbgemm/Fbgemm.h"
+#include "fbgemm/FbgemmFP16.h"
 
 using namespace std;
 
@@ -44,40 +44,59 @@ inline void PackA(int nrow, int ncol, const float* from, int ldim, float* to) {
 //   }
 // }
 
-struct KernelInfo {
-using knl_ptr = funcptr_fp16;
+namespace KernelInfo {
+using knl_ptr = funcptr_t<float16>;
 // optimized kernels to cover all cases
 // 2 in ?x2 should be the same as kernel_ncol_blocks.
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
-static constexpr knl_ptr kernel_avx2[] = {nullptr,
-                                          gemmkernel_1x2_Avx2_fA0fB0fC0,
-                                          gemmkernel_2x2_Avx2_fA0fB0fC0,
-                                          gemmkernel_3x2_Avx2_fA0fB0fC0,
-                                          gemmkernel_4x2_Avx2_fA0fB0fC0,
-                                          gemmkernel_5x2_Avx2_fA0fB0fC0,
-                                          gemmkernel_6x2_Avx2_fA0fB0fC0};
+constexpr std::array<knl_ptr, 15> kernel_avx2 = {
+    nullptr,
+    gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0};
 
-static constexpr knl_ptr kernel_avx512[] = {nullptr,
-                                            gemmkernel_1x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_2x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_3x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_4x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_5x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_6x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_7x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_8x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_9x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_10x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_11x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_12x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_13x2_Avx512_fA0fB0fC0,
-                                            gemmkernel_14x2_Avx512_fA0fB0fC0};
+constexpr std::array<knl_ptr, 15> kernel_avx512_256 = {
+    nullptr,
+    gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0,
+    gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0,
+    gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0};
 
-  // autotuned kernel splits for various cases m = 1:mb_max
-  // may need re-autotuning for new uarch
-  // clang-format off
-  static constexpr array<array<array<int, 2>, 2>, 121> partition_avx2 = {
+constexpr std::array<knl_ptr, 15> kernel_avx512 = {
+    nullptr,
+    gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_4x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_5x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_6x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_7x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_8x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_9x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_10x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_11x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
+    gemmkernel_14x2_Avx512_fp16_fA0fB0fC0};
+
+// autotuned kernel splits for various cases m = 1:mb_max
+// may need re-autotuning for new uarch
+// clang-format off
+  constexpr partition_array_t partition_avx2 = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
     {
@@ -204,7 +223,7 @@ static constexpr knl_ptr kernel_avx512[] = {nullptr,
       {{ { 6, 20 }, { 0, 0 } } }, // 120
     }
   };
-  static constexpr array<array<array<int, 2>, 2>, 121> partition_avx512 = {
+  constexpr partition_array_t partition_avx512 = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
     {
@@ -331,12 +350,8 @@ static constexpr knl_ptr kernel_avx512[] = {nullptr,
       {{ { 14, 8 }, { 8, 1 } } }, // 120
     }
   };
-  // clang-format on
-};
-constexpr KernelInfo::knl_ptr KernelInfo::kernel_avx2[];
-constexpr KernelInfo::knl_ptr KernelInfo::kernel_avx512[];
-constexpr array<array<array<int, 2>, 2>, 121> KernelInfo::partition_avx2;
-constexpr array<array<array<int, 2>, 2>, 121> KernelInfo::partition_avx512;
+// clang-format on
+}; // namespace KernelInfo
 
 // define this to debug fp16 kernel using a reference C implementation
 // #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
@@ -399,7 +414,9 @@ FBGEMM_API void cblas_gemm_compute(
   const int mb_max = 120;
   // By some reason, if packed B is using packing layout for avx2, we just use
   // avx2 even if avx512 is available.
-  bool use_avx512 = fbgemmHasAvx512Support() &&
+  static inst_set_t isa = fbgemmInstructionSet();
+
+  bool use_avx512 = isZmm(isa) &&
       (Bp.blockColSize() ==
        simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS *
            Bp.kernelNumColBlocks());
@@ -408,12 +425,15 @@ FBGEMM_API void cblas_gemm_compute(
   static thread_local unique_ptr<std::array<float, 256 * 1024>> scratchpad(
       new std::array<float, 256 * 1024>());
 
-  GemmParams gp;
+  GemmParams<float16> gp;
 
-  const funcptr_fp16* kernels =
-      use_avx512 ? KernelInfo::kernel_avx512 : KernelInfo::kernel_avx2;
-  const array<array<array<int, 2>, 2>, 121>& partition =
-      use_avx512 ? KernelInfo::partition_avx512 : KernelInfo::partition_avx2;
+  const auto& kernels = use_avx512
+      ? KernelInfo::kernel_avx512
+      : isa == inst_set_t::avx512_ymm ? KernelInfo::kernel_avx512_256
+                                      : KernelInfo::kernel_avx2;
+  const auto& partition = use_avx512 || isa == inst_set_t::avx512_ymm
+      ? KernelInfo::partition_avx512
+      : KernelInfo::partition_avx2;
 
   int i_begin, i_end;
   // fbgemmPartition1D(thread_id, num_threads, m, i_begin, i_end);
@@ -425,16 +445,13 @@ FBGEMM_API void cblas_gemm_compute(
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
       float beta_;
-      uint64_t accum;
       if (k_ind == 0) {
         // accumulate of beta != 0.0
         // do not!!! accumulate otherwise
         beta_ = beta;
-        accum = (beta_ == 0.0f) ? 0 : 1;
       } else {
         // always accumulate with beta_ = 1.0f
         beta_ = 1.0f;
-        accum = 1;
       }
 
       const int kb = std::min(Bp.blockRowSize(), Bp.numRows() - k_ind);
@@ -461,8 +478,7 @@ FBGEMM_API void cblas_gemm_compute(
           int nbcol = n / Bp.blockColSize();
           gp.k = kb;
           gp.B = &(Bp(k_ind, 0));
-          gp.beta = &beta_;
-          gp.accum = accum;
+          gp.beta = beta_;
           gp.C = &C[m2 * ldc];
           gp.ldc = ldc * sizeof(C[0]);
           gp.b_block_cols = nbcol;
@@ -529,7 +545,7 @@ FBGEMM_API void cblas_gemm_compute(
                   assert(
                       i * Bp.blockColSize() + (j - last_blk_col) <
                       sizeof(c_tmp) / sizeof(c_tmp[0]));
-                  if (accum == 0) {
+                  if (beta_ == 0.f) {
                     C[(m2 + i) * ldc + j] =
                         c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];
                   } else {
