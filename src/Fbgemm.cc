@@ -204,7 +204,7 @@ void fbgemmPacked(
 }
 
 template <int SPATIAL_DIM>
-FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
+bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
   static_assert(SPATIAL_DIM >= 2, "Unsupported spatial dims");
   int C_per_G = conv_p.IC / conv_p.G;
   int K_per_G = conv_p.OC / conv_p.G;
