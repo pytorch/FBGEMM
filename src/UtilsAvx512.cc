@@ -105,38 +105,38 @@ inline void transpose_kernel_16x16_avx512(
   //  m1  n1  o1  p1 ...
   //  m2  n2  o2  p2 ...
   //  m3  n3  o3  p3 ...
-  a = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(ta), reinterpret_cast<__m512d>(tc)));
-  b = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(ta), reinterpret_cast<__m512d>(tc)));
-  c = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(tb), reinterpret_cast<__m512d>(td)));
-  d = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(tb), reinterpret_cast<__m512d>(td)));
-  e = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(te), reinterpret_cast<__m512d>(tg)));
-  f = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(te), reinterpret_cast<__m512d>(tg)));
-  g = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(tf), reinterpret_cast<__m512d>(th)));
-  h = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(tf), reinterpret_cast<__m512d>(th)));
-  i = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(ti), reinterpret_cast<__m512d>(tk)));
-  j = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(ti), reinterpret_cast<__m512d>(tk)));
-  k = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(tj), reinterpret_cast<__m512d>(tl)));
-  l = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(tj), reinterpret_cast<__m512d>(tl)));
-  m = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(tm), reinterpret_cast<__m512d>(to)));
-  n = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(tm), reinterpret_cast<__m512d>(to)));
-  o = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-      reinterpret_cast<__m512d>(tn), reinterpret_cast<__m512d>(tq)));
-  p = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-      reinterpret_cast<__m512d>(tn), reinterpret_cast<__m512d>(tq)));
+  a = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(ta), _mm512_castps_pd(tc)));
+  b = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(ta), _mm512_castps_pd(tc)));
+  c = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(tb), _mm512_castps_pd(td)));
+  d = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(tb), _mm512_castps_pd(td)));
+  e = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(te), _mm512_castps_pd(tg)));
+  f = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(te), _mm512_castps_pd(tg)));
+  g = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(tf), _mm512_castps_pd(th)));
+  h = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(tf), _mm512_castps_pd(th)));
+  i = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(ti), _mm512_castps_pd(tk)));
+  j = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(ti), _mm512_castps_pd(tk)));
+  k = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(tj), _mm512_castps_pd(tl)));
+  l = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(tj), _mm512_castps_pd(tl)));
+  m = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(tm), _mm512_castps_pd(to)));
+  n = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(tm), _mm512_castps_pd(to)));
+  o = _mm512_castpd_ps(
+      _mm512_unpacklo_pd(_mm512_castps_pd(tn), _mm512_castps_pd(tq)));
+  p = _mm512_castpd_ps(
+      _mm512_unpackhi_pd(_mm512_castps_pd(tn), _mm512_castps_pd(tq)));
 
   //  shuffle 128-bits (composed of 4 32-bit elements)
   //  a0  b0  c0  d0  a8  b8  c8  d8  e0  f0  g0  h0  e8  f8  g8  h8
@@ -260,18 +260,14 @@ void transpose_kernel_mxn_avx512(
 
   // unpacking and interleaving 64-bit elements
   for (i = 0; i < (M + 3) / 4; ++i) {
-    input[4 * i] = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-        reinterpret_cast<__m512d>(temp[4 * i]),
-        reinterpret_cast<__m512d>(temp[4 * i + 2])));
-    input[4 * i + 1] = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-        reinterpret_cast<__m512d>(temp[4 * i]),
-        reinterpret_cast<__m512d>(temp[4 * i + 2])));
-    input[4 * i + 2] = reinterpret_cast<__m512>(_mm512_unpacklo_pd(
-        reinterpret_cast<__m512d>(temp[4 * i + 1]),
-        reinterpret_cast<__m512d>(temp[4 * i + 3])));
-    input[4 * i + 3] = reinterpret_cast<__m512>(_mm512_unpackhi_pd(
-        reinterpret_cast<__m512d>(temp[4 * i + 1]),
-        reinterpret_cast<__m512d>(temp[4 * i + 3])));
+    input[4 * i] = _mm512_castpd_ps(_mm512_unpacklo_pd(
+        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
+    input[4 * i + 1] = _mm512_castpd_ps(_mm512_unpackhi_pd(
+        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
+    input[4 * i + 2] = _mm512_castpd_ps(_mm512_unpacklo_pd(
+        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
+    input[4 * i + 3] = _mm512_castpd_ps(_mm512_unpackhi_pd(
+        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
   }
 
   //  shuffle 128-bits (composed of 4 32-bit elements)
