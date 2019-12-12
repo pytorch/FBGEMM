@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <numeric>
 
 #ifdef _OPENMP
 #include <omp.h>

@@ -16,6 +16,7 @@
 #include <random>
 #include <set>
 #include <vector>
+#include <numeric>
 
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
