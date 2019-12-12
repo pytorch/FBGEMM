@@ -8,6 +8,7 @@
 #include <ostream>
 #include <random>
 #include <stdexcept>
+#include <numeric>
 
 #include <gtest/gtest.h>
 
