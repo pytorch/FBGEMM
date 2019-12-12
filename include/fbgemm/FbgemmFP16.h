@@ -20,6 +20,22 @@
 
 namespace fbgemm {
 
+// forward declaration
+class PackedGemmMatrixFP16;
+
+/**
+ * restrictions: transa == CblasNoTrans
+ */
+FBGEMM_API void cblas_gemm_compute(
+    const matrix_op_t transa,
+    const int m,
+    const float* A,
+    const PackedGemmMatrixFP16& Bp,
+    const float beta,
+    float* C,
+    int thread_id = 0,
+    int num_threads = 1);
+
 /// class that performs packing of matrix in
 /// row-major format into
 /// internal packed blocked-row major format
@@ -262,17 +278,4 @@ class PackedGemmMatrixFP16 {
       int thread_id,
       int num_threads);
 };
-
-/**
- * restrictions: transa == CblasNoTrans
- */
-extern void cblas_gemm_compute(
-    const matrix_op_t transa,
-    const int m,
-    const float* A,
-    const PackedGemmMatrixFP16& Bp,
-    const float beta,
-    float* C,
-    int thread_id = 0,
-    int num_threads = 1);
 }; // namespace fbgemm

@@ -394,7 +394,7 @@ void ref_kernel(
 #endif // FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
 
 // autotuned kernel splits for various cases m = 1:mb_max
-FBGEMM_API void cblas_gemm_compute(
+void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
