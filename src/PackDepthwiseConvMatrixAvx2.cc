@@ -181,7 +181,7 @@ void PackedDepthWiseConvMatrix::unpack(int8_t* unpacked_data) {
 }
 
 PackedDepthWiseConvMatrix::~PackedDepthWiseConvMatrix() {
-  free(pmat_);
+  fbgemmAlignedFree(pmat_);
 }
 
 } // namespace fbgemm

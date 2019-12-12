@@ -267,7 +267,7 @@ class PackMatrix {
 
   virtual ~PackMatrix() {
     if (bufAllocatedHere_) {
-      free(buf_);
+      fbgemmAlignedFree(buf_);
     }
   }
 
@@ -538,7 +538,7 @@ class FBGEMM_API PackWeightMatrixForGConv {
 
   ~PackWeightMatrixForGConv() {
     if (bufAllocatedHere_) {
-      free(pdata_);
+      fbgemmAlignedFree(pdata_);
     }
   }
 

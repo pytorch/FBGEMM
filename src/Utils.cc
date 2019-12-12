@@ -350,13 +350,25 @@ void* fbgemmAlignedAlloc(
     size_t size,
     bool raiseException /*=false*/) {
   void* aligned_mem;
+#ifdef _MSC_VER
+  aligned_mem = _aligned_malloc(size, align);
+#else
   if (posix_memalign(&aligned_mem, align, size)) {
     if (raiseException) {
       throw std::bad_alloc();
     }
     return nullptr;
   }
+#endif
   return aligned_mem;
+}
+
+void fbgemmAlignedFree(void* p) {
+#ifdef _MSC_VER
+  _aligned_free(p);
+#else
+  free(p);
+#endif
 }
 
 int fbgemmGet2DPartition(
