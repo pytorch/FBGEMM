@@ -99,7 +99,13 @@ class aligned_allocator {
 
     // Mallocator wraps malloc().
     void* pv = nullptr;
-    int ret = posix_memalign(&pv, Alignment, n * sizeof(T));
+    int ret;
+#ifdef _MSC_VER
+    pv = _aligned_malloc(n * sizeof(T), Alignment);
+    ret = 0;
+#else
+    ret = posix_memalign(&pv, Alignment, n * sizeof(T));
+#endif
     // pv = aligned_alloc(Alignment, n * sizeof(T));
 
     // Allocators should throw std::bad_alloc in the case of memory allocation
@@ -112,7 +118,11 @@ class aligned_allocator {
   }
 
   void deallocate(T* const p, const std::size_t /*n*/) const {
+#ifdef _MSC_VER
+    _aligned_free(p);
+#else
     free(p);
+#endif
   }
 
   // The following will be the same for all allocators that ignore hints.

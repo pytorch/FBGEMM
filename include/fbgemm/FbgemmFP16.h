@@ -124,7 +124,7 @@ class PackedGemmMatrixFP16 {
   }
 
   ~PackedGemmMatrixFP16() {
-    free(pmat_);
+    fbgemmAlignedFree(pmat_);
   }
 
   void unpackFromSrc(const matrix_op_t trans, float16* src_mat) {
