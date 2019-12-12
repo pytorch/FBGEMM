@@ -21,7 +21,7 @@ std::default_random_engine eng;
 
 template <typename T>
 void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
-  std::uniform_int_distribution<T> dis(low, high);
+  std::uniform_int_distribution<int> dis(low, high);
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
 

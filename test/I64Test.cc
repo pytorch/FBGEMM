@@ -85,7 +85,8 @@ TEST_F(Int64GemmTest, test) {
               C_ref.data(),
               n);
 
-          compare_validate_buffers(C_ref.data(), C.data(), m, n, n, 0L);
+          compare_validate_buffers<int64_t>(
+              C_ref.data(), C.data(), m, n, n, 0L);
         }
       } // transb
     } // transa
