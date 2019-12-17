@@ -14,8 +14,7 @@ namespace {
 inline __m256i QuantizeBfloat16Avx512(const __m512& x0) {
   // Add 2^15 and right shift 16 to do round-nearest
   __m512i y0 = _mm512_srli_epi32(
-      _mm512_add_epi32(
-          reinterpret_cast<__m512i>(x0), _mm512_set1_epi32(1 << 15)),
+      _mm512_add_epi32(_mm512_castps_si512(x0), _mm512_set1_epi32(1 << 15)),
       16);
   return _mm512_cvtepi32_epi16(y0);
 }
