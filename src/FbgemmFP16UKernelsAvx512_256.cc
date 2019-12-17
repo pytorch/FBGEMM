@@ -8,7 +8,7 @@
 
 namespace fbgemm {
 
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -171,7 +171,7 @@ gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -346,7 +346,7 @@ gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -533,7 +533,7 @@ gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -732,7 +732,7 @@ gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -943,7 +943,7 @@ gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1166,7 +1166,7 @@ gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1401,7 +1401,7 @@ gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)

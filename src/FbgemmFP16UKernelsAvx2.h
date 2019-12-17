@@ -8,21 +8,23 @@
 #include <cstdint>
 #include "fbgemm/Types.h"
 
+#include "fbgemm/FbgemmBuild.h"
+
 #include "./FbgemmFP16Common.h"
 
 namespace fbgemm {
 
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
 
 } // namespace fbgemm
