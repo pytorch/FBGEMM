@@ -20,7 +20,7 @@ template <
     bool SUM_A,
     bool REMAINDER = false,
     bool PER_CHANNEL_QUANTIZATION = false>
-static inline __attribute__((always_inline)) void inner_prod_3x3x3_packed_(
+static ALWAYS_INLINE void inner_prod_3x3x3_packed_(
     int T,
     int H,
     int W,
@@ -273,7 +273,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
+static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
     int T,
     int H,
     int W,
@@ -360,7 +360,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_kernel_(
 }
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static ALWAYS_INLINE void
 depthwise_3x3x3_per_channel_quantization_kernel_(
     int T,
     int H,
@@ -458,7 +458,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
+static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
     int N,
     int T,
     int H,
@@ -489,7 +489,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -570,7 +570,7 @@ static inline __attribute__((always_inline)) void depthwise_3x3x3_pad_1_(
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static ALWAYS_INLINE void
 depthwise_3x3x3_per_channel_quantization_pad_1_(
     int N,
     int T,
@@ -602,7 +602,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;

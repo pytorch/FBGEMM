@@ -412,10 +412,8 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
   });
 }
 
-#ifdef __clang__
 // Expected to have overflows
-__attribute__((no_sanitize("undefined")))
-#endif
+NO_SANITIZE("undefined")
 void cblas_gemm_i64_i64acc(
     matrix_op_t transa,
     matrix_op_t transb,
