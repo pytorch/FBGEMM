@@ -14,12 +14,10 @@ namespace {
 inline __m256i QuantizeBfloat16Avx2(const __m256& x0, const __m256& x1) {
   // Add 2^15 and right shift 16 to do round-nearest
   __m256i y0 = _mm256_srli_epi32(
-      _mm256_add_epi32(
-          reinterpret_cast<__m256i>(x0), _mm256_set1_epi32(1 << 15)),
+      _mm256_add_epi32(_mm256_castps_si256(x0), _mm256_set1_epi32(1 << 15)),
       16);
   __m256i y1 = _mm256_srli_epi32(
-      _mm256_add_epi32(
-          reinterpret_cast<__m256i>(x1), _mm256_set1_epi32(1 << 15)),
+      _mm256_add_epi32(_mm256_castps_si256(x1), _mm256_set1_epi32(1 << 15)),
       16);
   // AVX2 doesn't have _mm256_cvtepi32_epi16 so we need this instruction
   // sequence.
