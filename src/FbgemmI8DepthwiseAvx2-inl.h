@@ -25,7 +25,7 @@ namespace fbgemm {
 // c2_v:  c[8:12], c[24:28]
 // c3_v: c[12:16], c[28:32]
 template <bool SUM_A = false>
-static inline __attribute__((always_inline)) void madd_epi16x4_packed(
+static ALWAYS_INLINE void madd_epi16x4_packed(
     __m256i a0_v,
     __m256i a1_v,
     __m256i a2_v,
@@ -84,7 +84,7 @@ static inline __attribute__((always_inline)) void madd_epi16x4_packed(
 // c2_v:  c[8:12], c[24:28]
 // c3_v: c[12:16], c[28:32]
 template <bool SUM_A = false>
-static inline __attribute__((always_inline)) void madd_epi16x3_packed(
+static ALWAYS_INLINE void madd_epi16x3_packed(
     __m256i a0_v,
     __m256i a1_v,
     __m256i a2_v,
@@ -144,7 +144,7 @@ static inline __attribute__((always_inline)) void madd_epi16x3_packed(
 // c2_v: c[16:20], c[20:24]
 // c3_v: c[24:28], c[28:32]
 template <bool SUM_A = false>
-static inline __attribute__((always_inline)) void madd_epi16x2_packed(
+static ALWAYS_INLINE void madd_epi16x2_packed(
     __m256i a0_v,
     __m256i a1_v,
     const __m256i* b,
@@ -185,7 +185,7 @@ static inline __attribute__((always_inline)) void madd_epi16x2_packed(
 // c2_v: c[16:20], c[20:24]
 // c3_v: c[24:28], c[28:32]
 template <bool SUM_A = false>
-static inline __attribute__((always_inline)) void madd_epi16_packed(
+static ALWAYS_INLINE void madd_epi16_packed(
     __m256i a_v,
     const __m256i* b,
     __m256i* c0_v,
@@ -220,7 +220,7 @@ static inline __attribute__((always_inline)) void madd_epi16_packed(
 
 // K is the number of accumulations we're doing
 template <int K, bool SUM_A = false, bool REMAINDER = false, bool ACC = false>
-static inline __attribute__((always_inline)) void inner_prod_packed_(
+static ALWAYS_INLINE void inner_prod_packed_(
     const __m256i* a_v,
     const __m256i* Bp,
     std::int32_t* C,
@@ -368,7 +368,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void requantize_(
+static ALWAYS_INLINE void requantize_(
     std::int32_t A_zero_point,
     const float* C_multiplier,
     std::int32_t C_zero_point,
@@ -673,7 +673,7 @@ static inline __attribute__((always_inline)) void requantize_(
 }
 
 template <bool REMAINDER>
-static inline __attribute__((always_inline)) __m256i load_a(
+static ALWAYS_INLINE __m256i load_a(
     const std::uint8_t* A,
     __m256i mask_v) {
   if (REMAINDER) {

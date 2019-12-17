@@ -7,6 +7,7 @@
 #include "./RefImplementations.h"
 
 #include "fbgemm/Types.h"
+#include "fbgemm/FbgemmBuild.h"
 
 #include <algorithm>
 #include <cassert>
@@ -198,12 +199,10 @@ uint64_t umul64wide(uint64_t a, uint64_t b) {
 }
 } // namespace
 
-#ifdef __clang__
 // Expected to have overflows
-__attribute__((no_sanitize("undefined")))
-#endif
+NO_SANITIZE("undefined")
 void cblas_gemm_i64_i64acc_ref(
-  matrix_op_t transa,
+    matrix_op_t transa,
     matrix_op_t transb,
     int M,
     int N,

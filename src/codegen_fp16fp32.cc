@@ -216,6 +216,7 @@ int main(int argc, const char* argv[]) {
       hdrfile << "#pragma once\n";
       hdrfile << "#include <cstdint>\n";
       hdrfile << "#include \"fbgemm/Types.h\"\n\n";
+      hdrfile << "#include \"fbgemm/FbgemmBuild.h\"\n\n";
       hdrfile << "#include \"./Fbgemm" + d_type.second + "Common.h\"\n\n";
       hdrfile << "namespace fbgemm {\n\n";
 
@@ -249,7 +250,7 @@ int main(int argc, const char* argv[]) {
 
         fargs = "(" + p1 + ")";
 
-        fheader[k] = "void __attribute__((noinline))\n" + funcname[k] + fargs;
+        fheader[k] = "void NOINLINE\n" + funcname[k] + fargs;
         srcfile << fheader[k] << " {\n";
 
         unsigned last_free_vecreg = 0;

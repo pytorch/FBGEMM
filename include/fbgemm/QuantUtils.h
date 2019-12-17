@@ -28,16 +28,11 @@ FBGEMM_API void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-/// Clamp src in T1 to the desired precision and convert it to T2
-template <typename T1, typename T2 = std::uint8_t>
-FBGEMM_API T2 clamp(T1 src, int precision, bool is_signed = false)
+// Clamp src in T1 to the desired precision and convert it to T2
 // TODO: T26263653 fix signed-integer-overflow undefined behavior
-#if defined(__has_feature)
-#if __has_feature(__address_sanitizer__)
-    __attribute__((__no_sanitize__("signed-integer-overflow")))
-#endif
-#endif
-{
+template <typename T1, typename T2 = std::uint8_t>
+NO_SANITIZE("signed-integer-overflow")
+FBGEMM_API T2 clamp(T1 src, int precision, bool is_signed = false) {
   std::int32_t min = is_signed ? -(1LL << (precision - 1)) : 0;
   std::int32_t max =
       is_signed ? ((1LL << (precision - 1)) - 1) : (1LL << precision) - 1;

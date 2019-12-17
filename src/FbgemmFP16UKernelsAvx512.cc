@@ -8,7 +8,7 @@
 
 namespace fbgemm {
 
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -97,7 +97,7 @@ gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -200,7 +200,7 @@ gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -315,7 +315,7 @@ gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -442,7 +442,7 @@ gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -581,7 +581,7 @@ gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -732,7 +732,7 @@ gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -895,7 +895,7 @@ gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1070,7 +1070,7 @@ gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1257,7 +1257,7 @@ gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1456,7 +1456,7 @@ gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1667,7 +1667,7 @@ gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -1890,7 +1890,7 @@ gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
@@ -2125,7 +2125,7 @@ gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r12",
         "memory");
 }
-void __attribute__((noinline))
+void NOINLINE
 gemmkernel_14x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)

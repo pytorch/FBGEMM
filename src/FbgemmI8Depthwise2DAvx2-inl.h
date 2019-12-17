@@ -14,7 +14,7 @@
 namespace fbgemm {
 
 template <int S = 3, bool SUM_A = false, bool REMAINDER = false>
-static inline __attribute__((always_inline)) void inner_prod_2d_packed_(
+static ALWAYS_INLINE void inner_prod_2d_packed_(
     const __m256i* a_v,
     const __m256i* Bp,
     std::int32_t* C,
@@ -28,7 +28,7 @@ template <
     bool SUM_A,
     bool REMAINDER = false,
     bool PER_CHANNEL_QUANTIZATION = false>
-static inline __attribute__((always_inline)) void inner_prod_3x3_packed_(
+static ALWAYS_INLINE void inner_prod_3x3_packed_(
     int H,
     int W,
     int K,
@@ -140,7 +140,7 @@ template <
     bool SUM_A,
     bool REMAINDER = false,
     bool PER_CHANNEL_QUANTIZATION = false>
-static inline __attribute__((always_inline)) void inner_prod_5x5_packed_(
+static ALWAYS_INLINE void inner_prod_5x5_packed_(
     int H,
     int W,
     int K,
@@ -305,7 +305,7 @@ template <
     bool SUM_A,
     bool REMAINDER = false,
     bool PER_CHANNEL_QUANTIZATION = false>
-static inline __attribute__((always_inline)) void inner_prod_2d_packed_(
+static ALWAYS_INLINE void inner_prod_2d_packed_(
     int H,
     int W,
     int K,
@@ -357,7 +357,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_2d_kernel_(
+static ALWAYS_INLINE void depthwise_2d_kernel_(
     int H,
     int W,
     int K,
@@ -442,7 +442,7 @@ template <
     bool HAS_BIAS,
     bool A_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static ALWAYS_INLINE void
 depthwise_2d_per_channel_quantization_kernel_(
     int H,
     int W,
@@ -541,7 +541,7 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void depthwise_2d_(
+static ALWAYS_INLINE void depthwise_2d_(
     int N,
     int H,
     int W,
@@ -569,7 +569,7 @@ static inline __attribute__((always_inline)) void depthwise_2d_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
 
-  std::int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  alignas(64) std::int32_t row_offsets[(K + 31) / 32 * 32];
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
@@ -891,7 +891,7 @@ template <
     bool HAS_BIAS,
     bool A_SYMMETRIC,
     typename BIAS_TYPE>
-static inline __attribute__((always_inline)) void
+static ALWAYS_INLINE void
 depthwise_2d_per_channel_quantization_(
     int N,
     int H,
@@ -920,7 +920,7 @@ depthwise_2d_per_channel_quantization_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
 
-  std::int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
+  alignas(64) std::int32_t row_offsets[(K + 31) / 32 * 32];
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
