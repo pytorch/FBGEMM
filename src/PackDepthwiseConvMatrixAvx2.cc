@@ -21,7 +21,8 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     const int8_t* smat)
     : K_(K), kernel_prod_(kernel_prod) {
   // Transpose the input matrix to make packing faster.
-  alignas(64) int8_t smat_transposed[K * kernel_prod];
+  int8_t* smat_transposed = static_cast<int8_t*>(
+      fbgemmAlignedAlloc(64, K * kernel_prod * sizeof(int8_t)));
   for (int i = 0; i < kernel_prod; ++i) {
     for (int j = 0; j < K; ++j) {
       smat_transposed[i * K + j] = smat[i + j * kernel_prod];
@@ -141,6 +142,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
           b_interleaved_epi32[i]);
     }
   }
+  fbgemmAlignedFree(smat_transposed);
 }
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {

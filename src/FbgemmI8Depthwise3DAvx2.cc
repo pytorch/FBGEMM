@@ -11,6 +11,7 @@
 
 #include "./FbgemmI8DepthwiseAvx2-inl.h"
 #include "./MaskAvx2.h"
+#include "fbgemm/UtilsAvx2.h"
 
 using namespace std;
 
@@ -489,7 +490,8 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
+  int32_t* row_offsets = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -567,6 +569,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
       } // h
     } // t
   } // for each n
+  fbgemmAlignedFree(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
@@ -602,7 +605,8 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
-  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
+  int32_t* row_offsets = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -680,6 +684,8 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
       } // h
     } // t
   } // for each n
+
+  fbgemmAlignedFree(row_offsets);
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -705,7 +711,8 @@ static void depthwise_3x3x3_pad_1_(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (B_zero_point == 0) {
       depthwise_3x3x3_pad_1_<
@@ -823,6 +830,7 @@ static void depthwise_3x3x3_pad_1_(
           num_threads);
     }
   }
+  fbgemmAlignedFree(C_int32_temp);
 }
 
 // Dispatch HAS_BIAS
@@ -1005,7 +1013,8 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
   if (A_zero_point == 0 || col_offsets == nullptr) {
     depthwise_3x3x3_per_channel_quantization_pad_1_<
         FUSE_RELU,
@@ -1061,6 +1070,7 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
         thread_id,
         num_threads);
   }
+  fbgemmAlignedFree(C_int32_temp);
 }
 
 // Dispatch HAS_BIAS
