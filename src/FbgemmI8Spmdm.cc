@@ -70,8 +70,10 @@ void CompressedSparseColumn::SpMDM(
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  alignas(64) uint8_t A_buffer[K * 32];
-  alignas(64) int32_t C_buffer[N * 32];
+  uint8_t* A_buffer =
+      static_cast<uint8_t*>(fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
+  int32_t* C_buffer =
+      static_cast<int32_t*>(fbgemmAlignedAlloc(64, N * 32 * sizeof(int32_t)));
 
   // If we compute C = C + A * B, where B is a sparse matrix in CSC format, for
   // each non-zero in B, we'd need to access the corresponding column in A.
@@ -82,7 +84,8 @@ void CompressedSparseColumn::SpMDM(
     // The cost of transpose is O(K*N) and we do O(NNZ*N) multiplications.
     // If NNZ/K is small, it's not worth doing transpose so we just use this
     // scalar loop.
-    int32_t C_temp[block.row_size];
+    int32_t* C_temp = static_cast<int32_t*>(
+        fbgemmAlignedAlloc(64, block.row_size * sizeof(int32_t)));
     if (accumulation) {
       for (int j = 0; j < block.col_size; ++j) {
         int k = colptr_[block.col_start + j];
@@ -141,6 +144,9 @@ void CompressedSparseColumn::SpMDM(
         }
       } // for each column of B
     }
+    fbgemmAlignedFree(A_buffer);
+    fbgemmAlignedFree(C_buffer);
+    fbgemmAlignedFree(C_temp);
     return;
   }
 
@@ -250,6 +256,8 @@ void CompressedSparseColumn::SpMDM(
   spmdm_run_time += (dt);
   t_start = std::chrono::high_resolution_clock::now();
 #endif
+  fbgemmAlignedFree(A_buffer);
+  fbgemmAlignedFree(C_buffer);
 }
 
 void CompressedSparseColumn::SparseConv(

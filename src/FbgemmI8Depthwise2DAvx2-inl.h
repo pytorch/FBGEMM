@@ -10,6 +10,7 @@
 
 #include "src/FbgemmI8DepthwiseAvx2-inl.h"
 #include "src/MaskAvx2.h"
+#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
@@ -569,7 +570,8 @@ static ALWAYS_INLINE void depthwise_2d_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
 
-  alignas(64) std::int32_t row_offsets[(K + 31) / 32 * 32];
+  int32_t* row_offsets = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
@@ -883,6 +885,8 @@ static ALWAYS_INLINE void depthwise_2d_(
       }
     }
   } // for each n
+
+  fbgemmAlignedFree(row_offsets);
 };
 
 template <
@@ -920,7 +924,8 @@ depthwise_2d_per_channel_quantization_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
 
-  alignas(64) std::int32_t row_offsets[(K + 31) / 32 * 32];
+  int32_t* row_offsets = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
   int n_begin, n_end;
   int h_begin, h_end, w_begin, w_end;
@@ -1225,6 +1230,8 @@ depthwise_2d_per_channel_quantization_(
       }
     }
   } // for each n
+
+  fbgemmAlignedFree(row_offsets);
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -1248,7 +1255,8 @@ static void depthwise_2d_(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
-  std::int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (B_zero_point == 0) {
       depthwise_2d_<
@@ -1362,6 +1370,7 @@ static void depthwise_2d_(
           num_threads);
     }
   }
+  fbgemmAlignedFree(C_int32_temp);
 }
 
 // Dispatch HAS_BIAS
@@ -1449,7 +1458,8 @@ static void depthwise_2d_per_channel_quantization_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
-  int32_t C_int32_temp[(K + 31) / 32 * 32];
+  int32_t* C_int32_temp = static_cast<int32_t*>(
+      fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
   if (A_zero_point == 0 || col_offsets == nullptr) {
     depthwise_2d_per_channel_quantization_<
         S,
@@ -1503,6 +1513,7 @@ static void depthwise_2d_per_channel_quantization_(
         thread_id,
         num_threads);
   }
+  fbgemmAlignedFree(C_int32_temp);
 }
 
 // Dispatch HAS_BIAS
