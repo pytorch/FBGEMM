@@ -225,23 +225,6 @@ FBGEMM_API void im2col_ref(
     std::int32_t A_zero_point,
     std::uint8_t* Ao);
 
-template <
-    typename IndexType,
-    typename InType,
-    typename OutType,
-    bool IS_WEIGHT_POSITIONAL = false>
-FBGEMM_API bool Fused8BitRowwiseEmbeddingLookup_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const InType* input,
-    const IndexType* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    OutType* out);
-
 template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
