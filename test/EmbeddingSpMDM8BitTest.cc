@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <algorithm>
+#include <numeric>
 #include <ostream>
 #include <random>
 #include <stdexcept>
-#include <numeric>
 
 #include <gtest/gtest.h>
 
@@ -130,7 +130,6 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 
     // Compute the number of indices
     int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
-    //cout << "lenths sum " << lengths_sum;
 
     // Generate indices
     vector<int64_t> indices;
@@ -156,18 +155,17 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     vector<float>& output_ref = use_weight ? output_slws_ref : output_sls_ref;
     vector<float>& output = use_weight ? output_slws : output_sls;
     if (isIndex64b) {
-      fbgemm::
-          Fused8BitRowwiseEmbeddingLookup_ref<int64_t, uint8_t, float, false>(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              fused_embedding_table,
-              empty_indices ? nullptr : indices.data(),
-              lengths.data(),
-              use_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
+      fbgemm::EmbeddingSpMDM_ref<uint8_t, int64_t>(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table,
+          empty_indices ? nullptr : indices.data(),
+          lengths.data(),
+          use_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
 
       fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
           embedding_dim,
@@ -183,18 +181,17 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           prefetch ? 16 : 0);
 
     } else {
-      fbgemm::
-          Fused8BitRowwiseEmbeddingLookup_ref<int32_t, uint8_t, float, false>(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              fused_embedding_table,
-              empty_indices ? nullptr : indices_32.data(),
-              lengths.data(),
-              use_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
+      fbgemm::EmbeddingSpMDM_ref<uint8_t, int32_t>(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table,
+          empty_indices ? nullptr : indices_32.data(),
+          lengths.data(),
+          use_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
 
       fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
           embedding_dim,
