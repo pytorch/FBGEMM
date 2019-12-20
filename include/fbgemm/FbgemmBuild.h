@@ -6,6 +6,8 @@
  */
 #pragma once
 
+// For details about dllexport/dllimport, checkout the following SO question
+// https://stackoverflow.com/questions/57999/what-is-the-difference-between-dllexport-and-dllimport
 #if !defined(FBGEMM_API)
   #if defined(FBGEMM_STATIC)
     #define FBGEMM_API

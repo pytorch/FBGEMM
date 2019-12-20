@@ -4,7 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
+#define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
 #include <immintrin.h>
 #include <algorithm> //for std::min/std::max
