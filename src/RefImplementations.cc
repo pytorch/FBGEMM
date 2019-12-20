@@ -781,6 +781,93 @@ bool EmbeddingSpMDM_ref(
   }
 }
 
+template <typename IndexType>
+int sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr) {
+  for (auto i = 0; i < num_rows; ++i) {
+    std::uint64_t idx = indices[i];
+    auto offsetI = i * block_size;
+    auto offsetIdx = idx * block_size;
+
+    if (block_size + offsetIdx > param_size) {
+      return i;
+    }
+
+    const float* g_;
+    const float* h_;
+    const float* w_;
+    float* nh_;
+    float* nw_;
+
+    g_ = g + offsetI;
+    h_ = h + offsetIdx;
+    w_ = w + offsetIdx;
+    nh_ = h + offsetIdx;
+    nw_ = w + offsetIdx;
+
+    for (auto j = 0; j < block_size; ++j) {
+      float gj = g_[j];
+      float hj = h_[j] + gj * gj;
+      nh_[j] = hj;
+      nw_[j] = w_[j] + lr * gj / (std::sqrt(hj) + epsilon);
+    }
+  }
+  return num_rows;
+}
+
+template <typename IndexType>
+int rowwise_sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr) {
+  for (auto i = 0; i < num_rows; ++i) {
+    std::uint64_t idx = indices[i];
+    auto offsetI = i * block_size;
+    auto offsetIdx = idx * block_size;
+
+    if (block_size + offsetIdx > param_size) {
+      return i;
+    }
+
+    const float* g_;
+    float* h_;
+    float* w_;
+
+    g_ = g + offsetI;
+    h_ = h + idx; // This is different from sparse adagrad
+    w_ = w + offsetIdx;
+
+    float final_sum = 0.0f;
+    for (auto j = 0; j < block_size; ++j) {
+      float gj = g_[j];
+      final_sum += gj * gj;
+    }
+    final_sum /= block_size;
+    float hi = *h_ = *h_ + final_sum;
+    float float_step = lr / (std::sqrt(hi) + epsilon);
+
+    for (auto j = 0; j < block_size; ++j) {
+      float gj = g_[j];
+      w_[j] = w_[j] + gj * float_step;
+    }
+  }
+  return num_rows;
+}
+
 template void transposeConvWeights(
     const conv_param_t<2>& conv_p,
     const std::int8_t* src,
@@ -842,4 +929,49 @@ template bool EmbeddingSpMDM_ref(
     bool normalize_by_lengths,
     float* out,
     bool IS_WEIGHT_POSITIONAL);
+
+template int sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int64_t* indices, // indices of each row
+    float epsilon,
+    float lr);
+
+template int sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int32_t* indices, // indices of each row
+    float epsilon,
+    float lr);
+
+template int rowwise_sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int64_t* indices, // indices of each row
+    float epsilon,
+    float lr);
+
+template int rowwise_sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int32_t* indices, // indices of each row
+    float epsilon,
+    float lr);
+
 } // namespace fbgemm

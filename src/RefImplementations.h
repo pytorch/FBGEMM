@@ -238,4 +238,29 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     bool normalize_by_lengths,
     float* out,
     bool IS_WEIGHT_POSITIONAL = false);
+
+template <typename IndexType>
+FBGEMM_API int sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr);
+
+template <typename IndexType>
+FBGEMM_API int rowwise_sparse_adagrad_ref(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr);
+
 } // namespace fbgemm
