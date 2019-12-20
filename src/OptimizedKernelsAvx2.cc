@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#define FBGEMM_EXPORTS
 #include "./OptimizedKernelsAvx2.h"
 #include <immintrin.h>
 
