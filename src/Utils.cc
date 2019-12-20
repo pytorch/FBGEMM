@@ -311,19 +311,19 @@ inst_set_t fbgemmInstructionSet() {
   inst_set_t detected_isa = inst_set_t::anyarch;
   // Check environment
   if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512VnniSupport()) {
-      detected_isa = inst_set_t::avx512_vnni;
-    }
     auto const isXeonD =
         fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
-    auto const hasAVX512 = fbgemmHasAvx512Support();
-    if (hasAVX512 && !isXeonD) {
-      detected_isa = inst_set_t::avx512;
-    }
-    if (hasAVX512 && isXeonD) {
-      detected_isa = inst_set_t::avx512_ymm;
-    }
-    if (fbgemmHasAvx2Support()) {
+    if (fbgemmHasAvx512VnniSupport()) {
+      // TODO: Should VNNI also support YMM registers?
+      detected_isa = inst_set_t::avx512_vnni;
+    } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
+      if (hasAVX512 && !isXeonD) {
+        detected_isa = inst_set_t::avx512;
+      }
+      if (hasAVX512 && isXeonD) {
+        detected_isa = inst_set_t::avx512_ymm;
+      }
+    } else if (fbgemmHasAvx2Support()) {
       detected_isa = inst_set_t::avx2;
     }
   }
