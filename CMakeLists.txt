@@ -53,6 +53,7 @@ set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
                 src/PackWeightsForConv.cc
                 src/QuantUtils.cc
                 src/RefImplementations.cc
+                src/SparseAdagrad.cc
                 src/Utils.cc)
 
 #check if compiler supports avx512

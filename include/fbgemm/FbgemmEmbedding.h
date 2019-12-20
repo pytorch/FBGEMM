@@ -22,4 +22,19 @@ FBGEMM_API bool EmbeddingSpMDM(
     float* out,
     int prefetch = 16,
     bool IS_WEIGHT_POSITIONAL = false);
+
+template <typename IndexType>
+FBGEMM_API int SparseAdaGrad(
+    int num_rows, // number of rows reading
+    int block_size, // number of parameters per rows
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr,
+    bool rowwise = false,
+    int prefetch = 16);
+
 } // namespace fbgemm
