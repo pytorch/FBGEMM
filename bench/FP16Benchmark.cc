@@ -14,7 +14,12 @@
 #endif
 
 #ifdef USE_BLAS
+#if __APPLE__
+//not sure whether need to differentiate TARGET_OS_MAC or TARGET_OS_IPHONE, etc.
+#include <Accelerate/Accelerate.h>
+#else
 #include <cblas.h>
+#endif
 #endif
 
 #ifdef _OPENMP
