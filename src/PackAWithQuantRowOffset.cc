@@ -46,6 +46,12 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  if (scale_ == 0.0f || std::isinf(1.0f / scale_)) {
+    throw std::runtime_error("scale cannot be zero");
+  }
+  if (std::isinf(1.0f / scale_)) {
+    throw std::runtime_error("scale's reciprocal cannot be infinity");
+  }
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
