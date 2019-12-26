@@ -46,7 +46,7 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if (scale_ == 0.0f || std::isinf(1.0f / scale_)) {
+  if (scale_ == 0.0f) {
     throw std::runtime_error("scale cannot be zero");
   }
   if (std::isinf(1.0f / scale_)) {
