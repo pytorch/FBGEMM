@@ -32,25 +32,27 @@ TensorQuantizationParams ChooseQuantizationParams(
     max = max_scale * symmetric_qmax;
   }
 
-  double scale =
-      (std::max(max, 0.f) - std::min(min, 0.f)) / ((double)qmax - qmin);
-  if (scale == 0) {
-    scale = 0.1;
-  }
-  // If scale is 0, we arbitrary adjust the scale to 0.1
-  assert(scale > 0);
-
   // We extend the [min, max] interval to ensure that it contains 0.
   // Otherwise, we would not meet the requirement that 0 be an exactly
   // representable value.
   min = std::min(min, 0.f);
   max = std::max(max, 0.f);
 
+  // Use double precision for intermediate computation but use single precision in
+  // final number to reflect the actual number used during quantization.
+  float scale = (static_cast<double>(max) - min) / (qmax - qmin);
+  // If scale is 0 or too small so its reciprocal is infinity, we arbitrary
+  // adjust the scale to 0.1
+  if (scale == 0.0f || isinf(1.0f / scale)) {
+    scale = 0.1;
+  }
+  assert(scale > 0);
+
   if (force_scale_power_of_two) {
     if (scale < 1) {
-      scale = 1. / (1 << (int)floor(log2(1 / scale)));
+      scale = 1.0 / (1 << static_cast<int>(floor(log2(1.0 / scale))));
     } else {
-      scale = 1 << (int)ceil(log2(scale));
+      scale = 1 << static_cast<int>(ceil(log2(scale)));
     }
   }
 
@@ -62,10 +64,12 @@ TensorQuantizationParams ChooseQuantizationParams(
   // The arithmetic error on the zero point computed from either pair
   // will be roughly machine_epsilon * (sum of absolute values of terms)
   // so we want to use the variant that adds the smaller terms.
-  double zero_point_from_min = qmin - min / scale;
-  double zero_point_from_max = qmax - max / scale;
-  double zero_point_from_min_error = std::abs(qmin) + std::abs(min / scale);
-  double zero_point_from_max_error = std::abs(qmax) + std::abs(max / scale);
+  double zero_point_from_min = qmin - min / static_cast<double>(scale);
+  double zero_point_from_max = qmax - max / static_cast<double>(scale);
+  double zero_point_from_min_error =
+      std::abs(qmin) + std::abs(min / static_cast<double>(scale));
+  double zero_point_from_max_error =
+      std::abs(qmax) + std::abs(max / static_cast<double>(scale));
   double initial_zero_point =
       zero_point_from_min_error < zero_point_from_max_error
       ? zero_point_from_min
@@ -170,23 +174,23 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 
 #define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
-template <>                                                             \
-void Quantize<T>(                                                       \
-    const float* src,                                                   \
-    T* dst,                                                             \
-    int len,                                                            \
-    const TensorQuantizationParams& qparams) {                          \
-  bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();   \
-  bool fma_support = cpuinfo_has_x86_fma3();                            \
-  if (avx2_support && fma_support && qparams.precision == 8) {          \
-    /* fast path  */                                                    \
-    QuantizeAvx2<T>(src, dst, len, qparams);                            \
-  } else {                                                              \
-    for (std::size_t i = 0; i < len; ++i) {                             \
-      dst[i] = Quantize<T>(src[i], qparams);                            \
+  template <>                                                           \
+  void Quantize<T>(                                                     \
+      const float* src,                                                 \
+      T* dst,                                                           \
+      int len,                                                          \
+      const TensorQuantizationParams& qparams) {                        \
+    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support(); \
+    bool fma_support = cpuinfo_has_x86_fma3();                          \
+    if (avx2_support && fma_support && qparams.precision == 8) {        \
+      /* fast path  */                                                  \
+      QuantizeAvx2<T>(src, dst, len, qparams);                          \
+    } else {                                                            \
+      for (std::size_t i = 0; i < len; ++i) {                           \
+        dst[i] = Quantize<T>(src[i], qparams);                          \
+      }                                                                 \
     }                                                                   \
-  }                                                                     \
-}
+  }
 
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t)
