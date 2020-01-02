@@ -13,34 +13,18 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <random>
 #include <set>
 #include <vector>
-#include <numeric>
 
+#include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
-
-namespace {
-template <typename T>
-void llc_flush(std::vector<T>& v) {
-  constexpr int CACHE_LINE_SIZE = 64;
-  for (int i = 0; i < v.size(); i += CACHE_LINE_SIZE / sizeof(T)) {
-    _mm_clflush(&v[i]);
-  }
-}
-
-void llc_flush_fused_table(const uint8_t* table, int size) {
-  constexpr int CACHE_LINE_SIZE = 64;
-  for (int i = 0; i < size; i += CACHE_LINE_SIZE) {
-    _mm_clflush(&table[i]);
-  }
-}
-} // anonymous namespace
 
 void print_outupt(int rows, int embedding_dim, const float* output) {
   for (int i = 0; i < rows; i++) {
@@ -95,14 +79,14 @@ int run_benchmark(
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
 
-  uint8_t* fused_embedding_table =
-      new uint8_t[num_unique_ids * (embedding_dim + 2 * sizeof(float))];
+  vector<uint8_t> fused_embedding_table(
+      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
   for (int i = 0; i < num_unique_ids; i++) {
     for (int ii = 0; ii < embedding_dim; ii++) {
       fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] = 2;
     }
     float* scale_bias = reinterpret_cast<float*>(
-        fused_embedding_table + i * (embedding_dim + 2 * sizeof(float)) +
+        &fused_embedding_table[i * (embedding_dim + 2 * sizeof(float))] +
         embedding_dim);
     scale_bias[0] = 2.0;
     scale_bias[1] = 1.0;
@@ -111,7 +95,8 @@ int run_benchmark(
   // print_fused_table(num_unique_ids, embedding_dim, fused_embedding_table);
 
   // Generate lengths
-  uniform_int_distribution<int> length_distribution(1, 2 * average_len + 1);
+  uniform_int_distribution<int> length_distribution(
+      1, std::min(2 * average_len + 1, num_unique_ids));
   vector<int> lengths(batch_size);
   for (int i = 0; i < batch_size; ++i) {
     lengths[i] = length_distribution(generator);
@@ -150,16 +135,15 @@ int run_benchmark(
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
   chrono::time_point<chrono::system_clock> t_begin, t_end;
-  double t;
 
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
   // Only counts the number of bytes for reading embedding table and ignore
   // others. Should be good enough as long as embdding_dim is big enough.
-  double bytes = static_cast<double>(NUM_ITER) * lengths_sum *
-      (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float));
+  double bytes =
+      lengths_sum * (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float));
   double bytes_padded =
-      static_cast<double>(NUM_ITER) * lengths_sum * 64 *
+      lengths_sum * 64 *
       static_cast<int>(
           (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) + 63) / 64);
 
@@ -173,7 +157,7 @@ int run_benchmark(
             batch_size,
             lengths_sum,
             num_unique_ids,
-            fused_embedding_table,
+            fused_embedding_table.data(),
             indices_32.data(),
             lengths.data(),
             has_weight ? weights.data() : nullptr,
@@ -186,7 +170,7 @@ int run_benchmark(
             batch_size,
             lengths_sum,
             num_unique_ids,
-            fused_embedding_table,
+            fused_embedding_table.data(),
             indices.data(),
             lengths.data(),
             has_weight ? weights.data() : nullptr,
@@ -197,59 +181,48 @@ int run_benchmark(
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
-      t = 0;
-      for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-        if (flush_cache) {
-          llc_flush_fused_table(
-              fused_embedding_table, num_unique_ids * (embedding_dim + 8));
-          llc_flush(indices);
-          llc_flush(indices_32);
-          llc_flush(lengths);
-          llc_flush(weights);
-          llc_flush(output);
-        }
-
-        if (use_32_bit_indices) {
-          t_begin = chrono::system_clock::now();
-
-          fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              fused_embedding_table,
-              indices_32.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output.data(),
-              prefetch ? 16 : 0);
-
-          t_end = chrono::system_clock::now();
-
-        } else {
-          t_begin = chrono::system_clock::now();
-
-          fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              fused_embedding_table,
-              indices.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output.data(),
-              prefetch ? 16 : 0);
-
-          t_end = chrono::system_clock::now();
-        }
-
-        if (i >= NUM_WARMUP) {
-          t += chrono::duration<double>(t_end - t_begin).count();
-        }
-      }
+      double t = measureWithWarmup(
+          [&]() {
+            if (use_32_bit_indices) {
+              fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
+                  embedding_dim,
+                  batch_size,
+                  lengths_sum,
+                  num_unique_ids,
+                  fused_embedding_table.data(),
+                  indices_32.data(),
+                  lengths.data(),
+                  has_weight ? weights.data() : nullptr,
+                  normalize_by_lengths,
+                  output.data(),
+                  prefetch ? 16 : 0);
+            } else {
+              fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
+                  embedding_dim,
+                  batch_size,
+                  lengths_sum,
+                  num_unique_ids,
+                  fused_embedding_table.data(),
+                  indices.data(),
+                  lengths.data(),
+                  has_weight ? weights.data() : nullptr,
+                  normalize_by_lengths,
+                  output.data(),
+                  prefetch ? 16 : 0);
+            }
+          },
+          NUM_WARMUP,
+          NUM_ITER,
+          [&]() {
+            if (flush_cache) {
+              cache_evict(fused_embedding_table);
+              cache_evict(indices);
+              cache_evict(indices_32);
+              cache_evict(lengths);
+              cache_evict(weights);
+              cache_evict(output);
+            }
+          });
 
       // print_outupt(batch_size, embedding_dim, output.data());
       // print_outupt(batch_size, embedding_dim, output_ref.data());

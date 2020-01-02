@@ -226,7 +226,7 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL = false);
+    bool is_weight_positional = false);
 
 template <typename IndexType>
 FBGEMM_API int sparse_adagrad_ref(

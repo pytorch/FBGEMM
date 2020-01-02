@@ -30,7 +30,6 @@ static vector<vector<int>> GetInputs_() {
       {10, 4000, 128, 100},
       {4, 400, 256, 10},
       {10, 4000, 48, 100},
-      {10, 4000, 48, 100},
       {10, 4000, 40, 100},
       {10, 4000, 56, 100},
       {10, 4000, 1, 100},
@@ -52,95 +51,87 @@ namespace {
 // tuple represents MB, IC, OC, IT, IH, IW, KH/KW, stride, pad
 class Fused8BitRowwiseEmbeddingLookupTest
     : public testing::TestWithParam<
-          tuple<bool, bool, bool, int, bool, bool, bool>> {};
+          tuple<bool, bool, int, bool, bool, bool, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     Fused8BitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Values(false),
+        ::testing::Bool(), // isIndex64b
+        ::testing::Values(false), // TODO: is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Bool()));
+        ::testing::Bool(), // use_weight
+        ::testing::Bool(), // normalize_by_lengths
+        ::testing::Bool(), // empty_indices
+        ::testing::Bool())); // out of bounds
 
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isavx2, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
-      empty_indices;
+  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      empty_indices, out_of_bounds;
   int prefetch;
-  tie(isavx2,
-      isIndex64b,
+  tie(isIndex64b,
       is_wt_positional,
       prefetch,
       use_weight,
       normalize_by_lengths,
-      empty_indices) = GetParam();
+      empty_indices,
+      out_of_bounds) = GetParam();
 
-  if (!fbgemmHasAvx512Support()) {
-    isavx2 = true; // only use avx2
-  }
-
-  inst_set_t isa;
-  isa = isavx2 ? inst_set_t::avx2 : inst_set_t::avx512;
-  int batch_size, num_unique_ids, embedding_dim, average_len;
+  int batch_size, num_rows, embedding_dim, average_len;
 
   for (auto input : inputs) {
     batch_size = input[0];
-    num_unique_ids = input[1];
+    num_rows = input[1];
     embedding_dim = input[2];
     average_len = input[3];
 
     // Create embedding table
-    vector<uint8_t> embedding_table(
-        num_unique_ids * (embedding_dim + 2 * sizeof(float)));
     default_random_engine generator;
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
+    int fused_embedding_dim = embedding_dim + 2 * sizeof(float);
     uint8_t* fused_embedding_table =
-        new uint8_t[num_unique_ids * (embedding_dim + 2 * sizeof(float))];
-    for (int i = 0; i < num_unique_ids; i++) {
+        new uint8_t[num_rows * fused_embedding_dim];
+    for (int i = 0; i < num_rows; i++) {
       for (int ii = 0; ii < embedding_dim; ii++) {
-        fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] =
+        fused_embedding_table[i * fused_embedding_dim + ii] =
             entries(generator);
       }
       float* scale_bias = reinterpret_cast<float*>(
-          fused_embedding_table + i * (embedding_dim + 2 * sizeof(float)) +
-          embedding_dim);
+          fused_embedding_table + i * fused_embedding_dim + embedding_dim);
       scale_bias[0] = embedding_distribution(generator);
       scale_bias[1] = embedding_distribution(generator);
     }
 
     // Generate lengths
-    uniform_int_distribution<int> length_distribution(1, average_len);
+    uniform_int_distribution<int> length_distribution(1, 2 * average_len + 1);
     vector<int> lengths(batch_size);
     for (int i = 0; i < batch_size; ++i) {
-      lengths[i] = length_distribution(generator);
-    }
-
-    if (empty_indices) {
-      for (int i = 0; i < batch_size; ++i) {
-        lengths[i] = 0;
-      }
+      lengths[i] = empty_indices ? 0 : length_distribution(generator);
     }
 
     // Compute the number of indices
     int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
 
     // Generate indices
-    vector<int64_t> indices;
-    vector<int32_t> indices_32;
+    vector<int64_t> indices(lengths_sum);
+    vector<int32_t> indices_32(lengths_sum);
 
-    uniform_int_distribution<int> index_entry(0, num_unique_ids - 1);
+    uniform_int_distribution<int> index_distribution(0, num_rows - 1);
     for (int i = 0; i < lengths_sum; ++i) {
-      indices.push_back(index_entry(generator));
+      indices_32[i] = indices[i] = index_distribution(generator);
     }
-    // use same indices for 32b and 64b
-    copy(begin(indices), end(indices), back_inserter(indices_32));
+    if (!empty_indices && out_of_bounds) {
+      int idx = uniform_int_distribution<int>(0, lengths_sum - 1)(generator);
+      indices_32[idx] = indices[idx] = num_rows;
+    }
+    if (!empty_indices) {
+      // To make sure to exercise out-of-bound cases
+      indices_32[0] = indices[0] = num_rows - 1;
+    }
 
     // Generate weights
     vector<float> weights(lengths_sum);
@@ -154,12 +145,14 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 
     vector<float>& output_ref = use_weight ? output_slws_ref : output_sls_ref;
     vector<float>& output = use_weight ? output_slws : output_sls;
+    bool success, success_ref;
+
     if (isIndex64b) {
-      fbgemm::EmbeddingSpMDM_ref<uint8_t, int64_t>(
+      success_ref = fbgemm::EmbeddingSpMDM_ref<uint8_t, int64_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table,
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
@@ -167,25 +160,24 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           normalize_by_lengths,
           output_ref.data());
 
-      fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
+      success = fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table,
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch ? 16 : 0);
-
+          prefetch);
     } else {
-      fbgemm::EmbeddingSpMDM_ref<uint8_t, int32_t>(
+      success_ref = fbgemm::EmbeddingSpMDM_ref<uint8_t, int32_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table,
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
@@ -193,25 +185,29 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           normalize_by_lengths,
           output_ref.data());
 
-      fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
+      success = fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table,
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch ? 16 : 0);
+          prefetch);
     }
+
     // Check correctness
-    output_ref = use_weight ? output_slws_ref : output_sls_ref;
-    for (int i = 0; i < output.size(); ++i) {
-      EXPECT_EQ(output[i], output_ref[i])
-          << "results differ at (" << i << ") reference: " << output_ref[i]
-          << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
+    EXPECT_EQ(success, success_ref)
+        << "Reference and JIT impl did not both succeed";
+    if (success) {
+      for (int i = 0; i < output.size(); ++i) {
+        EXPECT_EQ(output[i], output_ref[i])
+            << "results differ at (" << i << ") reference: " << output_ref[i]
+            << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
+      }
     }
     delete[] fused_embedding_table;
   } // end for input

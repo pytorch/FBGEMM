@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <algorithm>
+#include <numeric>
 #include <ostream>
 #include <random>
 #include <stdexcept>
-#include <numeric>
 
 #include <gtest/gtest.h>
 
@@ -48,7 +48,7 @@ static vector<vector<int>> GetInputs_() {
 namespace {
 
 class EmbeddingSpMDMTest : public testing::TestWithParam<
-                               tuple<bool, bool, bool, int, bool, bool, bool>> {
+                               tuple<bool, bool, int, bool, bool, bool, bool>> {
 };
 }; // namespace
 
@@ -58,43 +58,37 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     EmbeddingSpMDMTest,
     ::testing::Combine(
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Values(false),
+        ::testing::Bool(), // isIndex64b
+        ::testing::Values(false), // TODO: is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Bool()));
+        ::testing::Bool(), // use_weight
+        ::testing::Bool(), // normalize_by_lengths
+        ::testing::Bool(), // empty_indices
+        ::testing::Bool())); // empty_indices
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isavx2, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
-      empty_indices;
+  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      empty_indices, out_of_bounds;
   int prefetch;
-  tie(isavx2,
-      isIndex64b,
+  tie(isIndex64b,
       is_wt_positional,
       prefetch,
       use_weight,
       normalize_by_lengths,
-      empty_indices) = GetParam();
+      empty_indices,
+      out_of_bounds) = GetParam();
 
-  if (!fbgemmHasAvx512Support()) {
-    isavx2 = true; // only use avx2
-  }
-
-  inst_set_t isa;
-  isa = isavx2 ? inst_set_t::avx2 : inst_set_t::avx512;
-  int batch_size, num_unique_ids, embedding_dim, average_len;
+  int batch_size, num_rows, embedding_dim, average_len;
 
   for (auto input : inputs) {
     batch_size = input[0];
-    num_unique_ids = input[1];
+    num_rows = input[1];
     embedding_dim = input[2];
     average_len = input[3];
 
     // Create embedding table
-    vector<float> embedding_table(num_unique_ids * embedding_dim);
+    vector<float> embedding_table(num_rows * embedding_dim);
     default_random_engine generator;
     normal_distribution<float> embedding_distribution;
     for (int i = 0; i < embedding_table.size(); ++i) {
@@ -117,7 +111,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     vector<int32_t> indices_32;
 
     // Generate indices
-    vector<int> container(num_unique_ids);
+    vector<int> container(num_rows);
     for (int i = 0; i < batch_size; ++i) {
       iota(container.begin(), container.end(), 0);
       random_shuffle(container.begin(), container.end());
@@ -128,6 +122,16 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     }
     // use same indices for 32b and 64b
     copy(begin(indices), end(indices), back_inserter(indices_32));
+    assert(indices.size() == lengths_sum);
+    assert(indices_32.size() == lengths_sum);
+    if (!empty_indices && out_of_bounds) {
+      int idx = uniform_int_distribution<int>(0, lengths_sum - 1)(generator);
+      indices_32[idx] = indices[idx] = num_rows;
+    }
+    if (!empty_indices) {
+      // To make sure to exercise out-of-bound cases
+      indices_32[0] = indices[0] = num_rows - 1;
+    }
 
     // Generate weights
     vector<float> weights(lengths_sum);
@@ -148,7 +152,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
@@ -160,20 +164,20 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch ? 16 : 0);
+          prefetch);
     } else {
       success_ref = fbgemm::EmbeddingSpMDM_ref(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
@@ -185,20 +189,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch ? 16 : 0);
+          prefetch);
     }
 
     // Check correctness
     EXPECT_EQ(success, success_ref)
         << "Reference and JIT impl did not both succeed";
-    output_ref = use_weight ? output_slws_ref : output_sls_ref;
     if (success) {
       for (int i = 0; i < output.size(); ++i) {
         EXPECT_EQ(output[i], output_ref[i])
