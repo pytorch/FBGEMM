@@ -5,6 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 #define FBGEMM_EXPORTS
+
+#include "fbgemm/FbgemmEmbedding.h"
+
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <immintrin.h>
@@ -17,7 +20,6 @@
 #include <tuple>
 #include "./CodeCache.h"
 #include "./RefImplementations.h"
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
@@ -37,32 +39,6 @@ class ReturnFunctionSignature {
       const int* lengths,
       const float* weights,
       float* out);
-};
-
-// A trait class to handle ISA specifics
-template <inst_set_t instSet>
-struct InstSetTrait {};
-
-template <>
-struct InstSetTrait<inst_set_t::avx2> {
-  typedef x86::Ymm vec_reg_t;
-
-  constexpr static int VLEN = 8;
-  constexpr static int NUM_VEC_REG = 16;
-  static const vec_reg_t GetVecReg(int idx) {
-    return vec_reg_t(idx);
-  }
-};
-
-template <>
-struct InstSetTrait<inst_set_t::avx512> {
-  typedef x86::Zmm vec_reg_t;
-
-  constexpr static int VLEN = 16;
-  constexpr static int NUM_VEC_REG = 32;
-  static const vec_reg_t GetVecReg(int idx) {
-    return vec_reg_t(idx);
-  }
 };
 
 template <typename inType = std::uint8_t, typename indxType = std::int64_t>
@@ -111,7 +87,6 @@ class GenEmbeddingSpMDMLookup {
   x86::Gp scratchReg2_;
   x86::Gp scratchReg3_;
   x86::Gpd lengths_R_;
-
 }; // GenEmbeddingSpmDMLookup
 
 template <typename inType, typename indxType>
@@ -154,16 +129,13 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
-        std::string filename = "embeddinglookup_";
+        std::string filename = "embeddinglookup";
+        if (is8bit) {
+          filename += "_8bit"
+        }
         filename += "_emd_dim_" + std::to_string(block_size);
-        if (!areIndices64b)
-          filename += "_32bit";
-        if (areIndices64b)
-          filename += "_64bit";
-        if (instSet == inst_set_t::avx2)
-          filename += "_avx2";
-        if (instSet == inst_set_t::avx512)
-          filename += "_avx512";
+        filename += areIndices64b ? "_64bit" : "_32bit";
+        filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
         if (prefetch)
           filename += "_prefetch";
         if (has_weight)
@@ -243,12 +215,11 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         a->emitProlog(frame);
         a->emitArgsAssignment(frame, args);
 
-        InstSetTrait<instSet> inst_trait;
-        constexpr int vlen = inst_trait.VLEN;
-        constexpr int NUM_VEC_REG = inst_trait.NUM_VEC_REG;
+        constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
+        constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename InstSetTrait<instSet>::vec_reg_t vec_reg_t;
+        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -258,54 +229,36 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         vec_reg_t w_vreg; // for weighted sls -- weights
         vec_reg_t
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
-        vec_reg_t temp_vreg_cvt_uint2flt; // for converting uint8->int32->float
+        vec_reg_t src_vreg; // for holding embedding value temporarily
         x86::Ymm mask_vreg; // mask for avx2
-        x86::Xmm temp_xmm; // a shadow xmm reg of temp_vreg_cvt_uint2flt
-        x86::Xmm vlen_inv_vreg_xmm; // a shadow xmm reg of vlen_inv_vreg
-        vec_reg_t temp_vreg;
 
         if (is8bit) {
           // We need 2 vec registers for 1. scale 2. bias
           --unroll_factor;
-          scale_vreg = inst_trait.GetVecReg(unroll_factor);
+          scale_vreg = vec_reg_t(unroll_factor);
           --unroll_factor;
-          bias_vreg = inst_trait.GetVecReg(unroll_factor);
+          bias_vreg = vec_reg_t(unroll_factor);
+        }
 
-          // We need 1 vec register to convert from uint8->int32->float
+        if (is8bit || (remainder && instSet == inst_set_t::avx2)) {
           --unroll_factor;
-          temp_vreg_cvt_uint2flt = inst_trait.GetVecReg(unroll_factor);
-          if (instSet == inst_set_t::avx2) {
-            temp_xmm = x86::Xmm(temp_vreg_cvt_uint2flt.id());
-          }
-        } else {
-          temp_xmm = x86::xmm0;
+          src_vreg = vec_reg_t(unroll_factor);
         }
 
         if (has_weight) {
           --unroll_factor;
-          w_vreg = inst_trait.GetVecReg(unroll_factor);
+          w_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (remainder) {
+        if (remainder && instSet == inst_set_t::avx2) {
           // AVX512 doesn't need to use vector register for masking
-          unroll_factor -= (instSet == inst_set_t::avx2 ? 2 : 1);
-          temp_vreg = inst_trait.GetVecReg(unroll_factor);
-          if (instSet == inst_set_t::avx2) {
-            mask_vreg = x86::ymm(unroll_factor + 1);
-          }
+          --unroll_factor;
+          mask_vreg = x86::ymm(unroll_factor);
         }
 
         if (normalize_by_lengths) {
           --unroll_factor;
-          if (is8bit) {
-            vlen_inv_vreg = inst_trait.GetVecReg(
-                remainder ? unroll_factor + 1 : unroll_factor);
-          } else {
-            vlen_inv_vreg = inst_trait.GetVecReg(unroll_factor);
-          }
-          if (instSet == inst_set_t::avx2) {
-            vlen_inv_vreg_xmm = x86::Xmm(vlen_inv_vreg.id());
-          }
+          vlen_inv_vreg = vec_reg_t(unroll_factor);
         }
 
         if (remainder) {
@@ -357,31 +310,26 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           asmjit::Label IfLengthsEnd = a->newLabel();
           a->bind(IfLengthsBegin);
           a->cmp(x86::dword_ptr(lengths), 1);
+          // Initialize vlen_inv as 0 in case lengths is 0
           a->vxorps(vlen_inv_vreg, vlen_inv_vreg, vlen_inv_vreg);
           a->jl(IfLengthsEnd);
 
           if (instSet == inst_set_t::avx2) {
+            x86::Xmm vlen_inv_vreg_xmm(vlen_inv_vreg.id());
+
             a->mov(lengths_R_, 1);
             a->cvtsi2ss(vlen_inv_vreg_xmm, lengths_R_);
-            a->cvtsi2ss(temp_xmm, x86::dword_ptr(lengths));
-            a->divss(vlen_inv_vreg_xmm, temp_xmm);
-            // a->cvtsi2ss(x86::xmm0, x86::dword_ptr(lengths));
-            // a->divss(vlen_inv_vreg_xmm, x86::xmm0);
+            a->cvtsi2ss(x86::xmm0, x86::dword_ptr(lengths));
+            a->divss(vlen_inv_vreg_xmm, x86::xmm0);
             a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
           } else { // avx512
-            vec_reg_t temp_zmm = inst_trait.GetVecReg(0);
+            vec_reg_t temp_zmm = vec_reg_t(0);
             a->mov(lengths_R_, 1);
-            a->cvtsi2ss(x86::xmm0, lengths_R_);
-            a->vpbroadcastd(vlen_inv_vreg, x86::xmm0);
-            if (is8bit) {
-              a->vpbroadcastd(temp_vreg_cvt_uint2flt, x86::dword_ptr(lengths));
-              a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
-              a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_vreg_cvt_uint2flt);
-            } else {
-              a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
-              a->vcvtdq2ps(temp_zmm, temp_zmm);
-              a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
-            }
+            a->cvtsi2ss(x86::xmm(temp_zmm.id()), lengths_R_);
+            a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
+            a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
+            a->vcvtdq2ps(temp_zmm, temp_zmm);
+            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
           }
           a->bind(IfLengthsEnd);
         }
@@ -393,7 +341,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
 
           // Initialize output regs
           for (int v = 0; v < cur_unroll_factor; ++v) {
-            vec_reg_t out_vreg = inst_trait.GetVecReg(v);
+            vec_reg_t out_vreg = vec_reg_t(v);
             a->vxorps(out_vreg, out_vreg, out_vreg);
           }
 
@@ -522,41 +470,39 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
                 scratchReg1_,
                 0,
                 (vec_idx + v) * (vlen) * sizeof(inType));
-            vec_reg_t out_vreg = inst_trait.GetVecReg(v);
+            vec_reg_t out_vreg = vec_reg_t(v);
 
             // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
             // multiply with scale and then add with bias
             if (is8bit) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx512) {
-                a->k(x86::k(1)).vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
-                a->k(x86::k(1)).vcvtdq2ps(
-                    temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
+                a->k(x86::k(1)).vpmovzxbd(src_vreg, src_addr);
+                a->k(x86::k(1)).vcvtdq2ps(src_vreg, src_vreg);
                 a->k(x86::k(1)).vaddps(out_vreg, out_vreg, bias_vreg);
-                a->k(x86::k(1)).vfmadd231ps(
-                    out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+                a->k(x86::k(1)).vfmadd231ps(out_vreg, src_vreg, scale_vreg);
               } else {
                 // We don't use a mask for AVX2 since we can use the extra
-                //"padding" of the 2 floats (= 8 chars) scale and bias
+                // "padding" of the 2 floats (= 8 chars) scale and bias
                 // this ensures we never access out of bound data
-                a->vpmovzxbd(temp_vreg_cvt_uint2flt, src_addr);
-                a->vcvtdq2ps(temp_vreg_cvt_uint2flt, temp_vreg_cvt_uint2flt);
+                a->vpmovzxbd(src_vreg, src_addr);
+                a->vcvtdq2ps(src_vreg, src_vreg);
                 a->vaddps(out_vreg, out_vreg, bias_vreg);
-                a->vfmadd231ps(out_vreg, temp_vreg_cvt_uint2flt, scale_vreg);
+                a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
               }
             } else {
               // This part for FP32 SLS
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx2) {
                 a->vmaskmovps(
-                    x86::ymm(temp_vreg.id()),
+                    x86::ymm(src_vreg.id()),
                     x86::ymm(mask_vreg.id()),
                     src_addr);
               }
               if (has_weight) {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (instSet == inst_set_t::avx2) {
-                    a->vfmadd231ps(out_vreg, w_vreg, temp_vreg);
+                    a->vfmadd231ps(out_vreg, w_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vfmadd231ps(out_vreg, w_vreg, src_addr);
                   }
@@ -566,7 +512,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (instSet == inst_set_t::avx2) {
-                    a->vaddps(out_vreg, out_vreg, temp_vreg);
+                    a->vaddps(out_vreg, out_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vaddps(out_vreg, out_vreg, src_addr);
                   }
@@ -593,7 +539,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           for (int v = 0; v < cur_unroll_factor; ++v) {
             auto dst_addr =
                 x86::dword_ptr(out, (vec_idx + v) * vlen * sizeof(float));
-            vec_reg_t out_vreg = inst_trait.GetVecReg(v);
+            vec_reg_t out_vreg = vec_reg_t(v);
 
             if (normalize_by_lengths) {
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
@@ -687,7 +633,7 @@ bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch,
-    bool IS_WEIGHT_POSITIONAL) {
+    bool is_weight_positional) {
   static GenEmbeddingSpMDMLookup<inType, indxType> kernel_generator;
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -696,15 +642,15 @@ bool EmbeddingSpMDM(
   if (fbgemmHasAvx512Support()) {
     fn = kernel_generator.template getOrCreate<inst_set_t::avx512>(
         block_size,
-        weights ? true : false,
-        IS_WEIGHT_POSITIONAL,
+        weights != nullptr,
+        is_weight_positional,
         normalize_by_lengths,
         prefetch);
   } else if (fbgemmHasAvx2Support()) {
     fn = kernel_generator.template getOrCreate<inst_set_t::avx2>(
         block_size,
-        weights ? true : false,
-        IS_WEIGHT_POSITIONAL,
+        weights != nullptr,
+        is_weight_positional,
         normalize_by_lengths,
         prefetch);
   } else {
@@ -721,7 +667,8 @@ bool EmbeddingSpMDM(
         lengths,
         weights,
         normalize_by_lengths,
-        out);
+        out,
+        is_weight_positional);
     return success;
   }
 
@@ -749,7 +696,7 @@ template bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM(
     const std::int64_t block_size,
@@ -763,7 +710,7 @@ template bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM(
     const std::int64_t block_size,
@@ -777,7 +724,7 @@ template bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM(
     const std::int64_t block_size,
@@ -791,6 +738,6 @@ template bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 } // namespace fbgemm
