@@ -8,20 +8,12 @@
 #include <set>
 #include <vector>
 
+#include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
-
-namespace {
-void llc_flush(std::vector<char>& llc) {
-  volatile char* data = llc.data();
-  for (int i = 0; i < llc.size(); i++) {
-    data[i]++;
-  }
-}
-} // anonymous namespace
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -37,7 +29,7 @@ static vector<vector<int>> GetInputs_() {
 
 void run_benchmark(
     int num_rows, // number of rows reading
-    int block_size, // number of parameters per rows
+    int block_size, // number of parameters per row
     std::uint64_t param_size) { // total number of parameters
   vector<char> llc(64L * 1024L * 1024L, 1.0);
   vector<float> g(param_size); // gradients
@@ -71,36 +63,27 @@ void run_benchmark(
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
 
-  chrono::time_point<chrono::system_clock> t_begin, t_end;
-  double t = 0.0;
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
-  double data_moved = static_cast<double>(NUM_ITER) * num_rows *
-      (3 * sizeof(float) * block_size + 2 * 64);
+  double data_moved = num_rows * (3 * sizeof(float) * block_size + 2 * 64);
 
-  for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-    llc_flush(llc);
-
-    t_begin = chrono::system_clock::now();
-
-    fbgemm::SparseAdaGrad(
-        num_rows, // number of rows reading
-        block_size, // number of parameters per rows
-        param_size, // total number of parameters
-        w.data(), // input parameters
-        g.data(), // input gradients
-        h.data(), // input momentums
-        indices.data(), // indices of each row
-        epsilon,
-        lr,
-        true);
-
-    t_end = chrono::system_clock::now();
-
-    if (i >= NUM_WARMUP) {
-      t += chrono::duration<double>(t_end - t_begin).count();
-    }
-  }
+  double t = measureWithWarmup(
+      [&]() {
+        fbgemm::SparseAdaGrad(
+            num_rows, // number of rows reading
+            block_size, // number of parameters per row
+            param_size, // total number of parameters
+            w.data(), // input parameters
+            g.data(), // input gradients
+            h.data(), // input momentums
+            indices.data(), // indices of each row
+            epsilon,
+            lr,
+            true); // rowwise
+      },
+      NUM_WARMUP,
+      NUM_ITER,
+      [&]() { llc_flush(llc); });
 
   std::cout << "num_rows: " << num_rows << " block_size: " << block_size
             << std::endl;
