@@ -852,17 +852,30 @@ int rowwise_sparse_adagrad_ref(
     w_ = w + offsetIdx;
 
     float final_sum = 0.0f;
+    // Note the following code assumes fbgemm will generate AVX2 code, which is
+    // OK for now because fbgemm always uses AVX2 for SparseAdagrad due to its
+    // performance is bounded by memory bandwidth hence no speedup from AVX512.
+    // Non-vectorized version would be just
+    // for (auto j = 0; j < block_size; ++j) {
+    //   float gj = g_[j];
+    //   final_sum += gj * gj;
+    // }
+    constexpr int VLEN = 8;
+    array<float, VLEN> partial_sum = {0.0f};
     for (auto j = 0; j < block_size; ++j) {
       float gj = g_[j];
-      final_sum += gj * gj;
+      partial_sum[j % VLEN] += gj * gj;
     }
+    final_sum = ((partial_sum[0] + partial_sum[1]) +
+                 (partial_sum[2] + partial_sum[3])) +
+        ((partial_sum[4] + partial_sum[5]) + (partial_sum[6] + partial_sum[7]));
     final_sum /= block_size;
     float hi = *h_ = *h_ + final_sum;
     float float_step = lr / (std::sqrt(hi) + epsilon);
 
     for (auto j = 0; j < block_size; ++j) {
       float gj = g_[j];
-      w_[j] = w_[j] + gj * float_step;
+      w_[j] += gj * float_step;
     }
   }
   return num_rows;

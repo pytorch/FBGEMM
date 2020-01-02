@@ -34,6 +34,8 @@ static vector<vector<int>> GetInputs_() {
       {1500, 80},
       {1500, 128},
       {1500, 384},
+      {10, 385},
+      {10, 769},
   };
   return input_dims;
 }
@@ -42,7 +44,7 @@ vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 class SparseAdagradTest
-    : public testing::TestWithParam<tuple<bool, int, bool, bool>> {};
+    : public testing::TestWithParam<tuple<bool, int, bool>> {};
 }; // namespace
 
 // Test:
@@ -56,15 +58,13 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(),
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(),
         ::testing::Bool()));
 
 TEST_P(SparseAdagradTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, empty_indices;
+  bool isIndex64b, out_of_bounds;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds, empty_indices) = GetParam();
-  empty_indices = false;
+  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -98,9 +98,13 @@ TEST_P(SparseAdagradTest, basicTest) {
     float epsilon = 1e-5;
     float lr = 0.5;
 
-    uniform_int_distribution<std::int64_t> length_distribution(0, num_rows - 1);
+    uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
-      indices_32[i] = indices[i] = length_distribution(generator);
+      indices_32[i] = indices[i] = index_distribution(generator);
+    }
+    if (out_of_bounds) {
+      int idx = index_distribution(generator);
+      indices_32[idx] = indices[idx] = num_rows;
     }
 
     int ret_fbgemm, ret_ref;
@@ -125,7 +129,9 @@ TEST_P(SparseAdagradTest, basicTest) {
           h.data(), // input momentums
           indices.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          false, // rowwise
+          prefetch);
     } else { // 32 bit indices
       ret_ref = fbgemm::sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -147,7 +153,9 @@ TEST_P(SparseAdagradTest, basicTest) {
           h.data(), // input momentums
           indices_32.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          false, // rowwise
+          prefetch);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
@@ -168,12 +176,9 @@ TEST_P(SparseAdagradTest, basicTest) {
 
 TEST_P(SparseAdagradTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, empty_indices;
+  bool isIndex64b, out_of_bounds;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds, empty_indices) = GetParam();
-  empty_indices = false;
-  prefetch = 16;
-  isIndex64b = true;
+  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -204,12 +209,14 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
     float epsilon = 1e-5;
     float lr = 0.5;
 
-    uniform_int_distribution<std::int64_t> length_distribution(
-        0, 2 * num_rows - 1);
+    uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
-      indices[i] = length_distribution(generator);
+      indices_32[i] = indices[i] = index_distribution(generator);
     }
-    copy(begin(indices), end(indices), back_inserter(indices_32));
+    if (out_of_bounds) {
+      int idx = index_distribution(generator);
+      indices_32[idx] = indices[idx] = num_rows;
+    }
 
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
@@ -234,7 +241,8 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           indices.data(), // indices of each row
           epsilon,
           lr,
-          true); // rowwise
+          true, // rowwise
+          prefetch);
     } else { // 32 bit indices
       ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -257,19 +265,20 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           indices_32.data(), // indices of each row
           epsilon,
           lr,
-          true); // rowwise
+          true, // rowwise
+          prefetch);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
         << "return vals differ, reference is: " << ret_ref
         << " ,fbgemm is: " << ret_fbgemm;
     for (int i = 0; i < h.size(); ++i) {
-      EXPECT_NEAR(h[i], h_ref[i], 1e-3)
+      EXPECT_EQ(h[i], h_ref[i])
           << "results for h differ at (" << i << ") reference: " << h_ref[i]
           << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
     }
     for (int i = 0; i < w.size(); ++i) {
-      EXPECT_NEAR(w[i], w_ref[i], 1e-3)
+      EXPECT_EQ(w[i], w_ref[i])
           << "results for w differ at (" << i << ") reference: " << w_ref[i]
           << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
     }
