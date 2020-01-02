@@ -36,9 +36,10 @@ void cache_evict(const T& vec) {
   auto const elemSize = sizeof(typename T::value_type);
   auto const dataSize = size * elemSize;
 
-  const char* data = (const char*)vec.data();
-  for (auto i = 0; i < dataSize; i += 64) {
-    _mm_clflush((void*)&data[i]);
+  const char* data = reinterpret_cast<const char*>(vec.data());
+  constexpr int CACHE_LINE_SIZE = 64;
+  for (auto i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
+    _mm_clflush(&data[i]);
   }
 }
 

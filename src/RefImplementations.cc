@@ -7,8 +7,8 @@
 #define FBGEMM_EXPORTS
 #include "./RefImplementations.h"
 
-#include "fbgemm/Types.h"
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/Types.h"
 
 #include <algorithm>
 #include <cassert>
@@ -695,13 +695,13 @@ bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL) {
+    bool is_weight_positional) {
   bool is8bit = std::is_same<inType, std::uint8_t>::value;
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
-    const auto scale_bias_offset = 8 / sizeof(inType);
+    const auto scale_bias_offset = 2 * sizeof(float);
     const int64_t fused_block_size = block_size + scale_bias_offset;
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -720,7 +720,7 @@ bool EmbeddingSpMDM_ref(
 
         float weight = 1.0f;
         if (weights) {
-          weight = weights[IS_WEIGHT_POSITIONAL ? i : current];
+          weight = weights[is_weight_positional ? i : current];
         }
         const float scale = weight * scale_bias[0];
         const float bias = weight * scale_bias[1];
@@ -759,7 +759,7 @@ bool EmbeddingSpMDM_ref(
 
         float w = 1.f;
         if (weights) {
-          w = weights[IS_WEIGHT_POSITIONAL ? i : current];
+          w = weights[is_weight_positional ? i : current];
         }
 
         for (int j = 0; j < block_size; ++j) {
@@ -889,7 +889,7 @@ template bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -902,7 +902,7 @@ template bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -915,7 +915,7 @@ template bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -928,7 +928,7 @@ template bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool IS_WEIGHT_POSITIONAL);
+    bool is_weight_positional);
 
 template int sparse_adagrad_ref(
     int num_rows, // number of rows reading

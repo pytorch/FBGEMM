@@ -7,6 +7,8 @@
 #pragma once
 #include <cstdint>
 
+#include "fbgemm/FbgemmBuild.h"
+
 namespace fbgemm {
 template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDM(
@@ -21,7 +23,7 @@ FBGEMM_API bool EmbeddingSpMDM(
     bool normalize_by_lengths,
     float* out,
     int prefetch = 16,
-    bool IS_WEIGHT_POSITIONAL = false);
+    bool is_weight_positional = false);
 
 template <typename IndexType>
 FBGEMM_API int SparseAdaGrad(
