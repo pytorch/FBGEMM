@@ -89,8 +89,17 @@ int main(int argc, const char* argv[]) {
   if (parseArgumentBool(argc, argv, "--fp32", false)) {
     enabledDataType.insert("FP32");
   }
-  const int prefetch_len =
-      parseArgumentInt(argc, argv, "--prefetch", 0, prefetch_len_default);
+
+  // Frefetch 8 cache lines ahead
+  const int prefetch_a_len =
+      parseArgumentInt(argc, argv, "--prefetch-a", 0, 128);
+
+  // Frefetch 8 cache lines ahead
+  const int prefetch_b_len =
+      parseArgumentInt(argc, argv, "--prefetch-b", 0, 256);
+
+  const int prefetch_c_len =
+      parseArgumentInt(argc, argv, "--prefetch-c", 0, 1024);
 
   bool fixedA = true, fixedB = true, fixedC = true;
 
@@ -107,6 +116,11 @@ int main(int argc, const char* argv[]) {
       " */\n";
 
   string comma = ",";
+
+  enum class mult_type {
+    fma,
+    mul
+  };
 
   vector<ISA> isa = {
       // {1, "AVX", {{4, 1, 0}, {4, 2, 0}, {4, 3, 0}, {3, 1, 0}, {3, 2, 0}, {3,
@@ -184,6 +198,13 @@ int main(int argc, const char* argv[]) {
            {14, 2, 0},
        }}};
 
+   // Labels
+   const string label_outer = "loop_outter%=";
+   const string label_next_inner = "next_inner%=";
+   const string label_inner = "loop_inner%=";
+   const string label_zero = "zero_regs%=";
+   const string label_dump_C = "dump_C%=";
+
   for (auto& d_type : types_to_gen) {
     if (enabledDataType.count(d_type.second) == 0) {
       continue;
@@ -242,7 +263,11 @@ int main(int argc, const char* argv[]) {
         printf(
             "shape: %d x %d * 32\n", ukernel_shape[k][0], ukernel_shape[k][1]);
 
-        string p1 = "GemmParams" + d_type.second + "* gp";
+        const string A_stride = to_string(4 * ukernel_shape[k][0]);
+        const string B_stride = to_string(
+            (vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
+
+        const string p1 = "GemmParams" + d_type.second + "* gp";
 
         funcname[k] = "gemmkernel_" + to_string(ukernel_shape[k][0]) + "x" +
             to_string(ukernel_shape[k][1]) + "_";
@@ -272,6 +297,98 @@ int main(int argc, const char* argv[]) {
           last_free_vecreg++;
         }
         assert(last_free_vecreg <= num_vec_regs);
+        string r_spare = vec_reg_prefix +
+            to_string(num_vec_regs - (s.iset == ISA::isaType::avx ? 2 : 1));
+
+        auto const A_load_mult = [&](int r, mult_type m_type) {
+          if (prefetch_a_len && ((4 * r) % cache_line_size == 0)) {
+            addi(
+                srcfile,
+                "prefetcht0 [r9 + " + to_string(prefetch_a_len) + "]",
+                fixedC);
+          }
+          string mul = m_type == mult_type::mul ? "vmulps" : "vfmadd231ps";
+          addi(
+              srcfile,
+              "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" + to_string(4 * r) +
+                  "]");
+          for (int c = 0; c < vCtile[0].size(); c++) {
+            addi(
+                srcfile,
+                mul + " " + vCtile[r][c] + "," + vBcol[c] + "," + vAtmp);
+          }
+        };
+
+        // Generate Loads from Matrix B
+        auto const B_load = [&](int c, const string& vBcol, int prefetch_len) {
+          if (d_type.first == DataType::Float32) {
+            addi(
+                srcfile,
+                "vmovups " + vBcol + "," +
+                    (s.iset == ISA::isaType::avx512 ? "ZMM" : "YMM") +
+                    "WORD PTR [r10 + " + to_string(vec_len_in_bytes * c) + "]");
+          } else if (d_type.first == DataType::Float16) {
+            addi(
+                srcfile,
+                "vcvtph2ps " + vBcol + "," +
+                    (s.iset == ISA::isaType::avx512 ? "YMM" : "XMM") +
+                    "WORD PTR [r10 + " + to_string(vec_len_in_bytes / 2 * c) +
+                    "]");
+          }
+          if (prefetch_len && ((vec_len_in_bytes * c) % cache_line_size == 0)) {
+            addi(
+                srcfile,
+                "prefetcht0 [r10 + " +
+                    to_string(vec_len_in_bytes * c + prefetch_len) + "]",
+                fixedC);
+          }
+        };
+
+        auto const C_prefetch = [&](int r) {
+          for (auto c = 0; prefetch_c_len && (c < vCtile[r].size()); c++) {
+            if ((vec_len_in_bytes * c) % cache_line_size == 0) {
+              addi(
+                  srcfile,
+                  "prefetcht1 [r12 + " +
+                      to_string(
+                          /*vec_len_in_bytes * ukernel_shape[k][1] +*/
+                          c * cache_line_size + prefetch_c_len) +
+                      "]",
+                  fixedC);
+            }
+          }
+        };
+
+        // Generate Loads from Matrix C
+        auto const C_load = [&](int r) {
+          for (auto c = 0; c < vCtile[r].size(); ++c) {
+            switch (s.iset) {
+              case ISA::isaType::avx:
+              case ISA::isaType::avx2:
+              case ISA::isaType::avx512:
+              case ISA::isaType::avx512_256:
+                if (prefetch_c_len &&
+                    ((vec_len_in_bytes * c) % cache_line_size == 0)) {
+                  addi(
+                      srcfile,
+                      "prefetcht1 [r12 + " +
+                          to_string(
+                              /*vec_len_in_bytes * ukernel_shape[k][1] +*/
+                              c * cache_line_size + prefetch_c_len) +
+                          "]",
+                      fixedC);
+                }
+                addi(
+                    srcfile,
+                    "vmulps " + vCtile[r][c] + ", " + r_spare + ", " +
+                        "[r12 + " + to_string(vec_len_in_bytes * c) + "]",
+                    fixedC);
+                break;
+              default:
+                assert(0);
+            }
+          }
+        };
 
         srcfile << "  asm volatile(\n";
 
@@ -287,17 +404,14 @@ int main(int argc, const char* argv[]) {
         srcfile << "      // Copy parameters\n";
         srcfile << "      // k\n";
         addi(srcfile, "mov r8, [r14 + 0]");
+        // Assuming k >= 1
+        addi(srcfile, "dec r8");
         srcfile << "      // A\n";
         addi(srcfile, "mov r9, [r14 + 8]");
         srcfile << "      // B\n";
         addi(srcfile, "mov r10, [r14 + 16]");
         srcfile << "      // beta\n";
-        string r_spare = vec_reg_prefix +
-            to_string(num_vec_regs - (s.iset == ISA::isaType::avx ? 2 : 1));
-        addi(
-            srcfile,
-            "vbroadcastss " + r_spare + string(",DWORD PTR [r14 + 24]"),
-            fixedC);
+        addi(srcfile, "lea r15, [r14 + 24]");
         srcfile << "      // C\n";
         addi(srcfile, "mov r12, [r14 + 32]");
         srcfile << "      // ldc\n";
@@ -313,15 +427,21 @@ int main(int argc, const char* argv[]) {
         srcfile << "\n";
 
         addi(srcfile, "mov rbx, 0");
-
-        string label_outer = "loop_outter%=";
         addi(srcfile, label_outer + ":");
-        addi(srcfile, "mov r14, 0");
+        addi(srcfile, "mov r14, r8");
 
-        string label_inner = "loop_inner%=";
-        string label_zero = "zero_regs%=";
         string r_spare_cmp = "xmm" +
             to_string(num_vec_regs - (s.iset == ISA::isaType::avx ? 2 : 1));
+
+        addi(
+            srcfile,
+            "vbroadcastss " + r_spare + string(",DWORD PTR [r15]"),
+            fixedC);
+        // Generate first iteration which loads values from C  and interleavs
+        // With loads from B and multiplication
+        for (auto c = 0; c < vCtile[0].size(); ++c) {
+          B_load(c, vBcol[c], prefetch_b_len);
+        }
         addi(srcfile, "vxorps xmm0, xmm0, xmm0");
         addi(srcfile, "vcomiss " + r_spare_cmp + ", xmm0");
         addi(srcfile, "jz " + label_zero);
@@ -329,70 +449,56 @@ int main(int argc, const char* argv[]) {
         srcfile << "\n";
         srcfile << "      // Setup values with beta multiplication\n";
         string r_last = vec_reg_prefix + to_string(num_vec_regs - 1);
-        // store out C
         for (auto r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
           }
-          for (auto c = 0; c < vCtile[r].size(); c++) {
-            switch (s.iset) {
-              case ISA::isaType::avx:
-              case ISA::isaType::avx2:
-              case ISA::isaType::avx512:
-              case ISA::isaType::avx512_256:
-                if (prefetch_len &&
-                    ((vec_len_in_bytes * c) % cache_line_size == 0)) {
-                  addi(
-                      srcfile,
-                      "prefetcht0 [r12 + " +
-                          to_string(
-                              vec_len_in_bytes * ukernel_shape[k][1] +
-                              c * cache_line_size) +
-                          "]",
-                      fixedC);
-                }
-                addi(
-                    srcfile,
-                    "vmulps " + vCtile[r][c] + ", " + r_spare + ", " +
-                        "[r12 + " + to_string(vec_len_in_bytes * c) + "]",
-                    fixedC);
-                break;
-              default:
-                assert(0);
-            }
-          }
+          C_load(r);
+        }
+        // Skip matrix B preload if k == 1 (may OutOfBound access)
+        addi(srcfile, "test r14,r14");
+        addi(srcfile, "jz skip_preload%=");
+        // Preload B index and prefetch with the next iteration
+        B_load(vCtile[0].size(), r_spare, prefetch_b_len);
+        addi(srcfile, "skip_preload%=:");
+        for (auto r = 0; r < vCtile.size(); r++) {
+          A_load_mult(r, mult_type::fma);
         }
         if (vCtile.size() > 1) {
           addi(srcfile, "mov r12, rcx");
         }
-        addi(srcfile, "jmp " + label_inner);
+        addi(srcfile, "test r14,r14");                 // Decrease iterations
+        addi(srcfile, "jnz " + label_next_inner);
+        addi(srcfile, "add r10," + B_stride, fixedA);  // B stride
+        addi(srcfile, "jmp " + label_dump_C);
 
+        //
+        // Handle non-accumulate case, the values can be directly stored
+        //
         srcfile << "\n";
         addi(srcfile, label_zero + ":");
         srcfile << "\n";
-
-        // set all vCtile regs to zeros
+        // Skip matrix B preload if k == 1 (may OutOfBound access)
+        addi(srcfile, "test r14,r14");
+        addi(srcfile, "jz skip_preload_b_zero%=");
+        // Preload B index and with the next iteration
+        B_load(vCtile[0].size(), r_spare, prefetch_b_len);
+        addi(srcfile, "skip_preload_b_zero%=:");
+        // Consider all vCtile regs as zeros, do direct MUL into
         for (auto r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
           }
-          for (auto c = 0; c < vCtile[r].size(); c++) {
-            if (prefetch_len &&
-                ((vec_len_in_bytes * c) % cache_line_size == 0)) {
-              addi(
-                  srcfile,
-                  "prefetcht0 [r12 + " + std::to_string(c * prefetch_len) + "]",
-                  fixedC);
-            }
-            addi(
-                srcfile,
-                "vxorps " + vCtile[r][c] + ", " + vCtile[r][c] + ", " +
-                    vCtile[r][c]);
-          }
+          C_prefetch(r);
+          A_load_mult(r, mult_type::mul);
         }
         if (vCtile.size() > 1) {
           addi(srcfile, "mov r12, rcx");
         }
+        addi(srcfile, "test r14,r14");                   // Decrease iterations
+        addi(srcfile, "jnz " + label_next_inner);
+        addi(srcfile, "add r10," + B_stride, fixedA);    // B stride
+        addi(srcfile, "jmp " + label_dump_C);
 
         // start marker
         if (iaca) {
@@ -400,66 +506,31 @@ int main(int argc, const char* argv[]) {
           addi(srcfile, ".byte 0x64, 0x67, 0x90");
         }
 
+        //
+        //  Inner iteration begin
+        //
         srcfile << "\n";
         addi(srcfile, label_inner + ":");
         srcfile << "\n";
 
-        auto const B_load = [&](int c) {
-          if (d_type.first == DataType::Float32) {
-            addi(
-                srcfile,
-                "vmovups " + vBcol[c] + "," +
-                    (s.iset == ISA::isaType::avx512 ? "ZMM" : "YMM") +
-                    "WORD PTR [r10 + " + to_string(vec_len_in_bytes * c) + "]");
-          } else if (d_type.first == DataType::Float16) {
-            addi(
-                srcfile,
-                "vcvtph2ps " + vBcol[c] + "," +
-                    (s.iset == ISA::isaType::avx512 ? "YMM" : "XMM") +
-                    "WORD PTR [r10 + " + to_string(vec_len_in_bytes / 2 * c) +
-                    "]");
-          }
-        };
-
-        for (int c = 0; c < vCtile[0].size(); c++) {
-          B_load(c);
-          if (prefetch_len && ((vec_len_in_bytes * c) % cache_line_size == 0)) {
-            addi(
-                srcfile,
-                "prefetcht0 [r10 + " +
-                    to_string(vec_len_in_bytes * c + prefetch_len) + "]",
-                fixedC);
-          }
+        // Store preloaded value
+        addi(srcfile, "vmovaps " + vBcol[0] + "," + r_spare);
+        for (int c = 1; c < vCtile[0].size(); c++) {
+          B_load(c, vBcol[c], prefetch_b_len);
         }
-
+        // Preload for next iteration
+        B_load(vCtile[0].size(), r_spare, prefetch_b_len);
         for (int r = 0; r < vCtile.size(); r++) {
-          addi(
-              srcfile,
-              "vbroadcastss " + vAtmp + ",DWORD PTR [r9+" + to_string(4 * r) +
-                  "]");
-          for (int c = 0; c < vCtile[0].size(); c++) {
-            addi(
-                srcfile,
-                "vfmadd231ps " + vCtile[r][c] + "," + vBcol[c] + "," + vAtmp);
-          }
+          A_load_mult(r, mult_type::fma);
         }
 
-        addi(
-            srcfile,
-            "add r9," + to_string(4 * ukernel_shape[k][0]),
-            fixedA); // move A ptr
-
-        addi(
-            srcfile,
-            "add r10," +
-                to_string(
-                    (vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]),
-            fixedA); // move A ptr
-
-        addi(srcfile, "inc r14");
-        addi(srcfile, "cmp r14, r8");
-        addi(srcfile, "jl " + label_inner);
-
+        // Finish inner iteration
+        srcfile << "\n";
+        addi(srcfile, label_next_inner + ":");
+        addi(srcfile, "add r9," + A_stride, fixedA);  // A stride
+        addi(srcfile, "add r10," + B_stride, fixedA); // B stride
+        addi(srcfile, "dec r14");                     // Decrease iterations
+        addi(srcfile, "jnz " + label_inner);
         srcfile << "\n";
 
         // end marker
@@ -468,8 +539,20 @@ int main(int argc, const char* argv[]) {
           addi(srcfile, ".byte 0x64, 0x67, 0x90");
         }
 
-        srcfile << "      // Dump C\n";
+        // Perform last iteration without preloading B values
+        // Store preloaded value
+        addi(srcfile, "vmovaps " + vBcol[0] + "," + r_spare);
+        for (int c = 1; c < vCtile[0].size(); c++) {
+          B_load(c, vBcol[c], 0); // no prefetch
+        }
+        for (int r = 0; r < vCtile.size(); r++) {
+          A_load_mult(r, mult_type::fma);
+        }
+        addi(srcfile, "add r9," + A_stride, fixedA);  // A stride
+        addi(srcfile, "add r10," + B_stride, fixedA); // B stride
 
+        srcfile << "      // Dump C\n";
+        addi(srcfile, label_dump_C + ":");
         for (auto r = 0; r < vCtile.size(); r++) {
           if (r > 0) {
             addi(srcfile, "add r12, r13", fixedC); // move C ptr
@@ -507,7 +590,7 @@ int main(int argc, const char* argv[]) {
                    "        \"r11\",\n        \"r13\",\n"
                    "        \"r14\",\n        \"rax\",\n        \"rcx\",\n"
                    "        \"rsi\",\n        \"rdi\",\n"
-                   "        \"rbx\",\n        \"r12\",\n"
+                   "        \"rbx\",\n        \"r12\",\n        \"r15\",\n"
                    "        \"memory\");\n";
         srcfile << "}\n";
       }
