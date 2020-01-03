@@ -83,19 +83,30 @@ void QuantizeAvx2(
         reinterpret_cast<__m128i*>(dst + i), _mm256_castsi256_si128(rounded_v));
   }
 
-  for (; i < len; ++i) {
-    float transformed = qparams.zero_point + src[i] * inverse_scale;
-    float clipped = std::min(std::max(transformed, min_val), max_val);
-    // Not exactly the same behavior as the vectorized code.
-    // The vectorized code above always rounds to even in halfway cases
-    // (https://software.intel.com/en-us/node/523819), but std::nearbyint
-    // does the same only when the current rounding mode is FE_TONEAREST.
-    // However, in practice, this should not be a problem because most cases
-    // use the default rounding mode FE_TONEAREST.
-    // Note that we cannot implement the same behavior as the vectorized code
-    // using std::round because it does rounding away from zero in halfway
-    // cases.
-    dst[i] = nearbyint(clipped);
+  // Handle remainder using mask instructions so that
+  // the main loop and remainder loop have the same behavior
+  int rem = len - i;
+  if (rem > 0) {
+    __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[rem]));
+    __m128i store_mask_v = _mm_load_si128(
+        reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
+    __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
+    __m256 transformed_v = _mm256_fmadd_ps(
+        src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
+    __m256 clipped_v = _mm256_min_ps(
+        _mm256_max_ps(transformed_v, _mm256_set1_ps(min_val)),
+        _mm256_set1_ps(max_val));
+    __m256i rounded_v = _mm256_cvtps_epi32(clipped_v);
+
+    // An instruction sequence to save "rem" number of 32-bit integers
+    // as "rem" number of 8-bit integers
+    rounded_v = _mm256_shuffle_epi8(rounded_v, shuffle_mask_v);
+    rounded_v = _mm256_permutevar8x32_epi32(rounded_v, permute_mask_v);
+    _mm_maskmoveu_si128(
+        _mm256_castsi256_si128(rounded_v),
+        store_mask_v,
+        reinterpret_cast<char*>(dst + i));
   }
 #endif
 }
