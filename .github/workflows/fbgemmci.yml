@@ -1,0 +1,68 @@
+name: FBGEMMCI
+
+on:
+  push:    
+    branches:
+      - master 
+  pull_request:
+    branches:
+      - master
+  
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+    strategy: 
+      matrix:
+        os: [ubuntu-latest] ## [windows-latest, macos-latest] 
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+        git submodule sync --recursive
+        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+    - name: Get env vars
+      run: |
+        echo GITHUB_WORKFLOW   = $GITHUB_WORKFLOW
+        echo HOME              = $HOME
+        echo GITHUB_ACTION     = $GITHUB_ACTION
+        echo GITHUB_ACTIONS    = $GITHUB_ACTIONS
+        echo GITHUB_REPOSITORY = $GITHUB_REPOSITORY
+        echo GITHUB_EVENT_NAME = $GITHUB_EVENT_NAME
+        echo GITHUB_EVENT_PATH = $GITHUB_EVENT_PATH
+        echo GITHUB_WORKSPACE  = $GITHUB_WORKSPACE
+        echo GITHUB_SHA        = $GITHUB_SHA
+        echo GITHUB_REF        = $GITHUB_REF
+ 
+    - name: Build static FBGEMM lib 
+      run: |
+        set -e
+        mkdir build_static
+        cd build_static
+        cmake -DFBGEMM_LIBRARY_TYPE=static ..
+        make
+
+    - name: Test static FBGEMM lib
+      run: |
+        set -e
+        cd build_static
+        ctest
+
+    - name: Build shared FBGEMM lib
+      run: |
+        set -e
+        mkdir build_shared
+        cd build_shared
+        cmake -DFBGEMM_LIBRARY_TYPE=shared ..
+        make
+
+    - name: Test shared FBGEMM  lib
+      run: |
+        set -e
+        cd build_shared
+        ctest
+
