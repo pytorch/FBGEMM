@@ -782,6 +782,66 @@ bool EmbeddingSpMDM_ref(
 }
 
 template <typename IndexType>
+bool EmbeddingSpMDM4Bit_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const IndexType* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional) {
+  // block_size is the number of elements and fused_block_size is the size of
+  // an entire row, including scale and bias.
+  const auto scale_bias_offset = 2 * sizeof(float16);
+  const int64_t fused_block_size = (block_size + 1) / 2 + scale_bias_offset;
+  int64_t current = 0;
+  for (int m = 0; m < output_size; ++m) {
+    memset(out, 0, sizeof(float) * block_size);
+    if (current + lengths[m] > index_size) {
+      return false;
+    }
+    for (int i = 0; i < lengths[m]; ++i) {
+      int64_t idx = indices[current];
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      const float16* scale_bias = reinterpret_cast<const float16*>(
+          input + fused_block_size * indices[current] + (block_size + 1) / 2);
+
+      float weight = 1.0f;
+      if (weights) {
+        weight = weights[is_weight_positional ? i : current];
+      }
+      const float scale = weight * cpu_half2float(scale_bias[0]);
+      const float bias = weight * cpu_half2float(scale_bias[1]);
+
+      for (int j = 0; j < block_size; ++j) {
+        uint8_t quantized = input[fused_block_size * indices[current] + j / 2];
+        quantized >>= (j % 2) * 4;
+        quantized &= (1 << 4) - 1;
+
+        out[j] = std::fma(scale, quantized, out[j] + bias);
+      }
+
+      ++current;
+    }
+    if (normalize_by_lengths && lengths[m]) {
+      float scale = 1.f / lengths[m];
+      for (int j = 0; j < block_size; ++j) {
+        out[j] *= scale;
+      }
+    }
+    out += block_size;
+  }
+  return true;
+}
+
+template <typename IndexType>
 int sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
@@ -936,6 +996,32 @@ template bool EmbeddingSpMDM_ref(
     const std::int64_t index_size,
     const std::int64_t data_size,
     const float* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM4Bit_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM4Bit_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
     const std::int32_t* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum

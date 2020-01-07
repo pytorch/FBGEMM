@@ -239,6 +239,20 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional = false);
 
+template <typename IndexType = std::int64_t>
+FBGEMM_API bool EmbeddingSpMDM4Bit_ref(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const IndexType* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional = false);
+
 template <typename IndexType>
 FBGEMM_API int sparse_adagrad_ref(
     int num_rows, // number of rows reading

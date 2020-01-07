@@ -20,6 +20,7 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
@@ -74,22 +75,23 @@ int run_benchmark(
     bool use_32_bit_indices = false,
     bool prefetch = false) {
   // Create embedding table
-  vector<uint8_t> embedding_table(
-      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
+  int fused_embedding_dim = (embedding_dim + 1) / 2 + 2 * sizeof(float16);
+  vector<uint8_t> embedding_table(num_unique_ids * fused_embedding_dim);
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
 
-  vector<uint8_t> fused_embedding_table(
-      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
+  vector<uint8_t> fused_embedding_table(num_unique_ids * fused_embedding_dim);
   for (int i = 0; i < num_unique_ids; i++) {
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] = 2;
+    for (int ii = 0; ii < embedding_dim / 2; ii++) {
+      fused_embedding_table[i * fused_embedding_dim + ii] = 2;
     }
-    float* scale_bias = reinterpret_cast<float*>(
-        &fused_embedding_table[i * (embedding_dim + 2 * sizeof(float))] +
-        embedding_dim);
-    scale_bias[0] = 2.0;
-    scale_bias[1] = 1.0;
+    float16* scale_bias = reinterpret_cast<float16*>(
+        &fused_embedding_table[i * fused_embedding_dim] +
+        (embedding_dim + 1) / 2);
+    float scale = 2.0f;
+    float bias = 1.0f;
+    FloatToFloat16_ref(&scale, scale_bias, 1, true /* clip */);
+    FloatToFloat16_ref(&bias, scale_bias + 1, 1, true /* clip */);
   }
 
   // print_fused_table(num_unique_ids, embedding_dim, fused_embedding_table);
@@ -150,7 +152,7 @@ int run_benchmark(
 
     for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
       if (use_32_bit_indices) {
-        fbgemm::EmbeddingSpMDM_ref(
+        fbgemm::EmbeddingSpMDM4Bit_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -163,7 +165,7 @@ int run_benchmark(
             output_ref.data());
 
       } else {
-        fbgemm::EmbeddingSpMDM_ref(
+        fbgemm::EmbeddingSpMDM4Bit_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -182,7 +184,7 @@ int run_benchmark(
       double t = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
+              fbgemm::EmbeddingSpMDM4Bit(
                   embedding_dim,
                   batch_size,
                   lengths_sum,
@@ -195,7 +197,7 @@ int run_benchmark(
                   output.data(),
                   prefetch ? 16 : 0);
             } else {
-              fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
+              fbgemm::EmbeddingSpMDM4Bit(
                   embedding_dim,
                   batch_size,
                   lengths_sum,
