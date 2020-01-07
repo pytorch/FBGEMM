@@ -112,8 +112,6 @@ int run_benchmark(
   vector<float> output_slws_ref(output_sls_ref.size()),
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
-  chrono::time_point<chrono::system_clock> t_begin, t_end;
-
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
   // Only counts the number of bytes for reading embedding table and ignore
