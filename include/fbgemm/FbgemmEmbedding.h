@@ -25,6 +25,21 @@ FBGEMM_API bool EmbeddingSpMDM(
     int prefetch = 16,
     bool is_weight_positional = false);
 
+template <typename IndexType = std::int64_t>
+FBGEMM_API bool EmbeddingSpMDM4Bit(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const std::uint8_t* input,
+    const IndexType* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch = 16,
+    bool is_weight_positional = false);
+
 /**
  * @return The number of rows processed. If smaller than num_rows, an error
  *         must have happened at the last row processed.
