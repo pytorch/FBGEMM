@@ -21,6 +21,12 @@ macro(add_gtest TESTNAME)
  target_compile_options(${TESTNAME} PRIVATE
    "-m64" "-mavx2" "-mfma" "-masm=intel")
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
+
+  if(${OpenMP_FOUND})
+    message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
+    target_link_libraries(${TESTNAME} ${OpenMP_CXX_LIBRARIES})
+  endif()
+
   add_dependencies(${TESTNAME} gtest fbgemm)
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
