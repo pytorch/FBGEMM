@@ -36,6 +36,7 @@ static vector<vector<int>> GetInputs_() {
       {10, 4000, 56, 100},
       {10, 4000, 2, 100},
       {10, 4000, 4, 100},
+      {10, 4000, 7, 100},
       // These were  from C2 tests
       {10, 40, 16, 10},
       {10, 40, 86, 10},
@@ -98,12 +99,13 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
     uint8_t* fused_embedding_table =
         new uint8_t[num_rows * fused_embedding_dim];
     for (int i = 0; i < num_rows; i++) {
-      for (int ii = 0; ii < embedding_dim / 2; ii++) {
+      for (int ii = 0; ii < (embedding_dim + 1) / 2; ii++) {
         fused_embedding_table[i * fused_embedding_dim + ii] =
             entries(generator);
       }
       float16* scale_bias = reinterpret_cast<float16*>(
-          fused_embedding_table + i * fused_embedding_dim + embedding_dim / 2);
+          fused_embedding_table + i * fused_embedding_dim +
+          (embedding_dim + 1) / 2);
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
       FloatToFloat16_ref(&scale, scale_bias, 1, true /* clip */);
