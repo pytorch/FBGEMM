@@ -51,7 +51,7 @@ enum class impl_type_t { ref, opt };
  * KCX can be KCRS format or KCTRS format (e.g., for 3-D convolutions)
  * KXC can be KRSC format or KTRSC format (e.g., for 3-D convolutions)
  */
-enum class FBGEMM_API layout_t { KCX, KXC };
+enum class layout_t { KCX, KXC };
 
 /**
  * @brief Some commonly used variables for different instruction sets
