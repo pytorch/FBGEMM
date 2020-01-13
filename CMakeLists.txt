@@ -60,7 +60,11 @@ set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
 
 #check if compiler supports avx512
 include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
+if(MSVC)
+  CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
+else(MSVC)
+  CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
+endif(MSVC)
 if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
@@ -85,7 +89,6 @@ endif()
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
   src/FbgemmBfloat16ConvertAvx2.cc
-  src/FbgemmFP16UKernelsAvx2.cc
   src/FbgemmFloat16ConvertAvx2.cc
   src/FbgemmI8Depthwise3DAvx2.cc
   src/FbgemmI8Depthwise3x3Avx2.cc
@@ -99,10 +102,21 @@ set(FBGEMM_AVX2_SRCS
 #All the source files that use avx512 instructions statically
 set(FBGEMM_AVX512_SRCS
   src/FbgemmBfloat16ConvertAvx512.cc
-  src/FbgemmFP16UKernelsAvx512.cc
   src/FbgemmFloat16ConvertAvx512.cc
-  src/FbgemmFP16UKernelsAvx512_256.cc
   src/UtilsAvx512.cc)
+
+#FP16 kernels contain inline assembly and inline assembly syntax
+#for MSVC is different. Also, MSVC doesn't support inline assembly
+#for x64 builds. We fallback to default slower kernel for MSVC builds
+#for now.
+if(NOT MSVC)
+  list(APPEND FBGEMM_AVX2_SRCS
+    src/FbgemmFP16UKernelsAvx2.cc)
+
+  list(APPEND FBGEMM_AVX512_SRCS
+    src/FbgemmFP16UKernelsAvx512.cc
+    src/FbgemmFP16UKernelsAvx512_256.cc)
+endif()
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
@@ -125,14 +139,20 @@ add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
 
 set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_STANDARD 11
+      CXX_STANDARD_REQUIRED YES
       CXX_EXTENSIONS NO
       CXX_VISIBILITY_PRESET hidden)
 
-target_compile_options(fbgemm_avx2 PRIVATE
-  "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
-target_compile_options(fbgemm_avx512 PRIVATE
-  "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
-  "-mavx512vl" "-masm=intel")
+if(MSVC)
+  target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
+  target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
+else(MSVC)
+  target_compile_options(fbgemm_avx2 PRIVATE
+    "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
+  target_compile_options(fbgemm_avx512 PRIVATE
+    "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
+    "-mavx512vl" "-masm=intel")
+endif(MSVC)
 
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
