@@ -87,8 +87,15 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   // 11th SIMD register:
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
+
+  // Allocate buffers
+  auto b_v = static_cast<__m256i*>(
+      fbgemmAlignedAlloc(64, kernel_prod * sizeof(__m256i)));
+  auto b_interleaved_epi16 = static_cast<__m256i*>(
+      fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
+  auto b_interleaved_epi32 = static_cast<__m256i*>(
+      fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
   for (int k1 = 0; k1 < K; k1 += 32) {
-    __m256i b_v[kernel_prod];
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
@@ -105,7 +112,6 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 2 SIMD registers
-    __m256i b_interleaved_epi16[kernel_prod_aligned];
     __m256i zero_v = _mm256_setzero_si256();
     for (int i = 0; i < kernel_prod_aligned / 2; ++i) {
       if (2 * i + 1 >= kernel_prod) {
@@ -121,7 +127,6 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    __m256i b_interleaved_epi32[kernel_prod_aligned];
     for (int i = 0; i < kernel_prod_aligned / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
@@ -143,6 +148,9 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
           b_interleaved_epi32[i]);
     }
   }
+  fbgemmAlignedFree(b_v);
+  fbgemmAlignedFree(b_interleaved_epi16);
+  fbgemmAlignedFree(b_interleaved_epi32);
   fbgemmAlignedFree(smat_transposed);
 }
 
