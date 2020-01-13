@@ -356,7 +356,7 @@ constexpr std::array<knl_ptr, 15> kernel_avx512 = {
 
 // define this to debug fp16 kernel using a reference C implementation
 // #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || defined(_MSC_VER)
 namespace {
 void ref_kernel(
     int kernel_nrows,
@@ -392,7 +392,7 @@ void ref_kernel(
   }
 }
 } // anonymous namespace
-#endif // FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#endif // FBGEMM_FP16_FALLBACK_TO_REF_KERNEL || _MSC_VER
 
 // autotuned kernel splits for various cases m = 1:mb_max
 void cblas_gemm_compute(
@@ -493,7 +493,7 @@ void cblas_gemm_compute(
             gp.C += Bp.blockColSize() * jb_begin;
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || defined(_MSC_VER)
               ref_kernel(kernel_nrows, &gp, C, m, n, use_avx512);
 #else
               kernels[kernel_nrows](&gp);
@@ -509,7 +509,7 @@ void cblas_gemm_compute(
               gp.C += Bp.blockColSize() * jb_begin;
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || defined(_MSC_VER)
                 ref_kernel(kernel_nrows, &gp, C, m, n, use_avx512);
 #else
                 kernels[kernel_nrows](&gp);
@@ -535,7 +535,7 @@ void cblas_gemm_compute(
               gp.C = c_tmp;
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || defined(_MSC_VER)
               ref_kernel(kernel_nrows, &gp, c_tmp, 14, 32, use_avx512);
 #else
               kernels[kernel_nrows](&gp);
