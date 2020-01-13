@@ -373,6 +373,10 @@ int main(int argc, const char* argv[]) {
         env_var, "granularity=fine,explicit,proclist=[1-%d]", num_instances);
     setenv("KMP_AFFINITY", env_var, 0); // Don't overide if already set
     omp_set_num_threads(num_instances);
+#ifdef USE_MKL
+    // each instance should be run with a single thread
+    mkl_set_num_threads(1);
+#endif
   } else {
     // When running single instance use OMP_NUM_THREADS to determine
     // parallelism. Default behaviour is using a single thread.
