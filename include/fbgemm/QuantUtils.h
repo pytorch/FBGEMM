@@ -32,7 +32,7 @@ FBGEMM_API void ChooseRequantizationMultiplier(
 // TODO: T26263653 fix signed-integer-overflow undefined behavior
 template <typename T1, typename T2 = std::uint8_t>
 NO_SANITIZE("signed-integer-overflow")
-FBGEMM_API T2 clamp(T1 src, int precision, bool is_signed = false) {
+T2 clamp(T1 src, int precision, bool is_signed = false) {
   std::int32_t min = is_signed ? -(1LL << (precision - 1)) : 0;
   std::int32_t max =
       is_signed ? ((1LL << (precision - 1)) - 1) : (1LL << precision) - 1;
@@ -49,7 +49,7 @@ FBGEMM_API T2 clamp(T1 src, int precision, bool is_signed = false) {
 /// Quantize src using zero_point and scale, clamp to the specified precision,
 /// and convert it to type T
 template <typename T>
-FBGEMM_API T Quantize(
+T Quantize(
     float src,
     std::int32_t zero_point,
     float scale,
@@ -63,7 +63,7 @@ FBGEMM_API T Quantize(
 }
 
 template <typename T>
-FBGEMM_API T Quantize(float src, const TensorQuantizationParams& qparams) {
+T Quantize(float src, const TensorQuantizationParams& qparams) {
   return Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
@@ -109,12 +109,12 @@ FBGEMM_API void QuantizeGroupwise(
     T* dst);
 
 template <typename T>
-FBGEMM_API float Dequantize(T src, const TensorQuantizationParams& qparams) {
+float Dequantize(T src, const TensorQuantizationParams& qparams) {
   return qparams.scale * (src - qparams.zero_point);
 }
 
 template <typename T>
-FBGEMM_API void Dequantize(
+void Dequantize(
     const T* src,
     float* dst,
     int len,
@@ -131,7 +131,7 @@ FBGEMM_API std::int64_t
 SaturatingRoundingMulWithShift(std::int32_t a, std::int32_t b, int right_shift);
 
 template <typename T>
-FBGEMM_API T Requantize(
+T Requantize(
     std::int32_t src, // int32 input before requantization
     std::int32_t zero_point,
     std::int32_t multiplier,
@@ -145,7 +145,7 @@ FBGEMM_API T Requantize(
 }
 
 template <typename T>
-FBGEMM_API T RequantizeFixedPoint(
+T RequantizeFixedPoint(
     std::int32_t src, // int32 input before requantization
     const RequantizationParams& params) {
   return Requantize<T>(
@@ -167,7 +167,7 @@ FBGEMM_API void RequantizeFixedPoint(
 // Requantization (with floats)
 
 template <typename T>
-FBGEMM_API T Requantize(
+T Requantize(
     std::int32_t src, // int32 input before requantization
     std::int32_t zero_point,
     float multiplier,
@@ -178,7 +178,7 @@ FBGEMM_API T Requantize(
 }
 
 template <typename T>
-FBGEMM_API T Requantize(
+T Requantize(
     std::int32_t src, // int32 input before requantization
     const RequantizationParams& params) {
   return Requantize<T>(
