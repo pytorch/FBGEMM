@@ -245,7 +245,7 @@ FBGEMM_API thread_type_t fbgemmGetThreadPartition(
     int n_align = 64);
 
 template <int SIZE, typename T = std::int32_t>
-FBGEMM_API std::string arrayToString(const std::array<T, SIZE>& inp) {
+std::string arrayToString(const std::array<T, SIZE>& inp) {
   std::string out = "[";
   for (int i = 0; i < SIZE; ++i) {
     out += std::to_string(inp[i]);
@@ -255,7 +255,7 @@ FBGEMM_API std::string arrayToString(const std::array<T, SIZE>& inp) {
 }
 
 template <typename accT = std::int32_t>
-FBGEMM_API bool isValidBlockingFactor(BlockingFactors* param) {
+bool isValidBlockingFactor(BlockingFactors* param) {
   constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
   constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
   static const auto iset = fbgemmInstructionSet();
