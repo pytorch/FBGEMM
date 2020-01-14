@@ -26,7 +26,9 @@
       #endif
     #endif
   #else
-    #if __clang__ || __GNUC__ >=4 || __INTEL_COMPILER
+    // "GNUC with version < 6 have a bug if visibility attribute is used on an enum class.
+    // https://stackoverflow.com/questions/2463113/g-c0x-enum-class-compiler-warnings "
+    #if __clang__ || __GNUC__ >=6 || __INTEL_COMPILER
       #define FBGEMM_API __attribute__((__visibility__("default")))
     #else
       #define FBGEMM_API
