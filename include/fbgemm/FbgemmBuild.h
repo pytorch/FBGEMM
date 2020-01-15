@@ -11,6 +11,7 @@
 #if !defined(FBGEMM_API)
   #if defined(FBGEMM_STATIC)
     #define FBGEMM_API
+    #define FBGEMM_ENUM_CLASS_API
   #elif defined _WIN32 || defined __CYGWIN__
     #if (__GNUC__ || __clang__) && !(__MINGW64__ || __MINGW32__)
       #if defined(FBGEMM_EXPORTS)
@@ -25,13 +26,18 @@
         #define FBGEMM_API __declspec(dllimport)
       #endif
     #endif
+    #define FBGEMM_ENUM_CLASS_API
   #else
-    // "GNUC with version < 6 have a bug if visibility attribute is used on an enum class.
-    // https://stackoverflow.com/questions/2463113/g-c0x-enum-class-compiler-warnings "
-    #if __clang__ || __GNUC__ >=6 || __INTEL_COMPILER
+    #if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
       #define FBGEMM_API __attribute__((__visibility__("default")))
     #else
       #define FBGEMM_API
+    #endif
+    // Currently, enum classes need to be declaredly explicitly for shared build on macos
+    #if __clang__
+      #define FBGEMM_ENUM_CLASS_API __attribute__((__visibility__("default")))
+    #else
+      #define FBGEMM_ENUM_CLASS_API
     #endif
   #endif
 #endif
