@@ -12,7 +12,7 @@
 
 namespace fbgemm {
 
-enum class FBGEMM_API QuantizationGranularity {
+enum class FBGEMM_ENUM_CLASS_API QuantizationGranularity {
   TENSOR,
   GROUP,
   OUT_CHANNEL,
