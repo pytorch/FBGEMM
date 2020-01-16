@@ -15,7 +15,7 @@ FBGEMM_API bool EmbeddingSpMDM(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
-    const std::int64_t data_size,
+    const std::int64_t data_size, // the number of rows in input
     const inType* input,
     const IndexType* indices,
     const int* lengths,
@@ -30,7 +30,7 @@ FBGEMM_API bool EmbeddingSpMDM4Bit(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
-    const std::int64_t data_size,
+    const std::int64_t data_size, // the number of rows in input
     const std::uint8_t* input,
     const IndexType* indices,
     const int* lengths,
