@@ -180,7 +180,7 @@ void CompressedSparseColumn::SpMDM(
     // Transpose 32 x K submatrix of A
     if (i_end - i1 < 32) {
 #ifdef _MSC_VER
-      uint8_t* C_temp = static_cast<uint8_t*>(
+      uint8_t* A_temp_buffer = static_cast<uint8_t*>(
           fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
 #else
       alignas(64) uint8_t A_temp_buffer[K * 32];
