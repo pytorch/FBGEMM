@@ -16,6 +16,9 @@ FBGEMM is used as a backend of Caffe2 and PyTorch quantized operators for x86 ma
 * Caffe2: https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server
 * PyTorch: https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu
 
+## What's New?
+* [New Features and Recent Improvements](https://github.com/pytorch/FBGEMM/wiki/Recent-feature-additions-and-improvements-in-FBGEMM) (January, 2020)
+
 ## Examples
 
 The tests (in test folder) and benchmarks (in bench folder) are some great
