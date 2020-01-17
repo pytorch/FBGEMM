@@ -74,6 +74,14 @@ void llc_flush(std::vector<char>& llc) {
   }
 }
 
+int fbgemm_get_max_threads() {
+#if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
+  return 1;
+#else
+  return omp_get_max_threads();
+#endif
+}
+
 int fbgemm_get_num_threads() {
 #if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
   return 1;

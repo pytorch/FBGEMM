@@ -27,7 +27,11 @@ aligned_vector<float> getRandomSparseVector(
 
 void llc_flush(std::vector<char>& llc);
 
+// Same as omp_get_max_threads() when OpenMP is available, otherwise 1
+int fbgemm_get_max_threads();
+// Same as omp_get_num_threads() when OpenMP is available, otherwise 1
 int fbgemm_get_num_threads();
+// Same as omp_get_thread_num() when OpenMP is available, otherwise 0
 int fbgemm_get_thread_num();
 
 template <typename T>
