@@ -360,7 +360,7 @@ constexpr std::array<knl_ptr, 15> kernel_avx512 = {
 namespace {
 void ref_kernel(
     int kernel_nrows,
-    GemmParams* gp,
+    GemmParams<float16>* gp,
     const float* C_base,
     int m_total,
     int n_total,
@@ -379,12 +379,14 @@ void ref_kernel(
           assert(C_ptr < C_base + m_total * n_total);
           float b =
               cpu_half2float(gp->B[(jb * gp->k + k) * block_col_size + j]);
-          if (gp->accum) {
-            *C_ptr = std::fma(a, b, (*gp->beta) * (*C_ptr));
-          } else if (k > 0) {
-            *C_ptr = std::fma(a, b, *C_ptr);
+          if (k == 0) {
+            if (gp->beta) {
+              *C_ptr = std::fma(a, b, (gp->beta) * (*C_ptr));
+            } else {
+              *C_ptr = a * b;
+            }
           } else {
-            *C_ptr = a * b;
+            *C_ptr = std::fma(a, b, *C_ptr);
           }
         }
       }
