@@ -52,18 +52,20 @@ static vector<vector<int>> GetInputs_() {
       // batch size, number of rows of table, emb dim , avg lengthl
       // TODO: Add more inputs
       // Use these -- but they are slow.
-      //{100, 4000000, 32, 100},
-      // {10, 4000000, 64, 100},
-      // {10, 4000000, 128, 100},
-      // {10, 4000000, 256, 100},
+      {10, 4000000, 32, 100},
+      {10, 4000000, 64, 100},
+      {10, 4000000, 128, 100},
+      {10, 4000000, 256, 100},
       // Use these for debugging
-      {2, 16, 128, 10},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
+      // {2, 16, 128, 10},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
   };
   return input_dims;
 }
+
+vector<double> times;
 
 int run_benchmark(
     int batch_size,
@@ -72,7 +74,8 @@ int run_benchmark(
     int average_len,
     bool normalize_by_lengths,
     bool use_32_bit_indices = false,
-    bool prefetch = false) {
+    bool prefetch = false,
+    bool stress_multi_threading = false) {
   // Create embedding table
   vector<uint8_t> embedding_table(
       num_unique_ids * (embedding_dim + 2 * sizeof(float)));
@@ -104,7 +107,9 @@ int run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
-  cout << "lengths_sum " << lengths_sum << endl;
+  if (fbgemm_get_thread_num() == 0) {
+    cout << "lengths_sum " << lengths_sum << endl;
+  }
 
   // Generate indices
   vector<int64_t> indices;
@@ -135,7 +140,7 @@ int run_benchmark(
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
   constexpr int NUM_WARMUP = 4;
-  constexpr int NUM_ITER = 10;
+  int NUM_ITER = stress_multi_threading ? 1 << 20 : 10;
   // Only counts the number of bytes for reading embedding table and ignore
   // others. Should be good enough as long as embdding_dim is big enough.
   double bytes =
@@ -145,43 +150,74 @@ int run_benchmark(
       static_cast<int>(
           (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) + 63) / 64);
 
-  for (bool has_weight : {false, true}) {
+  vector<bool> has_weight_options;
+  has_weight_options.push_back(false);
+  if (!stress_multi_threading) {
+    has_weight_options.push_back(true);
+  }
+  for (bool has_weight : has_weight_options) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
-    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      if (use_32_bit_indices) {
-        fbgemm::EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            fused_embedding_table.data(),
-            indices_32.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
+    if (use_32_bit_indices) {
+      fbgemm::EmbeddingSpMDM_ref(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table.data(),
+          indices_32.data(),
+          lengths.data(),
+          has_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
 
-      } else {
-        fbgemm::EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            fused_embedding_table.data(),
-            indices.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
-      }
+    } else {
+      fbgemm::EmbeddingSpMDM_ref(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table.data(),
+          indices.data(),
+          lengths.data(),
+          has_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
     }
 
     vector<float>& output = has_weight ? output_slws : output_sls;
-    for (bool flush_cache : {false, true}) {
-      double t = measureWithWarmup(
+    vector<bool> flush_cache_options;
+    flush_cache_options.push_back(false);
+    if (!stress_multi_threading) {
+      flush_cache_options.push_back(true);
+    }
+
+#define PRE_GENERATE
+#ifdef PRE_GENERATE
+    auto fn_32 = GenerateEmbeddingSpMDM<uint8_t, int32_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto fn_64 = GenerateEmbeddingSpMDM<uint8_t, int64_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+#endif
+
+#ifdef _OPENMP
+#pragma omp barrier
+#endif
+    for (bool flush_cache : flush_cache_options) {
+      times[fbgemm_get_thread_num()] = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
+#ifdef PRE_GENERATE
+              fn_32(
+                  batch_size,
+                  lengths_sum,
+                  num_unique_ids,
+                  fused_embedding_table.data(),
+                  indices_32.data(),
+                  lengths.data(),
+                  has_weight ? weights.data() : nullptr,
+                  output.data());
+#else
               fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
                   embedding_dim,
                   batch_size,
@@ -194,7 +230,19 @@ int run_benchmark(
                   normalize_by_lengths,
                   output.data(),
                   prefetch ? 16 : 0);
+#endif
             } else {
+#ifdef PRE_GENERATE
+              fn_64(
+                  batch_size,
+                  lengths_sum,
+                  num_unique_ids,
+                  fused_embedding_table.data(),
+                  indices.data(),
+                  lengths.data(),
+                  has_weight ? weights.data() : nullptr,
+                  output.data());
+#else
               fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
                   embedding_dim,
                   batch_size,
@@ -207,6 +255,7 @@ int run_benchmark(
                   normalize_by_lengths,
                   output.data(),
                   prefetch ? 16 : 0);
+#endif
             }
           },
           NUM_WARMUP,
@@ -236,26 +285,40 @@ int run_benchmark(
         }
       }
 
-      if (has_weight) {
-        cout << setw(16) << "SLW(WEIGHTED) ";
-      } else {
-        cout << setw(16) << "SLS ";
-      }
-      if (flush_cache) {
-        cout << setw(20) << "cache flushed";
-      } else {
-        cout << setw(20) << "cache not flushed";
-      }
-      if (prefetch) {
-        cout << setw(16) << "prefetch on";
-      } else {
-        cout << setw(16) << "prefetch off";
-      }
+#ifdef _OPENMP
+#pragma omp barrier
+#endif
+      if (fbgemm_get_thread_num() == 0) {
+        if (has_weight) {
+          cout << setw(16) << "SLW(WEIGHTED) ";
+        } else {
+          cout << setw(16) << "SLS ";
+        }
+        if (flush_cache) {
+          cout << setw(20) << "cache flushed";
+        } else {
+          cout << setw(20) << "cache not flushed";
+        }
+        if (prefetch) {
+          cout << setw(16) << "prefetch on";
+        } else {
+          cout << setw(16) << "prefetch off";
+        }
 
-      cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
-           << setw(20) << "effective b/w: " << setw(16)
-           << bytes_padded / 1e9 / t << "GB/s" << setw(8) << " time "
-           << setw(16) << t << endl;
+        double max_time = *std::max_element(
+            times.begin(), times.begin() + fbgemm_get_num_threads());
+        double avg_time =
+            std::accumulate(
+                times.begin(), times.begin() + fbgemm_get_num_threads(), 0.0) /
+            fbgemm_get_num_threads();
+        double load_imbalance = (max_time - avg_time) / avg_time;
+
+        cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / max_time
+             << " GB/s" << setw(20) << "effective b/w: " << setw(16)
+             << bytes_padded / 1e9 / max_time << "GB/s" << setw(8) << " time "
+             << setw(16) << max_time << " load_imbalance " << load_imbalance
+             << endl;
+      }
     } // flush_cache
   } // has_weight
   return 0;
@@ -267,7 +330,10 @@ int main() {
   int embedding_dim;
   int average_len;
 
+  bool stress_multi_threading = false;
+
   vector<vector<int>> inputs(GetInputs_());
+  times.resize(fbgemm_get_max_threads());
 
   for (auto& input : inputs) {
     assert(input.size() > 3);
@@ -282,8 +348,22 @@ int main() {
          << endl;
     // args: batch sz, num rows, emb dim, avg len, normalize, use 32b, prefetch
     cout << "64 bit indices, ";
+#ifdef _OPENMP
+#pragma omp parallel if (stress_multi_threading)
+#endif
     run_benchmark(
-        batch_size, num_unique_ids, embedding_dim, average_len, false);
+        batch_size,
+        num_unique_ids,
+        embedding_dim,
+        average_len,
+        false,
+        false,
+        false,
+        stress_multi_threading);
+
+    if (stress_multi_threading) {
+      return 0;
+    }
 
     cout << "64 bit indices with prefetching, ";
     run_benchmark(

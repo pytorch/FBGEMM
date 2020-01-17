@@ -17,18 +17,19 @@ namespace fbgemm {
  * @tparam Key Type of unique key (typically a tuple)
  * @tparam Value Type of the microkernel function (Typically a function pointer)
  */
-template <typename KEY, typename VALUE> class CodeCache {
-private:
+template <typename KEY, typename VALUE>
+class CodeCache {
+ private:
   std::map<KEY, std::shared_future<VALUE>> values_;
   std::mutex mutex_;
 
-public:
-  CodeCache(const CodeCache &) = delete;
-  CodeCache &operator=(const CodeCache &) = delete;
+ public:
+  CodeCache(const CodeCache&) = delete;
+  CodeCache& operator=(const CodeCache&) = delete;
 
   CodeCache(){};
 
-  VALUE getOrCreate(const KEY &key, std::function<VALUE()> generatorFunction) {
+  VALUE getOrCreate(const KEY& key, std::function<VALUE()> generatorFunction) {
     std::shared_future<VALUE> returnFuture;
     std::promise<VALUE> returnPromise;
     bool needsToGenerate = false;

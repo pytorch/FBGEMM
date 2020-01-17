@@ -136,12 +136,15 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
-        if (prefetch)
+        if (prefetch) {
           filename += "_prefetch";
-        if (has_weight)
+        }
+        if (has_weight) {
           filename += "_hasweight";
-        if (normalize_by_lengths)
+        }
+        if (normalize_by_lengths) {
           filename += "_normalize_by_lengths";
+        }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
         asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
@@ -621,6 +624,61 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
 } // namespace
 
 template <typename inType, typename indxType>
+typename EmbeddingSpMDMKernelSignature<inType, indxType>::Type
+GenerateEmbeddingSpMDM(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional) {
+  static GenEmbeddingSpMDMLookup<inType, indxType> kernel_generator;
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (fbgemmHasAvx512Support()) {
+    return kernel_generator.template getOrCreate<inst_set_t::avx512>(
+        block_size,
+        has_weight,
+        is_weight_positional,
+        normalize_by_lengths,
+        prefetch);
+  } else if (fbgemmHasAvx2Support()) {
+    return kernel_generator.template getOrCreate<inst_set_t::avx2>(
+        block_size,
+        has_weight,
+        is_weight_positional,
+        normalize_by_lengths,
+        prefetch);
+  } else {
+#ifdef VLOG
+    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+    return
+        [=](std::int64_t output_size,
+            std::int64_t index_size,
+            std::int64_t data_size,
+            const inType* input,
+            const indxType* indices,
+            const int* lengths,
+            const float* weights, // optional, can be null for non-weighted sum
+            float* out) {
+          return EmbeddingSpMDM_ref(
+              block_size,
+              output_size,
+              index_size,
+              data_size,
+              input,
+              indices,
+              lengths,
+              weights,
+              normalize_by_lengths,
+              out,
+              is_weight_positional);
+        };
+  }
+}
+
+template <typename inType, typename indxType>
 bool EmbeddingSpMDM(
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -634,55 +692,56 @@ bool EmbeddingSpMDM(
     float* out,
     int prefetch,
     bool is_weight_positional) {
-  static GenEmbeddingSpMDMLookup<inType, indxType> kernel_generator;
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-  typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel fn;
-  if (fbgemmHasAvx512Support()) {
-    fn = kernel_generator.template getOrCreate<inst_set_t::avx512>(
-        block_size,
-        weights != nullptr,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
-  } else if (fbgemmHasAvx2Support()) {
-    fn = kernel_generator.template getOrCreate<inst_set_t::avx2>(
-        block_size,
-        weights != nullptr,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    auto success = EmbeddingSpMDM_ref(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional);
-    return success;
-  }
-
-  auto success =
-      fn(output_size,
-         index_size,
-         data_size,
-         input,
-         indices,
-         lengths,
-         weights,
-         out);
-  return success;
+  auto fn = GenerateEmbeddingSpMDM<inType, indxType>(
+      block_size,
+      weights != nullptr,
+      normalize_by_lengths,
+      prefetch,
+      is_weight_positional);
+  return fn(
+      output_size,
+      index_size,
+      data_size,
+      input,
+      indices,
+      lengths,
+      weights,
+      out);
 }
+
+template typename EmbeddingSpMDMKernelSignature<float, std::int64_t>::Type
+GenerateEmbeddingSpMDM<float, std::int64_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
+
+template typename EmbeddingSpMDMKernelSignature<float, std::int32_t>::Type
+GenerateEmbeddingSpMDM<float, std::int32_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
+
+template
+    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
+    GenerateEmbeddingSpMDM<std::uint8_t, std::int64_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
+
+template
+    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int32_t>::Type
+    GenerateEmbeddingSpMDM<std::uint8_t, std::int32_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
 template bool EmbeddingSpMDM(
     const std::int64_t block_size,

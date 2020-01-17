@@ -136,12 +136,15 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += "_avx512";
-        if (prefetch)
+        if (prefetch) {
           filename += "_prefetch";
-        if (has_weight)
+        }
+        if (has_weight) {
           filename += "_hasweight";
-        if (normalize_by_lengths)
+        }
+        if (normalize_by_lengths) {
           filename += "_normalize_by_lengths";
+        }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
         asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
@@ -567,6 +570,54 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 } // namespace
 
 template <typename indxType>
+typename EmbeddingSpMDM4BitKernelSignature<indxType>::Type
+GenerateEmbeddingSpMDM4Bit(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (fbgemmHasAvx512Support()) {
+    static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
+    return kernel_generator.getOrCreate(
+        block_size,
+        has_weight,
+        is_weight_positional,
+        normalize_by_lengths,
+        prefetch);
+  } else {
+#ifdef VLOG
+    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+    return
+        [=](std::int64_t output_size,
+            std::int64_t index_size,
+            std::int64_t data_size,
+            const std::uint8_t* input,
+            const indxType* indices,
+            const int* lengths,
+            const float* weights, // optional, can be null for non-weighted sum
+            float* out) {
+          return EmbeddingSpMDM4Bit_ref(
+              block_size,
+              output_size,
+              index_size,
+              data_size,
+              input,
+              indices,
+              lengths,
+              weights,
+              normalize_by_lengths,
+              out,
+              is_weight_positional);
+        };
+  }
+}
+
+template <typename indxType>
 bool EmbeddingSpMDM4Bit(
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -580,46 +631,38 @@ bool EmbeddingSpMDM4Bit(
     float* out,
     int prefetch,
     bool is_weight_positional) {
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-  if (fbgemmHasAvx512Support()) {
-    static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
-    auto fn = kernel_generator.getOrCreate(
-        block_size,
-        weights != nullptr,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
-    bool success =
-        fn(output_size,
-           index_size,
-           data_size,
-           input,
-           indices,
-           lengths,
-           weights,
-           out);
-    return success;
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    bool success = EmbeddingSpMDM4Bit_ref(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional);
-    return success;
-  }
+  auto fn = GenerateEmbeddingSpMDM4Bit<indxType>(
+      block_size,
+      weights != nullptr,
+      normalize_by_lengths,
+      prefetch,
+      is_weight_positional);
+  return fn(
+      output_size,
+      index_size,
+      data_size,
+      input,
+      indices,
+      lengths,
+      weights,
+      out);
 }
+
+template typename EmbeddingSpMDM4BitKernelSignature<std::int64_t>::Type
+GenerateEmbeddingSpMDM4Bit<std::int64_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
+
+template typename EmbeddingSpMDM4BitKernelSignature<std::int32_t>::Type
+GenerateEmbeddingSpMDM4Bit<std::int32_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
 
 template bool EmbeddingSpMDM4Bit(
     const std::int64_t block_size,
