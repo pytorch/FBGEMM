@@ -62,7 +62,7 @@ INSTANTIATE_TEST_CASE_P(
     Fused4BitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
         ::testing::Bool(), // isIndex64b
-        ::testing::Values(false), // TODO: is_wt_positional
+        ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool(), // use_weight
         ::testing::Bool(), // normalize_by_lengths
@@ -164,7 +164,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       success = fbgemm::EmbeddingSpMDM4Bit<int64_t>(
           embedding_dim,
@@ -177,7 +178,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch);
+          prefetch,
+          is_wt_positional);
     } else {
       success_ref = fbgemm::EmbeddingSpMDM4Bit_ref<int32_t>(
           embedding_dim,
@@ -189,7 +191,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       success = fbgemm::EmbeddingSpMDM4Bit<int32_t>(
           embedding_dim,
@@ -202,7 +205,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch);
+          prefetch,
+          is_wt_positional);
     }
 
     // Check correctness
