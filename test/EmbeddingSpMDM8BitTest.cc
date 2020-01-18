@@ -59,7 +59,7 @@ INSTANTIATE_TEST_CASE_P(
     Fused8BitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
         ::testing::Bool(), // isIndex64b
-        ::testing::Values(false), // TODO: is_wt_positional
+        ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool(), // use_weight
         ::testing::Bool(), // normalize_by_lengths
@@ -158,7 +158,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       success = fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
           embedding_dim,
@@ -171,7 +172,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch);
+          prefetch,
+          is_wt_positional);
     } else {
       success_ref = fbgemm::EmbeddingSpMDM_ref<uint8_t, int32_t>(
           embedding_dim,
@@ -183,7 +185,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       success = fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
           embedding_dim,
@@ -196,7 +199,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output.data(),
-          prefetch);
+          prefetch,
+          is_wt_positional);
     }
 
     // Check correctness
