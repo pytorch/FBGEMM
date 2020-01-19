@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <functional>
 #include <numeric>
+#include <stdexcept> // for logic_error
 #include <vector>
 #include "fbgemm/Fbgemm.h"
 
