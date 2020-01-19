@@ -10,11 +10,10 @@ on:
   
 jobs:
   build:
-
     runs-on: ${{ matrix.os }}
     strategy: 
       matrix:
-        os: [ubuntu-latest, macos-latest] ## [windows-latest, macos-latest] 
+        os: [ubuntu-latest, macos-latest] 
 
     steps:
     - uses: actions/checkout@v2
@@ -37,6 +36,7 @@ jobs:
         echo GITHUB_WORKSPACE  = $GITHUB_WORKSPACE
         echo GITHUB_SHA        = $GITHUB_SHA
         echo GITHUB_REF        = $GITHUB_REF
+        c++ --verbose
  
     - name: Build static FBGEMM lib 
       run: |
@@ -47,7 +47,7 @@ jobs:
         make
 
     - name: Test static FBGEMM lib
-      if: contains(runner.os, 'Linux')   # not run on macos-latest now due to supporting AVX2
+      if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
       run: |
         set -e
         cd build_static
@@ -67,4 +67,41 @@ jobs:
         set -e
         cd build_shared
         ctest
+
+  build1:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+        git submodule sync --recursive
+        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+    - name: Build static FBGEMM lib
+      shell: cmd
+      run: |
+        set
+        echo %PATH%
+        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+        echo "INSTALL NINJA:"
+        pip install ninja
+        which ninja
+        mkdir build_static
+        cd build_static
+        echo "STARTING CMAKE"
+        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_BUILD_TESTS=OFF -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
+        ninja all
+        echo "Build Success"
+
+#    - name: Test static FBGEMM lib
+#      run: |
+#        set 
+#        cd build_static
+#        ctest
 
