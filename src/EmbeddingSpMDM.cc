@@ -468,11 +468,9 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
 
           // The main computation
           for (int v = 0; v < cur_unroll_factor; ++v) {
+            constexpr int BYTES_PER_VLOAD = vlen * sizeof(inType);
             auto src_addr = x86::dword_ptr(
-                input,
-                scratchReg1_,
-                0,
-                (vec_idx + v) * (vlen) * sizeof(inType));
+                input, scratchReg1_, 0, (vec_idx + v) * BYTES_PER_VLOAD);
             vec_reg_t out_vreg = vec_reg_t(v);
 
             // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
@@ -525,12 +523,12 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
               }
             }
 
-            if (pref_dist && v % (64 / (vlen * sizeof(inType))) == 0) {
+            constexpr int CACHE_LINE_LEN = 64;
+            constexpr int VLOAD_PER_CACHE_LINE =
+                CACHE_LINE_LEN / BYTES_PER_VLOAD;
+            if (pref_dist && (vec_idx + v) % VLOAD_PER_CACHE_LINE == 0) {
               a->prefetcht0(x86::dword_ptr(
-                  input,
-                  scratchReg2_,
-                  0,
-                  (vec_idx + v) * vlen * sizeof(inType)));
+                  input, scratchReg2_, 0, (vec_idx + v) * BYTES_PER_VLOAD));
             }
           }
 
