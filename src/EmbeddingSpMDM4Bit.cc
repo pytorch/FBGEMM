@@ -51,6 +51,7 @@ template <typename indxType = std::int64_t>
 class GenEmbeddingSpMDM4BitLookup {
  public:
   GenEmbeddingSpMDM4BitLookup() {}
+  template <inst_set_t instSet>
   typename ReturnFunctionSignature<indxType>::jit_embedding_kernel getOrCreate(
       int block_size,
       bool has_weight,
@@ -103,6 +104,7 @@ CodeCache<
     GenEmbeddingSpMDM4BitLookup<indxType>::codeCache_;
 
 template <typename indxType>
+template <inst_set_t instSet>
 typename ReturnFunctionSignature<indxType>::jit_embedding_kernel
 GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
     int block_size,
@@ -121,8 +123,6 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
       kernelSig,
       [&]() ->
       typename ReturnFunctionSignature<indxType>::jit_embedding_kernel {
-        constexpr inst_set_t instSet = inst_set_t::avx512;
-
         // TODO: Make this tunable
         int pref_dist = prefetch;
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
@@ -135,7 +135,7 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         std::string filename = "embeddinglookup_4bit_";
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
-        filename += "_avx512";
+        filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
         if (prefetch) {
           filename += "_prefetch";
         }
@@ -165,7 +165,10 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         scratchReg1_ = a->gpz(13);
         scratchReg1D_ = a->gpz(13).r32();
         scratchReg2_ = a->gpz(14);
-        scratchReg3_ = a->gpz(15);
+        x86::Gp scratchReg3_;
+        if (instSet == inst_set_t::avx2) {
+          scratchReg3_ = a->gpz(15);
+        }
 
         asmjit::FuncDetail func;
 
@@ -192,7 +195,9 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
         frame.setDirtyRegs(
             x86::Reg::kGroupGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+            instSet == inst_set_t::avx2
+                ? asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15)
+                : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
         args.assignAll(
@@ -216,9 +221,20 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         int unroll_factor = NUM_VEC_REG;
 
         typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        typedef typename simd_info<instSet>::half_vec_reg_t half_vec_reg_t;
 
         int num_vec_regs_per_block = ceil_div(block_size, vlen);
         int remainder = block_size % vlen;
+
+        // Compute a remainder for vector load
+        // Since every row is followed by 2 fp16 (scale and bias), luckily
+        // we don't need mask at 4-bit granularity but just at 32-bit
+        // granularity.
+        int num_elem_per_32bit = 32 / 4;
+        // multiply by 4 because we're handling 4 vlen per iteration
+        int num_of_32bit_per_vload = vlen * 4 / num_elem_per_32bit;
+        int remainder_32bit_granularity =
+            ceil_div(block_size, num_elem_per_32bit) % num_of_32bit_per_vload;
 
         vec_reg_t scale_vreg; // holds scale
         vec_reg_t bias_vreg; // holds bias
@@ -226,6 +242,8 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         vec_reg_t
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
         vec_reg_t src_vreg; // for holding embedding value temporarily
+        x86::Ymm mask_vreg; // mask for avx2
+        x86::Xmm mask2_vreg;
 
         // We need 2 vec registers for 1. scale 2. bias
         --unroll_factor;
@@ -241,17 +259,30 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
         // Create a mask that extracts lower 4 bits from each 8-bit block
         --unroll_factor;
-        vec_reg_t mask_vreg = vec_reg_t(unroll_factor);
+        vec_reg_t extract_mask_vreg = vec_reg_t(unroll_factor);
         a->lea(
             x86::rsp,
             x86::dword_ptr(x86::rsp, -1 * static_cast<int>(sizeof(int32_t))));
         a->mov(x86::word_ptr(x86::rsp), 0x0f0f);
-        a->vpbroadcastw(mask_vreg, x86::word_ptr(x86::rsp));
+        a->vpbroadcastw(extract_mask_vreg, x86::word_ptr(x86::rsp));
         a->lea(x86::rsp, x86::dword_ptr(x86::rsp, sizeof(int32_t)));
 
         if (has_weight) {
           --unroll_factor;
           w_vreg = vec_reg_t(unroll_factor);
+        }
+
+        if (remainder && instSet == inst_set_t::avx2) {
+          // AVX512 doesn't need to use vector register for masking
+          --unroll_factor;
+          mask_vreg = x86::ymm(unroll_factor);
+        }
+
+        // Creating a mask for vector load
+        if (remainder_32bit_granularity && instSet == inst_set_t::avx2) {
+          // AVX512 doesn't need to use vector register for masking
+          --unroll_factor;
+          mask2_vreg = x86::xmm(unroll_factor);
         }
 
         if (normalize_by_lengths) {
@@ -263,21 +294,47 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         unroll_factor = unroll_factor / 4 * 4;
 
         if (remainder) {
-          a->mov(scratchReg1_, (1 << remainder) - 1);
-          a->kmovw(x86::k(1), scratchReg1_);
+          if (instSet == inst_set_t::avx2) {
+            a->lea(
+                x86::rsp,
+                x86::dword_ptr(x86::rsp, (int32_t)(-vlen * sizeof(int32_t))));
+            for (int i = 0; i < remainder; i++) {
+              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), -1);
+            }
+            for (int i = remainder; i < vlen; i++) {
+              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), 0);
+            }
+            a->vmovups(mask_vreg, x86::dword_ptr(x86::rsp));
+            a->lea(
+                x86::rsp,
+                x86::dword_ptr(x86::rsp, (int32_t)(vlen * sizeof(int32_t))));
+          } else {
+            a->mov(scratchReg1_, (1 << remainder) - 1);
+            a->kmovw(x86::k(1), scratchReg1_);
+          }
         }
-        // Creating a mask for vector load
-        // Since every row is followed by 2 fp16 (scale and bias), luckily
-        // we don't need mask at 4-bit granularity but just at 32-bit
-        // granularity.
-        int num_elem_per_32bit = 32 / 4;
-        // multiply by 4 because we're handling 4 vlen per iteration
-        int num_of_32bit_per_vload = vlen * 4 / num_elem_per_32bit;
-        int remainder_32bit_granularity =
-            ceil_div(block_size, num_elem_per_32bit) % num_of_32bit_per_vload;
+
         if (remainder_32bit_granularity) {
-          a->mov(scratchReg1_, (1 << remainder_32bit_granularity) - 1);
-          a->kmovw(x86::k(2), scratchReg1_);
+          if (instSet == inst_set_t::avx2) {
+            a->lea(
+                x86::rsp,
+                x86::dword_ptr(
+                    x86::rsp, (int32_t)(-(vlen / 2) * sizeof(int32_t))));
+            for (int i = 0; i < remainder_32bit_granularity; i++) {
+              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), -1);
+            }
+            for (int i = remainder_32bit_granularity; i < vlen / 2; i++) {
+              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), 0);
+            }
+            a->vmovups(mask2_vreg, x86::dword_ptr(x86::rsp));
+            a->lea(
+                x86::rsp,
+                x86::dword_ptr(
+                    x86::rsp, (int32_t)((vlen / 2) * sizeof(int32_t))));
+          } else {
+            a->mov(scratchReg1_, (1 << remainder_32bit_granularity) - 1);
+            a->kmovw(x86::k(2), scratchReg1_);
+          }
         }
 
         // Compute the end address of indices
@@ -293,10 +350,6 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         asmjit::Label LoopRangeIndexBegin = a->newLabel();
         asmjit::Label LoopRangeIndexEnd = a->newLabel();
 
-        if (has_weight && is_weight_positional) {
-          a->mov(scratchReg3_, weights);
-        }
-
         // rangeIndex loop begins (iterate output_size times)
         a->bind(LoopRangeIndexBegin);
         a->dec(output_size);
@@ -311,13 +364,23 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
           a->vxorps(vlen_inv_vreg, vlen_inv_vreg, vlen_inv_vreg);
           a->jl(IfLengthsEnd);
 
-          vec_reg_t temp_zmm = vec_reg_t(0);
-          a->mov(lengths_R_, 1);
-          a->cvtsi2ss(x86::xmm(temp_zmm.id()), lengths_R_);
-          a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
-          a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
-          a->vcvtdq2ps(temp_zmm, temp_zmm);
-          a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
+          if (instSet == inst_set_t::avx2) {
+            x86::Xmm vlen_inv_vreg_xmm(vlen_inv_vreg.id());
+
+            a->mov(lengths_R_, 1);
+            a->cvtsi2ss(vlen_inv_vreg_xmm, lengths_R_);
+            a->cvtsi2ss(x86::xmm0, x86::dword_ptr(lengths));
+            a->divss(vlen_inv_vreg_xmm, x86::xmm0);
+            a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
+          } else {
+            vec_reg_t temp_zmm = vec_reg_t(0);
+            a->mov(lengths_R_, 1);
+            a->cvtsi2ss(x86::xmm(temp_zmm.id()), lengths_R_);
+            a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
+            a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
+            a->vcvtdq2ps(temp_zmm, temp_zmm);
+            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
+          }
           a->bind(IfLengthsEnd);
         }
 
@@ -347,9 +410,6 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
           asmjit::Label LoopDataIndexBegin = a->newLabel();
           asmjit::Label LoopDataIndexEnd = a->newLabel();
 
-          if (has_weight && is_weight_positional) {
-            a->mov(weights, scratchReg3_);
-          }
           // dataIndex loop begins (iterate lengths_R_ times)
           a->bind(LoopDataIndexBegin);
           a->dec(lengths_R_);
@@ -423,10 +483,10 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
               scratchReg1_,
               0,
               ceil_div(block_size, 2) + sizeof(float16));
-          a->vpbroadcastw(x86::Ymm(scale_vreg.id()), scale_src);
-          a->vpbroadcastw(x86::Ymm(bias_vreg.id()), bias_src);
-          a->vcvtph2ps(scale_vreg, x86::Ymm(scale_vreg.id()));
-          a->vcvtph2ps(bias_vreg, x86::Ymm(bias_vreg.id()));
+          a->vpbroadcastw(half_vec_reg_t(scale_vreg.id()), scale_src);
+          a->vpbroadcastw(half_vec_reg_t(bias_vreg.id()), bias_src);
+          a->vcvtph2ps(vec_reg_t(scale_vreg.id()), half_vec_reg_t(scale_vreg.id()));
+          a->vcvtph2ps(vec_reg_t(bias_vreg.id()), half_vec_reg_t(bias_vreg.id()));
 
           if (has_weight) {
             a->vbroadcastss(w_vreg, x86::dword_ptr(weights));
@@ -447,14 +507,32 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
             if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
                 remainder_32bit_granularity) {
-              a->k(x86::k(2)).vmovups(x86::Ymm(src_vreg.id()), src_addr);
-              a->vpmovzxbw(src_vreg, x86::Ymm(src_vreg.id()));
+              if (instSet == inst_set_t::avx512) {
+                a->k(x86::k(2)).vmovups(x86::Ymm(src_vreg.id()), src_addr);
+              } else {
+                a->vpmaskmovd(
+                    x86::Xmm(src_vreg.id()),
+                    x86::Xmm(mask2_vreg.id()),
+                    src_addr);
+              }
+              a->vpmovzxbw(src_vreg, half_vec_reg_t(src_vreg.id()));
             } else {
               a->vpmovzxbw(src_vreg, src_addr);
             }
             a->vpslld(temp_vreg, src_vreg, asmjit::Imm(4));
-            a->vpord(src_vreg, src_vreg, temp_vreg);
-            a->vpandd(src_vreg, src_vreg, mask_vreg);
+            if (instSet == inst_set_t::avx512) {
+              a->vpord(src_vreg, src_vreg, temp_vreg);
+              a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
+            } else {
+              a->vpor(
+                  x86::Ymm(src_vreg.id()),
+                  x86::Ymm(src_vreg.id()),
+                  x86::Ymm(temp_vreg.id()));
+              a->vpand(
+                  x86::Ymm(src_vreg.id()),
+                  x86::Ymm(src_vreg.id()),
+                  x86::Ymm(extract_mask_vreg.id()));
+            }
 
             for (int i = 0;
                  i < std::min(4, num_vec_regs_per_block - (vec_idx + v));
@@ -463,17 +541,37 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
               if (i == 0) {
                 a->vpmovsxbd(temp_vreg, x86::Xmm(src_vreg.id()));
               } else {
-                // We could've used avx512_ymm for clock frequency advantage,
-                // if there's an instruction to extract a 64-bit portion from
-                // a YMM as an XMM register.
-                a->vextracti32x4(
-                    x86::Xmm(temp_vreg.id()), src_vreg, asmjit::Imm(i));
+                if (instSet == inst_set_t::avx512) {
+                  // We could've used avx512_ymm for clock frequency advantage,
+                  // if there's an instruction to extract a 64-bit portion from
+                  // a YMM as an XMM register.
+                  a->vextracti32x4(
+                      x86::Xmm(temp_vreg.id()), src_vreg, asmjit::Imm(i));
+                } else {
+                  if (i == 1) {
+                    a->pextrq(
+                        scratchReg3_, x86::Xmm(src_vreg.id()), asmjit::Imm(1));
+                    a->movq(x86::Xmm(temp_vreg.id()), scratchReg3_);
+                  } else {
+                    a->vextractf128(
+                        x86::Xmm(temp_vreg.id()),
+                        x86::Ymm(src_vreg.id()),
+                        asmjit::Imm(i >> 1));
+                    if (i == 3) {
+                      a->pextrq(
+                          scratchReg3_,
+                          x86::Xmm(temp_vreg.id()),
+                          asmjit::Imm(1));
+                      a->movq(x86::Xmm(temp_vreg.id()), scratchReg3_);
+                    }
+                  }
+                } // avx2
                 a->vpmovsxbd(temp_vreg, x86::Xmm(temp_vreg.id()));
-              }
+              } // i > 0
               a->vcvtdq2ps(temp_vreg, temp_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
               a->vfmadd231ps(out_vreg, temp_vreg, scale_vreg);
-            }
+            } // for each i
 
             constexpr int CACHE_LINE_LEN = 64;
             constexpr int VLOAD_PER_CACHE_LINE =
@@ -500,13 +598,18 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
             }
 
             if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-              a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
+              if (instSet == inst_set_t::avx512) {
+                a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
+              } else {
+                a->vmaskmovps(dst_addr, mask_vreg, x86::Ymm(out_vreg.id()));
+              }
             } else {
               a->vmovups(dst_addr, out_vreg);
             }
           }
 
-          if (vec_idx + unroll_factor < num_vec_regs_per_block) {
+          if (vec_idx + unroll_factor < num_vec_regs_per_block ||
+              (has_weight && is_weight_positional)) {
             // Reset lengths_R_, indices, weights to run the dataIndex loop
             // again
             a->mov(lengths_R_, x86::dword_ptr(lengths));
@@ -517,10 +620,13 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
                   lengths_R_,
                   static_cast<asmjit::Imm>(sizeof(float)));
               a->sub(weights, scratchReg1_);
-              a->imul(
-                  scratchReg1_,
-                  static_cast<asmjit::Imm>(sizeof(indxType) / sizeof(float)));
-              a->sub(indices, scratchReg1_);
+
+              if (vec_idx + unroll_factor < num_vec_regs_per_block) {
+                a->imul(
+                    scratchReg1_,
+                    static_cast<asmjit::Imm>(sizeof(indxType) / sizeof(float)));
+                a->sub(indices, scratchReg1_);
+              }
             } else {
               a->imul(
                   scratchReg1_,
@@ -582,7 +688,15 @@ GenerateEmbeddingSpMDM4Bit(
   }
   if (fbgemmHasAvx512Support()) {
     static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
-    return kernel_generator.getOrCreate(
+    return kernel_generator.template getOrCreate<inst_set_t::avx512>(
+        block_size,
+        has_weight,
+        is_weight_positional,
+        normalize_by_lengths,
+        prefetch);
+  } else if (fbgemmHasAvx2Support()) {
+    static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
+    return kernel_generator.template getOrCreate<inst_set_t::avx2>(
         block_size,
         has_weight,
         is_weight_positional,
