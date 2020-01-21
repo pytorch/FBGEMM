@@ -85,7 +85,6 @@ class GenEmbeddingSpMDMLookup {
   x86::Gp scratchReg1_;
   x86::Gp scratchReg1D_;
   x86::Gp scratchReg2_;
-  x86::Gp scratchReg3_;
   x86::Gpd lengths_R_;
 }; // GenEmbeddingSpmDMLookup
 
@@ -165,7 +164,6 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         scratchReg1_ = a->gpz(13);
         scratchReg1D_ = a->gpz(13).r32();
         scratchReg2_ = a->gpz(14);
-        scratchReg3_ = a->gpz(15);
 
         asmjit::FuncDetail func;
 
@@ -199,7 +197,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
 
         frame.setDirtyRegs(
             x86::Reg::kGroupGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
         args.assignAll(
@@ -279,7 +277,6 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
             a->lea(
                 x86::rsp,
                 x86::dword_ptr(x86::rsp, (int32_t)(vlen * sizeof(int32_t))));
-
           } else {
             a->mov(scratchReg1_, (1 << remainder) - 1);
             a->kmovw(x86::k(1), scratchReg1_);
@@ -298,10 +295,6 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         asmjit::Label error = a->newLabel();
         asmjit::Label LoopRangeIndexBegin = a->newLabel();
         asmjit::Label LoopRangeIndexEnd = a->newLabel();
-
-        if (has_weight && is_weight_positional) {
-          a->mov(scratchReg3_, weights);
-        }
 
         // rangeIndex loop begins (iterate output_size times)
         a->bind(LoopRangeIndexBegin);
@@ -363,9 +356,6 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           asmjit::Label LoopDataIndexBegin = a->newLabel();
           asmjit::Label LoopDataIndexEnd = a->newLabel();
 
-          if (has_weight && is_weight_positional) {
-            a->mov(weights, scratchReg3_);
-          }
           // dataIndex loop begins (iterate lengths_R_ times)
           a->bind(LoopDataIndexBegin);
           a->dec(lengths_R_);
@@ -557,7 +547,8 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
             }
           }
 
-          if (vec_idx + unroll_factor < num_vec_regs_per_block) {
+          if (vec_idx + unroll_factor < num_vec_regs_per_block ||
+              (has_weight && is_weight_positional)) {
             // Reset lengths_R_, indices, weights to run the dataIndex loop
             // again
             a->mov(lengths_R_, x86::dword_ptr(lengths));
@@ -568,10 +559,13 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
                   lengths_R_,
                   static_cast<asmjit::Imm>(sizeof(float)));
               a->sub(weights, scratchReg1_);
-              a->imul(
-                  scratchReg1_,
-                  static_cast<asmjit::Imm>(sizeof(indxType) / sizeof(float)));
-              a->sub(indices, scratchReg1_);
+
+              if (vec_idx + unroll_factor < num_vec_regs_per_block) {
+                a->imul(
+                    scratchReg1_,
+                    static_cast<asmjit::Imm>(sizeof(indxType) / sizeof(float)));
+                a->sub(indices, scratchReg1_);
+              }
             } else {
               a->imul(
                   scratchReg1_,
