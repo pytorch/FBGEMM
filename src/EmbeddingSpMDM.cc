@@ -633,7 +633,30 @@ GenerateEmbeddingSpMDM(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if (fbgemmHasAvx512Support()) {
+  if (std::is_same<inType, float>::value && block_size == 1 &&
+      fbgemmHasAvx2Support()) {
+    return
+        [=](std::int64_t output_size,
+            std::int64_t index_size,
+            std::int64_t data_size,
+            const inType* input,
+            const indxType* indices,
+            const int* lengths,
+            const float* weights, // optional, can be null for non-weighted sum
+            float* out) {
+          return internal::EmbeddingSpMDMBlockSize1_(
+              output_size,
+              index_size,
+              data_size,
+              reinterpret_cast<const float*>(input),
+              indices,
+              lengths,
+              weights,
+              normalize_by_lengths,
+              out,
+              is_weight_positional);
+        };
+  } else if (fbgemmHasAvx512Support()) {
     return kernel_generator.template getOrCreate<inst_set_t::avx512>(
         block_size,
         has_weight,
