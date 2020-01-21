@@ -87,6 +87,7 @@ endif()
 
 #All the source files that either use avx2 instructions statically
 set(FBGEMM_AVX2_SRCS
+  src/EmbeddingSpMDMAvx2.cc
   src/FbgemmBfloat16ConvertAvx2.cc
   src/FbgemmFloat16ConvertAvx2.cc
   src/FbgemmI8Depthwise3DAvx2.cc
