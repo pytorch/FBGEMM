@@ -570,7 +570,7 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 } // namespace
 
 template <typename indxType>
-typename EmbeddingSpMDM4BitKernelSignature<indxType>::Type
+typename EmbeddingSpMDMKernelSignature<std::uint8_t, indxType>::Type
 GenerateEmbeddingSpMDM4Bit(
     const std::int64_t block_size,
     bool has_weight,
@@ -648,21 +648,23 @@ bool EmbeddingSpMDM4Bit(
       out);
 }
 
-template typename EmbeddingSpMDM4BitKernelSignature<std::int64_t>::Type
-GenerateEmbeddingSpMDM4Bit<std::int64_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template
+    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
+    GenerateEmbeddingSpMDM4Bit<std::int64_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDM4BitKernelSignature<std::int32_t>::Type
-GenerateEmbeddingSpMDM4Bit<std::int32_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template
+    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int32_t>::Type
+    GenerateEmbeddingSpMDM4Bit<std::int32_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
 template bool EmbeddingSpMDM4Bit(
     const std::int64_t block_size,

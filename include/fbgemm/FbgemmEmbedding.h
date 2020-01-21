@@ -51,21 +51,7 @@ FBGEMM_API bool EmbeddingSpMDM(
     bool is_weight_positional = false);
 
 template <typename IndexType>
-class EmbeddingSpMDM4BitKernelSignature {
- public:
-  using Type = std::function<bool(
-      std::int64_t output_size,
-      std::int64_t index_size,
-      std::int64_t data_size,
-      const std::uint8_t* input,
-      const IndexType* indices,
-      const int* lengths,
-      const float* weights, // optional, can be null for non-weighted sum
-      float* out)>;
-};
-
-template <typename IndexType>
-FBGEMM_API typename EmbeddingSpMDM4BitKernelSignature<IndexType>::Type
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<std::uint8_t, IndexType>::Type
 GenerateEmbeddingSpMDM4Bit(
     const std::int64_t block_size,
     bool has_weight,
