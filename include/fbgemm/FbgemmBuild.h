@@ -55,7 +55,7 @@
 #if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
 #define ALWAYS_INLINE inline __attribute__((__always_inline__))
 #elif _MSC_VER
-#define ALWAYS_INLINE __forceinline
+#define ALWAYS_INLINE // __forceinline
 #else
 #define ALWAYS_INLINE inline
 #endif

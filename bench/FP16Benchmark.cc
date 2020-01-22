@@ -371,7 +371,9 @@ int main(int argc, const char* argv[]) {
     char env_var[1024];
     sprintf(
         env_var, "granularity=fine,explicit,proclist=[1-%d]", num_instances);
+#ifndef _MSC_VER
     setenv("KMP_AFFINITY", env_var, 0); // Don't overide if already set
+#endif
     omp_set_num_threads(num_instances);
 #ifdef USE_MKL
     // each instance should be run with a single thread

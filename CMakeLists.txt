@@ -109,14 +109,12 @@ set(FBGEMM_AVX512_SRCS
 #for MSVC is different. Also, MSVC doesn't support inline assembly
 #for x64 builds. We fallback to default slower kernel for MSVC builds
 #for now.
-if(NOT MSVC)
-  list(APPEND FBGEMM_AVX2_SRCS
-    src/FbgemmFP16UKernelsAvx2.cc)
+list(APPEND FBGEMM_AVX2_SRCS
+  src/FbgemmFP16UKernelsAvx2.cc)
 
-  list(APPEND FBGEMM_AVX512_SRCS
-    src/FbgemmFP16UKernelsAvx512.cc
-    src/FbgemmFP16UKernelsAvx512_256.cc)
-endif()
+list(APPEND FBGEMM_AVX512_SRCS
+  src/FbgemmFP16UKernelsAvx512.cc
+  src/FbgemmFP16UKernelsAvx512_256.cc)
 
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
