@@ -10,6 +10,9 @@
 #include <cmath>
 #include <random>
 #include <vector>
+#ifdef _MSC_VER
+#include <numeric>
+#endif
 
 #ifdef _OPENMP
 #include <omp.h>
