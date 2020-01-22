@@ -365,15 +365,7 @@ int main(int argc, const char* argv[]) {
   if (num_instances > 1) {
     // Set-up execution for multi-instance mode
     // Number of threads in OpenMP parallel region is explicitly
-    // set to the number of instances to be executed
-    // If not previosly set by KMP_AFFINITY env. variable
-    // threads are affinitized sequentially to logical processors
-    char env_var[1024];
-    sprintf(
-        env_var, "granularity=fine,explicit,proclist=[1-%d]", num_instances);
-#ifndef _MSC_VER
-    setenv("KMP_AFFINITY", env_var, 0); // Don't overide if already set
-#endif
+    // set to the number of instances to be executed.
     omp_set_num_threads(num_instances);
 #ifdef USE_MKL
     // each instance should be run with a single thread
