@@ -763,8 +763,12 @@ bool EmbeddingSpMDM_ref(
         }
 
         for (int j = 0; j < block_size; ++j) {
-          out[j] =
-              std::fma(w, input[block_size * indices[current] + j], out[j]);
+          const inType* inptr = input + block_size * indices[current] + j;
+          out[j] = std::fma(
+              w,
+              std::is_same<inType, float16>::value ? cpu_half2float(*inptr)
+                                                   : *inptr,
+              out[j]);
         }
 
         ++current;
@@ -970,6 +974,32 @@ template bool EmbeddingSpMDM_ref(
     const std::int64_t index_size,
     const std::int64_t data_size,
     const std::uint8_t* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM_ref<float16, std::int64_t>(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float16* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM_ref<float16, std::int32_t>(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float16* input,
     const std::int32_t* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum

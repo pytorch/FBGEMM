@@ -94,12 +94,12 @@ FBGEMM_API int SparseAdaGrad(
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM
-template <typename IndexType = std::int64_t>
+template <typename inType = float, typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
     const std::int64_t index_size,
     const std::int64_t data_size, // the number of rows in input
-    const float* input,
+    const inType* input,
     const IndexType* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
