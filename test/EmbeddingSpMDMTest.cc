@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
@@ -47,9 +48,9 @@ static vector<vector<int>> GetInputs_() {
 
 namespace {
 
-class EmbeddingSpMDMTest : public testing::TestWithParam<
-                               tuple<bool, bool, int, bool, bool, bool, bool>> {
-};
+class EmbeddingSpMDMTest
+    : public testing::TestWithParam<
+          tuple<bool, bool, bool, int, bool, bool, bool, bool>> {};
 }; // namespace
 
 vector<int> prefetch_distances = {0, 16, 1000000};
@@ -58,6 +59,7 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     EmbeddingSpMDMTest,
     ::testing::Combine(
+        ::testing::Bool(), // is fp16
         ::testing::Bool(), // isIndex64b
         ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
@@ -68,10 +70,11 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
       empty_indices, out_of_bounds;
   int prefetch;
-  tie(isIndex64b,
+  tie(isFp16,
+      isIndex64b,
       is_wt_positional,
       prefetch,
       use_weight,
@@ -93,6 +96,14 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     normal_distribution<float> embedding_distribution;
     for (int i = 0; i < embedding_table.size(); ++i) {
       embedding_table[i] = embedding_distribution(generator);
+    }
+    vector<float16> embedding_table_fp16;
+    if (isFp16) {
+      embedding_table_fp16.resize(embedding_table.size());
+      FloatToFloat16_simd(
+          embedding_table.data(),
+          embedding_table_fp16.data(),
+          embedding_table.size());
     }
 
     // Generate lengths
@@ -148,59 +159,117 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     bool success, success_ref;
 
     if (isIndex64b) {
-      success_ref = fbgemm::EmbeddingSpMDM_ref(
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          embedding_table.data(),
-          empty_indices ? nullptr : indices.data(),
-          lengths.data(),
-          use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data(),
-          is_wt_positional);
+      if (isFp16) {
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table_fp16.data(),
+            empty_indices ? nullptr : indices.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data(),
+            is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM<float, int64_t>(
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          embedding_table.data(),
-          empty_indices ? nullptr : indices.data(),
-          lengths.data(),
-          use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+        success = fbgemm::EmbeddingSpMDM<float16, int64_t>(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table_fp16.data(),
+            empty_indices ? nullptr : indices.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output.data(),
+            prefetch,
+            is_wt_positional);
+      } else {
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table.data(),
+            empty_indices ? nullptr : indices.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data(),
+            is_wt_positional);
+
+        success = fbgemm::EmbeddingSpMDM<float, int64_t>(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table.data(),
+            empty_indices ? nullptr : indices.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output.data(),
+            prefetch,
+            is_wt_positional);
+      }
     } else {
-      success_ref = fbgemm::EmbeddingSpMDM_ref(
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          embedding_table.data(),
-          empty_indices ? nullptr : indices_32.data(),
-          lengths.data(),
-          use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data(),
-          is_wt_positional);
+      if (isFp16) {
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table_fp16.data(),
+            empty_indices ? nullptr : indices_32.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data(),
+            is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM<float, int32_t>(
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          embedding_table.data(),
-          empty_indices ? nullptr : indices_32.data(),
-          lengths.data(),
-          use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+        success = fbgemm::EmbeddingSpMDM<float16, int32_t>(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table_fp16.data(),
+            empty_indices ? nullptr : indices_32.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output.data(),
+            prefetch,
+            is_wt_positional);
+      } else {
+        success_ref = fbgemm::EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table.data(),
+            empty_indices ? nullptr : indices_32.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data(),
+            is_wt_positional);
+
+        success = fbgemm::EmbeddingSpMDM<float, int32_t>(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            embedding_table.data(),
+            empty_indices ? nullptr : indices_32.data(),
+            lengths.data(),
+            use_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output.data(),
+            prefetch,
+            is_wt_positional);
+      }
     }
 
     // Check correctness

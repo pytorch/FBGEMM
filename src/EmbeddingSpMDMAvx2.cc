@@ -4,15 +4,17 @@
 #include <cassert>
 #include <cmath>
 
+#include "fbgemm/Types.h"
+
 namespace fbgemm {
 namespace internal {
 
-template <typename IndexType>
+template <typename inType, typename IndexType>
 bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
     const std::int64_t index_size,
     const std::int64_t data_size, // the number of rows in input
-    const float* input,
+    const inType* input,
     const IndexType* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
@@ -100,7 +102,12 @@ bool EmbeddingSpMDMBlockSize1_(
         w = weights[is_weight_positional ? i : current];
       }
 
-      out[m] = std::fma(w, input[indices[current]], out[m]);
+      const inType* inptr = input + indices[current];
+      out[m] = std::fma(
+          w,
+          std::is_same<inType, float16>::value ? cpu_half2float(*inptr)
+                                               : *inptr,
+          out[m]);
 
       ++current;
     }
@@ -129,6 +136,30 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t index_size,
     const std::int64_t data_size, // the number of rows in input
     const float* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDMBlockSize1_(
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size, // the number of rows in input
+    const float16* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDMBlockSize1_(
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size, // the number of rows in input
+    const float16* input,
     const std::int32_t* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum

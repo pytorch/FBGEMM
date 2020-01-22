@@ -20,6 +20,7 @@
 #include <tuple>
 #include "./CodeCache.h"
 #include "./RefImplementations.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 
@@ -66,9 +67,9 @@ class GenEmbeddingSpMDMLookup {
   static std::mutex rtMutex_; ///< Controll access to runtime;
 
   // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, and prefetch distance, is8bit
+  // positional weights, normalize by lenths, and prefetch distance
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int, bool>,
+      std::tuple<int, bool, bool, bool, int>,
       typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
 
@@ -93,7 +94,7 @@ std::mutex GenEmbeddingSpMDMLookup<inType, indxType>::rtMutex_;
 
 template <typename inType, typename indxType>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool>,
+    std::tuple<int, bool, bool, bool, int>,
     typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel>
     GenEmbeddingSpMDMLookup<inType, indxType>::codeCache_;
 
@@ -106,19 +107,20 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
     bool is_weight_positional,
     bool normalize_by_lengths,
     int prefetch) {
-  bool is8bit = std::is_same<inType, std::uint8_t>::value;
-  std::tuple<int, bool, bool, bool, int, bool> kernelSig = std::make_tuple(
+  std::tuple<int, bool, bool, bool, int> kernelSig = std::make_tuple(
       block_size,
       has_weight,
       is_weight_positional,
       normalize_by_lengths,
-      prefetch,
-      is8bit);
+      prefetch);
 
   return codeCache_.getOrCreate(
       kernelSig,
       [&]() ->
       typename ReturnFunctionSignature<inType, indxType>::jit_embedding_kernel {
+        bool is8bit = std::is_same<inType, std::uint8_t>::value;
+        bool is16bit = std::is_same<inType, float16>::value;
+
         // TODO: Make this tunable
         int pref_dist = prefetch;
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
@@ -130,7 +132,9 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "embeddinglookup";
         if (is8bit) {
-          filename += "_8bit"
+          filename += "_8bit";
+        } else if (is16bit) {
+          filename += "_fp16";
         }
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
@@ -232,6 +236,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
             vlen_inv_vreg; // used for normalize by lengths -- 1/ lengths[i]
         vec_reg_t src_vreg; // for holding embedding value temporarily
         x86::Ymm mask_vreg; // mask for avx2
+        x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
 
         if (is8bit) {
           // We need 2 vec registers for 1. scale 2. bias
@@ -241,7 +246,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           bias_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (is8bit || (remainder && instSet == inst_set_t::avx2)) {
+        if (is8bit || is16bit || (remainder && instSet == inst_set_t::avx2)) {
           --unroll_factor;
           src_vreg = vec_reg_t(unroll_factor);
         }
@@ -255,6 +260,10 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           // AVX512 doesn't need to use vector register for masking
           --unroll_factor;
           mask_vreg = x86::ymm(unroll_factor);
+          if (remainder > 1 && is16bit) {
+            --unroll_factor;
+            mask_fp16_vreg = x86::xmm(unroll_factor);
+          }
         }
 
         if (normalize_by_lengths) {
@@ -266,17 +275,25 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           if (instSet == inst_set_t::avx2) {
             a->lea(
                 x86::rsp,
-                x86::dword_ptr(x86::rsp, (int32_t)(-vlen * sizeof(int32_t))));
+                x86::dword_ptr(
+                    x86::rsp, static_cast<int32_t>(-vlen * sizeof(int32_t))));
             for (int i = 0; i < remainder; i++) {
               a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), -1);
             }
             for (int i = remainder; i < vlen; i++) {
               a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), 0);
             }
-            a->vmovups(mask_vreg, x86::dword_ptr(x86::rsp));
-            a->lea(
-                x86::rsp,
-                x86::dword_ptr(x86::rsp, (int32_t)(vlen * sizeof(int32_t))));
+            a->vmovups(mask_vreg, x86::ymmword_ptr(x86::rsp));
+            if (remainder > 1 && is16bit) {
+              a->vmovups(
+                  mask_fp16_vreg,
+                  x86::xmmword_ptr(
+                      x86::rsp, (remainder - remainder / 2) * sizeof(int32_t)));
+              // We need to keep using the stack during the main loop
+            } else {
+              a->lea(
+                  x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+            }
           } else {
             a->mov(scratchReg1_, (1 << remainder) - 1);
             a->kmovw(x86::k(1), scratchReg1_);
@@ -379,7 +396,7 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
           } else {
             a->imul(
                 scratchReg1_,
-                static_cast<asmjit::Imm>(block_size * sizeof(float)));
+                static_cast<asmjit::Imm>(block_size * sizeof(inType)));
           }
 
           if (pref_dist) {
@@ -468,18 +485,63 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
             if (is8bit) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx512) {
-                a->k(x86::k(1)).vpmovzxbd(src_vreg, src_addr);
-                a->k(x86::k(1)).vcvtdq2ps(src_vreg, src_vreg);
-                a->k(x86::k(1)).vaddps(out_vreg, out_vreg, bias_vreg);
-                a->k(x86::k(1)).vfmadd231ps(out_vreg, src_vreg, scale_vreg);
+                a->k(x86::k(1)).z().vpmovzxbd(src_vreg, src_addr);
               } else {
                 // We don't use a mask for AVX2 since we can use the extra
                 // "padding" of the 2 floats (= 8 chars) scale and bias
                 // this ensures we never access out of bound data
                 a->vpmovzxbd(src_vreg, src_addr);
-                a->vcvtdq2ps(src_vreg, src_vreg);
-                a->vaddps(out_vreg, out_vreg, bias_vreg);
-                a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
+              }
+              a->vcvtdq2ps(src_vreg, src_vreg);
+              a->vaddps(out_vreg, out_vreg, bias_vreg);
+              a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
+            } else if (is16bit) {
+              if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
+                if (instSet == inst_set_t::avx2) {
+                  if (remainder % 2 == 0) {
+                    a->vmaskmovps(
+                        x86::xmm(src_vreg.id()), mask_fp16_vreg, src_addr);
+                  } else {
+                    a->vpbroadcastw(
+                        x86::xmm(src_vreg.id()),
+                        x86::word_ptr(
+                            input,
+                            scratchReg1_,
+                            0,
+                            (vec_idx + v) * BYTES_PER_VLOAD +
+                                (remainder - 1) * sizeof(inType)));
+                    if (remainder > 1) {
+                      // AVX2 can't do masking for the last 16-bit so we store
+                      // them to a stack and reload.
+                      // First put broadcasted last 16-bit element
+                      a->vmovups(
+                          x86::xmmword_ptr(x86::rsp), x86::xmm(src_vreg.id()));
+                      // Mask store the remaining 16-bit elements
+                      a->vmaskmovps(
+                          x86::xmm(src_vreg.id()), mask_fp16_vreg, src_addr);
+                      a->vmaskmovps(
+                          x86::xmmword_ptr(x86::rsp),
+                          mask_fp16_vreg,
+                          x86::xmm(src_vreg.id()));
+                      // Load combined 16-bit elements
+                      a->vmovups(
+                          x86::xmm(src_vreg.id()), x86::xmmword_ptr(x86::rsp));
+                    } // remainder > 1
+                  } // remainder % 2
+                  a->vcvtph2ps(
+                      x86::ymm(src_vreg.id()), x86::xmm(src_vreg.id()));
+                } else {
+                  // avx512
+                  a->k(x86::k(1)).z().vcvtph2ps(src_vreg, src_addr);
+                }
+              } else {
+                // no remainder
+                a->vcvtph2ps(src_vreg, src_addr);
+              }
+              if (has_weight) {
+                a->vfmadd231ps(out_vreg, w_vreg, src_vreg);
+              } else {
+                a->vaddps(out_vreg, out_vreg, src_vreg);
               }
             } else {
               // This part for FP32 SLS
@@ -590,6 +652,10 @@ GenEmbeddingSpMDMLookup<inType, indxType>::getOrCreate(
         a->mov(x86::eax, false);
         a->bind(exit);
 
+        if (remainder > 1 && instSet == inst_set_t::avx2 && is16bit) {
+          a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+        }
+
         a->emitEpilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
@@ -627,8 +693,9 @@ GenerateEmbeddingSpMDM(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if (std::is_same<inType, float>::value && block_size == 1 &&
-      fbgemmHasAvx2Support()) {
+  if ((std::is_same<inType, float>::value ||
+       std::is_same<inType, float16>::value) &&
+      block_size == 1 && fbgemmHasAvx2Support()) {
     return
         [=](std::int64_t output_size,
             std::int64_t index_size,
@@ -642,7 +709,7 @@ GenerateEmbeddingSpMDM(
               output_size,
               index_size,
               data_size,
-              reinterpret_cast<const float*>(input),
+              input,
               indices,
               lengths,
               weights,
@@ -740,6 +807,22 @@ GenerateEmbeddingSpMDM<float, std::int32_t>(
     int prefetch,
     bool is_weight_positional);
 
+template typename EmbeddingSpMDMKernelSignature<float16, std::int64_t>::Type
+GenerateEmbeddingSpMDM<float16, std::int64_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
+
+template typename EmbeddingSpMDMKernelSignature<float16, std::int32_t>::Type
+GenerateEmbeddingSpMDM<float16, std::int32_t>(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional);
+
 template
     typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
     GenerateEmbeddingSpMDM<std::uint8_t, std::int64_t>(
@@ -778,6 +861,34 @@ template bool EmbeddingSpMDM(
     const std::int64_t index_size,
     const std::int64_t data_size,
     const float* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float16* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    int prefetch,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDM(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const float16* input,
     const std::int32_t* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
