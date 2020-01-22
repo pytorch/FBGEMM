@@ -6,8 +6,8 @@
  */
 #include <cmath>
 #include <cstdio>
-#include <random>
 #include <numeric>
+#include <random>
 
 #ifdef _OPENMP
 #include <omp.h>
