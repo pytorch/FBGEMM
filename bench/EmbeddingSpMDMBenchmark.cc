@@ -20,6 +20,7 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
@@ -43,15 +44,15 @@ static vector<vector<int>> GetInputs_() {
       // batch size, number of rows of table, emb dim , avg lengthl
       // TODO: Add more inputs
       // Use these -- but they are slow.
-      //{100, 4000000, 32, 100},
-      // {10, 4000000, 64, 100},
-      // {10, 4000000, 128, 100},
-      // {10, 4000000, 256, 100},
+      {10, 4000000, 32, 100},
+      {10, 4000000, 64, 100},
+      {10, 4000000, 128, 100},
+      {10, 4000000, 256, 100},
       // Use these for debugging
-      {2, 16, 128, 10},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
+      // {2, 16, 128, 10},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
   };
   return input_dims;
 }
@@ -62,6 +63,7 @@ int run_benchmark(
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
+    bool use_fp16_inputs = false,
     bool use_32_bit_indices = false,
     bool prefetch = false) {
   // Create embedding table
@@ -71,6 +73,14 @@ int run_benchmark(
   normal_distribution<float> embedding_distribution;
   for (int i = 0; i < embedding_table.size(); ++i) {
     embedding_table[i] = embedding_distribution(generator);
+  }
+  vector<float16> embedding_table_fp16;
+  if (use_fp16_inputs) {
+    embedding_table_fp16.resize(embedding_table.size());
+    FloatToFloat16_simd(
+        embedding_table.data(),
+        embedding_table_fp16.data(),
+        embedding_table.size());
   }
 
   // Generate lengths
@@ -129,30 +139,58 @@ int run_benchmark(
     bool success, success_ref;
 
     for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      if (use_32_bit_indices) {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            embedding_table.data(),
-            indices_32.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
+      if (use_fp16_inputs) {
+        if (use_32_bit_indices) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_unique_ids,
+              embedding_table_fp16.data(),
+              indices_32.data(),
+              lengths.data(),
+              has_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_unique_ids,
+              embedding_table_fp16.data(),
+              indices.data(),
+              lengths.data(),
+              has_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data());
+        }
       } else {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            embedding_table.data(),
-            indices.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
+        if (use_32_bit_indices) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_unique_ids,
+              embedding_table.data(),
+              indices_32.data(),
+              lengths.data(),
+              has_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_unique_ids,
+              embedding_table.data(),
+              indices.data(),
+              lengths.data(),
+              has_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data());
+        }
       }
     }
 
@@ -160,32 +198,62 @@ int run_benchmark(
     for (bool flush_cache : {false, true}) {
       double t = measureWithWarmup(
           [&]() {
-            if (use_32_bit_indices) {
-              success = fbgemm::EmbeddingSpMDM<float, int32_t>(
-                  embedding_dim,
-                  batch_size,
-                  lengths_sum,
-                  num_unique_ids,
-                  embedding_table.data(),
-                  indices_32.data(),
-                  lengths.data(),
-                  has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output.data(),
-                  prefetch ? 16 : 0);
+            if (use_fp16_inputs) {
+              if (use_32_bit_indices) {
+                success = EmbeddingSpMDM<float16, int32_t>(
+                    embedding_dim,
+                    batch_size,
+                    lengths_sum,
+                    num_unique_ids,
+                    embedding_table_fp16.data(),
+                    indices_32.data(),
+                    lengths.data(),
+                    has_weight ? weights.data() : nullptr,
+                    normalize_by_lengths,
+                    output.data(),
+                    prefetch ? 16 : 0);
+              } else {
+                success = EmbeddingSpMDM<float16, int64_t>(
+                    embedding_dim,
+                    batch_size,
+                    lengths_sum,
+                    num_unique_ids,
+                    embedding_table_fp16.data(),
+                    indices.data(),
+                    lengths.data(),
+                    has_weight ? weights.data() : nullptr,
+                    normalize_by_lengths,
+                    output.data(),
+                    prefetch ? 16 : 0);
+              }
             } else {
-              success = fbgemm::EmbeddingSpMDM<float, int64_t>(
-                  embedding_dim,
-                  batch_size,
-                  lengths_sum,
-                  num_unique_ids,
-                  embedding_table.data(),
-                  indices.data(),
-                  lengths.data(),
-                  has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output.data(),
-                  prefetch ? 16 : 0);
+              if (use_32_bit_indices) {
+                success = EmbeddingSpMDM<float, int32_t>(
+                    embedding_dim,
+                    batch_size,
+                    lengths_sum,
+                    num_unique_ids,
+                    embedding_table.data(),
+                    indices_32.data(),
+                    lengths.data(),
+                    has_weight ? weights.data() : nullptr,
+                    normalize_by_lengths,
+                    output.data(),
+                    prefetch ? 16 : 0);
+              } else {
+                success = EmbeddingSpMDM<float, int64_t>(
+                    embedding_dim,
+                    batch_size,
+                    lengths_sum,
+                    num_unique_ids,
+                    embedding_table.data(),
+                    indices.data(),
+                    lengths.data(),
+                    has_weight ? weights.data() : nullptr,
+                    normalize_by_lengths,
+                    output.data(),
+                    prefetch ? 16 : 0);
+              }
             }
           },
           NUM_WARMUP,
@@ -262,47 +330,37 @@ int main() {
          << setw(16) << num_unique_ids << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
          << endl;
-    // args: batch sz, num rows, emb dim, avg len, normalize, use 32b, prefetch
-    cout << "64 bit indices, ";
-    run_benchmark(
-        batch_size, num_unique_ids, embedding_dim, average_len, false);
 
-    cout << "64 bit indices with prefetching, ";
-    run_benchmark(
-        batch_size,
-        num_unique_ids,
-        embedding_dim,
-        average_len,
-        false,
-        false,
-        true);
-
-    cout << "32 bit indices, ";
-    run_benchmark(
-        batch_size, num_unique_ids, embedding_dim, average_len, false, true);
-
-    cout << "32 bit indices with prefetching, ";
-    run_benchmark(
-        batch_size,
-        num_unique_ids,
-        embedding_dim,
-        average_len,
-        false,
-        true,
-        true);
-
-    // running with normalize by lengths
-    run_benchmark(batch_size, num_unique_ids, embedding_dim, average_len, true);
-    run_benchmark(
-        batch_size, num_unique_ids, embedding_dim, average_len, true, true);
-    run_benchmark(
-        batch_size,
-        num_unique_ids,
-        embedding_dim,
-        average_len,
-        false,
-        true,
-        true);
-  }
+    for (bool normalize_by_lengths : {false, true}) {
+      for (bool use_fp16_inputs : {false, true}) {
+        for (bool use_32_bit_indices : {false, true}) {
+          for (bool prefetch : {false, true}) {
+            // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
+            // prefetch
+            if (normalize_by_lengths) {
+              cout << "Mean";
+            }
+            if (use_fp16_inputs) {
+              cout << "fp16 inputs";
+            }
+            cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
+            if (prefetch) {
+              cout << " with prefetching";
+            }
+            cout << ", ";
+            run_benchmark(
+                batch_size,
+                num_unique_ids,
+                embedding_dim,
+                average_len,
+                normalize_by_lengths,
+                use_fp16_inputs,
+                use_32_bit_indices,
+                prefetch);
+          } // prefetch
+        } // use_32_bit_indices
+      } // use_fp16_inputs
+    } // normalize_by_length
+  } // for each input
   return 0;
 }
