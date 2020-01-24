@@ -66,7 +66,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // use_weight
         ::testing::Bool(), // normalize_by_lengths
         ::testing::Bool(), // empty_indices
-        ::testing::Bool())); // empty_indices
+        ::testing::Bool())); // out_of_bounds
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
@@ -160,7 +160,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 
     if (isIndex64b) {
       if (isFp16) {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
+        success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -173,8 +173,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             output_ref.data(),
             is_wt_positional);
 
-        success = fbgemm::EmbeddingSpMDM<float16, int64_t>(
+        auto kernel = GenerateEmbeddingSpMDM<float16, int64_t>(
             embedding_dim,
+            use_weight,
+            normalize_by_lengths,
+            prefetch,
+            is_wt_positional);
+        success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
@@ -182,12 +187,9 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             empty_indices ? nullptr : indices.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output.data(),
-            prefetch,
-            is_wt_positional);
+            output.data());
       } else {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
+        success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -200,8 +202,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             output_ref.data(),
             is_wt_positional);
 
-        success = fbgemm::EmbeddingSpMDM<float, int64_t>(
+        auto kernel = GenerateEmbeddingSpMDM<float, int64_t>(
             embedding_dim,
+            use_weight,
+            normalize_by_lengths,
+            prefetch,
+            is_wt_positional);
+        success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
@@ -209,14 +216,11 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             empty_indices ? nullptr : indices.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output.data(),
-            prefetch,
-            is_wt_positional);
+            output.data());
       }
     } else {
       if (isFp16) {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
+        success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -229,8 +233,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             output_ref.data(),
             is_wt_positional);
 
-        success = fbgemm::EmbeddingSpMDM<float16, int32_t>(
+        auto kernel = GenerateEmbeddingSpMDM<float16, int32_t>(
             embedding_dim,
+            use_weight,
+            normalize_by_lengths,
+            prefetch,
+            is_wt_positional);
+        success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
@@ -238,12 +247,9 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             empty_indices ? nullptr : indices_32.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output.data(),
-            prefetch,
-            is_wt_positional);
+            output.data());
       } else {
-        success_ref = fbgemm::EmbeddingSpMDM_ref(
+        success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
             batch_size,
             lengths_sum,
@@ -256,8 +262,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             output_ref.data(),
             is_wt_positional);
 
-        success = fbgemm::EmbeddingSpMDM<float, int32_t>(
+        auto kernel = GenerateEmbeddingSpMDM<float, int32_t>(
             embedding_dim,
+            use_weight,
+            normalize_by_lengths,
+            prefetch,
+            is_wt_positional);
+        success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
@@ -265,10 +276,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             empty_indices ? nullptr : indices_32.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output.data(),
-            prefetch,
-            is_wt_positional);
+            output.data());
       }
     }
 
