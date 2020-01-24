@@ -53,15 +53,15 @@ static vector<vector<int>> GetInputs_() {
       // batch size, number of rows of table, emb dim , avg lengthl
       // TODO: Add more inputs
       // Use these -- but they are slow.
-      //{100, 4000000, 32, 100},
-      // {10, 4000000, 64, 100},
-      // {10, 4000000, 128, 100},
-      // {10, 4000000, 256, 100},
+      {10, 4000000, 32, 100},
+      {10, 4000000, 64, 100},
+      {10, 4000000, 128, 100},
+      {10, 4000000, 256, 100},
       // Use these for debugging
-      {2, 16, 128, 10},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
-      {10, 4000, 128, 100},
+      // {2, 16, 128, 10},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
+      // {10, 4000, 128, 100},
   };
   return input_dims;
 }
@@ -150,42 +150,46 @@ int run_benchmark(
   for (bool has_weight : {false, true}) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
-    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      if (use_32_bit_indices) {
-        fbgemm::EmbeddingSpMDM4Bit_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            fused_embedding_table.data(),
-            indices_32.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
+    bool success = false, success_ref = false;
 
-      } else {
-        fbgemm::EmbeddingSpMDM4Bit_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_unique_ids,
-            fused_embedding_table.data(),
-            indices.data(),
-            lengths.data(),
-            has_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data());
-      }
+    if (use_32_bit_indices) {
+      success_ref = EmbeddingSpMDM4Bit_ref(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table.data(),
+          indices_32.data(),
+          lengths.data(),
+          has_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
+
+    } else {
+      success_ref = EmbeddingSpMDM4Bit_ref(
+          embedding_dim,
+          batch_size,
+          lengths_sum,
+          num_unique_ids,
+          fused_embedding_table.data(),
+          indices.data(),
+          lengths.data(),
+          has_weight ? weights.data() : nullptr,
+          normalize_by_lengths,
+          output_ref.data());
     }
+
+    auto kernel_32 = GenerateEmbeddingSpMDM4Bit<int32_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto kernel_64 = GenerateEmbeddingSpMDM4Bit<int64_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       double t = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              fbgemm::EmbeddingSpMDM4Bit(
-                  embedding_dim,
+              success = kernel_32(
                   batch_size,
                   lengths_sum,
                   num_unique_ids,
@@ -193,12 +197,9 @@ int run_benchmark(
                   indices_32.data(),
                   lengths.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output.data(),
-                  prefetch ? 16 : 0);
+                  output.data());
             } else {
-              fbgemm::EmbeddingSpMDM4Bit(
-                  embedding_dim,
+              success = kernel_64(
                   batch_size,
                   lengths_sum,
                   num_unique_ids,
@@ -206,9 +207,7 @@ int run_benchmark(
                   indices.data(),
                   lengths.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output.data(),
-                  prefetch ? 16 : 0);
+                  output.data());
             }
           },
           NUM_WARMUP,
@@ -230,10 +229,15 @@ int run_benchmark(
       if (!flush_cache) {
         // vector<float>& output_ref =
         //     has_weight ? output_slws_ref : output_sls_ref;
-        for (int i = 0; i < output.size(); ++i) {
-          assert(fabs(output[i] - output_ref[i]) < 1e-3);
-          if (fabs(output[i] - output_ref[i]) >= 1e-3) {
-            cout << i << " " << output[i] << " " << output_ref[i] << endl;
+        if (success != success_ref) {
+          assert(
+              false && "ERROR: refernce impl and JIT imp did not both succeed");
+        } else if (success) {
+          for (int i = 0; i < output.size(); ++i) {
+            assert(fabs(output[i] - output_ref[i]) < 1e-3);
+            if (fabs(output[i] - output_ref[i]) >= 1e-3) {
+              cout << i << " " << output[i] << " " << output_ref[i] << endl;
+            }
           }
         }
       }
