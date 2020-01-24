@@ -148,7 +148,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     bool success, success_ref;
 
     if (isIndex64b) {
-      success_ref = fbgemm::EmbeddingSpMDM_ref<uint8_t, int64_t>(
+      success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -161,8 +161,13 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM<uint8_t, int64_t>(
+      auto kernel = GenerateEmbeddingSpMDM<uint8_t, int64_t>(
           embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
+      success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
@@ -170,12 +175,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+          output.data());
     } else {
-      success_ref = fbgemm::EmbeddingSpMDM_ref<uint8_t, int32_t>(
+      success_ref = EmbeddingSpMDM_ref<uint8_t, int32_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -188,8 +190,13 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM<uint8_t, int32_t>(
+      auto kernel = GenerateEmbeddingSpMDM<uint8_t, int32_t>(
           embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
+      success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
@@ -197,10 +204,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+          output.data());
     }
 
     // Check correctness

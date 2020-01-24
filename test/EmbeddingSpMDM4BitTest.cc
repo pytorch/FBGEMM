@@ -154,7 +154,7 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
     bool success, success_ref;
 
     if (isIndex64b) {
-      success_ref = fbgemm::EmbeddingSpMDM4Bit_ref<int64_t>(
+      success_ref = EmbeddingSpMDM4Bit_ref<int64_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -167,8 +167,13 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM4Bit<int64_t>(
+      auto kernel = GenerateEmbeddingSpMDM4Bit<int64_t>(
           embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
+      success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
@@ -176,12 +181,9 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+          output.data());
     } else {
-      success_ref = fbgemm::EmbeddingSpMDM4Bit_ref<int32_t>(
+      success_ref = EmbeddingSpMDM4Bit_ref<int32_t>(
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -194,8 +196,13 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      success = fbgemm::EmbeddingSpMDM4Bit<int32_t>(
+      auto kernel = GenerateEmbeddingSpMDM4Bit<int32_t>(
           embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
+      success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
@@ -203,10 +210,7 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output.data(),
-          prefetch,
-          is_wt_positional);
+          output.data());
     }
 
     // Check correctness

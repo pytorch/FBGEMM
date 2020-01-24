@@ -136,63 +136,70 @@ int run_benchmark(
   for (bool has_weight : {false, true}) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
-    bool success, success_ref;
+    bool success = false, success_ref = false;
 
-    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      if (use_fp16_inputs) {
-        if (use_32_bit_indices) {
-          success_ref = EmbeddingSpMDM_ref(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              embedding_table_fp16.data(),
-              indices_32.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
-        } else {
-          success_ref = EmbeddingSpMDM_ref(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              embedding_table_fp16.data(),
-              indices.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
-        }
+    if (use_fp16_inputs) {
+      if (use_32_bit_indices) {
+        success_ref = EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table_fp16.data(),
+            indices_32.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
       } else {
-        if (use_32_bit_indices) {
-          success_ref = EmbeddingSpMDM_ref(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              embedding_table.data(),
-              indices_32.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
-        } else {
-          success_ref = EmbeddingSpMDM_ref(
-              embedding_dim,
-              batch_size,
-              lengths_sum,
-              num_unique_ids,
-              embedding_table.data(),
-              indices.data(),
-              lengths.data(),
-              has_weight ? weights.data() : nullptr,
-              normalize_by_lengths,
-              output_ref.data());
-        }
+        success_ref = EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table_fp16.data(),
+            indices.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
+      }
+    } else {
+      if (use_32_bit_indices) {
+        success_ref = EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table.data(),
+            indices_32.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
+      } else {
+        success_ref = EmbeddingSpMDM_ref(
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_unique_ids,
+            embedding_table.data(),
+            indices.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
       }
     }
+
+    auto kernel_fp32_i32 = GenerateEmbeddingSpMDM<float, int32_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto kernel_fp32_i64 = GenerateEmbeddingSpMDM<float, int64_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto kernel_fp16_i32 = GenerateEmbeddingSpMDM<float16, int32_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto kernel_fp16_i64 = GenerateEmbeddingSpMDM<float16, int64_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
@@ -200,8 +207,7 @@ int run_benchmark(
           [&]() {
             if (use_fp16_inputs) {
               if (use_32_bit_indices) {
-                success = EmbeddingSpMDM<float16, int32_t>(
-                    embedding_dim,
+                success = kernel_fp16_i32(
                     batch_size,
                     lengths_sum,
                     num_unique_ids,
@@ -209,12 +215,9 @@ int run_benchmark(
                     indices_32.data(),
                     lengths.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
-                    output.data(),
-                    prefetch ? 16 : 0);
+                    output.data());
               } else {
-                success = EmbeddingSpMDM<float16, int64_t>(
-                    embedding_dim,
+                success = kernel_fp16_i64(
                     batch_size,
                     lengths_sum,
                     num_unique_ids,
@@ -222,14 +225,11 @@ int run_benchmark(
                     indices.data(),
                     lengths.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
-                    output.data(),
-                    prefetch ? 16 : 0);
+                    output.data());
               }
             } else {
               if (use_32_bit_indices) {
-                success = EmbeddingSpMDM<float, int32_t>(
-                    embedding_dim,
+                success = kernel_fp32_i32(
                     batch_size,
                     lengths_sum,
                     num_unique_ids,
@@ -237,12 +237,9 @@ int run_benchmark(
                     indices_32.data(),
                     lengths.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
-                    output.data(),
-                    prefetch ? 16 : 0);
+                    output.data());
               } else {
-                success = EmbeddingSpMDM<float, int64_t>(
-                    embedding_dim,
+                success = kernel_fp32_i64(
                     batch_size,
                     lengths_sum,
                     num_unique_ids,
@@ -250,9 +247,7 @@ int run_benchmark(
                     indices.data(),
                     lengths.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
-                    output.data(),
-                    prefetch ? 16 : 0);
+                    output.data());
               }
             }
           },
@@ -275,8 +270,9 @@ int run_benchmark(
       // Check correctness
       if (!flush_cache) {
         if (success != success_ref) {
-          assert(0 && "ERROR: refernce impl and JIt imp did not both succeed");
-        } else if (success == true) {
+          assert(
+              false && "ERROR: refernce impl and JIT imp did not both succeed");
+        } else if (success) {
           for (int i = 0; i < output.size(); ++i) {
             assert(output[i] == output_ref[i]);
             if (output[i] != output_ref[i]) {
