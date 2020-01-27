@@ -244,17 +244,7 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
        std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 2))) &&
-
-      // Height and Width should be both even or both odd
-      // and at least as big as filter size
-      (conv_p.IN_DIM[SPATIAL_DIM - 2] % 2 ==
-       conv_p.IN_DIM[SPATIAL_DIM - 1] % 2) &&
-      (conv_p.IN_DIM[SPATIAL_DIM - 2] >= conv_p.K[SPATIAL_DIM - 2]) &&
-      (conv_p.IN_DIM[SPATIAL_DIM - 1] >= conv_p.K[SPATIAL_DIM - 1]) &&
-
-      (conv_p.OUT_DIM[SPATIAL_DIM - 2] >= conv_p.K[SPATIAL_DIM - 2]) &&
-      (conv_p.OUT_DIM[SPATIAL_DIM - 1] >= conv_p.K[SPATIAL_DIM - 1]);
+           std::bind(areEqual, std::placeholders::_1, 2)));
 }
 
 template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);

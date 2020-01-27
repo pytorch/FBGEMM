@@ -73,6 +73,7 @@ kernel_sig_t getKernelSig(
     bool needRowOffset,
     bool isTopEdgeIncluded,
     bool isBottomEdgeIncluded,
+    bool isTopBottomEdgeSame,
     bool accum) {
   // kernel is specialized on number of input channels per group, number of
   // output channels per group, whether stride is 1 or stride is 2, whether or
@@ -89,7 +90,11 @@ kernel_sig_t getKernelSig(
       needRowOffset,
       isTopEdgeIncluded,
       isBottomEdgeIncluded,
-      conv_param.IN_DIM[1] % 2 == 0 && conv_param.stride[0] == 2,
+      isTopBottomEdgeSame,
+      !(conv_param.stride[SPATIAL_DIM - 2] > 1 &&
+        conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0),
+      !(conv_param.stride[SPATIAL_DIM - 1] > 1 &&
+        conv_param.IN_DIM[SPATIAL_DIM - 1] % 2 == 0),
       accum,
       conv_param.G,
       conv_param.stride[0],
@@ -105,6 +110,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
     bool needRowOffset,
     bool isTopEdgeIncluded,
     bool isBottomEdgeIncluded,
+    bool isTopBottomEdgeSame,
     bool accum) {
   // Note: Wrong code is generated if it's not one of the supported convolution
   assert(fbgemmOptimizedGConv<SPATIAL_DIM>(conv_param));
@@ -114,6 +120,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
       needRowOffset,
       isTopEdgeIncluded,
       isBottomEdgeIncluded,
+      isTopBottomEdgeSame,
       accum);
 
   if (cpuinfo_initialize()) {
@@ -127,6 +134,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
                 needRowOffset,
                 isTopEdgeIncluded,
                 isBottomEdgeIncluded,
+                isTopBottomEdgeSame,
                 accum);
             return genObj.getOrCreate();
           });
@@ -139,6 +147,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
                 needRowOffset,
                 isTopEdgeIncluded,
                 isBottomEdgeIncluded,
+                isTopBottomEdgeSame,
                 accum);
             return genObj.getOrCreate();
           });
@@ -165,7 +174,8 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
       this->needRowOffset_,
       this->isTopEdgeIncluded_,
       this->isBottomEdgeIncluded_,
-      this->use_padding_,
+      this->use_bottom_padding_,
+      this->use_right_padding_,
       this->accum_,
       this->G_,
       this->STRIDE_,
@@ -254,18 +264,22 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   // Only works for stride == 2
   if (this->STRIDE_ > 1) {
     a->imul(W_R_, W_R_, static_cast<asmjit::Imm>(this->STRIDE_));
-    if (this->isImageEven_) {
+    if (!this->use_right_padding_) {
       a->inc(W_R_);
     }
     a->sub(W_R_, static_cast<asmjit::Imm>(this->STRIDE_ - 1));
   }
 
   if (this->isTopEdgeIncluded_) {
-    genForTopOrBottomEdge(a, true /* isTopEdge */);
+    genForTopOrBottomEdge(
+        a,
+        true /* isTopEdge */,
+        this->isTopBottomEdgeSame_ && this->use_bottom_padding_);
   }
   genCoreInsts(a);
-  if (this->isBottomEdgeIncluded_) {
-    genForTopOrBottomEdge(a, false /* isTopEdge */);
+  if (this->isBottomEdgeIncluded_ && !this->isTopBottomEdgeSame_) {
+    genForTopOrBottomEdge(
+        a, false /* isTopEdge */, this->use_bottom_padding_ /* isBottomEdge */);
   }
 
   a->emitEpilog(frame_);
@@ -447,92 +461,81 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeOffset(
 template <int SPATIAL_DIM>
 void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForTopOrBottomEdge(
     x86::Emitter* a,
-    bool isTopEdge) {
-  if (isTopEdge) {
-    // top-left corner code
-    genForSingleOutput(
-        a,
-        true, // isLeft
-        false, // isRight
-        true, // isTop
-        false // isBotom
-    );
-  } else {
-    // bottom-left corner code
-    genForSingleOutput(
-        a,
-        true, // isLeft
-        false, // isRight
-        false, // isTop
-        this->use_padding_ // isBottom
-    );
-  }
-
-  // edge excluding corners
-  asmjit::Label LoopEdge = a->newLabel();
-  a->mov(loopR2_, static_cast<asmjit::Imm>(this->W_PAD_));
-  a->bind(LoopEdge);
-
-  if (isTopEdge) {
-    genForSingleOutput(
-        a,
-        false, // isLeft
-        false, // isRight
-        true, // isTop
-        false // isBottom
-    );
-  } else {
-    genForSingleOutput(
-        a,
-        false, // isLeft
-        false, // isRight
-        false, // isTop
-        this->use_padding_ // isBottom
-    );
-  }
-
-  a->inc(loopR2_);
+    bool isTopEdge,
+    bool isBottomEdge) {
   // Output width was passed in as the 7th argument (i.e., using stack).
   // Reload it from the same location.
   a->movsxd(
       loopR1_,
       x86::dword_ptr(
           x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  a->sub(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
-  a->cmp(loopR2_, loopR1_);
-  a->jl(LoopEdge);
+  asmjit::Label LoopWStart = a->newLabel();
+  asmjit::Label LoopWEnd = a->newLabel();
+  asmjit::Label skipRightEdge = a->newLabel();
+  asmjit::Label skipRightEdgeTemp = a->newLabel();
+  a->cmp(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
+  a->jle(skipRightEdgeTemp);
 
-  if (isTopEdge) {
-    // top-right corner code
-    genForSingleOutput(
-        a,
-        false, // isLeft
-        this->use_padding_, // isRight
-        true, // isTop
-        false // isBottom
-    );
-  } else {
-    // bottom-right corner code
-    genForSingleOutput(
-        a,
-        false, // isLeft
-        this->use_padding_, // isRight
-        false, // isTop
-        this->use_padding_ // isBottom
-    );
-  }
+  // left corner code
+  genForSingleOutput(
+      a,
+      true, // isLeft
+      false, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+  a->jmp(LoopWStart);
+
+  a->bind(skipRightEdgeTemp);
+  // top-left corner code
+  genForSingleOutput(
+      a,
+      true, // isLeft
+      this->use_right_padding_, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+  a->jmp(skipRightEdge);
+
+  // edge excluding corners
+  a->bind(LoopWStart);
+
+  a->cmp(loopR1_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
+  a->jle(LoopWEnd);
+
+  genForSingleOutput(
+      a,
+      false, // isLeft
+      false, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+
+  a->dec(loopR1_);
+  a->jmp(LoopWStart);
+  a->bind(LoopWEnd);
+
+  // top-right corner code
+  genForSingleOutput(
+      a,
+      false, // isLeft
+      this->use_right_padding_, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBottom
+  );
+
+  a->bind(skipRightEdge);
 
   if (this->STRIDE_ > 1) {
     // STRIDE_ == 2 and even widths,
     // We increase it by C_;
     // STRIDE_ == 2 and odd widths, nothing to do
     // input ptr is already at the right position
-    if (this->isImageEven_) {
+    if (!this->use_right_padding_) {
       a->add(in_acts_R_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
     }
-
   } else {
-    // reset input activation pointer
+    // reset input activation pointer by (W_R_ - W_PAD_) * C_
     a->mov(scratchReg2_, W_R_);
     a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
     a->sub(
@@ -559,20 +562,27 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
 
   bool isWidthMiddle = !isLeft && !isRight;
   bool isHeightMiddle = !isTop && !isBottom;
+  int num_rows_advanced = 0;
   for (int r = 0; r < this->R_; ++r) {
     int h_in = r;
     if (isTop) {
       h_in = -this->H_PAD_ + r;
     }
-    bool in_image_H = (isTop && h_in >= 0) ||
-        (isBottom && h_in < (this->R_ - this->H_PAD_)) || isHeightMiddle;
+    bool in_image_H = (isTop && !isBottom && h_in >= 0) ||
+        (!isTop && isBottom && h_in < (this->R_ - this->H_PAD_)) ||
+        (isTop && isBottom && h_in >= 0 &&
+         h_in < (this->R_ - 2 * this->H_PAD_)) ||
+        isHeightMiddle;
     for (int s = 0; s < this->S_; ++s) {
       int w_in = s;
       if (isLeft) {
         w_in = -this->W_PAD_ + s;
       }
-      bool in_image_W = (isLeft && w_in >= 0) ||
-          (isRight && w_in < (this->S_ - this->W_PAD_)) || isWidthMiddle;
+      bool in_image_W = (isLeft && !isRight && w_in >= 0) ||
+          (!isLeft && isRight && w_in < (this->S_ - this->W_PAD_)) ||
+          (isLeft && isRight && w_in >= 0 &&
+           w_in < (this->S_ - 2 * this->W_PAD_)) ||
+          isWidthMiddle;
       if (in_image_H && in_image_W) {
         genForSingleFilterPoint(a, r, s, w_in, false);
       } else {
@@ -588,6 +598,7 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
           W_R_,
           static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
       a->add(in_acts_R_, scratchReg2_);
+      ++num_rows_advanced;
     }
   }
 
@@ -601,18 +612,10 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
   }
 
   // rewind input ptr
-  if (isHeightMiddle) {
-    a->imul(
-        scratchReg2_,
-        W_R_,
-        static_cast<asmjit::Imm>(this->R_ * this->C_ * sizeof(uint8_t)));
-  } else {
-    a->imul(
-        scratchReg2_,
-        W_R_,
-        static_cast<asmjit::Imm>(
-            (this->R_ - this->H_PAD_) * this->C_ * sizeof(uint8_t)));
-  }
+  a->imul(
+      scratchReg2_,
+      W_R_,
+      static_cast<asmjit::Imm>(num_rows_advanced * this->C_ * sizeof(uint8_t)));
   a->sub(in_acts_R_, scratchReg2_);
 
   // advance output pointer
@@ -623,7 +626,7 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
     a->add(
         in_acts_R_,
         static_cast<asmjit::Imm>(this->STRIDE_ * this->C_ * sizeof(uint8_t)));
-  } else {
+  } else if (this->STRIDE_ - this->W_PAD_) {
     a->add(
         in_acts_R_,
         static_cast<asmjit::Imm>(
@@ -721,13 +724,23 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genCoreInsts(
   // main compute
   asmjit::Label LoopHStart = a->newLabel();
   asmjit::Label LoopHEnd = a->newLabel();
-  asmjit::Label LoopWLabel = a->newLabel();
+  asmjit::Label LoopWStart = a->newLabel();
+  asmjit::Label LoopWEnd = a->newLabel();
 
   // H loop
   a->mov(loopR1_, H_start_R_);
   a->jmp(LoopHEnd);
   a->bind(LoopHStart);
   a->inc(loopR1_);
+
+  a->movsxd(
+      loopR2_,
+      x86::dword_ptr(
+          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
+  asmjit::Label skipRightEdge = a->newLabel();
+  asmjit::Label skipRightEdgeTemp = a->newLabel();
+  a->cmp(loopR2_, static_cast<asmjit::Imm>(this->W_PAD_));
+  a->jle(skipRightEdgeTemp);
 
   genForSingleOutput(
       a,
@@ -736,15 +749,23 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genCoreInsts(
       false, // isTop
       false // isBottom
   );
+  a->jmp(LoopWStart);
 
-  a->movsxd(
-      scratchReg1_,
-      x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  a->sub(scratchReg1_, static_cast<asmjit::Imm>(this->W_PAD_));
+  a->bind(skipRightEdgeTemp);
+  genForSingleOutput(
+      a,
+      true, // isLeft,
+      this->use_right_padding_, // isRight
+      false, // isTop
+      false // isBottom
+  );
+  a->jmp(skipRightEdge);
+
   // W loop
-  a->mov(loopR2_, static_cast<asmjit::Imm>(this->W_PAD_));
-  a->bind(LoopWLabel);
+  a->bind(LoopWStart);
+
+  a->cmp(loopR2_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
+  a->jle(LoopWEnd);
 
   genForSingleOutput(
       a,
@@ -754,17 +775,19 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genCoreInsts(
       false // isBottom
   );
 
-  a->inc(loopR2_);
-  a->cmp(loopR2_, scratchReg1_);
-  a->jl(LoopWLabel);
+  a->dec(loopR2_);
+  a->jmp(LoopWStart);
+  a->bind(LoopWEnd);
 
   genForSingleOutput(
       a,
       false, // isLeft
-      this->use_padding_, // isRight
+      this->use_right_padding_, // isRight
       false, // isTop
       false // isBottom
   );
+
+  a->bind(skipRightEdge);
 
   if (this->STRIDE_ > 1) {
     // STRIDE_ == 2 and even widths,
@@ -772,7 +795,7 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genCoreInsts(
     // STRIDE_ == 2 and odd widths, no extra C_
     assert(this->STRIDE_ == 2 && "Not supported case");
     a->mov(scratchReg2_, W_R_);
-    if (this->isImageEven_) {
+    if (!this->use_right_padding_) {
       a->add(scratchReg2_, static_cast<asmjit::Imm>(1));
     }
     a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
@@ -1474,12 +1497,15 @@ void fbgemmGroupwiseConv(
     bool calculateRowOffset = !b_symmetric;
     bool isTopEdgeIncluded = oh_start == 0;
     bool isBottomEdgeIncluded = oh_end == OH;
+    bool isTopBottomEdgeSame =
+        isTopEdgeIncluded && isBottomEdgeIncluded && oh_end == oh_start + 1;
     jit_conv_kernel_fp fpConv = getOrCreateConvKernel<SPATIAL_DIM>(
         conv_param,
         a_zero_point,
         calculateRowOffset,
         isTopEdgeIncluded,
         isBottomEdgeIncluded,
+        isTopBottomEdgeSame,
         false);
 
     int ih_start = 0;
@@ -1587,12 +1613,15 @@ void fbgemmGroupwiseConv(
     bool calculateRowOffset = !b_symmetric;
     bool isTopEdgeIncluded = oh_start == 0;
     bool isBottomEdgeIncluded = oh_end == OH;
+    bool isTopBottomEdgeSame =
+        isTopEdgeIncluded && isBottomEdgeIncluded && oh_end == oh_start + 1;
     jit_conv_kernel_fp fpConvNoAccum = getOrCreateConvKernel<2>(
         conv_p_2d,
         a_zero_point,
         calculateRowOffset,
         isTopEdgeIncluded,
         isBottomEdgeIncluded,
+        isTopBottomEdgeSame,
         false);
     jit_conv_kernel_fp fpConvAccum = getOrCreateConvKernel<2>(
         conv_p_2d,
@@ -1600,6 +1629,7 @@ void fbgemmGroupwiseConv(
         calculateRowOffset,
         isTopEdgeIncluded,
         isBottomEdgeIncluded,
+        isTopBottomEdgeSame,
         true);
     jit_conv_kernel_fp fpConv;
 
