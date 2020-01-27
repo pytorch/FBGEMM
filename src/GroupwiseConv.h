@@ -54,7 +54,9 @@ using kernel_sig_t = std::tuple<
     bool, /* should row offset be calculated */
     bool, /* is top edge included */
     bool, /* is bottom edge included */
-    bool, /* use paddings on right and bottom side? */
+    bool, /* is top bottom edge same? */
+    bool, /* use paddings on bottom side? */
+    bool, /* use paddings on right side? */
     bool, /* accumulate rowoffsets and output instead of overwrite? */
     int, /* groups */
     int, /* stride */
@@ -71,6 +73,7 @@ class GenConvKernelBase {
       bool needRowOffset,
       bool isTopEdgeIncluded,
       bool isBottomEdgeIncluded,
+      bool isTopBottomEdgeSame,
       bool accum) {
     assert(fbgemmOptimizedGConv(conv_param));
 
@@ -78,11 +81,8 @@ class GenConvKernelBase {
     needRowOffset_ = needRowOffset;
     isTopEdgeIncluded_ = isTopEdgeIncluded;
     isBottomEdgeIncluded_ = isBottomEdgeIncluded;
+    isTopBottomEdgeSame_ = isTopBottomEdgeSame;
     accum_ = accum;
-    assert(
-        (conv_param.IN_DIM[0] % 2 == conv_param.IN_DIM[1] % 2) &&
-        "not supported case");
-    isImageEven_ = conv_param.IN_DIM[1] % 2 == 0;
 
     G_ = conv_param.G;
     K_per_G_ = conv_param.OC / conv_param.G;
@@ -99,7 +99,10 @@ class GenConvKernelBase {
     H_PAD_ = conv_param.pad[0];
     W_PAD_ = conv_param.pad[1];
 
-    use_padding_ = !(STRIDE_ > 1 && isImageEven_);
+    use_bottom_padding_ =
+        !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0);
+    use_right_padding_ =
+        !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 1] % 2 == 0);
   }
 
   ~GenConvKernelBase() {}
@@ -107,16 +110,18 @@ class GenConvKernelBase {
   static std::string getCodeLoggingFile(kernel_sig_t kernel_sig) {
     std::ostringstream oss;
     oss << "conv";
-    oss << "_G-" << std::get<6>(kernel_sig);
-    oss << "_stride-" << std::get<7>(kernel_sig);
-    oss << "_IC_per_G-" << std::get<8>(kernel_sig);
-    oss << "_OC_per_G-" << std::get<9>(kernel_sig);
+    oss << "_G-" << std::get<8>(kernel_sig);
+    oss << "_stride-" << std::get<9>(kernel_sig);
+    oss << "_IC_per_G-" << std::get<10>(kernel_sig);
+    oss << "_OC_per_G-" << std::get<11>(kernel_sig);
     oss << "_isZeroPointZero-" << std::get<0>(kernel_sig);
     oss << "_rowoffset-" << std::get<1>(kernel_sig);
     oss << "_topEdge-" << std::get<2>(kernel_sig);
     oss << "_bottomEdge-" << std::get<3>(kernel_sig);
-    oss << "_usePadding-" << std::get<4>(kernel_sig);
-    oss << "_accum-" << std::get<5>(kernel_sig);
+    oss << "_isTopBottomSame-" << std::get<4>(kernel_sig);
+    oss << "_useBottomPadding-" << std::get<5>(kernel_sig);
+    oss << "_useRightPadding-" << std::get<6>(kernel_sig);
+    oss << "_accum-" << std::get<7>(kernel_sig);
 
     if (INST_SET == inst_set_t::avx512) {
       oss << "_avx512";
@@ -165,13 +170,14 @@ class GenConvKernelBase {
   bool needRowOffset_;
   bool isTopEdgeIncluded_;
   bool isBottomEdgeIncluded_;
+  bool isTopBottomEdgeSame_;
   bool accum_;
-  bool isImageEven_;
   // For 3x3 kernels with pad == 1: If stride is 2 and image height/width are
   // even, the right or bottom paddings are not used. This variables is set to
   // false if paddings on the left and bottom are not used and kernel generation
   // takes care to not generate code with paddings on the right and bottom side.
-  bool use_padding_;
+  bool use_bottom_padding_;
+  bool use_right_padding_;
 };
 
 // Generic class
@@ -189,6 +195,7 @@ class GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>
       bool needRowoffset,
       bool isTopEdgeIncluded,
       bool isBottomEdgeIncluded,
+      bool isTopBottomEdgeSame,
       bool accum)
       : GenConvKernelBase<SPATIAL_DIM, inst_set_t::avx2>(
             conv_param,
@@ -196,6 +203,7 @@ class GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>
             needRowoffset,
             isTopEdgeIncluded,
             isBottomEdgeIncluded,
+            isTopBottomEdgeSame,
             accum) {
     constexpr int SIMD_WIDTH = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
     GTogether_ = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
@@ -217,7 +225,7 @@ class GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>
 
   void genConstForPermutations(x86::Emitter* a);
 
-  void genForTopOrBottomEdge(x86::Emitter* a, bool isTop);
+  void genForTopOrBottomEdge(x86::Emitter* a, bool isTop, bool isBottom);
 
   void initResultRegs(x86::Emitter* a);
 
