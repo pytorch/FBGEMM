@@ -28,7 +28,7 @@ void performance_test() {
 
   cout << setw(4) << "M"
        << " elements_per_sec_ref"
-       << " elements_per_sec_simd)" << endl;
+       << " elements_per_sec_simd" << endl;
 
   array<int, 8> dims{1, 10, 32, 40, 129, 256, 1024, 8000};
 
