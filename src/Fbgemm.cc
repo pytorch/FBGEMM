@@ -7,8 +7,8 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Fbgemm.h"
 #include <cpuinfo.h>
-#include <stdexcept>
 #include <functional>
+#include <stdexcept>
 #include "./ExecuteKernel.h"
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -255,6 +255,56 @@ bool fbgemmSupportedCPU() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Added for Windows DLL for implicit template parameter instantiation
+template class FBGEMM_API memCopy<std::int32_t, std::int32_t>;
+template class FBGEMM_API DoNothing<std::int32_t, std::int32_t>;
+template class FBGEMM_API DoNothing<float, float>;
+template class FBGEMM_API
+    ReQuantizeForFloat<false, QuantizationGranularity::TENSOR>;
+template class FBGEMM_API
+    ReQuantizeForFloat<false, QuantizationGranularity::GROUP>;
+template class FBGEMM_API
+    ReQuantizeForFloat<false, QuantizationGranularity::OUT_CHANNEL>;
+
+#define INSTANTIATE_BASE(FNAME, RELU, Q_GRAN) \
+  template class FBGEMM_API                   \
+      FNAME<std::uint8_t, std::int32_t, ReQuantizeOutput<RELU, Q_GRAN>>
+
+#define INSTANTIATE_Q_GRAN(FNAME, RELU)                           \
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::OUT_CHANNEL);
+
+#define INSTANTIATE_RELU(FNAME)     \
+  INSTANTIATE_Q_GRAN(FNAME, false); \
+  INSTANTIATE_Q_GRAN(FNAME, true);
+
+INSTANTIATE_RELU(DoSpmdmOnInpBuffer);
+INSTANTIATE_RELU(DoSConvOnInpBuffer);
+
+#undef INSTANTIATE_RELU
+#undef INSTANTIATE_Q_GRAN
+#undef INSTANTIATE_BASE
+
+#define INSTANTIATE_BASE(RELU, Q_GRAN, BIAS_TYPE) \
+  template class FBGEMM_API ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>;
+
+#define INSTANTIATE_BIAS_T(RELU, Q_GRAN)       \
+  INSTANTIATE_BASE(RELU, Q_GRAN, std::int32_t) \
+  INSTANTIATE_BASE(RELU, Q_GRAN, float)
+
+#define INSTANTIATE_Q_GRAN(RELU)                             \
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::TENSOR); \
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::OUT_CHANNEL);
+
+INSTANTIATE_Q_GRAN(false);
+INSTANTIATE_Q_GRAN(true);
+
+#undef INSTANTIATE_Q_GRAN
+#undef INSTANTIATE_BIAS_T
+#undef INSTANTIATE_BASE
+
 // ReQuantizeOutput
 #define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, BIAS_TYPE)    \
   template void fbgemmPacked(                                       \

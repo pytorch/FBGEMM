@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
-    strategy: 
+    strategy:
       matrix:
         os: [ubuntu-latest, macos-latest] 
 
@@ -61,8 +61,8 @@ jobs:
         cmake -DFBGEMM_LIBRARY_TYPE=shared ..
         make
 
-    - name: Test shared FBGEMM  lib
-      if: contains(runner.os, 'Linux')   # not run on macos-latest now due to supporting AVX2
+    - name: Test shared FBGEMM lib
+      if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
       run: |
         set -e
         cd build_shared
@@ -86,8 +86,6 @@ jobs:
     - name: Build static FBGEMM lib
       shell: cmd
       run: |
-        set
-        echo %PATH%
         call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
         echo "INSTALL NINJA:"
         pip install ninja
