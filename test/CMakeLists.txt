@@ -9,6 +9,13 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   endif()
 
   #build Googletest framework
+  #MSVC needs gtest_for_shared_crt to select right runtime lib
+  if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+    message(WARNING "gtest_force_shared_crt is ON")
+    set(gtest_force_shared_crt ON)
+  else()
+    message(WARNING "gtest_force_shared_crt is OFF")
+  endif()
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
 endif()
 
@@ -18,8 +25,18 @@ macro(add_gtest TESTNAME)
   set_target_properties(${TESTNAME} PROPERTIES
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
- target_compile_options(${TESTNAME} PRIVATE
-   "-m64" "-mavx2" "-mfma" "-masm=intel")
+  #To compile test files with AVX2 turned on
+  #For static build, defining FBGEMM_STATIC to avoid generating
+  #functions with _dllimport attributes.
+  if(MSVC)
+    target_compile_options(${TESTNAME} PRIVATE "/arch:AVX2")
+    if (FBGEMM_LIBRARY_TYPE STREQUAL "static")
+      target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
+    endif()
+  else(MSVC)
+    target_compile_options(${TESTNAME} PRIVATE
+     "-m64" "-mavx2" "-mfma" "-masm=intel")
+  endif(MSVC)
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
 
   if(${OpenMP_FOUND})
