@@ -150,9 +150,32 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_EXTENSIONS NO
       CXX_VISIBILITY_PRESET hidden)
 
+#On Windows:
+#1) Adding definition of ASMJIT_STATIC to avoid generating asmjit function
+#calls with _dllimport attribute
+#2) MSVC uses /MD in default cxx compiling flags,
+#need to change it to /MT in static case
+#3) Use /NODEFAULTLIB:MSVCRT to avoid linker complaints.
 if(MSVC)
+  if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+    target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx512 PRIVATE ASMJIT_STATIC)
+    foreach(flag_var
+      CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+      if(${flag_var} MATCHES "/MD")
+        string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+      endif(${flag_var} MATCHES "/MD")
+    endforeach(flag_var)
+  endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
+
+  set(CMAKE_EXE_LINKER_FLAGS
+    "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:MSVCRT")
+  set(CMAKE_STATIC_LINKER_FLAGS
+    "${CMAKE_STATIC_LINKER_FLAGS} /NODEFAULTLIB:MSVCRT")
 else(MSVC)
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
@@ -160,6 +183,12 @@ else(MSVC)
     "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
     "-mavx512vl" "-masm=intel")
 endif(MSVC)
+
+message(WARNING "==========")
+message(WARNING "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+message(WARNING "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
+message(WARNING "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
+message(WARNING "==========")
 
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -169,7 +198,13 @@ if(NOT TARGET asmjit)
   endif()
 
   #build asmjit
-  set(ASMJIT_STATIC ON)
+  #For MSVC shared build, asmjit needs to be shared also.
+  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+    set(ASMJIT_STATIC OFF)
+  else()
+    set(ASMJIT_STATIC ON)
+  endif()
+
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
@@ -186,6 +221,8 @@ if(NOT TARGET cpuinfo)
   set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Do not build cpuinfo mock tests")
   set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Do not build cpuinfo benchmarks")
   set(CPUINFO_LIBRARY_TYPE static)
+  #Select static runtime, needed for static build for MSVC
+  set(CPUINFO_RUNTIME_TYPE static)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
@@ -228,6 +265,9 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>)
+  #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
+  #avoid generating _dllimport functions.
+  target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
