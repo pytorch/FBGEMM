@@ -65,17 +65,38 @@ int run_benchmark(
     bool normalize_by_lengths,
     bool use_32_bit_indices = false,
     bool prefetch = false) {
+  // Generate mapping table
+  default_random_engine generator;
+  constexpr float sparsity = 0.7;
+  vector<int64_t> mapping_table(num_rows);
+  bernoulli_distribution row_prune_dist(sparsity);
+  int num_compressed_rows = 0;
+  for (int i = 0; i < num_rows; ++i) {
+    if (row_prune_dist(generator)) {
+      // pruned
+      mapping_table[i] = -1;
+    } else {
+      mapping_table[i] = num_compressed_rows;
+      ++num_compressed_rows;
+    }
+  }
+  vector<int32_t> mapping_table_32;
+  copy(
+      mapping_table.begin(),
+      mapping_table.end(),
+      back_inserter(mapping_table_32));
+
   // Create embedding table
   int num_elem_per_byte = 8 / bit_rate;
   int fused_embedding_dim =
       (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(float16);
-  vector<uint8_t> embedding_table(num_rows * fused_embedding_dim);
-  default_random_engine generator;
+  vector<uint8_t> embedding_table(num_compressed_rows * fused_embedding_dim);
   normal_distribution<float> embedding_distribution;
 
-  vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
-  for (int i = 0; i < num_rows; i++) {
+  vector<uint8_t> fused_embedding_table(
+      num_compressed_rows * fused_embedding_dim);
+  for (int i = 0; i < num_compressed_rows; i++) {
     for (int ii = 0;
          ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
          ii++) {
@@ -102,7 +123,6 @@ int run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
-  cout << "lengths_sum " << lengths_sum << endl;
 
   // Generate indices
   vector<int64_t> indices;
@@ -122,6 +142,16 @@ int run_benchmark(
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
 
+  // Compute the number of valid indices
+  int num_valid_indices = 0;
+  for (int index : indices) {
+    if (mapping_table[index] != -1) {
+      ++num_valid_indices;
+    }
+  }
+  cout << "lengths_sum " << lengths_sum << " num_valid_indices "
+       << num_valid_indices << endl;
+
   // Generate weights
   vector<float> weights(lengths_sum);
   for (int i = 0; i < lengths_sum; ++i) {
@@ -136,59 +166,70 @@ int run_benchmark(
   constexpr int NUM_ITER = 10;
   // Only counts the number of bytes for reading embedding table and ignore
   // others. Should be good enough as long as embdding_dim is big enough.
-  double bytes = lengths_sum * fused_embedding_dim;
-  constexpr int CACHE_LINE_LEN = 64;
-  double bytes_padded = lengths_sum * CACHE_LINE_LEN *
-      static_cast<int>((fused_embedding_dim + CACHE_LINE_LEN - 1) /
-                       CACHE_LINE_LEN);
+  constexpr int CACHE_LINE_SIZE = 64;
+  double bytes = lengths_sum * 2 *
+          (use_32_bit_indices ? sizeof(int32_t) : sizeof(int64_t)) +
+      num_valid_indices * fused_embedding_dim;
+  double bytes_padded = lengths_sum *
+          ((use_32_bit_indices ? sizeof(int32_t) : sizeof(int64_t)) +
+           CACHE_LINE_SIZE) +
+      num_valid_indices * CACHE_LINE_SIZE *
+          static_cast<int>(
+              (fused_embedding_dim + CACHE_LINE_SIZE - 1) / CACHE_LINE_SIZE);
 
   for (bool has_weight : {false, true}) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
     bool success = false, success_ref = false;
 
-    if (use_32_bit_indices) {
-      success_ref = EmbeddingSpMDMNBit_ref(
-          bit_rate,
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          fused_embedding_table.data(),
-          indices_32.data(),
-          lengths.data(),
-          has_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data());
-    } else {
-      success = EmbeddingSpMDMNBit_ref(
-          bit_rate,
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          fused_embedding_table.data(),
-          indices.data(),
-          lengths.data(),
-          has_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data());
+    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
+      if (use_32_bit_indices) {
+        success_ref = EmbeddingSpMDMNBitRowWiseSparse_ref(
+            bit_rate,
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            fused_embedding_table.data(),
+            indices_32.data(),
+            mapping_table_32.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
+
+      } else {
+        success_ref = EmbeddingSpMDMNBitRowWiseSparse_ref(
+            bit_rate,
+            embedding_dim,
+            batch_size,
+            lengths_sum,
+            num_rows,
+            fused_embedding_table.data(),
+            indices.data(),
+            mapping_table.data(),
+            lengths.data(),
+            has_weight ? weights.data() : nullptr,
+            normalize_by_lengths,
+            output_ref.data());
+      }
     }
 
-    auto kernel_32 = GenerateEmbeddingSpMDMNBit<int32_t>(
+    vector<float>& output = has_weight ? output_slws : output_sls;
+
+    auto kernel_32 = GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
         bit_rate,
         embedding_dim,
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
-    auto kernel_64 = GenerateEmbeddingSpMDMNBit<int64_t>(
+    auto kernel_64 = GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
         bit_rate,
         embedding_dim,
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
 
-    vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       double t = measureWithWarmup(
           [&]() {
@@ -201,7 +242,8 @@ int run_benchmark(
                   indices_32.data(),
                   lengths.data(),
                   has_weight ? weights.data() : nullptr,
-                  output.data());
+                  output.data(),
+                  mapping_table_32.data());
             } else {
               success = kernel_64(
                   batch_size,
@@ -211,7 +253,8 @@ int run_benchmark(
                   indices.data(),
                   lengths.data(),
                   has_weight ? weights.data() : nullptr,
-                  output.data());
+                  output.data(),
+                  mapping_table.data());
             }
           },
           NUM_WARMUP,
@@ -243,8 +286,6 @@ int run_benchmark(
       //     "");
       // Check correctness
       if (!flush_cache) {
-        // vector<float>& output_ref =
-        //     has_weight ? output_slws_ref : output_sls_ref;
         if (success != success_ref) {
           assert(
               false && "ERROR: refernce impl and JIT imp did not both succeed");

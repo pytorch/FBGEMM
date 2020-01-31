@@ -760,37 +760,6 @@ GenerateEmbeddingSpMDM(
   }
 }
 
-template <typename inType, typename indxType>
-bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const inType* input,
-    const indxType* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional) {
-  auto fn = GenerateEmbeddingSpMDM<inType, indxType>(
-      block_size,
-      weights != nullptr,
-      normalize_by_lengths,
-      prefetch,
-      is_weight_positional);
-  return fn(
-      output_size,
-      index_size,
-      data_size,
-      input,
-      indices,
-      lengths,
-      weights,
-      out);
-}
-
 template typename EmbeddingSpMDMKernelSignature<float, std::int64_t>::Type
 GenerateEmbeddingSpMDM<float, std::int64_t>(
     const std::int64_t block_size,
@@ -840,89 +809,5 @@ template
         bool normalize_by_lengths,
         int prefetch,
         bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const float* input,
-    const std::int64_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const float* input,
-    const std::int32_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const float16* input,
-    const std::int64_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const float16* input,
-    const std::int32_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const std::int64_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
-
-template bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const std::int32_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional);
 
 } // namespace fbgemm
