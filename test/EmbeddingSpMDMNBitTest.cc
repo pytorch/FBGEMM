@@ -52,15 +52,16 @@ vector<int> prefetch_distances{0, 16, 1000000};
 namespace {
 
 // tuple represents MB, IC, OC, IT, IH, IW, KH/KW, stride, pad
-class Fused4BitRowwiseEmbeddingLookupTest
+class FusedNBitRowwiseEmbeddingLookupTest
     : public testing::TestWithParam<
-          tuple<bool, bool, int, bool, bool, bool, bool>> {};
+          tuple<int, bool, bool, int, bool, bool, bool, bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
-    Fused4BitRowwiseEmbeddingLookupTest,
+    FusedNBitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
+        ::testing::Values(2, 4), // bit_rate
         ::testing::Bool(), // isIndex64b
         ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
@@ -69,12 +70,13 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // empty_indices
         ::testing::Bool())); // out of bounds
 
-TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
+TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
       empty_indices, out_of_bounds;
-  int prefetch;
-  tie(isIndex64b,
+  int bit_rate, prefetch;
+  tie(bit_rate,
+      isIndex64b,
       is_wt_positional,
       prefetch,
       use_weight,
@@ -82,30 +84,34 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
       empty_indices,
       out_of_bounds) = GetParam();
 
-  int batch_size, num_rows, embedding_dim, average_len;
+  int num_elem_per_byte = 8 / bit_rate;
 
   for (auto input : inputs) {
-    batch_size = input[0];
-    num_rows = input[1];
-    embedding_dim = input[2];
-    average_len = input[3];
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+    int average_len = input[3];
 
     // Create embedding table
     default_random_engine generator;
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
-    int fused_embedding_dim = (embedding_dim + 1) / 2 + 2 * sizeof(float16);
+    int fused_embedding_dim =
+        (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
+        2 * sizeof(float16);
     uint8_t* fused_embedding_table =
         new uint8_t[num_rows * fused_embedding_dim];
     for (int i = 0; i < num_rows; i++) {
-      for (int ii = 0; ii < (embedding_dim + 1) / 2; ii++) {
+      for (int ii = 0;
+           ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
+           ii++) {
         fused_embedding_table[i * fused_embedding_dim + ii] =
             entries(generator);
       }
       float16* scale_bias = reinterpret_cast<float16*>(
           fused_embedding_table + i * fused_embedding_dim +
-          (embedding_dim + 1) / 2);
+          (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
       FloatToFloat16_ref(&scale, scale_bias, 1, true /* clip */);
@@ -154,7 +160,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
     bool success, success_ref;
 
     if (isIndex64b) {
-      success_ref = EmbeddingSpMDM4Bit_ref<int64_t>(
+      success_ref = EmbeddingSpMDMNBit_ref<int64_t>(
+          bit_rate,
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -167,7 +174,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      auto kernel = GenerateEmbeddingSpMDM4Bit<int64_t>(
+      auto kernel = GenerateEmbeddingSpMDMNBit<int64_t>(
+          bit_rate,
           embedding_dim,
           use_weight,
           normalize_by_lengths,
@@ -183,7 +191,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight ? weights.data() : nullptr,
           output.data());
     } else {
-      success_ref = EmbeddingSpMDM4Bit_ref<int32_t>(
+      success_ref = EmbeddingSpMDMNBit_ref<int32_t>(
+          bit_rate,
           embedding_dim,
           batch_size,
           lengths_sum,
@@ -196,7 +205,8 @@ TEST_P(Fused4BitRowwiseEmbeddingLookupTest, basicTest) {
           output_ref.data(),
           is_wt_positional);
 
-      auto kernel = GenerateEmbeddingSpMDM4Bit<int32_t>(
+      auto kernel = GenerateEmbeddingSpMDMNBit<int32_t>(
+          bit_rate,
           embedding_dim,
           use_weight,
           normalize_by_lengths,
