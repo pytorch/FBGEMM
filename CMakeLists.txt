@@ -26,7 +26,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
 set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
-                src/EmbeddingSpMDM4Bit.cc
+                src/EmbeddingSpMDMNBit.cc
                 src/ExecuteKernel.cc
                 src/ExecuteKernelU8S8.cc
                 src/Fbgemm.cc

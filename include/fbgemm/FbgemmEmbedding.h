@@ -52,25 +52,11 @@ FBGEMM_API bool EmbeddingSpMDM(
 
 template <typename IndexType>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<std::uint8_t, IndexType>::Type
-GenerateEmbeddingSpMDM4Bit(
+GenerateEmbeddingSpMDMNBit(
+    int bit_rate,
     const std::int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
-    int prefetch = 16,
-    bool is_weight_positional = false);
-
-template <typename IndexType = std::int64_t>
-FBGEMM_API bool EmbeddingSpMDM4Bit(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size, // the number of rows in input
-    const std::uint8_t* input,
-    const IndexType* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
     int prefetch = 16,
     bool is_weight_positional = false);
 
