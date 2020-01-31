@@ -173,5 +173,29 @@ template bool EmbeddingSpMDMBlockSize1_(
     float* out,
     bool is_weight_positional);
 
+template bool EmbeddingSpMDMBlockSize1_(
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size, // the number of rows in input
+    const std::uint8_t* input,
+    const std::int64_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDMBlockSize1_(
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size, // the number of rows in input
+    const std::uint8_t* input,
+    const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
 } // namespace internal
 } // namespace fbgemm
