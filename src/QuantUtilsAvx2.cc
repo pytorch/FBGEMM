@@ -25,7 +25,7 @@ void QuantizeAvx2(
     T* dst,
     int len,
     const TensorQuantizationParams& qparams) {
-#if defined(__AVX2__) && defined(__FMA__)
+#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
   constexpr int VLEN = 8;
   constexpr float min_val = std::numeric_limits<T>::min();
   constexpr float max_val = std::numeric_limits<T>::max();
