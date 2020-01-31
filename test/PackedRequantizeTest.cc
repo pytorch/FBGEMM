@@ -277,7 +277,8 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
               Aint8.data(),
               (atrans == matrix_op_t::Transpose) ? m : k,
               nullptr,
-              groups);
+              groups,
+              row_offset_buf.data());
 
           int num_threads = fbgemm_get_num_threads();
           int tid = fbgemm_get_thread_num();
