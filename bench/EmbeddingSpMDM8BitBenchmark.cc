@@ -26,16 +26,6 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_outupt(int rows, int embedding_dim, const float* output) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "output row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << output[i * embedding_dim + ii] << ",";
-    }
-    std::cout << std::endl;
-  }
-}
-
 void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
   for (int i = 0; i < rows; i++) {
     std::cout << "row: " << i << " : " << std::endl;
@@ -69,7 +59,7 @@ vector<double> times;
 
 int run_benchmark(
     int batch_size,
-    int num_unique_ids,
+    int num_rows,
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
@@ -78,13 +68,13 @@ int run_benchmark(
     bool stress_multi_threading = false) {
   // Create embedding table
   vector<uint8_t> embedding_table(
-      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
+      num_rows * (embedding_dim + 2 * sizeof(float)));
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
 
   vector<uint8_t> fused_embedding_table(
-      num_unique_ids * (embedding_dim + 2 * sizeof(float)));
-  for (int i = 0; i < num_unique_ids; i++) {
+      num_rows * (embedding_dim + 2 * sizeof(float)));
+  for (int i = 0; i < num_rows; i++) {
     for (int ii = 0; ii < embedding_dim; ii++) {
       fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] = 2;
     }
@@ -95,11 +85,11 @@ int run_benchmark(
     scale_bias[1] = 1.0;
   }
 
-  // print_fused_table(num_unique_ids, embedding_dim, fused_embedding_table);
+  // print_fused_table(num_rows, embedding_dim, fused_embedding_table);
 
   // Generate lengths
   uniform_int_distribution<int> length_distribution(
-      1, std::min(2 * average_len + 1, num_unique_ids));
+      1, std::min(2 * average_len + 1, num_rows));
   vector<int> lengths(batch_size);
   for (int i = 0; i < batch_size; ++i) {
     lengths[i] = length_distribution(generator);
@@ -115,7 +105,7 @@ int run_benchmark(
   vector<int64_t> indices;
   vector<int32_t> indices_32;
 
-  vector<int> container(num_unique_ids);
+  vector<int> container(num_rows);
   map<int64_t, set<int>> dedup_map; // index -> set(output index)
 
   // please note we generate unique indices
@@ -165,7 +155,7 @@ int run_benchmark(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table.data(),
           indices_32.data(),
           lengths.data(),
@@ -177,7 +167,7 @@ int run_benchmark(
           embedding_dim,
           batch_size,
           lengths_sum,
-          num_unique_ids,
+          num_rows,
           fused_embedding_table.data(),
           indices.data(),
           lengths.data(),
@@ -208,7 +198,7 @@ int run_benchmark(
               success = kernel_32(
                   batch_size,
                   lengths_sum,
-                  num_unique_ids,
+                  num_rows,
                   fused_embedding_table.data(),
                   indices_32.data(),
                   lengths.data(),
@@ -218,7 +208,7 @@ int run_benchmark(
               success = kernel_64(
                   batch_size,
                   lengths_sum,
-                  num_unique_ids,
+                  num_rows,
                   fused_embedding_table.data(),
                   indices.data(),
                   lengths.data(),
@@ -239,8 +229,20 @@ int run_benchmark(
             }
           });
 
-      // print_outupt(batch_size, embedding_dim, output.data());
-      // print_outupt(batch_size, embedding_dim, output_ref.data());
+      // printMatrix(
+      //     matrix_op_t::NoTranspose,
+      //     output.data(),
+      //     batch_size,
+      //     embedding_dim,
+      //     embedding_dim,
+      //     "");
+      // printMatrix(
+      //     matrix_op_t::NoTranspose,
+      //     output_ref.data(),
+      //     batch_size,
+      //     embedding_dim,
+      //     embedding_dim,
+      //     "");
       // Check correctness
       if (!flush_cache) {
         // vector<float>& output_ref =
@@ -300,7 +302,7 @@ int run_benchmark(
 
 int main() {
   int batch_size;
-  int num_unique_ids;
+  int num_rows;
   int embedding_dim;
   int average_len;
 
@@ -312,12 +314,12 @@ int main() {
   for (auto& input : inputs) {
     assert(input.size() > 3);
     batch_size = input[0];
-    num_unique_ids = input[1];
+    num_rows = input[1];
     embedding_dim = input[2];
     average_len = input[3];
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
-         << setw(16) << num_unique_ids << setw(10) << "emb dim" << setw(6)
+         << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
          << endl;
     // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
@@ -328,7 +330,7 @@ int main() {
 #endif
     run_benchmark(
         batch_size,
-        num_unique_ids,
+        num_rows,
         embedding_dim,
         average_len,
         false,
@@ -342,36 +344,24 @@ int main() {
 
     cout << "64 bit indices with prefetching, ";
     run_benchmark(
-        batch_size,
-        num_unique_ids,
-        embedding_dim,
-        average_len,
-        false,
-        false,
-        true);
+        batch_size, num_rows, embedding_dim, average_len, false, false, true);
 
     cout << "32 bit indices, ";
     run_benchmark(
-        batch_size, num_unique_ids, embedding_dim, average_len, false, true);
+        batch_size, num_rows, embedding_dim, average_len, false, true);
 
     cout << "32 bit indices with prefetching, ";
     run_benchmark(
-        batch_size,
-        num_unique_ids,
-        embedding_dim,
-        average_len,
-        false,
-        true,
-        true);
+        batch_size, num_rows, embedding_dim, average_len, false, true, true);
 
     // running with normalize by lengths
-    // run_benchmark(batch_size, num_unique_ids, embedding_dim, average_len,
+    // run_benchmark(batch_size, num_rows, embedding_dim, average_len,
     // true); run_benchmark(
-    //     batch_size, num_unique_ids, embedding_dim, average_len, true,
+    //     batch_size, num_rows, embedding_dim, average_len, true,
     //     true);
     // run_benchmark(
     //     batch_size,
-    //     num_unique_ids,
+    //     num_rows,
     //     embedding_dim,
     //     average_len,
     //     false,

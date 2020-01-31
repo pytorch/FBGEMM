@@ -716,7 +716,7 @@ bool EmbeddingSpMDM_ref(
         }
 
         const float* scale_bias = reinterpret_cast<const float*>(
-            input + fused_block_size * indices[current] + block_size);
+            input + fused_block_size * idx + block_size);
 
         float weight = 1.0f;
         if (weights) {
@@ -726,10 +726,8 @@ bool EmbeddingSpMDM_ref(
         const float bias = weight * scale_bias[1];
 
         for (int j = 0; j < block_size; ++j) {
-          out[j] = std::fma(
-              scale,
-              input[fused_block_size * indices[current] + j],
-              out[j] + bias);
+          out[j] =
+              std::fma(scale, input[fused_block_size * idx + j], out[j] + bias);
         }
 
         ++current;
@@ -763,7 +761,7 @@ bool EmbeddingSpMDM_ref(
         }
 
         for (int j = 0; j < block_size; ++j) {
-          const inType* inptr = input + block_size * indices[current] + j;
+          const inType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
               std::is_same<inType, float16>::value ? cpu_half2float(*inptr)
@@ -821,7 +819,7 @@ bool EmbeddingSpMDMNBit_ref(
       }
 
       const float16* scale_bias = reinterpret_cast<const float16*>(
-          input + fused_block_size * indices[current] +
+          input + fused_block_size * idx +
           (block_size + num_elem_per_byte - 1) / num_elem_per_byte);
 
       float weight = 1.0f;
@@ -833,7 +831,85 @@ bool EmbeddingSpMDMNBit_ref(
 
       for (int j = 0; j < block_size; ++j) {
         uint8_t quantized =
-            input[fused_block_size * indices[current] + j / num_elem_per_byte];
+            input[fused_block_size * idx + j / num_elem_per_byte];
+        quantized >>= (j % num_elem_per_byte) * bit_rate;
+        quantized &= (1 << bit_rate) - 1;
+
+        out[j] = std::fma(scale, quantized, out[j] + bias);
+      }
+
+      ++current;
+    }
+    if (normalize_by_lengths && lengths[m]) {
+      float scale = 1.f / lengths[m];
+      for (int j = 0; j < block_size; ++j) {
+        out[j] *= scale;
+      }
+    }
+    out += block_size;
+  }
+  return true;
+}
+
+template <typename IndexType>
+bool EmbeddingSpMDMNBitRowWiseSparse_ref(
+    int bit_rate,
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t uncompressed_data_size,
+    // const std::int64_t compressed_data_size,
+    const std::uint8_t* input,
+    const IndexType* indices,
+    const IndexType* compressed_indices_table,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional) {
+  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
+  int num_elem_per_byte = 8 / bit_rate;
+
+  // block_size is the number of elements and fused_block_size is the size of
+  // an entire row, including scale and bias.
+  const auto scale_bias_offset = 2 * sizeof(float16);
+  const int64_t fused_block_size =
+      (block_size + num_elem_per_byte - 1) / num_elem_per_byte +
+      scale_bias_offset;
+  int64_t current = 0;
+  for (int m = 0; m < output_size; ++m) {
+    memset(out, 0, sizeof(float) * block_size);
+    if (current + lengths[m] > index_size) {
+      return false;
+    }
+    for (int i = 0; i < lengths[m]; ++i) {
+      IndexType uncompressed_idx = indices[current];
+      if (uncompressed_idx < 0 || uncompressed_idx >= uncompressed_data_size) {
+        return false;
+      }
+      IndexType idx = compressed_indices_table[uncompressed_idx];
+      if (idx == -1) {
+        ++current;
+        continue;
+      }
+      // if (idx < 0 || idx >= compressed_data_size) {
+      //   return false;
+      // }
+
+      const float16* scale_bias = reinterpret_cast<const float16*>(
+          input + fused_block_size * idx +
+          (block_size + num_elem_per_byte - 1) / num_elem_per_byte);
+
+      float weight = 1.0f;
+      if (weights) {
+        weight = weights[is_weight_positional ? i : current];
+      }
+      const float scale = weight * cpu_half2float(scale_bias[0]);
+      const float bias = weight * cpu_half2float(scale_bias[1]);
+
+      for (int j = 0; j < block_size; ++j) {
+        uint8_t quantized =
+            input[fused_block_size * idx + j / num_elem_per_byte];
         quantized >>= (j % num_elem_per_byte) * bit_rate;
         quantized &= (1 << bit_rate) - 1;
 
@@ -1063,6 +1139,38 @@ template bool EmbeddingSpMDMNBit_ref(
     const std::int64_t data_size,
     const std::uint8_t* input,
     const std::int32_t* indices,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
+    int bit_rate,
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t uncompressed_data_size,
+    // const std::int64_t compressed_data_size,
+    const std::uint8_t* input,
+    const std::int64_t* indices,
+    const std::int64_t* compressed_indices_table,
+    const int* lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional);
+
+template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
+    int bit_rate,
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t uncompressed_data_size,
+    // const std::int64_t compressed_data_size,
+    const std::uint8_t* input,
+    const std::int32_t* indices,
+    const std::int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,

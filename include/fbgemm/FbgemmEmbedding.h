@@ -35,21 +35,6 @@ GenerateEmbeddingSpMDM(
     int prefetch = 16,
     bool is_weight_positional = false);
 
-template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
-FBGEMM_API bool EmbeddingSpMDM(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size, // the number of rows in input
-    const inType* input,
-    const IndexType* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
-    int prefetch = 16,
-    bool is_weight_positional = false);
-
 template <typename IndexType>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<std::uint8_t, IndexType>::Type
 GenerateEmbeddingSpMDMNBit(
@@ -59,6 +44,32 @@ GenerateEmbeddingSpMDMNBit(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false);
+
+template <typename IndexType>
+class EmbeddingSpMDMRowWiseSparseKernelSignature {
+ public:
+  using Type = std::function<bool(
+
+      std::int64_t output_size,
+      std::int64_t index_size,
+      std::int64_t uncompressed_data_size,
+      // TODO: add compressed_data_size and check array bound
+      const std::uint8_t* input,
+      const IndexType* indices,
+      const int* lengths,
+      const float* weights, // optional, can be null for non-weighted sum
+      float* out,
+      const IndexType* compressed_indices_table)>;
+};
+
+template <typename IndexType>
+FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<IndexType>::Type
+GenerateEmbeddingSpMDMNBitRowWiseSparse(
+    int bit_rate,
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16);
 
 /**
  * @return The number of rows processed. If smaller than num_rows, an error
