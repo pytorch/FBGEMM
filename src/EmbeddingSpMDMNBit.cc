@@ -22,6 +22,8 @@
 #include "./RefImplementations.h"
 #include "fbgemm/Types.h"
 
+using namespace std;
+
 namespace fbgemm {
 
 namespace {
@@ -33,26 +35,27 @@ T ceil_div(T a, T b) {
 
 namespace x86 = asmjit::x86;
 
-template <typename indxType = std::int64_t>
+template <typename indxType = int64_t>
 class ReturnFunctionSignature {
  public:
   using jit_embedding_kernel = bool (*)(
-      std::int64_t output_size,
-      std::int64_t index_size,
-      std::int64_t data_size,
-      const std::uint8_t* input,
+      int64_t output_size,
+      int64_t index_size,
+      int64_t data_size,
+      const uint8_t* input,
       const indxType* indices,
       const int* lengths,
       const float* weights,
       float* out);
 };
 
-template <typename indxType = std::int64_t>
-class GenEmbeddingSpMDM4BitLookup {
+template <typename indxType = int64_t>
+class GenEmbeddingSpMDMNBitLookup {
  public:
-  GenEmbeddingSpMDM4BitLookup() {}
+  GenEmbeddingSpMDMNBitLookup() {}
   template <inst_set_t instSet>
   typename ReturnFunctionSignature<indxType>::jit_embedding_kernel getOrCreate(
+      int bit_rate,
       int block_size,
       bool has_weight,
       bool is_weight_positional,
@@ -68,12 +71,12 @@ class GenEmbeddingSpMDM4BitLookup {
     return rt;
   }
 
-  static std::mutex rtMutex_; ///< Controll access to runtime;
+  static mutex rtMutex_; ///< Controll access to runtime;
 
-  // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, and prefetch distance, is8bit
+  // The hash depends on bit_rate, embedding dimension (block size), weighted
+  // sls, positional weights, normalize by lenths, and prefetch distance
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int>,
+      tuple<int, int, bool, bool, bool, int>,
       typename ReturnFunctionSignature<indxType>::jit_embedding_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
 
@@ -95,24 +98,26 @@ class GenEmbeddingSpMDM4BitLookup {
 }; // GenEmbeddingSpmDMLookup
 
 template <typename indxType>
-std::mutex GenEmbeddingSpMDM4BitLookup<indxType>::rtMutex_;
+mutex GenEmbeddingSpMDMNBitLookup<indxType>::rtMutex_;
 
 template <typename indxType>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int>,
+    tuple<int, int, bool, bool, bool, int>,
     typename ReturnFunctionSignature<indxType>::jit_embedding_kernel>
-    GenEmbeddingSpMDM4BitLookup<indxType>::codeCache_;
+    GenEmbeddingSpMDMNBitLookup<indxType>::codeCache_;
 
 template <typename indxType>
 template <inst_set_t instSet>
 typename ReturnFunctionSignature<indxType>::jit_embedding_kernel
-GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
+GenEmbeddingSpMDMNBitLookup<indxType>::getOrCreate(
+    int bit_rate,
     int block_size,
     bool has_weight,
     bool is_weight_positional,
     bool normalize_by_lengths,
     int prefetch) {
-  std::tuple<int, bool, bool, bool, int> kernelSig = std::make_tuple(
+  tuple<int, int, bool, bool, bool, int> kernelSig = make_tuple(
+      bit_rate,
       block_size,
       has_weight,
       is_weight_positional,
@@ -125,15 +130,16 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
       typename ReturnFunctionSignature<indxType>::jit_embedding_kernel {
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+        bool areIndices64b = is_same<indxType, int64_t>::value;
 
         asmjit::CodeHolder code;
         code.init(runtime().codeInfo());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
-        std::string filename = "embeddinglookup_4bit_";
-        filename += "_emd_dim_" + std::to_string(block_size);
+        std::string filename =
+            "embeddinglookup_" + to_string(bit_rate) + "bit_";
+        filename += "_emd_dim_" + to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
         if (prefetch) {
@@ -174,9 +180,9 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
         func.init(asmjit::FuncSignatureT<
                   bool,
-                  std::int64_t, // output_size
-                  std::int64_t, // index_size
-                  std::int64_t, // data_size
+                  int64_t, // output_size
+                  int64_t, // index_size
+                  int64_t, // data_size
                   const uint8_t*, // input uint8_t or float
                   const indxType*, // indices
                   const int*, // lengths
@@ -228,9 +234,9 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
         // Compute a remainder for vector load
         // Since every row is followed by 2 fp16 (scale and bias), luckily
-        // we don't need mask at 4-bit granularity but just at 32-bit
+        // we don't need mask at bit-rate granularity but just at 32-bit
         // granularity.
-        int num_elem_per_32bit = 32 / 4;
+        int num_elem_per_32bit = 32 / bit_rate;
         // multiply by 4 because we're handling 4 vlen per iteration
         int num_of_32bit_per_vload = vlen * 4 / num_elem_per_32bit;
         int remainder_32bit_granularity =
@@ -256,15 +262,25 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         // temporary register for bit manipulation instructions
         --unroll_factor;
         vec_reg_t temp_vreg = vec_reg_t(unroll_factor);
+        vec_reg_t temp2_vreg;
+        if (bit_rate == 2) {
+          --unroll_factor;
+          temp2_vreg = vec_reg_t(unroll_factor);
+        }
 
-        // Create a mask that extracts lower 4 bits from each 8-bit block
+        // Create a mask that extracts lower bit_rate bits from each 8-bit block
         --unroll_factor;
         vec_reg_t extract_mask_vreg = vec_reg_t(unroll_factor);
         a->lea(
             x86::rsp,
             x86::dword_ptr(x86::rsp, -1 * static_cast<int>(sizeof(int32_t))));
-        a->mov(x86::word_ptr(x86::rsp), 0x0f0f);
-        a->vpbroadcastw(extract_mask_vreg, x86::word_ptr(x86::rsp));
+        if (bit_rate == 4) {
+          a->mov(x86::word_ptr(x86::rsp), 0x0f0f);
+          a->vpbroadcastw(extract_mask_vreg, x86::word_ptr(x86::rsp));
+        } else {
+          a->mov(x86::dword_ptr(x86::rsp), 0x03030303);
+          a->vpbroadcastd(extract_mask_vreg, x86::dword_ptr(x86::rsp));
+        }
         a->lea(x86::rsp, x86::dword_ptr(x86::rsp, sizeof(int32_t)));
 
         if (has_weight) {
@@ -426,7 +442,9 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
           a->cmp(scratchReg1_, data_size);
           a->jge(error);
 
-          int fused_block_size = ceil_div(block_size, 2) + 2 * sizeof(float16);
+          int num_elem_per_byte = 8 / bit_rate;
+          int fused_block_size =
+              ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(float16);
           a->imul(scratchReg1_, static_cast<asmjit::Imm>(fused_block_size));
 
           if (pref_dist) {
@@ -476,13 +494,13 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 
           // broadcast the scale
           x86::Mem scale_src, bias_src;
-          scale_src =
-              x86::word_ptr(input, scratchReg1_, 0, ceil_div(block_size, 2));
+          scale_src = x86::word_ptr(
+              input, scratchReg1_, 0, ceil_div(block_size, num_elem_per_byte));
           bias_src = x86::word_ptr(
               input,
               scratchReg1_,
               0,
-              ceil_div(block_size, 2) + sizeof(float16));
+              ceil_div(block_size, num_elem_per_byte) + sizeof(float16));
           a->vpbroadcastw(half_vec_reg_t(scale_vreg.id()), scale_src);
           a->vpbroadcastw(half_vec_reg_t(bias_vreg.id()), bias_src);
           a->vcvtph2ps(vec_reg_t(scale_vreg.id()), half_vec_reg_t(scale_vreg.id()));
@@ -496,42 +514,93 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
           }
 
           // The main computation
-          // Handling 4 vector registers per iteration because we get zmm from
-          // ymm load via vpmovzxbw (epu8->epi16), and then get 4 zmms from
-          // each 128-bit portion of zmm via vpmovsxbd (epi8->epi32).
+          // Handling 4 vector registers per iteration because
+          // 1) when bit_rate == 4, we get zmm from ymm load via vpmovzxbw
+          // (epu8->epi16), and then get 4 zmms from each 128-bit portion of
+          // zmm via vpmovsxbd (epi8->epi32).
+          // 2) when bit_rate == 2, we get zmm from xmm load via vpmovzxbd
+          // (epu8->epi32), and then get 4 zmms from each 128-bit portion of
+          // zmm via vpmovsxbd (epi8->epi32).
           for (int v = 0; v < cur_unroll_factor; v += 4) {
             // Divide by 2 because we're doing ymm load rather than zmm
-            constexpr int BYTES_PER_VLOAD = (vlen / 2) * sizeof(uint8_t);
+            int bytes_per_vload = (vlen / num_elem_per_byte) * sizeof(uint8_t);
             auto src_addr = x86::dword_ptr(
-                input, scratchReg1_, 0, (vec_idx + v) * BYTES_PER_VLOAD);
+                input, scratchReg1_, 0, (vec_idx + v) * bytes_per_vload);
 
-            if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
-                remainder_32bit_granularity) {
-              if (instSet == inst_set_t::avx512) {
-                a->k(x86::k(2)).vmovups(x86::Ymm(src_vreg.id()), src_addr);
+            if (bit_rate == 4) {
+              if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
+                  remainder_32bit_granularity) {
+                if (instSet == inst_set_t::avx512) {
+                  a->k(x86::k(2)).vmovups(x86::Ymm(src_vreg.id()), src_addr);
+                } else {
+                  a->vpmaskmovd(
+                      x86::Xmm(src_vreg.id()),
+                      x86::Xmm(mask2_vreg.id()),
+                      src_addr);
+                }
+                a->vpmovzxbw(src_vreg, half_vec_reg_t(src_vreg.id()));
               } else {
-                a->vpmaskmovd(
-                    x86::Xmm(src_vreg.id()),
-                    x86::Xmm(mask2_vreg.id()),
-                    src_addr);
+                a->vpmovzxbw(src_vreg, src_addr);
               }
-              a->vpmovzxbw(src_vreg, half_vec_reg_t(src_vreg.id()));
+              a->vpslld(temp_vreg, src_vreg, asmjit::Imm(4));
+              if (instSet == inst_set_t::avx512) {
+                a->vpord(src_vreg, src_vreg, temp_vreg);
+                a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
+              } else {
+                a->vpor(
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(temp_vreg.id()));
+                a->vpand(
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(extract_mask_vreg.id()));
+              }
             } else {
-              a->vpmovzxbw(src_vreg, src_addr);
-            }
-            a->vpslld(temp_vreg, src_vreg, asmjit::Imm(4));
-            if (instSet == inst_set_t::avx512) {
-              a->vpord(src_vreg, src_vreg, temp_vreg);
-              a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
-            } else {
-              a->vpor(
-                  x86::Ymm(src_vreg.id()),
-                  x86::Ymm(src_vreg.id()),
-                  x86::Ymm(temp_vreg.id()));
-              a->vpand(
-                  x86::Ymm(src_vreg.id()),
-                  x86::Ymm(src_vreg.id()),
-                  x86::Ymm(extract_mask_vreg.id()));
+              if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
+                  remainder_32bit_granularity) {
+                if (instSet == inst_set_t::avx512) {
+                  a->k(x86::k(2)).vmovups(x86::Xmm(src_vreg.id()), src_addr);
+                  a->vpmovzxbd(src_vreg, x86::Xmm(src_vreg.id()));
+                } else {
+                  a->vpmaskmovd(
+                      x86::Xmm(src_vreg.id()),
+                      x86::Xmm(mask2_vreg.id()),
+                      src_addr);
+                  a->vpmovzxbd(src_vreg, x86::Xmm(src_vreg.id()));
+                }
+              } else {
+                a->vpmovzxbd(src_vreg, src_addr);
+              }
+              a->vpslld(temp_vreg, src_vreg, 2 * 8 + 2);
+              a->vpslld(temp2_vreg, src_vreg, 8 + 4);
+              if (instSet == inst_set_t::avx512) {
+                a->vpord(temp_vreg, temp_vreg, temp2_vreg);
+              } else {
+                a->vpor(
+                    x86::Ymm(temp_vreg.id()),
+                    x86::Ymm(temp_vreg.id()),
+                    x86::Ymm(temp2_vreg.id()));
+              }
+              a->vpslld(temp2_vreg, src_vreg, 6);
+              if (instSet == inst_set_t::avx512) {
+                a->vpord(temp_vreg, temp_vreg, temp2_vreg);
+                a->vpord(src_vreg, temp_vreg, src_vreg);
+                a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
+              } else {
+                a->vpor(
+                    x86::Ymm(temp_vreg.id()),
+                    x86::Ymm(temp_vreg.id()),
+                    x86::Ymm(temp2_vreg.id()));
+                a->vpor(
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(temp_vreg.id()),
+                    x86::Ymm(src_vreg.id()));
+                a->vpand(
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(src_vreg.id()),
+                    x86::Ymm(extract_mask_vreg.id()));
+              }
             }
 
             for (int i = 0;
@@ -574,12 +643,11 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
             } // for each i
 
             constexpr int CACHE_LINE_LEN = 64;
-            constexpr int VLOAD_PER_CACHE_LINE =
-                CACHE_LINE_LEN / BYTES_PER_VLOAD;
+            int vload_per_cache_line = CACHE_LINE_LEN / bytes_per_vload;
             int v_aligned = ceil_div(vec_idx + v, 4) * 4;
-            if (pref_dist && v_aligned * 4 % VLOAD_PER_CACHE_LINE == 0) {
+            if (pref_dist && v_aligned * 4 % vload_per_cache_line == 0) {
               a->prefetcht0(x86::dword_ptr(
-                  input, scratchReg2_, 0, v_aligned * BYTES_PER_VLOAD));
+                  input, scratchReg2_, 0, v_aligned * bytes_per_vload));
             }
           }
 
@@ -657,11 +725,11 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
         typename ReturnFunctionSignature<indxType>::jit_embedding_kernel fn;
         asmjit::Error err;
         {
-          std::unique_lock<std::mutex> lock(rtMutex_);
+          unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
         if (err) {
-          std::cout << "Error: in fn add" << std::endl;
+          cout << "Error: in fn add" << endl;
           return nullptr;
         }
 
@@ -676,27 +744,32 @@ GenEmbeddingSpMDM4BitLookup<indxType>::getOrCreate(
 } // namespace
 
 template <typename indxType>
-typename EmbeddingSpMDMKernelSignature<std::uint8_t, indxType>::Type
-GenerateEmbeddingSpMDM4Bit(
-    const std::int64_t block_size,
+typename EmbeddingSpMDMKernelSignature<uint8_t, indxType>::Type
+GenerateEmbeddingSpMDMNBit(
+    int bit_rate,
+    const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
     bool is_weight_positional) {
+  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
+
   if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
+    throw runtime_error("Failed to initialize cpuinfo!");
   }
   if (fbgemmHasAvx512Support()) {
-    static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
+    static GenEmbeddingSpMDMNBitLookup<indxType> kernel_generator;
     return kernel_generator.template getOrCreate<inst_set_t::avx512>(
+        bit_rate,
         block_size,
         has_weight,
         is_weight_positional,
         normalize_by_lengths,
         prefetch);
   } else if (fbgemmHasAvx2Support()) {
-    static GenEmbeddingSpMDM4BitLookup<indxType> kernel_generator;
+    static GenEmbeddingSpMDMNBitLookup<indxType> kernel_generator;
     return kernel_generator.template getOrCreate<inst_set_t::avx2>(
+        bit_rate,
         block_size,
         has_weight,
         is_weight_positional,
@@ -707,15 +780,16 @@ GenerateEmbeddingSpMDM4Bit(
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
     return
-        [=](std::int64_t output_size,
-            std::int64_t index_size,
-            std::int64_t data_size,
-            const std::uint8_t* input,
+        [=](int64_t output_size,
+            int64_t index_size,
+            int64_t data_size,
+            const uint8_t* input,
             const indxType* indices,
             const int* lengths,
             const float* weights, // optional, can be null for non-weighted sum
             float* out) {
-          return EmbeddingSpMDM4Bit_ref(
+          return EmbeddingSpMDMNBit_ref(
+              bit_rate,
               block_size,
               output_size,
               index_size,
@@ -731,80 +805,21 @@ GenerateEmbeddingSpMDM4Bit(
   }
 }
 
-template <typename indxType>
-bool EmbeddingSpMDM4Bit(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const indxType* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
+template typename EmbeddingSpMDMKernelSignature<uint8_t, int64_t>::Type
+GenerateEmbeddingSpMDMNBit<int64_t>(
+    int bit_rate,
+    const int64_t block_size,
+    bool has_weight,
     bool normalize_by_lengths,
-    float* out,
-    int prefetch,
-    bool is_weight_positional) {
-  auto fn = GenerateEmbeddingSpMDM4Bit<indxType>(
-      block_size,
-      weights != nullptr,
-      normalize_by_lengths,
-      prefetch,
-      is_weight_positional);
-  return fn(
-      output_size,
-      index_size,
-      data_size,
-      input,
-      indices,
-      lengths,
-      weights,
-      out);
-}
-
-template
-    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
-    GenerateEmbeddingSpMDM4Bit<std::int64_t>(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch,
-        bool is_weight_positional);
-
-template
-    typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int32_t>::Type
-    GenerateEmbeddingSpMDM4Bit<std::int32_t>(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch,
-        bool is_weight_positional);
-
-template bool EmbeddingSpMDM4Bit(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const std::int64_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    float* out,
     int prefetch,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM4Bit(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const std::int32_t* indices,
-    const int* lengths,
-    const float* weights, // optional, can be null for non-weighted sum
+template typename EmbeddingSpMDMKernelSignature<uint8_t, int32_t>::Type
+GenerateEmbeddingSpMDMNBit<int32_t>(
+    int bit_rate,
+    const int64_t block_size,
+    bool has_weight,
     bool normalize_by_lengths,
-    float* out,
     int prefetch,
     bool is_weight_positional);
 

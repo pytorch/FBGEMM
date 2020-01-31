@@ -240,7 +240,8 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     bool is_weight_positional = false);
 
 template <typename IndexType = std::int64_t>
-FBGEMM_API bool EmbeddingSpMDM4Bit_ref(
+FBGEMM_API bool EmbeddingSpMDMNBit_ref(
+    int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,

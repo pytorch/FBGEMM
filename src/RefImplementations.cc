@@ -786,7 +786,8 @@ bool EmbeddingSpMDM_ref(
 }
 
 template <typename IndexType>
-bool EmbeddingSpMDM4Bit_ref(
+bool EmbeddingSpMDMNBit_ref(
+    int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -798,10 +799,15 @@ bool EmbeddingSpMDM4Bit_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional) {
+  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
+  int num_elem_per_byte = 8 / bit_rate;
+
   // block_size is the number of elements and fused_block_size is the size of
   // an entire row, including scale and bias.
   const auto scale_bias_offset = 2 * sizeof(float16);
-  const int64_t fused_block_size = (block_size + 1) / 2 + scale_bias_offset;
+  const int64_t fused_block_size =
+      (block_size + num_elem_per_byte - 1) / num_elem_per_byte +
+      scale_bias_offset;
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     memset(out, 0, sizeof(float) * block_size);
@@ -815,7 +821,8 @@ bool EmbeddingSpMDM4Bit_ref(
       }
 
       const float16* scale_bias = reinterpret_cast<const float16*>(
-          input + fused_block_size * indices[current] + (block_size + 1) / 2);
+          input + fused_block_size * indices[current] +
+          (block_size + num_elem_per_byte - 1) / num_elem_per_byte);
 
       float weight = 1.0f;
       if (weights) {
@@ -825,9 +832,10 @@ bool EmbeddingSpMDM4Bit_ref(
       const float bias = weight * cpu_half2float(scale_bias[1]);
 
       for (int j = 0; j < block_size; ++j) {
-        uint8_t quantized = input[fused_block_size * indices[current] + j / 2];
-        quantized >>= (j % 2) * 4;
-        quantized &= (1 << 4) - 1;
+        uint8_t quantized =
+            input[fused_block_size * indices[current] + j / num_elem_per_byte];
+        quantized >>= (j % num_elem_per_byte) * bit_rate;
+        quantized &= (1 << bit_rate) - 1;
 
         out[j] = std::fma(scale, quantized, out[j] + bias);
       }
@@ -1033,7 +1041,8 @@ template bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM4Bit_ref(
+template bool EmbeddingSpMDMNBit_ref(
+    int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1046,7 +1055,8 @@ template bool EmbeddingSpMDM4Bit_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM4Bit_ref(
+template bool EmbeddingSpMDMNBit_ref(
+    int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
