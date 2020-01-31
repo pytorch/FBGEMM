@@ -27,18 +27,6 @@
 using namespace std;
 using namespace fbgemm;
 
-namespace {
-void print_table(int rows, int embedding_dim, const float* output) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << output[i * embedding_dim + ii] << ",";
-    }
-    std::cout << std::endl;
-  }
-}
-} // anonymous namespace
-
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
       // batch size, number of rows of table, emb dim , avg lengthl
@@ -59,7 +47,7 @@ static vector<vector<int>> GetInputs_() {
 
 int run_benchmark(
     int batch_size,
-    int num_unique_ids,
+    int num_rows,
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
@@ -69,7 +57,7 @@ int run_benchmark(
   // Create embedding table
   default_random_engine generator;
 
-  vector<float> embedding_table(num_unique_ids * embedding_dim);
+  vector<float> embedding_table(num_rows * embedding_dim);
   normal_distribution<float> embedding_distribution;
   for (int i = 0; i < embedding_table.size(); ++i) {
     embedding_table[i] = embedding_distribution(generator);
@@ -85,7 +73,7 @@ int run_benchmark(
 
   // Generate lengths
   uniform_int_distribution<int> length_distribution(
-      1, std::min(2 * average_len + 1, num_unique_ids));
+      1, std::min(2 * average_len + 1, num_rows));
   vector<int> lengths(batch_size);
   for (int i = 0; i < batch_size; ++i) {
     lengths[i] = length_distribution(generator);
@@ -99,7 +87,7 @@ int run_benchmark(
   vector<int64_t> indices;
   vector<int32_t> indices_32;
 
-  vector<int> container(num_unique_ids);
+  vector<int> container(num_rows);
 
   // please note we generate unique indices
   for (int i = 0; i < batch_size; ++i) {
@@ -144,7 +132,7 @@ int run_benchmark(
             embedding_dim,
             batch_size,
             lengths_sum,
-            num_unique_ids,
+            num_rows,
             embedding_table_fp16.data(),
             indices_32.data(),
             lengths.data(),
@@ -156,7 +144,7 @@ int run_benchmark(
             embedding_dim,
             batch_size,
             lengths_sum,
-            num_unique_ids,
+            num_rows,
             embedding_table_fp16.data(),
             indices.data(),
             lengths.data(),
@@ -170,7 +158,7 @@ int run_benchmark(
             embedding_dim,
             batch_size,
             lengths_sum,
-            num_unique_ids,
+            num_rows,
             embedding_table.data(),
             indices_32.data(),
             lengths.data(),
@@ -182,7 +170,7 @@ int run_benchmark(
             embedding_dim,
             batch_size,
             lengths_sum,
-            num_unique_ids,
+            num_rows,
             embedding_table.data(),
             indices.data(),
             lengths.data(),
@@ -210,7 +198,7 @@ int run_benchmark(
                 success = kernel_fp16_i32(
                     batch_size,
                     lengths_sum,
-                    num_unique_ids,
+                    num_rows,
                     embedding_table_fp16.data(),
                     indices_32.data(),
                     lengths.data(),
@@ -220,7 +208,7 @@ int run_benchmark(
                 success = kernel_fp16_i64(
                     batch_size,
                     lengths_sum,
-                    num_unique_ids,
+                    num_rows,
                     embedding_table_fp16.data(),
                     indices.data(),
                     lengths.data(),
@@ -232,7 +220,7 @@ int run_benchmark(
                 success = kernel_fp32_i32(
                     batch_size,
                     lengths_sum,
-                    num_unique_ids,
+                    num_rows,
                     embedding_table.data(),
                     indices_32.data(),
                     lengths.data(),
@@ -242,7 +230,7 @@ int run_benchmark(
                 success = kernel_fp32_i64(
                     batch_size,
                     lengths_sum,
-                    num_unique_ids,
+                    num_rows,
                     embedding_table.data(),
                     indices.data(),
                     lengths.data(),
@@ -264,9 +252,21 @@ int run_benchmark(
             }
           });
 
-      // print_table(batch_size, embedding_dim, output.data());
+      // printMatrix(
+      //     matrix_op_t::NoTranspose,
+      //     output.data(),
+      //     batch_size,
+      //     embedding_dim,
+      //     embedding_dim,
+      //     "");
       // cout << "reference data\n";
-      // print_table(batch_size, embedding_dim, output_ref.data());
+      // printMatrix(
+      //     matrix_op_t::NoTranspose,
+      //     output_ref.data(),
+      //     batch_size,
+      //     embedding_dim,
+      //     embedding_dim,
+      //     "");
       // Check correctness
       if (!flush_cache) {
         if (success != success_ref) {
@@ -309,7 +309,7 @@ int run_benchmark(
 
 int main() {
   int batch_size;
-  int num_unique_ids;
+  int num_rows;
   int embedding_dim;
   int average_len;
 
@@ -318,12 +318,12 @@ int main() {
   for (auto& input : inputs) {
     assert(input.size() > 3);
     batch_size = input[0];
-    num_unique_ids = input[1];
+    num_rows = input[1];
     embedding_dim = input[2];
     average_len = input[3];
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
-         << setw(16) << num_unique_ids << setw(10) << "emb dim" << setw(6)
+         << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
          << endl;
 
@@ -346,7 +346,7 @@ int main() {
             cout << ", ";
             run_benchmark(
                 batch_size,
-                num_unique_ids,
+                num_rows,
                 embedding_dim,
                 average_len,
                 normalize_by_lengths,
