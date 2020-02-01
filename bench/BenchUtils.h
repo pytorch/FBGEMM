@@ -38,7 +38,7 @@ void cache_evict(const T& vec) {
 
   const char* data = reinterpret_cast<const char*>(vec.data());
   constexpr int CACHE_LINE_SIZE = 64;
-  for (auto i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
+  for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     _mm_clflush(&data[i]);
   }
 }
