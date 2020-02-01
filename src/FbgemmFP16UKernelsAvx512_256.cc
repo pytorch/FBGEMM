@@ -8,8 +8,7 @@
 
 namespace fbgemm {
 
-void NOINLINE
-gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -247,8 +246,7 @@ gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -505,8 +503,7 @@ gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -782,8 +779,7 @@ gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1078,8 +1074,7 @@ gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1393,8 +1388,7 @@ gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -1727,8 +1721,7 @@ gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"
@@ -2080,8 +2073,7 @@ gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
         "r15",
         "memory");
 }
-void NOINLINE
-gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
 #if !defined(__clang__)
       "mov r14, %[gp]\t\n"

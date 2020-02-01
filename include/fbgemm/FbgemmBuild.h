@@ -9,37 +9,38 @@
 // For details about dllexport/dllimport, checkout the following SO question
 // https://stackoverflow.com/questions/57999/what-is-the-difference-between-dllexport-and-dllimport
 #if !defined(FBGEMM_API)
-  #if defined(FBGEMM_STATIC)
-    #define FBGEMM_API
-    #define FBGEMM_ENUM_CLASS_API
-  #elif defined _WIN32 || defined __CYGWIN__
-    #if (__GNUC__ || __clang__) && !(__MINGW64__ || __MINGW32__)
-      #if defined(FBGEMM_EXPORTS)
-        #define FBGEMM_API __attribute__((__dllexport__))
-      #else
-        #define FBGEMM_API __attribute__((__dllimport__))
-      #endif
-    #else
-      #if defined(FBGEMM_EXPORTS)
-        #define FBGEMM_API __declspec(dllexport)
-      #else
-        #define FBGEMM_API __declspec(dllimport)
-      #endif
-    #endif
-    #define FBGEMM_ENUM_CLASS_API
-  #else
-    #if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
-      #define FBGEMM_API __attribute__((__visibility__("default")))
-    #else
-      #define FBGEMM_API
-    #endif
-    // Currently, enum classes need to be declaredly explicitly for shared build on macos
-    #if __clang__
-      #define FBGEMM_ENUM_CLASS_API __attribute__((__visibility__("default")))
-    #else
-      #define FBGEMM_ENUM_CLASS_API
-    #endif
-  #endif
+#if defined(FBGEMM_STATIC)
+#define FBGEMM_API
+#define FBGEMM_ENUM_CLASS_API
+#elif defined _WIN32 || defined __CYGWIN__
+#if (__GNUC__ || __clang__) && !(__MINGW64__ || __MINGW32__)
+#if defined(FBGEMM_EXPORTS)
+#define FBGEMM_API __attribute__((__dllexport__))
+#else
+#define FBGEMM_API __attribute__((__dllimport__))
+#endif
+#else
+#if defined(FBGEMM_EXPORTS)
+#define FBGEMM_API __declspec(dllexport)
+#else
+#define FBGEMM_API __declspec(dllimport)
+#endif
+#endif
+#define FBGEMM_ENUM_CLASS_API
+#else
+#if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
+#define FBGEMM_API __attribute__((__visibility__("default")))
+#else
+#define FBGEMM_API
+#endif
+// Currently, enum classes need to be declaredly explicitly for shared build on
+// macos
+#if __clang__
+#define FBGEMM_ENUM_CLASS_API __attribute__((__visibility__("default")))
+#else
+#define FBGEMM_ENUM_CLASS_API
+#endif
+#endif
 #endif
 
 // Use this to indicate to not inline functions
@@ -55,7 +56,7 @@
 #if __clang__ || __GNUC__ >= 4 || __INTEL_COMPILER
 #define ALWAYS_INLINE inline __attribute__((__always_inline__))
 #elif _MSC_VER
- // commenting out because __forceinline takes too long time in MSVC
+// commenting out because __forceinline takes too long time in MSVC
 #define ALWAYS_INLINE // __forceinline
 #else
 #define ALWAYS_INLINE inline

@@ -673,9 +673,7 @@ static ALWAYS_INLINE void requantize_(
 }
 
 template <bool REMAINDER>
-static ALWAYS_INLINE __m256i load_a(
-    const std::uint8_t* A,
-    __m256i mask_v) {
+static ALWAYS_INLINE __m256i load_a(const std::uint8_t* A, __m256i mask_v) {
   if (REMAINDER) {
     return _mm256_maskload_epi32(reinterpret_cast<const int*>(A), mask_v);
   } else {

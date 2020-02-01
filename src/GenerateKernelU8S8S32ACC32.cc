@@ -18,10 +18,7 @@ namespace x86 = asmjit::x86;
 template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
-    inst_set_t::avx2>(
-    x86::Emitter* a,
-    int rowRegs,
-    int colRegs) {
+    inst_set_t::avx2>(x86::Emitter* a, int rowRegs, int colRegs) {
   using CRegs = x86::Ymm;
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
@@ -71,8 +68,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
           AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
       a->vpmaddubsw(res1, AReg, BReg);
       a->vpmaddwd(res1, oneReg, res1);
-      a->vpaddd(
-          CRegs(i * colRegs + j), res1, CRegs(i * colRegs + j));
+      a->vpaddd(CRegs(i * colRegs + j), res1, CRegs(i * colRegs + j));
     }
     a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
@@ -154,13 +150,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
   }
 
   kernelSig = std::make_tuple(
-      accum,
-      mc,
-      nc,
-      nBlock,
-      kBlock,
-      mRegBlockSize,
-      nRegBlockSize);
+      accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;

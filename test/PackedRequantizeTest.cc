@@ -7,9 +7,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <numeric>
 #include <random>
 #include <vector>
-#include <numeric>
 
 #ifdef _OPENMP
 #include <omp.h>

@@ -117,10 +117,7 @@ int main(int argc, const char* argv[]) {
 
   string comma = ",";
 
-  enum class mult_type {
-    fma,
-    mul
-  };
+  enum class mult_type { fma, mul };
 
   vector<ISA> isa = {
       // {1, "AVX", {{4, 1, 0}, {4, 2, 0}, {4, 3, 0}, {3, 1, 0}, {3, 2, 0}, {3,
@@ -198,12 +195,12 @@ int main(int argc, const char* argv[]) {
            {14, 2, 0},
        }}};
 
-   // Labels
-   const string label_outer = "loop_outter%=";
-   const string label_next_inner = "next_inner%=";
-   const string label_inner = "loop_inner%=";
-   const string label_zero = "zero_regs%=";
-   const string label_dump_C = "dump_C%=";
+  // Labels
+  const string label_outer = "loop_outter%=";
+  const string label_next_inner = "next_inner%=";
+  const string label_inner = "loop_inner%=";
+  const string label_zero = "zero_regs%=";
+  const string label_dump_C = "dump_C%=";
 
   for (auto& d_type : types_to_gen) {
     if (enabledDataType.count(d_type.second) == 0) {
@@ -264,8 +261,8 @@ int main(int argc, const char* argv[]) {
             "shape: %d x %d * 32\n", ukernel_shape[k][0], ukernel_shape[k][1]);
 
         const string A_stride = to_string(4 * ukernel_shape[k][0]);
-        const string B_stride = to_string(
-            (vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
+        const string B_stride =
+            to_string((vec_len_in_bytes >> (int)isFp16) * ukernel_shape[k][1]);
 
         const string p1 = "GemmParams" + d_type.second + "* gp";
 
@@ -275,7 +272,7 @@ int main(int argc, const char* argv[]) {
 
         fargs = "(" + p1 + ")";
 
-        fheader[k] = "void NOINLINE\n" + funcname[k] + fargs;
+        fheader[k] = "void NOINLINE " + funcname[k] + fargs;
         srcfile << fheader[k] << " {\n";
 
         unsigned last_free_vecreg = 0;
@@ -467,9 +464,9 @@ int main(int argc, const char* argv[]) {
         if (vCtile.size() > 1) {
           addi(srcfile, "mov r12, rcx");
         }
-        addi(srcfile, "test r14,r14");                 // Decrease iterations
+        addi(srcfile, "test r14,r14"); // Decrease iterations
         addi(srcfile, "jnz " + label_next_inner);
-        addi(srcfile, "add r10," + B_stride, fixedA);  // B stride
+        addi(srcfile, "add r10," + B_stride, fixedA); // B stride
         addi(srcfile, "jmp " + label_dump_C);
 
         //
@@ -495,9 +492,9 @@ int main(int argc, const char* argv[]) {
         if (vCtile.size() > 1) {
           addi(srcfile, "mov r12, rcx");
         }
-        addi(srcfile, "test r14,r14");                   // Decrease iterations
+        addi(srcfile, "test r14,r14"); // Decrease iterations
         addi(srcfile, "jnz " + label_next_inner);
-        addi(srcfile, "add r10," + B_stride, fixedA);    // B stride
+        addi(srcfile, "add r10," + B_stride, fixedA); // B stride
         addi(srcfile, "jmp " + label_dump_C);
 
         // start marker
@@ -527,9 +524,9 @@ int main(int argc, const char* argv[]) {
         // Finish inner iteration
         srcfile << "\n";
         addi(srcfile, label_next_inner + ":");
-        addi(srcfile, "add r9," + A_stride, fixedA);  // A stride
+        addi(srcfile, "add r9," + A_stride, fixedA); // A stride
         addi(srcfile, "add r10," + B_stride, fixedA); // B stride
-        addi(srcfile, "dec r14");                     // Decrease iterations
+        addi(srcfile, "dec r14"); // Decrease iterations
         addi(srcfile, "jnz " + label_inner);
         srcfile << "\n";
 
@@ -548,7 +545,7 @@ int main(int argc, const char* argv[]) {
         for (int r = 0; r < vCtile.size(); r++) {
           A_load_mult(r, mult_type::fma);
         }
-        addi(srcfile, "add r9," + A_stride, fixedA);  // A stride
+        addi(srcfile, "add r9," + A_stride, fixedA); // A stride
         addi(srcfile, "add r10," + B_stride, fixedA); // B stride
 
         srcfile << "      // Dump C\n";

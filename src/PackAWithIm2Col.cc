@@ -104,9 +104,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
   }
 }
 
-template <
-    int SPATIAL_DIM,
-    int BCOL>
+template <int SPATIAL_DIM, int BCOL>
 void pack_a_with_im2col_opt(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const block_type_t& block,

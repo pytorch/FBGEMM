@@ -92,8 +92,8 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
     BaseType::buf_ = pmat;
   } else {
     BaseType::bufAllocatedHere_ = true;
-    BaseType::buf_ = static_cast<T*>(fbgemmAlignedAlloc(
-        64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
+    BaseType::buf_ = static_cast<T*>(
+        fbgemmAlignedAlloc(64, BaseType::brow_ * BaseType::bcol_ * sizeof(T)));
   }
   if (!row_offset_) {
     rowOffsetAllocatedHere = true;

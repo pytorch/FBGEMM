@@ -38,12 +38,12 @@ TensorQuantizationParams ChooseQuantizationParams(
   min = std::min(min, 0.f);
   max = std::max(max, 0.f);
 
-  // Use double precision for intermediate computation but use single precision in
-  // final number to reflect the actual number used during quantization.
+  // Use double precision for intermediate computation but use single precision
+  // in final number to reflect the actual number used during quantization.
   float scale = (static_cast<double>(max) - min) / (qmax - qmin);
   // If scale is 0 or too small so its reciprocal is infinity, we arbitrary
-  // adjust the scale to 0.1 . We want to avoid scale's reciprocal being infinity
-  // because some of fbgemm code pre-computes scale's reciprocal to do
+  // adjust the scale to 0.1 . We want to avoid scale's reciprocal being
+  // infinity because some of fbgemm code pre-computes scale's reciprocal to do
   // multiplication instead of division in the time critical part of code.
   if (scale == 0.0f || isinf(1.0f / scale)) {
     scale = 0.1;

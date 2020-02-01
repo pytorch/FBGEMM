@@ -41,8 +41,8 @@ FBGEMM_API void cblas_gemm_compute(
 /// internal packed blocked-row major format
 class PackedGemmMatrixFP16 {
  public:
-   using value_type = float16;
-   using size_type  = uint64_t;
+  using value_type = float16;
+  using size_type = uint64_t;
 
   // takes smat input mamtrix in row-major format;
   // packs it into gemm-friendly blocked format;
@@ -158,7 +158,8 @@ class PackedGemmMatrixFP16 {
     bool tr = (trans == matrix_op_t::Transpose);
     for (int i = 0; i < numRows(); i++) {
       for (int j = 0; j < numCols(); j++) {
-        origin_buf[tr ? i + numRows() * j : i * numCols() + j] = pmat_[addr(i, j)];
+        origin_buf[tr ? i + numRows() * j : i * numCols() + j] =
+            pmat_[addr(i, j)];
       }
     }
   }
