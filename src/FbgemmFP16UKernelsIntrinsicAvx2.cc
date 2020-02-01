@@ -6,8 +6,8 @@
  */
 
 #ifdef _MSC_VER
-#include "./FbgemmFP16UKernelsAvx2.h"
 #include <immintrin.h>
+#include "./FbgemmFP16UKernelsAvx2.h"
 
 namespace fbgemm {
 
@@ -92,28 +92,22 @@ void gemmkernel_Avx2_fp16_fA0fB0fC0(
   }
 }
 
-void NOINLINE
-gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 1);
 }
-void NOINLINE
-gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 2);
 }
-void NOINLINE
-gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 3);
 }
-void NOINLINE
-gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 4);
 }
-void NOINLINE
-gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 5);
 }
-void NOINLINE
-gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
+void NOINLINE gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   gemmkernel_Avx2_fp16_fA0fB0fC0(gp, 6);
 }
 

@@ -70,12 +70,7 @@ void genU8I8S32FMA(
  *
  */
 template <typename T>
-void genU8Sum4(
-    x86::Emitter* a,
-    T src,
-    T dest,
-    T oneReg16Bit,
-    T tmpReg) {
+void genU8Sum4(x86::Emitter* a, T src, T dest, T oneReg16Bit, T tmpReg) {
   gen8BitVectorOne(a, tmpReg);
   a->vpmaddubsw(tmpReg, src, tmpReg);
   a->vpmaddwd(tmpReg, tmpReg, oneReg16Bit);

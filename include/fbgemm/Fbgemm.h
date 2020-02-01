@@ -16,9 +16,9 @@
 #include <type_traits>
 #include "./ConvUtils.h"
 #include "./FbgemmBuild.h"
+#include "./FbgemmEmbedding.h"
 #include "./FbgemmI8DepthwiseAvx2.h"
 #include "./FbgemmI8Spmdm.h"
-#include "./FbgemmEmbedding.h"
 #include "./QuantUtilsAvx2.h"
 #include "./Types.h"
 #include "./Utils.h"

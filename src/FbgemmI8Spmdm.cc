@@ -201,7 +201,7 @@ void CompressedSparseColumn::SpMDM(
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
 #ifdef _MSC_VER
-    fbgemmAlignedFree(A_temp_buffer);
+      fbgemmAlignedFree(A_temp_buffer);
 #endif
     } else {
       for (int i2 = 0; i2 < 32; i2 += 8) {

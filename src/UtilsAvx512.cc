@@ -392,11 +392,7 @@ void transpose_avx512(
     case 2:
       for (jb = 0; jb + 4 <= N; jb += 4) {
         transpose_kernel_mxn_sse<2>(
-            4,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_sse<2>(
@@ -410,11 +406,7 @@ void transpose_avx512(
     case 3:
       for (jb = 0; jb + 4 <= N; jb += 4) {
         transpose_kernel_mxn_sse<3>(
-            4,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_sse<3>(
@@ -442,11 +434,7 @@ void transpose_avx512(
     case 5:
       for (jb = 0; jb + 8 <= N; jb += 8) {
         transpose_kernel_mxn_avx2<5>(
-            8,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx2<5>(
@@ -460,11 +448,7 @@ void transpose_avx512(
     case 6:
       for (jb = 0; jb + 8 <= N; jb += 8) {
         transpose_kernel_mxn_avx2<6>(
-            8,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx2<6>(
@@ -478,11 +462,7 @@ void transpose_avx512(
     case 7:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<7>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<7>(
@@ -510,11 +490,7 @@ void transpose_avx512(
     case 9:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<9>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<9>(
@@ -528,11 +504,7 @@ void transpose_avx512(
     case 10:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<10>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<10>(
@@ -546,11 +518,7 @@ void transpose_avx512(
     case 11:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<11>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<11>(
@@ -564,11 +532,7 @@ void transpose_avx512(
     case 12:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<12>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<12>(
@@ -582,11 +546,7 @@ void transpose_avx512(
     case 13:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<13>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<13>(
@@ -600,11 +560,7 @@ void transpose_avx512(
     case 14:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<14>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<14>(
@@ -618,11 +574,7 @@ void transpose_avx512(
     case 15:
       for (jb = 0; jb + 16 <= N; jb += 16) {
         transpose_kernel_mxn_avx512<15>(
-            16,
-            &src[ib * ld_src + jb],
-            ld_src,
-            &dst[ib + jb * ld_dst],
-            ld_dst);
+            16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
       if (jb < N) {
         transpose_kernel_mxn_avx512<15>(

@@ -363,8 +363,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
 }
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static ALWAYS_INLINE void
-depthwise_3x3x3_per_channel_quantization_kernel_(
+static ALWAYS_INLINE void depthwise_3x3x3_per_channel_quantization_kernel_(
     int T,
     int H,
     int W,
@@ -575,8 +574,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
-static ALWAYS_INLINE void
-depthwise_3x3x3_per_channel_quantization_pad_1_(
+static ALWAYS_INLINE void depthwise_3x3x3_per_channel_quantization_pad_1_(
     int N,
     int T,
     int H,

@@ -89,25 +89,25 @@ FBGEMM_API void depthwise_2d_same_pad(
  */
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_2d_per_channel_quantization_same_pad(
-   int N,
-   int H,
-   int W,
-   int K,
-   int stride_h,
-   int stride_w,
-   std::int32_t A_zero_point,
-   const std::uint8_t* A,
-   const std::int32_t* B_zero_point,
-   const PackedDepthWiseConvMatrix& Bp,
-   const float* C_multiplier,
-   std::int32_t C_zero_point,
-   std::uint8_t* C,
-   const std::int32_t* col_offsets,
-   const BIAS_TYPE* bias,
-   bool fuse_relu = false,
-   const float* act_times_w_scale = nullptr,
-   int thread_id = 0,
-   int num_threads = 1);
+    int N,
+    int H,
+    int W,
+    int K,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    const float* act_times_w_scale = nullptr,
+    int thread_id = 0,
+    int num_threads = 1);
 
 /**
  * @col_offsets nullptr if col_offsets are folded into bias

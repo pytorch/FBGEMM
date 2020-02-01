@@ -6,14 +6,14 @@
  */
 #pragma once
 
-#include <array>
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
+#include <array>
 
 namespace fbgemm {
 using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
 
-template<typename T>
+template <typename T>
 struct GemmParams {
   uint64_t k;
   float* A;
@@ -25,11 +25,11 @@ struct GemmParams {
   uint64_t b_block_size;
 };
 
-template<typename T>
-using funcptr_t = void(*)(GemmParams<T>*);
+template <typename T>
+using funcptr_t = void (*)(GemmParams<T>*);
 
 using fp16 = float16;
 using fp32 = float;
 using GemmParamsFP16 = GemmParams<fp16>;
 
-}
+} // namespace fbgemm
