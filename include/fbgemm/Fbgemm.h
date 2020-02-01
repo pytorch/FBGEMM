@@ -729,7 +729,7 @@ class FBGEMM_API PackAWithIm2Col
 
   ~PackAWithIm2Col() {
     if (rowOffsetAllocatedHere) {
-      free(row_offset_);
+      fbgemmAlignedFree(row_offset_);
     }
   }
 
@@ -819,7 +819,7 @@ class FBGEMM_API PackAWithRowOffset final
 
   ~PackAWithRowOffset() {
     if (rowOffsetAllocatedHere) {
-      free(row_offset_);
+      fbgemmAlignedFree(row_offset_);
     }
   }
 
@@ -911,7 +911,7 @@ class FBGEMM_API PackAWithQuantRowOffset final
 
   ~PackAWithQuantRowOffset() {
     if (rowOffsetAllocatedHere) {
-      free(row_offset_);
+      fbgemmAlignedFree(row_offset_);
     }
   }
 
