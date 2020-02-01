@@ -644,6 +644,72 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 } // namespace
 
 template <typename IndexType>
+typename SparseAdaGradSignature<IndexType>::Type
+GenerateSparseAdaGrad(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+
+  if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+    static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
+    const int* mask_avx2 = internal::avx2_ps_or_epi32_masks
+      [block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS];
+    const auto original_func = kernel_generator.getOrCreate(block_size, prefetch, rowwise);
+    const auto lambda_func =
+      [=](
+          int num_rows, // number of rows reading
+          std::uint64_t param_size, // total number of parameters
+          float* w, // input/output parameters
+          const float* g, // input gradients
+          float* h, // input/output momentums
+          const IndexType* indices, // indices of each row
+          float epsilon,
+          float lr
+      ) {
+          return original_func(
+              num_rows, // number of rows reading
+              param_size, // total number of parameters
+              w, // input/output parameters
+              g, // input gradients
+              h, // input/output momentums
+              indices, // indices of each row
+              epsilon,
+              lr,
+              mask_avx2
+          );
+      };
+    return lambda_func;
+  } else {
+#ifdef VLOG
+    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+    return
+      [=](int num_rows, // number of rows reading
+          std::uint64_t param_size, // total number of parameters
+          float* w, // input/output parameters
+          const float* g, // input gradients
+          float* h, // input/output momentums
+          const IndexType* indices, // indices of each row
+          float epsilon,
+          float lr) {
+        return sparse_adagrad_ref(
+            num_rows, // number of rows reading
+            block_size, // number of parameters per rows
+            param_size, // total number of parameters
+            w, // input/output parameters
+            g, // input gradients
+            h, // input/output momentums
+            indices,
+            epsilon,
+            lr);
+      };
+  }
+}
+
+template <typename IndexType>
 int SparseAdaGrad(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
@@ -717,6 +783,18 @@ template int SparseAdaGrad(
     const std::int32_t* indices, // indices of each row
     float epsilon,
     float lr,
+    bool rowwise,
+    int prefetch);
+
+template typename SparseAdaGradSignature<std::int64_t>::Type
+GenerateSparseAdaGrad<std::int64_t>(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch);
+
+template typename SparseAdaGradSignature<std::int32_t>::Type
+GenerateSparseAdaGrad<std::int32_t>(
+    int block_size, // number of parameters per rows
     bool rowwise,
     int prefetch);
 
