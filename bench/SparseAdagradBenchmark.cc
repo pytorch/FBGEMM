@@ -13,6 +13,7 @@
 #include <random>
 #include <set>
 #include <vector>
+#include <iomanip>
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
@@ -38,9 +39,10 @@ static vector<vector<int>> GetInputs_() {
 }
 
 void run_benchmark(
-    int num_rows, // number of rows reading
-    int block_size, // number of parameters per row
-    std::uint64_t param_size) { // total number of parameters
+    const int num_rows, // number of rows reading
+    const int block_size, // number of parameters per row
+    const std::uint64_t param_size, // total number of parameters
+    const bool isIndex64b) {
   vector<char> llc(64L * 1024L * 1024L, 1.0);
   vector<float> g(param_size); // gradients
   vector<float> h(param_size); // input momentums
@@ -76,34 +78,103 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   double data_moved = 5 * sizeof(float) * num_rows * block_size;
 
-  double t = measureWithWarmup(
-      [&]() {
-        fbgemm::SparseAdaGrad(
-            num_rows, // number of rows reading
-            block_size, // number of parameters per row
-            param_size, // total number of parameters
-            w.data(), // input parameters
-            g.data(), // input gradients
-            h.data(), // input momentums
-            indices.data(), // indices of each row
-            epsilon,
-            lr);
-      },
-      NUM_WARMUP,
-      NUM_ITER,
-      [&]() { llc_flush(llc); });
+#define PRE_GENERATE
+  double t = 0.0;
+  if (isIndex64b) {
+#ifdef PRE_GENERATE
+    auto fn_indices_64 = GenerateSparseAdaGrad<std::int64_t>(
+        block_size);
+#endif
 
-  for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-    fbgemm::sparse_adagrad_ref(
-        num_rows, // number of rows reading
-        block_size, // number of parameters per row
-        param_size, // total number of parameters
-        w_ref.data(), // input parameters
-        g.data(), // input gradients
-        h_ref.data(), // input momentums
-        indices.data(), // indices of each row
-        epsilon,
-        lr);
+    t = measureWithWarmup(
+        [&]() {
+#ifdef PRE_GENERATE
+          fn_indices_64(
+              num_rows, // number of rows reading
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices.data(), // indices of each row
+              epsilon,
+              lr);
+#else
+          fbgemm::SparseAdaGrad(
+              num_rows, // number of rows reading
+              block_size, // number of parameters per row
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices.data(), // indices of each row
+              epsilon,
+              lr);
+#endif
+        },
+        NUM_WARMUP,
+        NUM_ITER,
+        [&]() { llc_flush(llc); });
+
+    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
+      fbgemm::sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per row
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices.data(), // indices of each row
+          epsilon,
+          lr);
+    }
+  }
+  else {
+#ifdef PRE_GENERATE
+    auto fn_indices_32 = GenerateSparseAdaGrad<std::int32_t>(
+        block_size);
+#endif
+
+    t = measureWithWarmup(
+        [&]() {
+#ifdef PRE_GENERATE
+          fn_indices_32(
+              num_rows, // number of rows reading
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices_32.data(), // indices of each row
+              epsilon,
+              lr);
+#else
+          fbgemm::SparseAdaGrad(
+              num_rows, // number of rows reading
+              block_size, // number of parameters per row
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices_32.data(), // indices of each row
+              epsilon,
+              lr);
+#endif
+        },
+        NUM_WARMUP,
+        NUM_ITER,
+        [&]() { llc_flush(llc); });
+
+    for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
+      fbgemm::sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per row
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices_32.data(), // indices of each row
+          epsilon,
+          lr);
+    }
   }
 
   for (int i = 0; i < w.size(); ++i) {
@@ -120,10 +191,16 @@ void run_benchmark(
     }
   }
 
-  std::cout << "num_rows: " << num_rows << " block_size: " << block_size
-            << std::endl;
-  std::cout << "time taken by jit code(secs): " << t << std::endl;
-  std::cout << "bandwidth fbgemm (GB/s) " << data_moved / t / 1e9 << std::endl;
+  std::cout << "indices: " << (isIndex64b? " 64bits ": " 32bits ")
+    << " | ";
+
+  std::cout << "num_rows: " << std::setw(8) << num_rows
+    << " block_size: " << std::setw(4) << block_size
+    << " | ";
+  std::cout << "time taken by jit code(secs): " << std::setw(10) << std::fixed
+    << std::setprecision(6) << t << " | ";
+  std::cout << "bandwidth fbgemm (GB/s) "<< std::setw(10) << std::fixed
+    << std::setprecision(6) << data_moved / t / 1e9 << std::endl;
 }
 
 int main() {
@@ -132,12 +209,14 @@ int main() {
   std::uint64_t param_size;
   vector<vector<int>> inputs(GetInputs_());
 
-  for (auto& input : inputs) {
-    assert(input.size() > 2);
-    num_rows = input[0];
-    block_size = input[1];
-    param_size = num_rows * block_size;
-    run_benchmark(num_rows, block_size, param_size);
+  for (auto isIndex64b: vector<bool> {true, false}) {
+    for (auto& input : inputs) {
+      assert(input.size() > 2);
+      num_rows = input[0];
+      block_size = input[1];
+      param_size = num_rows * block_size;
+      run_benchmark(num_rows, block_size, param_size, isIndex64b);
+    }
   }
   return 0;
 }

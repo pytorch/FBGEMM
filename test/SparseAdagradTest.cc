@@ -60,6 +60,239 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool()));
 
+TEST_P(SparseAdagradTest, basicTest_two_stages) {
+  vector<vector<int>> inputs(GetInputs_());
+  bool isIndex64b, out_of_bounds;
+  int prefetch;
+  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+
+  for (auto input : inputs) {
+    int num_rows = input[0];
+    int block_size = input[1];
+    int param_size = num_rows * block_size;
+
+    vector<float> g(param_size); // gradients
+
+    vector<float> h(param_size); // input momentums
+    vector<float> w(param_size); // input params
+    vector<float> h_ref(param_size);
+    vector<float> w_ref(param_size);
+
+    default_random_engine generator;
+
+    normal_distribution<float> h_w_distribution;
+
+    uniform_real_distribution<float> values_gen(0, 10);
+    for (int i = 0; i < param_size; i++) {
+      h_ref[i] = h[i] = values_gen(generator);
+    }
+    for (int i = 0; i < param_size; i++) {
+      w_ref[i] = w[i] = values_gen(generator);
+    }
+    for (int i = 0; i < param_size; i++) {
+      g[i] = values_gen(generator);
+    }
+
+    vector<std::int64_t> indices(num_rows);
+    vector<std::int32_t> indices_32(num_rows);
+    float epsilon = 1e-5;
+    float lr = 0.5;
+
+    uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
+    for (int i = 0; i < num_rows; ++i) {
+      indices_32[i] = indices[i] = index_distribution(generator);
+    }
+    if (out_of_bounds) {
+      int idx = index_distribution(generator);
+      indices_32[idx] = indices[idx] = num_rows;
+    }
+
+    int ret_fbgemm, ret_ref;
+    if (isIndex64b) {
+      ret_ref = fbgemm::sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices.data(), // indices of each row
+          epsilon,
+          lr);
+
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+          block_size,
+          false,
+          prefetch);
+
+      ret_fbgemm = fn_fbgemm(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w.data(), // input parameters
+          g.data(), // input gradients
+          h.data(), // input momentums
+          indices.data(), // indices of each row
+          epsilon,
+          lr);
+    } else { // 32 bit indices
+      ret_ref = fbgemm::sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices_32.data(), // indices of each row
+          epsilon,
+          lr);
+
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+          block_size,
+          false,
+          prefetch);
+
+      ret_fbgemm = fn_fbgemm(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w.data(), // input parameters
+          g.data(), // input gradients
+          h.data(), // input momentums
+          indices_32.data(), // indices of each row
+          epsilon,
+          lr);
+    }
+
+    EXPECT_EQ(ret_fbgemm, ret_ref)
+        << "return vals differ, reference is: " << ret_ref
+        << " ,fbgemm is: " << ret_fbgemm;
+    for (int i = 0; i < h.size(); ++i) {
+      EXPECT_EQ(h[i], h_ref[i])
+          << "results for h differ at (" << i << ") reference: " << h_ref[i]
+          << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
+    }
+    for (int i = 0; i < w.size(); ++i) {
+      EXPECT_EQ(w[i], w_ref[i])
+          << "results for h differ at (" << i << ") reference: " << w_ref[i]
+          << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
+    }
+  }
+}
+
+TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
+  vector<vector<int>> inputs(GetInputs_());
+  bool isIndex64b, out_of_bounds;
+  int prefetch;
+  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+
+  for (auto input : inputs) {
+    int num_rows = input[0];
+    int block_size = input[1];
+    int param_size = num_rows * block_size;
+
+    vector<float> g(param_size); // gradients
+
+    vector<float> h(param_size); // input momentums
+    vector<float> w(param_size); // input params
+    vector<float> h_ref(param_size);
+    vector<float> w_ref(param_size);
+
+    default_random_engine generator;
+    uniform_real_distribution<float> values_gen(0, 2);
+    for (int i = 0; i < param_size; i++) {
+      h_ref[i] = h[i] = values_gen(generator);
+    }
+    for (int i = 0; i < param_size; i++) {
+      w_ref[i] = w[i] = values_gen(generator);
+    }
+    for (int i = 0; i < param_size; i++) {
+      g[i] = values_gen(generator);
+    }
+
+    vector<std::int64_t> indices(num_rows);
+    vector<std::int32_t> indices_32(num_rows);
+    float epsilon = 1e-5;
+    float lr = 0.5;
+
+    uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
+    for (int i = 0; i < num_rows; ++i) {
+      indices_32[i] = indices[i] = index_distribution(generator);
+    }
+    if (out_of_bounds) {
+      int idx = index_distribution(generator);
+      indices_32[idx] = indices[idx] = num_rows;
+    }
+
+    int ret_fbgemm, ret_ref;
+    if (isIndex64b) {
+      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices.data(), // indices of each row
+          epsilon,
+          lr);
+
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+          block_size,
+          true,
+          prefetch);
+
+      ret_fbgemm = fn_fbgemm(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w.data(), // input parameters
+          g.data(), // input gradients
+          h.data(), // input momentums
+          indices.data(), // indices of each row
+          epsilon,
+          lr);
+    } else { // 32 bit indices
+      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w_ref.data(), // input parameters
+          g.data(), // input gradients
+          h_ref.data(), // input momentums
+          indices_32.data(), // indices of each row
+          epsilon,
+          lr);
+
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+          block_size,
+          true,
+          prefetch);
+
+      ret_fbgemm = fn_fbgemm(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w.data(), // input parameters
+          g.data(), // input gradients
+          h.data(), // input momentums
+          indices_32.data(), // indices of each row
+          epsilon,
+          lr);
+    }
+
+    EXPECT_EQ(ret_fbgemm, ret_ref)
+        << "return vals differ, reference is: " << ret_ref
+        << " ,fbgemm is: " << ret_fbgemm;
+    for (int i = 0; i < h.size(); ++i) {
+      EXPECT_EQ(h[i], h_ref[i])
+          << "results for h differ at (" << i << ") reference: " << h_ref[i]
+          << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
+    }
+    for (int i = 0; i < w.size(); ++i) {
+      EXPECT_EQ(w[i], w_ref[i])
+          << "results for w differ at (" << i << ") reference: " << w_ref[i]
+          << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
+    }
+  }
+}
+
 TEST_P(SparseAdagradTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isIndex64b, out_of_bounds;
