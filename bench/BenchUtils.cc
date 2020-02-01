@@ -6,10 +6,10 @@
  */
 #include "./BenchUtils.h"
 
+#include <cstring>
 #include <algorithm>
 #include <random>
 #include <type_traits>
-#include <string.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -106,7 +106,7 @@ int parseArgumentInt(
     int def_val) {
   int val = non_exist_val;
   int arg_len = strlen(arg);
-  for(auto i = 1; i < argc; ++i) {
+  for (auto i = 1; i < argc; ++i) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
       int res;
@@ -123,7 +123,7 @@ bool parseArgumentBool(
     const char* argv[],
     const char* arg,
     bool def_val) {
-  for(auto i = 1; i < argc; ++i) {
+  for (auto i = 1; i < argc; ++i) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
       return true;

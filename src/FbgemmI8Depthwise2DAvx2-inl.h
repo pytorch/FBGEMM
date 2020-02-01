@@ -8,9 +8,9 @@
 
 #include <tuple> // for tie
 
+#include "fbgemm/UtilsAvx2.h"
 #include "src/FbgemmI8DepthwiseAvx2-inl.h"
 #include "src/MaskAvx2.h"
-#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
@@ -443,8 +443,7 @@ template <
     bool HAS_BIAS,
     bool A_SYMMETRIC,
     typename BIAS_TYPE>
-static ALWAYS_INLINE void
-depthwise_2d_per_channel_quantization_kernel_(
+static ALWAYS_INLINE void depthwise_2d_per_channel_quantization_kernel_(
     int H,
     int W,
     int K,
@@ -895,8 +894,7 @@ template <
     bool HAS_BIAS,
     bool A_SYMMETRIC,
     typename BIAS_TYPE>
-static ALWAYS_INLINE void
-depthwise_2d_per_channel_quantization_(
+static ALWAYS_INLINE void depthwise_2d_per_channel_quantization_(
     int N,
     int H,
     int W,

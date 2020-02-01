@@ -10,8 +10,8 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <vector>
-#include<set>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -35,7 +35,6 @@ void performance_test(
     const vector<int>& shape,
     array<int, 6>& best_config,
     float& giga_ops) {
-
   bool flush = true;
   std::vector<char> llc;
 
@@ -58,155 +57,154 @@ void performance_test(
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
 
-    int m = shape[0];
-    int n = shape[1];
-    int k = shape[2];
+  int m = shape[0];
+  int n = shape[1];
+  int k = shape[2];
 
-    aligned_vector<uint8_t> Aint8(m * k);
-    aligned_vector<int8_t> Bint8(k * n);
-    aligned_vector<float> Cfp32_mkl(m * n);
-    aligned_vector<int32_t> Cint32_mkl(Cfp32_mkl.size());
-    aligned_vector<int32_t> Cint32_ref(Cfp32_mkl.size());
-    aligned_vector<int32_t> Cint32_fb_acc32(Cfp32_mkl.size());
-    aligned_vector<int32_t> Cint32_fb_acc16(Cfp32_mkl.size());
+  aligned_vector<uint8_t> Aint8(m * k);
+  aligned_vector<int8_t> Bint8(k * n);
+  aligned_vector<float> Cfp32_mkl(m * n);
+  aligned_vector<int32_t> Cint32_mkl(Cfp32_mkl.size());
+  aligned_vector<int32_t> Cint32_ref(Cfp32_mkl.size());
+  aligned_vector<int32_t> Cint32_fb_acc32(Cfp32_mkl.size());
+  aligned_vector<int32_t> Cint32_fb_acc16(Cfp32_mkl.size());
 
-    // A matrix
-    randFill<uint8_t>(Aint8, 0, 5);
-    aligned_vector<float> Afp32(Aint8.begin(), Aint8.end());
+  // A matrix
+  randFill<uint8_t>(Aint8, 0, 5);
+  aligned_vector<float> Afp32(Aint8.begin(), Aint8.end());
 
-    randFill<int8_t>(Bint8, -4, 4);
-    avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
+  randFill<int8_t>(Bint8, -4, 4);
+  avoidOverflow(m, n, k, Aint8.data(), Bint8.data());
 
-    aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
+  aligned_vector<float> Bfp32(Bint8.begin(), Bint8.end());
 
-    double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
-    double ttot = 0.0;
-    string runType;
+  double nops = 2.0 * static_cast<double>(NITER) * m * n * k;
+  double ttot = 0.0;
+  string runType;
 
-    vector<int32_t> row_offsets(m);
+  vector<int32_t> row_offsets(m);
 
-    matmul_u8i8acc32_ref(
-        m, n, k, k, n, n, Aint8.data(), Bint8.data(), Cint32_ref.data());
+  matmul_u8i8acc32_ref(
+      m, n, k, k, n, n, Aint8.data(), Bint8.data(), Cint32_ref.data());
 
-    PackBMatrix<int8_t> packedB_int32(
-        matrix_op_t::NoTranspose,
-        k,
-        n,
-        Bint8.data(),
-        n,
-        nullptr,
-        1,
-        tuning_params);
+  PackBMatrix<int8_t> packedB_int32(
+      matrix_op_t::NoTranspose,
+      k,
+      n,
+      Bint8.data(),
+      n,
+      nullptr,
+      1,
+      tuning_params);
 
-    ttot = 0.0;
-    runType = "FBGEMM_i8_acc32";
+  ttot = 0.0;
+  runType = "FBGEMM_i8_acc32";
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-    double total_packing_time = 0.0;
-    double total_computing_time = 0.0;
-    double total_kernel_time = 0.0;
-    double total_postprocessing_time = 0.0;
-    double total_run_time = 0.0;
+  double total_packing_time = 0.0;
+  double total_computing_time = 0.0;
+  double total_kernel_time = 0.0;
+  double total_postprocessing_time = 0.0;
+  double total_run_time = 0.0;
 #endif
 
-    for (auto i = 0; i < NWARMUP + NITER; ++i) {
+  for (auto i = 0; i < NWARMUP + NITER; ++i) {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-      packing_time = 0.0;
-      computing_time = 0.0;
-      kernel_time = 0.0;
-      postprocessing_time = 0.0;
-      run_time = 0.0;
+    packing_time = 0.0;
+    computing_time = 0.0;
+    kernel_time = 0.0;
+    postprocessing_time = 0.0;
+    run_time = 0.0;
 #endif
-      llc_flush(llc);
-      start = chrono::high_resolution_clock::now();
+    llc_flush(llc);
+    start = chrono::high_resolution_clock::now();
 
 #ifdef _OPENMP
 #pragma omp parallel
 #endif
-      {
-        PackAMatrix<uint8_t> packA_int32(
-            matrix_op_t::NoTranspose,
-            m,
-            k,
-            Aint8.data(),
-            k,
-            nullptr,
-            1,
-            tuning_params);
+    {
+      PackAMatrix<uint8_t> packA_int32(
+          matrix_op_t::NoTranspose,
+          m,
+          k,
+          Aint8.data(),
+          k,
+          nullptr,
+          1,
+          tuning_params);
 
-        DoNothing<int32_t, int32_t> doNothing32BitObj;
-        memCopy<> memcopyObj(doNothing32BitObj);
-        int num_threads = fbgemm_get_num_threads();
-        int tid = fbgemm_get_thread_num();
-        // printf ( "tid: %d, num_threads: %d\n", tid, num_threads );
-        fbgemmPacked(
-            packA_int32,
-            packedB_int32,
-            Cint32_fb_acc32.data(),
-            Cint32_fb_acc32.data(),
-            n,
-            memcopyObj,
-            tid,
-            num_threads,
-            tuning_params);
-      }
-
-      end = chrono::high_resolution_clock::now();
-
-      if (i >= NWARMUP) {
-        auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
-        ttot += dur.count();
-#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-        total_packing_time += packing_time;
-        total_computing_time += computing_time;
-        total_kernel_time += kernel_time;
-        total_postprocessing_time += postprocessing_time;
-        total_run_time += run_time;
-#endif
-      }
+      DoNothing<int32_t, int32_t> doNothing32BitObj;
+      memCopy<> memcopyObj(doNothing32BitObj);
+      int num_threads = fbgemm_get_num_threads();
+      int tid = fbgemm_get_thread_num();
+      // printf ( "tid: %d, num_threads: %d\n", tid, num_threads );
+      fbgemmPacked(
+          packA_int32,
+          packedB_int32,
+          Cint32_fb_acc32.data(),
+          Cint32_fb_acc32.data(),
+          n,
+          memcopyObj,
+          tid,
+          num_threads,
+          tuning_params);
     }
-    ((volatile char*)(llc.data()));
+
+    end = chrono::high_resolution_clock::now();
+
+    if (i >= NWARMUP) {
+      auto dur = chrono::duration_cast<chrono::nanoseconds>(end - start);
+      ttot += dur.count();
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+      total_packing_time += packing_time;
+      total_computing_time += computing_time;
+      total_kernel_time += kernel_time;
+      total_postprocessing_time += postprocessing_time;
+      total_run_time += run_time;
+#endif
+    }
+  }
+  ((volatile char*)(llc.data()));
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-    cout << ", " << setw(16) << total_packing_time / (double)NITER / 1e3 << ", "
-         << setw(16) << total_kernel_time / (double)NITER / 1e3 << ", "
-         << setw(16) << total_postprocessing_time / (double)NITER / 1e3 << ", "
-         << setw(16) << total_run_time / (double)NITER / 1e3;
+  cout << ", " << setw(16) << total_packing_time / (double)NITER / 1e3 << ", "
+       << setw(16) << total_kernel_time / (double)NITER / 1e3 << ", "
+       << setw(16) << total_postprocessing_time / (double)NITER / 1e3 << ", "
+       << setw(16) << total_run_time / (double)NITER / 1e3;
 #endif
 
-    if (compare_buffers(
-            Cint32_ref.data(), Cint32_fb_acc32.data(), m, n, n, 5)) {
-       vector<int> config = {tuning_params->MCB,
-                                   tuning_params->NCB,
-                                   tuning_params->KCB,
-                                   tuning_params->MR,
-                                   tuning_params->NR,
-                                   tuning_params->ROW_INTERLEAVE};
-      incorrect_configs.insert(config);
-    } else {
-      cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
-           << setw(5) << "MR, " << setw(5) << "NR, " << setw(5) << "ROW INT."
-           << endl;
-      cout << setw(5) << tuning_params->MCB << setw(5) << tuning_params->NCB
-           << setw(5) << tuning_params->KCB << setw(5) << tuning_params->MR
-           << setw(5) << tuning_params->NR << setw(5)
-           << tuning_params->ROW_INTERLEAVE << endl;
+  if (compare_buffers(Cint32_ref.data(), Cint32_fb_acc32.data(), m, n, n, 5)) {
+    vector<int> config = {tuning_params->MCB,
+                          tuning_params->NCB,
+                          tuning_params->KCB,
+                          tuning_params->MR,
+                          tuning_params->NR,
+                          tuning_params->ROW_INTERLEAVE};
+    incorrect_configs.insert(config);
+  } else {
+    cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
+         << setw(5) << "MR, " << setw(5) << "NR, " << setw(5) << "ROW INT."
+         << endl;
+    cout << setw(5) << tuning_params->MCB << setw(5) << tuning_params->NCB
+         << setw(5) << tuning_params->KCB << setw(5) << tuning_params->MR
+         << setw(5) << tuning_params->NR << setw(5)
+         << tuning_params->ROW_INTERLEAVE << endl;
 
-      cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, "
-           << setw(18) << "Type, " << setw(5) << "GOPS" << endl;
-      cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
-           << ", " << setw(16) << runType;
-      cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
-           << nops / ttot << endl;
-      if ((nops/ttot) > giga_ops){
-        giga_ops = nops/ttot;
-        best_config = {tuning_params->MCB,
-                       tuning_params->NCB,
-                       tuning_params->KCB,
-                       tuning_params->MR,
-                       tuning_params->NR,
-                       tuning_params->ROW_INTERLEAVE};
-      }
+    cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(18)
+         << "Type, " << setw(5) << "GOPS" << endl;
+    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
+         << setw(16) << runType;
+    cout << ", " << setw(5) << fixed << setw(5) << setprecision(1)
+         << nops / ttot << endl;
+    if ((nops / ttot) > giga_ops) {
+      giga_ops = nops / ttot;
+      best_config = {tuning_params->MCB,
+                     tuning_params->NCB,
+                     tuning_params->KCB,
+                     tuning_params->MR,
+                     tuning_params->NR,
+                     tuning_params->ROW_INTERLEAVE};
     }
+  }
 }
 
 int main(int /* unused */, char** /* unused */) {

@@ -25,7 +25,8 @@ void performance_test() {
   normal_distribution<float> dist;
   default_random_engine engine;
 
-  cout << setw(4) << "M" << setw(4) << "N" << " B_elements_per_sec" << endl;
+  cout << setw(4) << "M" << setw(4) << "N"
+       << " B_elements_per_sec" << endl;
 
   int dims[] = {1,  2,  3,  4,  5,  6,  8,   9,   10,  15,  16,
                 17, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256};

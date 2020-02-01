@@ -6,8 +6,8 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmSpConv.h"
-#include "fbgemm/Utils.h"
 #include "./FbgemmSpMM-inl.h"
+#include "fbgemm/Utils.h"
 
 #include <cpuinfo.h>
 #include <algorithm>

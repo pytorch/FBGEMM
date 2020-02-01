@@ -6,8 +6,8 @@
  */
 
 #ifdef _MSC_VER
-#include "./FbgemmFP16UKernelsAvx512.h"
 #include <immintrin.h>
+#include "./FbgemmFP16UKernelsAvx512.h"
 
 namespace fbgemm {
 
