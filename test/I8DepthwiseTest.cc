@@ -420,7 +420,8 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     vector<int32_t> B_zero_point(K);
     for (auto k = 0; k < K; ++k) {
       aligned_vector<int8_t> Bk(R * S);
-      randFill<int8_t>(Bk, -16 + k, 16 + k);
+      // limit min, max to int8_t range
+      randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
       copy(Bk.begin(), Bk.end(), B.begin() + k * R * S);
 
       B_zero_point[k] = 5 + k;
@@ -552,7 +553,8 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
     vector<int32_t> B_zero_point(K);
     for (auto k = 0; k < K; ++k) {
       aligned_vector<int8_t> Bk(K_T * K_H * K_W);
-      randFill<int8_t>(Bk, -16 + k, 16 + k);
+      // limit min, max to int8_t range
+      randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
       copy(Bk.begin(), Bk.end(), B.begin() + k * K_T * K_H * K_W);
 
       B_zero_point[k] = 5 + k;
