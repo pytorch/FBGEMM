@@ -107,7 +107,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     }
 
     // Generate lengths
-    uniform_int_distribution<int> length_distribution(1, 2 * average_len + 1);
+    uniform_int_distribution<int> length_distribution(
+        1, std::min(2 * average_len + 1, num_rows));
     vector<int> lengths(batch_size);
     for (int i = 0; i < batch_size; ++i) {
       lengths[i] = empty_indices ? 0 : length_distribution(generator);
