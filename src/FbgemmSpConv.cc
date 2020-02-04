@@ -360,10 +360,10 @@ generateSpConv(
   };
 }
 
-template function<void(const float* BData, float* CData)>
+template FBGEMM_API function<void(const float* BData, float* CData)>
 generateSpConv(int Cin, int Cout, int IY, int IX, const float* KData);
 
-template function<void(const uint8_t* BData, int32_t* CData)>
+template FBGEMM_API function<void(const uint8_t* BData, int32_t* CData)>
 generateSpConv(int Cin, int Cout, int IY, int IX, const int8_t* KData);
 
 } // namespace fbgemm

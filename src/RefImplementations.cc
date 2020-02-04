@@ -317,7 +317,7 @@ int32_t clip_16bit(int32_t x) {
  * Ao: NHWC: NH_1W_1 x G RS C_0/G
  */
 template <>
-void im2col_ref(
+FBGEMM_API void im2col_ref(
     const conv_param_t<2>& conv_p,
     const uint8_t* A,
     int32_t A_zero_point,
@@ -381,7 +381,7 @@ void im2col_ref(
  * Ao: NHWC: NT_1H_1W_1 x G QRS C_0/G
  */
 template <>
-void im2col_ref(
+FBGEMM_API void im2col_ref(
     const conv_param_t<3>& conv_p,
     const uint8_t* A,
     int32_t A_zero_point,
@@ -462,7 +462,7 @@ void im2col_ref(
 
 // 2D Conv
 template <>
-void conv_ref(
+FBGEMM_API void conv_ref(
     const conv_param_t<2>& conv_p,
     const uint8_t* A,
     int32_t A_zero_point,
@@ -565,7 +565,7 @@ void conv_ref(
 
 // 3D Conv
 template <>
-void conv_ref(
+FBGEMM_API void conv_ref(
     const conv_param_t<3>& conv_p,
     const uint8_t* A,
     int32_t A_zero_point,
@@ -1029,17 +1029,17 @@ int rowwise_sparse_adagrad_ref(
   return num_rows;
 }
 
-template void transposeConvWeights(
+template FBGEMM_API void transposeConvWeights(
     const conv_param_t<2>& conv_p,
     const std::int8_t* src,
     std::int8_t* dest);
 
-template void transposeConvWeights(
+template FBGEMM_API void transposeConvWeights(
     const conv_param_t<3>& conv_p,
     const std::int8_t* src,
     std::int8_t* dest);
 
-template bool EmbeddingSpMDM_ref(
+template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1052,7 +1052,7 @@ template bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM_ref(
+template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1065,7 +1065,7 @@ template bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM_ref<float16, std::int64_t>(
+template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int64_t>(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1078,7 +1078,7 @@ template bool EmbeddingSpMDM_ref<float16, std::int64_t>(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM_ref<float16, std::int32_t>(
+template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int32_t>(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1091,7 +1091,7 @@ template bool EmbeddingSpMDM_ref<float16, std::int32_t>(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM_ref(
+template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1104,7 +1104,7 @@ template bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDM_ref(
+template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -1117,7 +1117,7 @@ template bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDMNBit_ref(
+template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -1131,7 +1131,7 @@ template bool EmbeddingSpMDMNBit_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDMNBit_ref(
+template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -1145,7 +1145,7 @@ template bool EmbeddingSpMDMNBit_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
+template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -1161,7 +1161,7 @@ template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     float* out,
     bool is_weight_positional);
 
-template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
+template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -1177,7 +1177,7 @@ template bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     float* out,
     bool is_weight_positional);
 
-template int sparse_adagrad_ref(
+template FBGEMM_API int sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters
@@ -1188,7 +1188,7 @@ template int sparse_adagrad_ref(
     float epsilon,
     float lr);
 
-template int sparse_adagrad_ref(
+template FBGEMM_API int sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters
@@ -1199,7 +1199,7 @@ template int sparse_adagrad_ref(
     float epsilon,
     float lr);
 
-template int rowwise_sparse_adagrad_ref(
+template FBGEMM_API int rowwise_sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters
@@ -1210,7 +1210,7 @@ template int rowwise_sparse_adagrad_ref(
     float epsilon,
     float lr);
 
-template int rowwise_sparse_adagrad_ref(
+template FBGEMM_API int rowwise_sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters

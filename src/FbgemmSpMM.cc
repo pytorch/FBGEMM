@@ -324,25 +324,27 @@ generateSpMM(
   };
 }
 
-template function<void(const float* BData, float* CData, uint64_t flags)>
-generateSpMM(
-    int m,
-    int n,
-    int k,
-    const float* AData,
-    int lda,
-    int ldb,
-    int ldc);
+template FBGEMM_API
+    function<void(const float* BData, float* CData, uint64_t flags)>
+    generateSpMM(
+        int m,
+        int n,
+        int k,
+        const float* AData,
+        int lda,
+        int ldb,
+        int ldc);
 
-template function<void(const uint8_t* BData, int32_t* CData, uint64_t flags)>
-generateSpMM(
-    int m,
-    int n,
-    int k,
-    const int8_t* AData,
-    int lda,
-    int ldb,
-    int ldc);
+template FBGEMM_API
+    function<void(const uint8_t* BData, int32_t* CData, uint64_t flags)>
+    generateSpMM(
+        int m,
+        int n,
+        int k,
+        const int8_t* AData,
+        int lda,
+        int ldb,
+        int ldc);
 
 namespace {
 
@@ -1073,7 +1075,7 @@ generateSpMM(
   };
 }
 
-template function<void(
+template FBGEMM_API function<void(
     const float* BData,
     float* CData,
     int N,
@@ -1082,7 +1084,7 @@ template function<void(
     uint64_t flags)>
 generateSpMM(int m, int k, const float* AData, int lda);
 
-template function<void(
+template FBGEMM_API function<void(
     const uint8_t* BData,
     int32_t* CData,
     int N,

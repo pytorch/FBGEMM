@@ -324,7 +324,7 @@ int fbgemmConv(
 }
 
 #define INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, BIAS_TYPE)      \
-  template int fbgemmConv(                                                 \
+  template FBGEMM_API int fbgemmConv(                                      \
       const conv_param_t<SPATIAL_DIM>& conv_p,                             \
       const std::uint8_t* activations,                                     \
       PackWeightsForConv<SPATIAL_DIM, std::int8_t, ACC_T>& packed_weights, \
@@ -369,13 +369,13 @@ template bool takeDepthWiseFastPath<2, std::int16_t>(
 template bool takeDepthWiseFastPath<3, std::int16_t>(
     const conv_param_t<3>& conv_p);
 
-template optimized_conv_t ConvFastPath<2, std::int32_t>(
-    const conv_param_t<2>& conv_p);
-template optimized_conv_t ConvFastPath<3, std::int32_t>(
-    const conv_param_t<3>& conv_p);
-template optimized_conv_t ConvFastPath<2, std::int16_t>(
-    const conv_param_t<2>& conv_p);
-template optimized_conv_t ConvFastPath<3, std::int16_t>(
-    const conv_param_t<3>& conv_p);
+template FBGEMM_API optimized_conv_t
+ConvFastPath<2, std::int32_t>(const conv_param_t<2>& conv_p);
+template FBGEMM_API optimized_conv_t
+ConvFastPath<3, std::int32_t>(const conv_param_t<3>& conv_p);
+template FBGEMM_API optimized_conv_t
+ConvFastPath<2, std::int16_t>(const conv_param_t<2>& conv_p);
+template FBGEMM_API optimized_conv_t
+ConvFastPath<3, std::int16_t>(const conv_param_t<3>& conv_p);
 
 } // namespace fbgemm

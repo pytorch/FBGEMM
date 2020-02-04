@@ -307,7 +307,7 @@ INSTANTIATE_Q_GRAN(true);
 
 // ReQuantizeOutput
 #define INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, BIAS_TYPE)    \
-  template void fbgemmPacked(                                       \
+  template FBGEMM_API void fbgemmPacked(                            \
       PackMatrix<PACK_A<uint8_t, ACC_T>, uint8_t, ACC_T>& packA,    \
       PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
       uint8_t* C,                                                   \
@@ -345,7 +345,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
 #undef INSTANTIATE_BASE
 
 #define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, BIAS_TYPE) \
-  template void fbgemmPacked(                                         \
+  template FBGEMM_API void fbgemmPacked(                              \
       PackMatrix<                                                     \
           PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,               \
           uint8_t,                                                    \
@@ -391,7 +391,7 @@ INSTANTIATE_RELU(int16_t);
 ////////////////////////////////////////////////////////////////////////////////
 // ReQuantizeForFloat
 #define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN)                          \
-  template void fbgemmPacked(                                           \
+  template FBGEMM_API void fbgemmPacked(                                \
       PackMatrix<PACK_A<uint8_t, int32_t>, uint8_t, int32_t>& packA,    \
       PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB, \
       float* C,                                                         \
@@ -419,7 +419,7 @@ INSTANTIATE_RELU(PackAWithQuantRowOffset);
 #undef INSTANTIATE_BASE
 
 #define INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN)          \
-  template void fbgemmPacked(                                       \
+  template FBGEMM_API void fbgemmPacked(                            \
       PackMatrix<                                                   \
           PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
           uint8_t,                                                  \
@@ -469,7 +469,7 @@ template void fbgemmPacked(
 ////////////////////////////////////////////////////////////////////////////////
 // DoSpmdmOnInpBuffer
 #define INSTANTIATE_BASE(PACK_A, RELU, Q_GRAN)                          \
-  template void fbgemmPacked(                                           \
+  template FBGEMM_API void fbgemmPacked(                                \
       PackMatrix<PACK_A<uint8_t, int16_t>, uint8_t, int16_t>& packA,    \
       PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB, \
       uint8_t* C,                                                       \
@@ -500,7 +500,7 @@ INSTANTIATE_RELU(PackAWithRowOffset);
 #undef INSTANTIATE_RELU
 
 #define INSTANTIATE_BASE(RELU, Q_GRAN)                                        \
-  template void fbgemmPacked(                                                 \
+  template FBGEMM_API void fbgemmPacked(                                      \
       PackMatrix<PackAWithIm2Col<uint8_t, int16_t>, uint8_t, int16_t>& packA, \
       PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,       \
       uint8_t* C,                                                             \
@@ -540,7 +540,7 @@ template void fbgemmPacked(
 ////////////////////////////////////////////////////////////////////////////////
 // memCopy
 #define INSTANTIATE_BASE(PACK_A, ACC_T)                             \
-  template void fbgemmPacked(                                       \
+  template FBGEMM_API void fbgemmPacked(                            \
       PackMatrix<PACK_A<uint8_t, ACC_T>, uint8_t, ACC_T>& packA,    \
       PackMatrix<PackBMatrix<int8_t, ACC_T>, int8_t, ACC_T>& packB, \
       int32_t* C,                                                   \
@@ -562,7 +562,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
 #undef INSTANTIATE_BASE
 
 #define INSTANTIATE_BASE(ACC_T, SPATIAL_DIM)                        \
-  template void fbgemmPacked(                                       \
+  template FBGEMM_API void fbgemmPacked(                            \
       PackMatrix<                                                   \
           PackAWithIm2Col<uint8_t, ACC_T, SPATIAL_DIM>,             \
           uint8_t,                                                  \
