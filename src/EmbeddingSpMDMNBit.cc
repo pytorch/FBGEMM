@@ -196,9 +196,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
         x86::Gp scratchReg3_;
         if (instSet == inst_set_t::avx2) {
-          // Can't be combined with ROWWISE_SPARSE
-          ++reg_id;
-          scratchReg3_ = a->gpz(reg_id); // 15
+          scratchReg3_ = a->zax();
         }
 
         asmjit::FuncDetail func;
@@ -925,6 +923,16 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     static GenEmbeddingSpMDMNBitLookup<indxType, true /* rowwise_sparse */>
         kernel_generator;
     return kernel_generator.template getOrCreate<inst_set_t::avx512>(
+        bit_rate,
+        block_size,
+        has_weight,
+        /*is_weight_positional*/ false,
+        normalize_by_lengths,
+        prefetch);
+  } else if (fbgemmHasAvx2Support()) {
+    static GenEmbeddingSpMDMNBitLookup<indxType, true /* rowwise_sparse */>
+        kernel_generator;
+    return kernel_generator.template getOrCreate<inst_set_t::avx2>(
         bit_rate,
         block_size,
         has_weight,
