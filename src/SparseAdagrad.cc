@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <asmjit/asmjit.h>
@@ -457,9 +458,8 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         a->emitProlog(frame);
         a->emitArgsAssignment(frame, args);
 
-        simd_info<instSet> inst_trait;
-        constexpr int vlen = inst_trait.WIDTH_32BIT_ELEMS;
-        constexpr int NUM_VEC_REG = inst_trait.NUM_VEC_REGS;
+        constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
+        constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
         typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
@@ -644,8 +644,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 } // namespace
 
 template <typename IndexType>
-typename SparseAdaGradSignature<IndexType>::Type
-GenerateSparseAdaGrad(
+typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
     int block_size, // number of parameters per rows
     bool rowwise,
     int prefetch) {
@@ -656,19 +655,18 @@ GenerateSparseAdaGrad(
   if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
     static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
     const int* mask_avx2 = internal::avx2_ps_or_epi32_masks
-      [block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS];
-    const auto original_func = kernel_generator.getOrCreate(block_size, prefetch, rowwise);
+        [block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS];
+    const auto original_func =
+        kernel_generator.getOrCreate(block_size, prefetch, rowwise);
     const auto lambda_func =
-      [=](
-          int num_rows, // number of rows reading
-          std::uint64_t param_size, // total number of parameters
-          float* w, // input/output parameters
-          const float* g, // input gradients
-          float* h, // input/output momentums
-          const IndexType* indices, // indices of each row
-          float epsilon,
-          float lr
-      ) {
+        [=](int num_rows, // number of rows reading
+            std::uint64_t param_size, // total number of parameters
+            float* w, // input/output parameters
+            const float* g, // input gradients
+            float* h, // input/output momentums
+            const IndexType* indices, // indices of each row
+            float epsilon,
+            float lr) {
           return original_func(
               num_rows, // number of rows reading
               param_size, // total number of parameters
@@ -678,34 +676,32 @@ GenerateSparseAdaGrad(
               indices, // indices of each row
               epsilon,
               lr,
-              mask_avx2
-          );
-      };
+              mask_avx2);
+        };
     return lambda_func;
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
-    return
-      [=](int num_rows, // number of rows reading
-          std::uint64_t param_size, // total number of parameters
-          float* w, // input/output parameters
-          const float* g, // input gradients
-          float* h, // input/output momentums
-          const IndexType* indices, // indices of each row
-          float epsilon,
-          float lr) {
-        return sparse_adagrad_ref(
-            num_rows, // number of rows reading
-            block_size, // number of parameters per rows
-            param_size, // total number of parameters
-            w, // input/output parameters
-            g, // input gradients
-            h, // input/output momentums
-            indices,
-            epsilon,
-            lr);
-      };
+    return [=](int num_rows, // number of rows reading
+               std::uint64_t param_size, // total number of parameters
+               float* w, // input/output parameters
+               const float* g, // input gradients
+               float* h, // input/output momentums
+               const IndexType* indices, // indices of each row
+               float epsilon,
+               float lr) {
+      return sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w, // input/output parameters
+          g, // input gradients
+          h, // input/output momentums
+          indices,
+          epsilon,
+          lr);
+    };
   }
 }
 
@@ -760,7 +756,7 @@ int SparseAdaGrad(
   return num_rows_processed;
 }
 
-template int SparseAdaGrad(
+template FBGEMM_API int SparseAdaGrad(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters
@@ -773,7 +769,7 @@ template int SparseAdaGrad(
     bool rowwise,
     int prefetch);
 
-template int SparseAdaGrad(
+template FBGEMM_API int SparseAdaGrad(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
     std::uint64_t param_size, // total number of parameters
@@ -786,13 +782,13 @@ template int SparseAdaGrad(
     bool rowwise,
     int prefetch);
 
-template typename SparseAdaGradSignature<std::int64_t>::Type
+template FBGEMM_API typename SparseAdaGradSignature<std::int64_t>::Type
 GenerateSparseAdaGrad<std::int64_t>(
     int block_size, // number of parameters per rows
     bool rowwise,
     int prefetch);
 
-template typename SparseAdaGradSignature<std::int32_t>::Type
+template FBGEMM_API typename SparseAdaGradSignature<std::int32_t>::Type
 GenerateSparseAdaGrad<std::int32_t>(
     int block_size, // number of parameters per rows
     bool rowwise,

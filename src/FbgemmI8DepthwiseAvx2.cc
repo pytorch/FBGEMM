@@ -111,7 +111,7 @@ void depthwise_2d_same_pad(
   }
 }
 
-template void depthwise_2d_same_pad<int32_t>(
+template FBGEMM_API void depthwise_2d_same_pad<int32_t>(
     int N,
     int H,
     int W,
@@ -132,7 +132,7 @@ template void depthwise_2d_same_pad<int32_t>(
     int thread_id,
     int num_threads);
 
-template void depthwise_2d_same_pad<float>(
+template FBGEMM_API void depthwise_2d_same_pad<float>(
     int N,
     int H,
     int W,

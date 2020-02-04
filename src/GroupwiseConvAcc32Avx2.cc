@@ -1743,11 +1743,13 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   }
 }
 
-template int rowOffsetBufferSizeGConv<2>(const conv_param_t<2>& conv_param);
-template int rowOffsetBufferSizeGConv<3>(const conv_param_t<3>& conv_param);
+template FBGEMM_API int rowOffsetBufferSizeGConv<2>(
+    const conv_param_t<2>& conv_param);
+template FBGEMM_API int rowOffsetBufferSizeGConv<3>(
+    const conv_param_t<3>& conv_param);
 
 #define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, BIAS_TYPE)                \
-  template void fbgemmGroupwiseConv(                                          \
+  template FBGEMM_API void fbgemmGroupwiseConv(                               \
       const conv_param_t<SPATIAL_DIM>& conv_param,                            \
       const uint8_t* activations,                                             \
       int32_t a_zero_point,                                                   \
