@@ -913,7 +913,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
-    int prefetch) {
+    int prefetch,
+    bool is_weight_positional) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
 
   if (!cpuinfo_initialize()) {
@@ -926,7 +927,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         bit_rate,
         block_size,
         has_weight,
-        /*is_weight_positional*/ false,
+        is_weight_positional,
         normalize_by_lengths,
         prefetch);
   } else if (fbgemmHasAvx2Support()) {
@@ -936,7 +937,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         bit_rate,
         block_size,
         has_weight,
-        /*is_weight_positional*/ false,
+        is_weight_positional,
         normalize_by_lengths,
         prefetch);
   } else {
@@ -996,7 +997,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
     const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
-    int prefetch);
+    int prefetch,
+    bool is_weight_positional);
 
 template typename EmbeddingSpMDMRowWiseSparseKernelSignature<int32_t>::Type
 GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
@@ -1004,6 +1006,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
     const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
-    int prefetch);
+    int prefetch,
+    bool is_weight_positional);
 
 } // namespace fbgemm

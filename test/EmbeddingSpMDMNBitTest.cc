@@ -245,7 +245,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   int bit_rate, prefetch;
   tie(bit_rate,
       isIndex64b,
-      is_wt_positional, // ignored
+      is_wt_positional,
       prefetch,
       use_weight,
       normalize_by_lengths,
@@ -362,10 +362,16 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       auto kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
-          bit_rate, embedding_dim, use_weight, normalize_by_lengths, prefetch);
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
       success = kernel(
           batch_size,
           lengths_sum,
@@ -389,10 +395,16 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
-          output_ref.data());
+          output_ref.data(),
+          is_wt_positional);
 
       auto kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
-          bit_rate, embedding_dim, use_weight, normalize_by_lengths, prefetch);
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          normalize_by_lengths,
+          prefetch,
+          is_wt_positional);
       success = kernel(
           batch_size,
           lengths_sum,

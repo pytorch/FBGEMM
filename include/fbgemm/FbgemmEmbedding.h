@@ -69,7 +69,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     const std::int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
-    int prefetch = 16);
+    int prefetch = 16,
+    bool is_weight_positional = false);
 
 /**
  * @return The number of rows processed. If smaller than num_rows, an error
