@@ -1207,7 +1207,7 @@ void requantizeOutputProcessingGConvAvx2(
 
 #define INSTANTIATE_REQUANTIZE_BIAS_TYPE(                                      \
     A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE)                               \
-  template void                                                                \
+  template void FBGEMM_API                                                     \
   requantizeOutputProcessingAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE>( \
       uint8_t * out,                                                           \
       const int32_t* inp,                                                      \

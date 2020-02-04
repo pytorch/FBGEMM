@@ -973,40 +973,44 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
   }
 }
 
-template typename EmbeddingSpMDMKernelSignature<uint8_t, int64_t>::Type
-GenerateEmbeddingSpMDMNBit<int64_t>(
-    int bit_rate,
-    const int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<uint8_t, int64_t>::Type
+    GenerateEmbeddingSpMDMNBit<int64_t>(
+        int bit_rate,
+        const int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMKernelSignature<uint8_t, int32_t>::Type
-GenerateEmbeddingSpMDMNBit<int32_t>(
-    int bit_rate,
-    const int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<uint8_t, int32_t>::Type
+    GenerateEmbeddingSpMDMNBit<int32_t>(
+        int bit_rate,
+        const int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMRowWiseSparseKernelSignature<int64_t>::Type
-GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
-    int bit_rate,
-    const int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMRowWiseSparseKernelSignature<int64_t>::Type
+    GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
+        int bit_rate,
+        const int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMRowWiseSparseKernelSignature<int32_t>::Type
-GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
-    int bit_rate,
-    const int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMRowWiseSparseKernelSignature<int32_t>::Type
+    GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
+        int bit_rate,
+        const int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
 } // namespace fbgemm

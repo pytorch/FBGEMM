@@ -760,39 +760,43 @@ GenerateEmbeddingSpMDM(
   }
 }
 
-template typename EmbeddingSpMDMKernelSignature<float, std::int64_t>::Type
-GenerateEmbeddingSpMDM<float, std::int64_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<float, std::int64_t>::Type
+    GenerateEmbeddingSpMDM<float, std::int64_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMKernelSignature<float, std::int32_t>::Type
-GenerateEmbeddingSpMDM<float, std::int32_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<float, std::int32_t>::Type
+    GenerateEmbeddingSpMDM<float, std::int32_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMKernelSignature<float16, std::int64_t>::Type
-GenerateEmbeddingSpMDM<float16, std::int64_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<float16, std::int64_t>::Type
+    GenerateEmbeddingSpMDM<float16, std::int64_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template typename EmbeddingSpMDMKernelSignature<float16, std::int32_t>::Type
-GenerateEmbeddingSpMDM<float16, std::int32_t>(
-    const std::int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    int prefetch,
-    bool is_weight_positional);
+template FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<float16, std::int32_t>::Type
+    GenerateEmbeddingSpMDM<float16, std::int32_t>(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional);
 
-template
+template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
     GenerateEmbeddingSpMDM<std::uint8_t, std::int64_t>(
         const std::int64_t block_size,
@@ -801,7 +805,7 @@ template
         int prefetch,
         bool is_weight_positional);
 
-template
+template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int32_t>::Type
     GenerateEmbeddingSpMDM<std::uint8_t, std::int32_t>(
         const std::int64_t block_size,

@@ -1240,7 +1240,7 @@ void depthwise_3x3x3_per_channel_quantization_pad_1(
   }
 }
 
-template void depthwise_3x3x3_pad_1(
+template FBGEMM_API void depthwise_3x3x3_pad_1(
     int N,
     int T,
     int H,
@@ -1263,7 +1263,7 @@ template void depthwise_3x3x3_pad_1(
     int thread_id,
     int num_threads);
 
-template void depthwise_3x3x3_pad_1(
+template FBGEMM_API void depthwise_3x3x3_pad_1(
     int N,
     int T,
     int H,
@@ -1286,7 +1286,7 @@ template void depthwise_3x3x3_pad_1(
     int thread_id,
     int num_threads);
 
-template void depthwise_3x3x3_per_channel_quantization_pad_1(
+template FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     int N,
     int T,
     int H,
@@ -1309,7 +1309,7 @@ template void depthwise_3x3x3_per_channel_quantization_pad_1(
     int thread_id,
     int num_threads);
 
-template void depthwise_3x3x3_per_channel_quantization_pad_1(
+template FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     int N,
     int T,
     int H,

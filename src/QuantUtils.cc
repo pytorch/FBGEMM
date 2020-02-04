@@ -1,3 +1,5 @@
+#define FBGEMM_EXPORTS
+
 #include "fbgemm/QuantUtils.h"
 
 #include <cpuinfo.h>
@@ -161,7 +163,7 @@ void ChooseRequantizationMultiplier(
 
 #define FBGEMM_SPECIALIZED_QUANTIZE(T)           \
   template <>                                    \
-  void Quantize<T>(                              \
+  FBGEMM_API void Quantize<T>(                   \
       const float* src,                          \
       T* dst,                                    \
       const int len,                             \
@@ -177,7 +179,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 
 #define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
   template <>                                                           \
-  void Quantize<T>(                                                     \
+  FBGEMM_API void Quantize<T>(                                          \
       const float* src,                                                 \
       T* dst,                                                           \
       int len,                                                          \
@@ -200,7 +202,7 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t)
 
 #define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
   template <>                                                     \
-  void QuantizeGroupwise<T, layout_t::KCX>(                       \
+  FBGEMM_API void QuantizeGroupwise<T, layout_t::KCX>(            \
       const float* src,                                           \
       int N,                                                      \
       int C,                                                      \
@@ -232,7 +234,7 @@ FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX
 
 template <>
-void QuantizeGroupwise<uint8_t, layout_t::KCX>(
+FBGEMM_API void QuantizeGroupwise<uint8_t, layout_t::KCX>(
     const float* src,
     int K,
     int C,
@@ -275,7 +277,7 @@ void QuantizeGroupwise<uint8_t, layout_t::KCX>(
 
 #define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(T)                \
   template <>                                                     \
-  void QuantizeGroupwise<T, layout_t::KXC>(                       \
+  FBGEMM_API void QuantizeGroupwise<T, layout_t::KXC>(            \
       const float* src,                                           \
       int K,                                                      \
       int C,                                                      \
@@ -321,7 +323,7 @@ int64_t SaturatingRoundingMulWithShift(int32_t a, int32_t b, int right_shift) {
 
 #define FBGEMM_SPECIALIZED_REQUANTIZE(T)      \
   template <>                                 \
-  void Requantize<T>(                         \
+  FBGEMM_API void Requantize<T>(              \
       const int32_t* src,                     \
       T* dst,                                 \
       const int len,                          \

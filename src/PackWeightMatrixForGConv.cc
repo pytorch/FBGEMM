@@ -257,8 +257,8 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::unpack(T* origin_buf) {
   pack_unpack_(const_cast<const T*>(pdata_), origin_buf, false);
 }
 
-template class PackWeightMatrixForGConv<int8_t, int32_t, 2>;
-template class PackWeightMatrixForGConv<int8_t, int16_t, 2>;
-template class PackWeightMatrixForGConv<int8_t, int32_t, 3>;
-template class PackWeightMatrixForGConv<int8_t, int16_t, 3>;
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int32_t, 2>;
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int16_t, 2>;
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int32_t, 3>;
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int16_t, 3>;
 } // namespace fbgemm

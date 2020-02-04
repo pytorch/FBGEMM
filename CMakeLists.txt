@@ -155,7 +155,6 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
 #calls with _dllimport attribute
 #2) MSVC uses /MD in default cxx compiling flags,
 #need to change it to /MT in static case
-#3) Use /NODEFAULTLIB:MSVCRT to avoid linker complaints.
 if(MSVC)
   if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
     target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
@@ -171,11 +170,6 @@ if(MSVC)
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
-
-  set(CMAKE_EXE_LINKER_FLAGS
-    "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:MSVCRT")
-  set(CMAKE_STATIC_LINKER_FLAGS
-    "${CMAKE_STATIC_LINKER_FLAGS} /NODEFAULTLIB:MSVCRT")
 else(MSVC)
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
