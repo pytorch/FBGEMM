@@ -100,8 +100,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
     int fused_embedding_dim =
         (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
         2 * sizeof(float16);
-    uint8_t* fused_embedding_table =
-        new uint8_t[num_rows * fused_embedding_dim];
+    vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
     for (int i = 0; i < num_rows; i++) {
       for (int ii = 0;
            ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
@@ -110,7 +109,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
             entries(generator);
       }
       float16* scale_bias = reinterpret_cast<float16*>(
-          fused_embedding_table + i * fused_embedding_dim +
+          fused_embedding_table.data() + i * fused_embedding_dim +
           (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
@@ -167,7 +166,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -186,7 +185,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -198,7 +197,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -217,7 +216,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -234,7 +233,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
             << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
       }
     }
-    delete[] fused_embedding_table;
   } // end for input
 }
 
@@ -266,6 +264,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
+    // Create mapping table for rowwise sparsity
     vector<int64_t> mapping_table(num_rows);
     bernoulli_distribution row_prune_dist(sparsity);
     int num_compressed_rows = 0;
@@ -287,8 +286,8 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
     int fused_embedding_dim =
         (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
         2 * sizeof(float16);
-    uint8_t* fused_embedding_table =
-        new uint8_t[num_compressed_rows * fused_embedding_dim];
+    vector<uint8_t> fused_embedding_table(
+        num_compressed_rows * fused_embedding_dim);
     for (int i = 0; i < num_compressed_rows; i++) {
       for (int ii = 0;
            ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
@@ -297,7 +296,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
             entries(generator);
       }
       float16* scale_bias = reinterpret_cast<float16*>(
-          fused_embedding_table + i * fused_embedding_dim +
+          fused_embedding_table.data() + i * fused_embedding_dim +
           (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte);
       float scale = embedding_distribution(generator);
       float bias = embedding_distribution(generator);
@@ -306,7 +305,8 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
     }
 
     // Generate lengths
-    uniform_int_distribution<int> length_distribution(1, 2 * average_len + 1);
+    uniform_int_distribution<int> length_distribution(
+        1, std::min(2 * average_len + 1, num_rows));
     vector<int> lengths(batch_size);
     for (int i = 0; i < batch_size; ++i) {
       lengths[i] = empty_indices ? 0 : length_distribution(generator);
@@ -356,7 +356,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           mapping_table.data(),
           lengths.data(),
@@ -376,7 +376,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -389,7 +389,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           mapping_table_32.data(),
           lengths.data(),
@@ -409,7 +409,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           batch_size,
           lengths_sum,
           num_rows,
-          fused_embedding_table,
+          fused_embedding_table.data(),
           empty_indices ? nullptr : indices_32.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
@@ -427,6 +427,5 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
             << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
       }
     }
-    delete[] fused_embedding_table;
   } // end for input
 }
