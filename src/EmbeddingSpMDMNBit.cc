@@ -158,7 +158,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
         if (normalize_by_lengths) {
           filename += "_normalize_by_lengths";
         }
-        if (rowwise_sparse) {
+        if (ROWWISE_SPARSE) {
           filename += "_rowwise_sparse";
         }
         filename += ".txt";
@@ -191,7 +191,6 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
         x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 12 or 13
         ++reg_id;
         x86::Gp scratchReg1_ = a->gpz(reg_id); // 13 or 14
-        x86::Gp scratchReg1D_ = a->gpz(reg_id).r32();
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
         x86::Gp scratchReg3_;
@@ -224,7 +223,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
                     const indxType*, // indices
                     const int*, // lengths
                     const float*, // weights
-                    float*>(asmjit::CallConv::kIdHost));
+                    float* /* out */>(asmjit::CallConv::kIdHost));
         }
 
         asmjit::FuncFrame frame;
@@ -907,7 +906,7 @@ GenerateEmbeddingSpMDMNBit(
 }
 
 template <typename indxType>
-typename EmbeddingSpMDMRowWiseSparseKernelSignature<indxType>::Type
+typename EmbeddingSpMDMRowWiseSparseKernelSignature<uint8_t, indxType>::Type
 GenerateEmbeddingSpMDMNBitRowWiseSparse(
     int bit_rate,
     const int64_t block_size,
@@ -968,7 +967,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
               weights,
               normalize_by_lengths,
               out,
-              /*is_weight_positional*/ false);
+              is_weight_positional);
         };
   }
 }
@@ -994,7 +993,7 @@ template FBGEMM_API
         bool is_weight_positional);
 
 template FBGEMM_API
-    typename EmbeddingSpMDMRowWiseSparseKernelSignature<int64_t>::Type
+    typename EmbeddingSpMDMRowWiseSparseKernelSignature<uint8_t, int64_t>::Type
     GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
         int bit_rate,
         const int64_t block_size,
@@ -1004,7 +1003,7 @@ template FBGEMM_API
         bool is_weight_positional);
 
 template FBGEMM_API
-    typename EmbeddingSpMDMRowWiseSparseKernelSignature<int32_t>::Type
+    typename EmbeddingSpMDMRowWiseSparseKernelSignature<uint8_t, int32_t>::Type
     GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
         int bit_rate,
         const int64_t block_size,

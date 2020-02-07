@@ -26,6 +26,10 @@ class EmbeddingSpMDMKernelSignature {
       float* out)>;
 };
 
+/**
+ * @tparam inType can be float or uint8_t
+ * @tparam IndexType can be int32_t or int64_t
+ */
 template <typename inType, typename IndexType>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<inType, IndexType>::Type
 GenerateEmbeddingSpMDM(
@@ -35,6 +39,10 @@ GenerateEmbeddingSpMDM(
     int prefetch = 16,
     bool is_weight_positional = false);
 
+/**
+ * @tparam IndexType can be int32_t or int64_t
+ * @param bit_rate can be 2 or 4
+ */
 template <typename IndexType>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<std::uint8_t, IndexType>::Type
 GenerateEmbeddingSpMDMNBit(
@@ -45,16 +53,15 @@ GenerateEmbeddingSpMDMNBit(
     int prefetch = 16,
     bool is_weight_positional = false);
 
-template <typename IndexType>
+template <typename inType, typename IndexType>
 class EmbeddingSpMDMRowWiseSparseKernelSignature {
  public:
   using Type = std::function<bool(
-
       std::int64_t output_size,
       std::int64_t index_size,
       std::int64_t uncompressed_data_size,
       // TODO: add compressed_data_size and check array bound
-      const std::uint8_t* input,
+      const inType* input,
       const IndexType* indices,
       const int* lengths,
       const float* weights, // optional, can be null for non-weighted sum
@@ -62,8 +69,28 @@ class EmbeddingSpMDMRowWiseSparseKernelSignature {
       const IndexType* compressed_indices_table)>;
 };
 
+/**
+ * @tparam inType can be float or uint8_t
+ * @tparam IndexType can be int32_t or int64_t
+ */
+template <typename inType, typename IndexType>
+FBGEMM_API
+    typename EmbeddingSpMDMRowWiseSparseKernelSignature<inType, IndexType>::Type
+    GenerateEmbeddingSpMDMRowWiseSparse(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch = 16,
+        bool is_weight_positional = false);
+
+/**
+ * @tparam IndexType can be int32_t or int64_t
+ * @param bit_rate can be 2 or 4
+ */
 template <typename IndexType>
-FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<IndexType>::Type
+FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<
+    std::uint8_t,
+    IndexType>::Type
 GenerateEmbeddingSpMDMNBitRowWiseSparse(
     int bit_rate,
     const std::int64_t block_size,
