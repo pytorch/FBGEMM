@@ -415,14 +415,9 @@ void cblas_gemm_compute(
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
-  // By some reason, if packed B is using packing layout for avx2, we just use
-  // avx2 even if avx512 is available.
-  static inst_set_t isa = fbgemmInstructionSet();
 
-  bool use_avx512 = isZmm(isa) &&
-      (Bp.blockColSize() ==
-       simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS *
-           Bp.kernelNumColBlocks());
+  static inst_set_t isa = fbgemmInstructionSet();
+  bool use_avx512 = isZmm(isa);
 
   // private scratchpad storage
   static thread_local unique_ptr<std::array<float, 256 * 1024>> scratchpad(
