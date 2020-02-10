@@ -247,8 +247,8 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
            std::bind(areEqual, std::placeholders::_1, 2)));
 }
 
-template bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
-template bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
+template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
+template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
 bool fbgemmSupportedCPU() {
   return (cpuinfo_initialize() && fbgemmHasAvx2Support());
@@ -455,7 +455,7 @@ INSTANTIATE_RELU(int16_t);
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
 
-template void fbgemmPacked(
+template FBGEMM_API void fbgemmPacked(
     PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
     float* C,
@@ -525,7 +525,7 @@ INSTANTIATE_Q_GRANS(true);
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
 
-template void fbgemmPacked(
+template FBGEMM_API void fbgemmPacked(
     PackMatrix<PackAWithRowOffset<uint8_t, int16_t>, uint8_t, int16_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
     float* C,
@@ -586,7 +586,7 @@ INSTANTIATE_SPATIAL_DIM(int16_t);
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_BASE
 
-template void fbgemmPacked(
+template FBGEMM_API void fbgemmPacked(
     PackMatrix<PackAWithQuantRowOffset<uint8_t, int32_t>, uint8_t, int32_t>&
         packA,
     PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>& packB,
@@ -598,7 +598,7 @@ template void fbgemmPacked(
     int num_threads,
     const BlockingFactors* blocking_params);
 
-template void fbgemmPacked(
+template FBGEMM_API void fbgemmPacked(
     PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>& packA,
     PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>& packB,
     int32_t* C,
