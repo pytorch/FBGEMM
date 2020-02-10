@@ -273,7 +273,8 @@ target_include_directories(fbgemm BEFORE
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
 
-target_link_libraries(fbgemm asmjit cpuinfo)
+target_link_libraries(fbgemm $<BUILD_INTERFACE:asmjit>
+  $<BUILD_INTERFACE:cpuinfo>)
 add_dependencies(fbgemm asmjit cpuinfo)
 
 install(TARGETS fbgemm EXPORT fbgemmLibraryConfig
@@ -283,6 +284,9 @@ install(TARGETS fbgemm EXPORT fbgemmLibraryConfig
 
 install(FILES ${FBGEMM_PUBLIC_HEADERS}
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
+
+install(EXPORT fbgemmLibraryConfig DESTINATION share/cmake/fbgemm
+  FILE fbgemmLibraryConfig.cmake)
 
 #Make project importable from the build directory
 #export(TARGETS fbgemm asmjit FILE fbgemmLibraryConfig.cmake)
