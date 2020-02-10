@@ -6,9 +6,8 @@
  */
 #pragma once
 
-#include <tuple> // for tie
-
 #include "fbgemm/UtilsAvx2.h"
+#include "fbgemm/Utils.h"
 #include "src/FbgemmI8DepthwiseAvx2-inl.h"
 #include "src/MaskAvx2.h"
 
@@ -572,43 +571,20 @@ static ALWAYS_INLINE void depthwise_2d_(
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int n_begin, n_end;
-  int h_begin, h_end, w_begin, w_end;
-  if (N >= num_threads) {
-    int n_per_thread = (N + num_threads - 1) / num_threads;
-    n_begin = std::min(thread_id * n_per_thread, N);
-    n_end = std::min(n_begin + n_per_thread, N);
-    h_begin = 0;
-    h_end = H_OUT;
-    w_begin = 0;
-    w_end = W_OUT;
-  } else {
-    int nthreads_per_n = num_threads / N;
-    n_begin = std::min(thread_id / nthreads_per_n, N);
-    n_end = std::min(n_begin + 1, N);
-
-    int tid_of_n_begin = std::min(n_begin * nthreads_per_n, num_threads);
-    int tid_of_n_end = std::min(tid_of_n_begin + nthreads_per_n, num_threads);
-    int nthreads_of_n = tid_of_n_end - tid_of_n_begin;
-    int tid_within_n = thread_id - tid_of_n_begin;
-    assert(tid_within_n >= 0);
-    assert(tid_within_n < nthreads_of_n);
-
-    // n is processed by num_threads_h * num_threads_w 2D grid of threads
-    int num_threads_h, num_threads_w;
-    // num_threads_w <= num_threads_h
-    std::tie(num_threads_w, num_threads_h) = closest_factors_(nthreads_of_n);
-    int tid_h = tid_within_n / num_threads_w;
-    int tid_w = tid_within_n % num_threads_w;
-
-    int h_per_thread = (H_OUT + num_threads_h - 1) / num_threads_h;
-    h_begin = std::min(tid_h * h_per_thread, H_OUT);
-    h_end = std::min(h_begin + h_per_thread, H_OUT);
-
-    int w_per_thread = (W_OUT + num_threads_w - 1) / num_threads_w;
-    w_begin = std::min(tid_w * w_per_thread, W_OUT);
-    w_end = std::min(w_begin + w_per_thread, W_OUT);
-  }
+  int n_begin, n_end, h_begin, h_end, w_begin, w_end;
+  // Reuse the 3-dim partition scheme for parallelization in matrix
+  // multiplication.
+  thread_type_t th_info =
+      fbgemmGetThreadPartition(N, H_OUT, W_OUT, thread_id, num_threads);
+  // Calculate the begin and end index along the batch (N) dimension
+  fbgemmPartition1D(
+      th_info.g_thread_id, th_info.g_num_threads, N, n_begin, n_end);
+  // Calculate the begin and end index along the H dimension
+  fbgemmPartition1D(
+      th_info.m_thread_id, th_info.m_num_threads, H_OUT, h_begin, h_end);
+  // Calculate the begin and end index along the W dimension
+  fbgemmPartition1D(
+      th_info.n_thread_id, th_info.n_num_threads, W_OUT, w_begin, w_end);
 
   for (int n = n_begin; n < n_end; ++n) {
     const std::uint8_t* A_base = A + n * H * W * K;
@@ -925,43 +901,20 @@ static ALWAYS_INLINE void depthwise_2d_per_channel_quantization_(
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int n_begin, n_end;
-  int h_begin, h_end, w_begin, w_end;
-  if (N >= num_threads) {
-    int n_per_thread = (N + num_threads - 1) / num_threads;
-    n_begin = std::min(thread_id * n_per_thread, N);
-    n_end = std::min(n_begin + n_per_thread, N);
-    h_begin = 0;
-    h_end = H_OUT;
-    w_begin = 0;
-    w_end = W_OUT;
-  } else {
-    int nthreads_per_n = num_threads / N;
-    n_begin = std::min(thread_id / nthreads_per_n, N);
-    n_end = std::min(n_begin + 1, N);
-
-    int tid_of_n_begin = std::min(n_begin * nthreads_per_n, num_threads);
-    int tid_of_n_end = std::min(tid_of_n_begin + nthreads_per_n, num_threads);
-    int nthreads_of_n = tid_of_n_end - tid_of_n_begin;
-    int tid_within_n = thread_id - tid_of_n_begin;
-    assert(tid_within_n >= 0);
-    assert(tid_within_n < nthreads_of_n);
-
-    // n is processed by num_threads_h * num_threads_w 2D grid of threads
-    int num_threads_h, num_threads_w;
-    // num_threads_w <= num_threads_h
-    std::tie(num_threads_w, num_threads_h) = closest_factors_(nthreads_of_n);
-    int tid_h = tid_within_n / num_threads_w;
-    int tid_w = tid_within_n % num_threads_w;
-
-    int h_per_thread = (H_OUT + num_threads_h - 1) / num_threads_h;
-    h_begin = std::min(tid_h * h_per_thread, H_OUT);
-    h_end = std::min(h_begin + h_per_thread, H_OUT);
-
-    int w_per_thread = (W_OUT + num_threads_w - 1) / num_threads_w;
-    w_begin = std::min(tid_w * w_per_thread, W_OUT);
-    w_end = std::min(w_begin + w_per_thread, W_OUT);
-  }
+  int n_begin, n_end, h_begin, h_end, w_begin, w_end;
+  // Reuse the 3-dim partition scheme for parallelization in matrix
+  // multiplication.
+  thread_type_t th_info =
+      fbgemmGetThreadPartition(N, H_OUT, W_OUT, thread_id, num_threads);
+  // Calculate the begin and end index along the batch (N) dimension
+  fbgemmPartition1D(
+      th_info.g_thread_id, th_info.g_num_threads, N, n_begin, n_end);
+  // Calculate the begin and end index along the H dimension
+  fbgemmPartition1D(
+      th_info.m_thread_id, th_info.m_num_threads, H_OUT, h_begin, h_end);
+  // Calculate the begin and end index along the W dimension
+  fbgemmPartition1D(
+      th_info.n_thread_id, th_info.n_num_threads, W_OUT, w_begin, w_end);
 
   for (int n = n_begin; n < n_end; ++n) {
     const std::uint8_t* A_base = A + n * H * W * K;
