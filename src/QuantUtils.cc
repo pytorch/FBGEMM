@@ -337,7 +337,7 @@ FBGEMM_SPECIALIZED_REQUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_REQUANTIZE
 
 template <>
-void Requantize<uint8_t>(
+FBGEMM_API void Requantize<uint8_t>(
     const int32_t* src,
     uint8_t* dst,
     const int len,
