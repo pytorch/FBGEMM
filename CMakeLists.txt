@@ -22,6 +22,8 @@ set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+#add address sanitizer
+set(USE_SANITIZER "" CACHE string "options include address, leak, ...")
 
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
@@ -178,6 +180,26 @@ else(MSVC)
     "-mavx512vl" "-masm=intel")
 endif(MSVC)
 
+if(USE_SANITIZER)
+  if (USE_SANITIZER MATCHES "([Aa]ddress)")
+    target_compile_options(fbgemm_generic PRIVATE
+      "-fsanitize=address" "-fno-omit-frame-pointer")
+    target_compile_options(fbgemm_avx2 PRIVATE
+      "-fsanitize=address" "-fno-omit-frame-pointer")
+    target_compile_options(fbgemm_avx512 PRIVATE
+      "-fsanitize=address" "-fno-omit-frame-pointer")
+  elseif (USE_SANITIZER MATCHES "([Ll]eak)")
+    target_compile_options(fbgemm_generic PRIVATE
+      "-fsanitize=leak" "-fno-omit-frame-pointer")
+    target_compile_options(fbgemm_avx2 PRIVATE
+      "-fsanitize=leak" "-fno-omit-frame-pointer")
+    target_compile_options(fbgemm_avx512 PRIVATE
+      "-fsanitize=leak" "-fno-omit-frame-pointer")
+  else()
+    message(FATAL_ERROR "USE_SANITIZER = ${USE_SANITIZER}: not supported!")
+  endif()
+endif()
+
 message(WARNING "==========")
 message(WARNING "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 message(WARNING "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
@@ -267,6 +289,11 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
+endif()
+
+if(USE_SANITIZER)
+  target_link_options(fbgemm PRIVATE
+    "-fsanitize=address" "-fno-omit-frame-pointer")
 endif()
 
 target_include_directories(fbgemm BEFORE

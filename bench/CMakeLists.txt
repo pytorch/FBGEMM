@@ -17,6 +17,13 @@ macro(add_benchmark BENCHNAME)
   target_link_libraries(${BENCHNAME} fbgemm)
   add_dependencies(${BENCHNAME} fbgemm)
 
+  if (USE_SANITIZER)
+    message(WARNING "USING SANITIZER IN TEST")
+    target_compile_options(${BENCHNAME} PRIVATE
+      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+    target_link_options(${BENCHNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
+  endif()
+
   if(${OpenMP_FOUND})
     message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
     target_link_libraries(${BENCHNAME} "${OpenMP_CXX_LIBRARIES}")
