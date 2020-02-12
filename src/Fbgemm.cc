@@ -265,6 +265,12 @@ template class FBGEMM_API
     ReQuantizeForFloat<false, QuantizationGranularity::GROUP>;
 template class FBGEMM_API
     ReQuantizeForFloat<false, QuantizationGranularity::OUT_CHANNEL>;
+template class FBGEMM_API
+    ReQuantizeForFloat<true, QuantizationGranularity::TENSOR>;
+template class FBGEMM_API
+    ReQuantizeForFloat<true, QuantizationGranularity::GROUP>;
+template class FBGEMM_API
+    ReQuantizeForFloat<true, QuantizationGranularity::OUT_CHANNEL>;
 
 #define INSTANTIATE_BASE(FNAME, RELU, Q_GRAN) \
   template class FBGEMM_API                   \
@@ -285,6 +291,11 @@ INSTANTIATE_RELU(DoSConvOnInpBuffer);
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRAN
 #undef INSTANTIATE_BASE
+
+template class FBGEMM_API DoSpmdmOnInpBuffer<
+    float,
+    std::int32_t,
+    ReQuantizeForFloat<false, QuantizationGranularity::TENSOR>>;
 
 #define INSTANTIATE_BASE(RELU, Q_GRAN, BIAS_TYPE) \
   template class FBGEMM_API ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>;
