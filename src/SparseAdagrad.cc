@@ -654,31 +654,30 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
 
   if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
     static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
-    const int* mask_avx2 = internal::avx2_ps_or_epi32_masks
-        [block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS];
+    constexpr int VLEN = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+    const int* mask_avx2 = &internal::avx2_ps_or_epi32_combined_mask
+                               [(VLEN - (block_size % VLEN)) % VLEN];
     const auto original_func =
         kernel_generator.getOrCreate(block_size, prefetch, rowwise);
-    const auto lambda_func =
-        [=](int num_rows, // number of rows reading
-            std::uint64_t param_size, // total number of parameters
-            float* w, // input/output parameters
-            const float* g, // input gradients
-            float* h, // input/output momentums
-            const IndexType* indices, // indices of each row
-            float epsilon,
-            float lr) {
-          return original_func(
-              num_rows, // number of rows reading
-              param_size, // total number of parameters
-              w, // input/output parameters
-              g, // input gradients
-              h, // input/output momentums
-              indices, // indices of each row
-              epsilon,
-              lr,
-              mask_avx2);
-        };
-    return lambda_func;
+    return [=](int num_rows, // number of rows reading
+               std::uint64_t param_size, // total number of parameters
+               float* w, // input/output parameters
+               const float* g, // input gradients
+               float* h, // input/output momentums
+               const IndexType* indices, // indices of each row
+               float epsilon,
+               float lr) {
+      return original_func(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w, // input/output parameters
+          g, // input gradients
+          h, // input/output momentums
+          indices, // indices of each row
+          epsilon,
+          lr,
+          mask_avx2);
+    };
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
