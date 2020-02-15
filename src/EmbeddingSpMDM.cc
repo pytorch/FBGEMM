@@ -19,6 +19,7 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
+#include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/Types.h"
 
@@ -42,7 +43,8 @@ class ReturnFunctionSignature<inType, indxType, false> {
       const indxType* indices,
       const int* lengths,
       const float* weights,
-      float* out);
+      float* out,
+      const int* mask);
 };
 
 template <typename inType, typename indxType>
@@ -58,7 +60,8 @@ class ReturnFunctionSignature<inType, indxType, true> {
       const int* lengths,
       const float* weights,
       float* out,
-      const indxType* compressed_indices_table);
+      const indxType* compressed_indices_table,
+      const int* mask);
 };
 
 template <
@@ -189,11 +192,11 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           ++reg_id;
           compressed_indices_table = a->gpz(reg_id); // 12
         }
+        ++reg_id;
+        x86::Gp scratchReg1_ = a->gpz(reg_id); // 12 or 13, also for mask
 
         ++reg_id;
-        x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 12 or 13
-        ++reg_id;
-        x86::Gp scratchReg1_ = a->gpz(reg_id); // 13 or 14
+        x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
 
@@ -210,8 +213,8 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
                     const int*, // lengths
                     const float*, // weights
                     float*, // out
-                    const indxType* /* compressed_indices_table */>(
-              asmjit::CallConv::kIdHost));
+                    const indxType*, // compressed_indices_table and then mask
+                    const int*>(asmjit::CallConv::kIdHost));
         } else {
           func.init(asmjit::FuncSignatureT<
                     bool,
@@ -222,7 +225,8 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
                     const indxType*, // indices
                     const int*, // lengths
                     const float*, // weights
-                    float* /* out */>(asmjit::CallConv::kIdHost));
+                    float*, // out and then mask
+                    const int*>(asmjit::CallConv::kIdHost));
         }
 
         asmjit::FuncFrame frame;
@@ -259,7 +263,8 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
               lengths,
               weights,
               out,
-              compressed_indices_table);
+              compressed_indices_table,
+              scratchReg1_);
         } else {
           args.assignAll(
               output_size,
@@ -269,7 +274,8 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
               indices,
               lengths,
               weights,
-              out);
+              out,
+              scratchReg1_);
         }
 
         args.updateFuncFrame(frame);
@@ -331,26 +337,22 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
 
         if (remainder) {
           if (instSet == inst_set_t::avx2) {
-            a->lea(
-                x86::rsp,
-                x86::dword_ptr(
-                    x86::rsp, static_cast<int32_t>(-vlen * sizeof(int32_t))));
-            for (int i = 0; i < remainder; i++) {
-              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), -1);
-            }
-            for (int i = remainder; i < vlen; i++) {
-              a->mov(x86::dword_ptr(x86::rsp, i * sizeof(int32_t)), 0);
-            }
-            a->vmovups(mask_vreg, x86::ymmword_ptr(x86::rsp));
+            a->vmovups(
+                mask_vreg,
+                x86::ymmword_ptr(
+                    scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
             if (remainder > 1 && is16bit) {
               a->vmovups(
                   mask_fp16_vreg,
                   x86::xmmword_ptr(
-                      x86::rsp, (remainder - remainder / 2) * sizeof(int32_t)));
+                      scratchReg1_,
+                      (vlen / 2 - remainder / 2) % (vlen / 2) *
+                          sizeof(int32_t)));
               // We need to keep using the stack during the main loop
-            } else {
               a->lea(
-                  x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+                  x86::rsp,
+                  x86::dword_ptr(
+                      x86::rsp, static_cast<int32_t>(-vlen * sizeof(int32_t))));
             }
           } else {
             a->mov(scratchReg1_, (1 << remainder) - 1);
@@ -810,45 +812,84 @@ GenerateEmbeddingSpMDM(
               is_weight_positional);
         };
   } else if (fbgemmHasAvx512Support()) {
-    return kernel_generator.template getOrCreate<inst_set_t::avx512>(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
+    const auto original_func =
+        kernel_generator.template getOrCreate<inst_set_t::avx512>(
+            block_size,
+            has_weight,
+            is_weight_positional,
+            normalize_by_lengths,
+            prefetch);
+    return [=](std::int64_t output_size,
+               std::int64_t index_size,
+               std::int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const int* lengths,
+               const float* weights,
+               float* out) {
+      return original_func(
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          lengths,
+          weights,
+          out,
+          nullptr /* mask not used in avx512 */);
+    };
   } else if (fbgemmHasAvx2Support()) {
-    return kernel_generator.template getOrCreate<inst_set_t::avx2>(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
+    const auto original_func =
+        kernel_generator.template getOrCreate<inst_set_t::avx2>(
+            block_size,
+            has_weight,
+            is_weight_positional,
+            normalize_by_lengths,
+            prefetch);
+    return [=](std::int64_t output_size,
+               std::int64_t index_size,
+               std::int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const int* lengths,
+               const float* weights,
+               float* out) {
+      return original_func(
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          lengths,
+          weights,
+          out,
+          internal::avx2_ps_or_epi32_combined_mask);
+    };
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
-    return
-        [=](std::int64_t output_size,
-            std::int64_t index_size,
-            std::int64_t data_size,
-            const inType* input,
-            const indxType* indices,
-            const int* lengths,
-            const float* weights, // optional, can be null for non-weighted sum
-            float* out) {
-          return EmbeddingSpMDM_ref(
-              block_size,
-              output_size,
-              index_size,
-              data_size,
-              input,
-              indices,
-              lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional);
-        };
+    return [=](std::int64_t output_size,
+               std::int64_t index_size,
+               std::int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const int* lengths,
+               const float* weights,
+               float* out) {
+      return EmbeddingSpMDM_ref(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional);
+    };
   }
 }
 
@@ -866,21 +907,65 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   if (fbgemmHasAvx512Support()) {
     static GenEmbeddingSpMDMLookup<inType, indxType, true /* rowwise_sparse */>
         kernel_generator;
-    return kernel_generator.template getOrCreate<inst_set_t::avx512>(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
+    const auto original_func =
+        kernel_generator.template getOrCreate<inst_set_t::avx512>(
+            block_size,
+            has_weight,
+            is_weight_positional,
+            normalize_by_lengths,
+            prefetch);
+    return [=](std::int64_t output_size,
+               std::int64_t index_size,
+               std::int64_t uncompressed_data_size,
+               const inType* input,
+               const indxType* indices,
+               const int* lengths,
+               const float* weights,
+               float* out,
+               const indxType* compressed_indices_table) {
+      return original_func(
+          output_size,
+          index_size,
+          uncompressed_data_size,
+          input,
+          indices,
+          lengths,
+          weights,
+          out,
+          compressed_indices_table,
+          nullptr /* mask not used in avx512 */);
+    };
   } else if (fbgemmHasAvx2Support()) {
     static GenEmbeddingSpMDMLookup<inType, indxType, true /* rowwise_sparse */>
         kernel_generator;
-    return kernel_generator.template getOrCreate<inst_set_t::avx2>(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch);
+    const auto original_func =
+        kernel_generator.template getOrCreate<inst_set_t::avx2>(
+            block_size,
+            has_weight,
+            is_weight_positional,
+            normalize_by_lengths,
+            prefetch);
+    return [=](std::int64_t output_size,
+               std::int64_t index_size,
+               std::int64_t uncompressed_data_size,
+               const inType* input,
+               const indxType* indices,
+               const int* lengths,
+               const float* weights,
+               float* out,
+               const indxType* compressed_indices_table) {
+      return original_func(
+          output_size,
+          index_size,
+          uncompressed_data_size,
+          input,
+          indices,
+          lengths,
+          weights,
+          out,
+          compressed_indices_table,
+          internal::avx2_ps_or_epi32_combined_mask);
+    };
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
