@@ -315,6 +315,11 @@ install(FILES ${FBGEMM_PUBLIC_HEADERS}
 install(EXPORT fbgemmLibraryConfig DESTINATION share/cmake/fbgemm
   FILE fbgemmLibraryConfig.cmake)
 
+if(MSVC)
+  install(TARGETS fbgemm DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS asmjit DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif()
+
 #Make project importable from the build directory
 #export(TARGETS fbgemm asmjit FILE fbgemmLibraryConfig.cmake)
 
