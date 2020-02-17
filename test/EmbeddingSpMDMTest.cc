@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <algorithm>
-#include <numeric>
+#include <numeric> // for accumulate and iota
 #include <ostream>
 #include <random>
 #include <stdexcept>
@@ -22,7 +22,7 @@ using namespace fbgemm;
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
-      // batch size, number of rows of table, emb dim , avg lengthl
+      // batch size, number of rows of table, emb dim , avg length
       {1, 8, 8, 4},
       {2, 8, 16, 4},
       {10, 4000, 32, 100},

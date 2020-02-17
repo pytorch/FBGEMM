@@ -8,12 +8,12 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <random>
 #include <set>
 #include <vector>
-#include <iomanip>
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
@@ -41,17 +41,17 @@ static vector<vector<int>> GetInputs_() {
 void run_benchmark(
     const int num_rows, // number of rows reading
     const int block_size, // number of parameters per row
-    const std::uint64_t param_size, // total number of parameters
+    const uint64_t param_size, // total number of parameters
     const bool isIndex64b) {
   vector<char> llc(64L * 1024L * 1024L, 1.0);
-  vector<float> g(param_size); // gradients
+  vector<float> g(num_rows * block_size); // gradients
   vector<float> h(param_size); // input momentums
   vector<float> w(param_size); // input params
   vector<float> h_ref(param_size);
   vector<float> w_ref(param_size);
 
   default_random_engine generator;
-  normal_distribution<float> h_w_distribution;
+  // normal_distribution<float> h_w_distribution;
 
   // TODO: check appropriate vals for g,h,w
   for (int i = 0; i < g.size(); ++i) {
@@ -64,12 +64,12 @@ void run_benchmark(
     w_ref[i] = w[i] = 3 + i; // h_w_distribution(generator);
   }
 
-  vector<std::int64_t> indices(num_rows);
-  vector<std::int32_t> indices_32(num_rows);
+  vector<int64_t> indices(num_rows);
+  vector<int32_t> indices_32(num_rows);
   float epsilon = 1e-5;
   float lr = 0.5;
 
-  uniform_int_distribution<std::int64_t> length_distribution(0, num_rows - 1);
+  uniform_int_distribution<int64_t> length_distribution(0, num_rows - 1);
   for (int i = 0; i < num_rows; ++i) {
     indices_32[i] = indices[i] = length_distribution(generator);
   }
@@ -82,8 +82,7 @@ void run_benchmark(
   double t = 0.0;
   if (isIndex64b) {
 #ifdef PRE_GENERATE
-    auto fn_indices_64 = GenerateSparseAdaGrad<std::int64_t>(
-        block_size);
+    auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(block_size);
 #endif
 
     t = measureWithWarmup(
@@ -99,7 +98,7 @@ void run_benchmark(
               epsilon,
               lr);
 #else
-          fbgemm::SparseAdaGrad(
+          SparseAdaGrad(
               num_rows, // number of rows reading
               block_size, // number of parameters per row
               param_size, // total number of parameters
@@ -116,7 +115,7 @@ void run_benchmark(
         [&]() { llc_flush(llc); });
 
     for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      fbgemm::sparse_adagrad_ref(
+      sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per row
           param_size, // total number of parameters
@@ -127,11 +126,9 @@ void run_benchmark(
           epsilon,
           lr);
     }
-  }
-  else {
+  } else {
 #ifdef PRE_GENERATE
-    auto fn_indices_32 = GenerateSparseAdaGrad<std::int32_t>(
-        block_size);
+    auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(block_size);
 #endif
 
     t = measureWithWarmup(
@@ -147,7 +144,7 @@ void run_benchmark(
               epsilon,
               lr);
 #else
-          fbgemm::SparseAdaGrad(
+          SparseAdaGrad(
               num_rows, // number of rows reading
               block_size, // number of parameters per row
               param_size, // total number of parameters
@@ -164,7 +161,7 @@ void run_benchmark(
         [&]() { llc_flush(llc); });
 
     for (int i = 0; i < NUM_WARMUP + NUM_ITER; ++i) {
-      fbgemm::sparse_adagrad_ref(
+      sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per row
           param_size, // total number of parameters
@@ -191,27 +188,25 @@ void run_benchmark(
     }
   }
 
-  std::cout << "indices: " << (isIndex64b? " 64bits ": " 32bits ")
-    << " | ";
+  cout << "indices: " << (isIndex64b ? " 64bits " : " 32bits ") << " | ";
 
-  std::cout << "num_rows: " << std::setw(8) << num_rows
-    << " block_size: " << std::setw(4) << block_size
-    << " | ";
-  std::cout << "time taken by jit code(secs): " << std::setw(10) << std::fixed
-    << std::setprecision(6) << t << " | ";
-  std::cout << "bandwidth fbgemm (GB/s) "<< std::setw(10) << std::fixed
-    << std::setprecision(6) << data_moved / t / 1e9 << std::endl;
+  cout << "num_rows: " << setw(8) << num_rows << " block_size: " << setw(4)
+       << block_size << " | ";
+  cout << "time taken by jit code(secs): " << setw(10) << fixed
+       << setprecision(6) << t << " | ";
+  cout << "bandwidth fbgemm (GB/s) " << setw(10) << fixed << setprecision(6)
+       << data_moved / t / 1e9 << endl;
 }
 
 int main() {
   int num_rows;
   int block_size;
-  std::uint64_t param_size;
+  uint64_t param_size;
   vector<vector<int>> inputs(GetInputs_());
 
-  for (auto isIndex64b: vector<bool> {true, false}) {
+  for (auto isIndex64b : vector<bool>{true, false}) {
     for (auto& input : inputs) {
-      assert(input.size() > 2);
+      assert(input.size() >= 2);
       num_rows = input[0];
       block_size = input[1];
       param_size = num_rows * block_size;

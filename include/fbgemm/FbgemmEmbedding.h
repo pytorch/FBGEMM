@@ -105,8 +105,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
  */
 template <typename IndexType>
 class SparseAdaGradSignature {
-  public:
-    using Type = std::function<int(
+ public:
+  using Type = std::function<int(
       int num_rows, // number of rows reading
       std::uint64_t param_size, // total number of parameters
       float* w, // input/output parameters
@@ -114,14 +114,13 @@ class SparseAdaGradSignature {
       float* h, // input/output momentums
       const IndexType* indices, // indices of each row
       float epsilon,
-      float lr
-      )>;
+      float lr)>;
 };
 
 template <typename IndexType>
 FBGEMM_API typename SparseAdaGradSignature<IndexType>::Type
 GenerateSparseAdaGrad(
-    int block_size, // number of parameters per rows
+    int block_size, // number of parameters per row
     bool rowwise = false,
     int prefetch = 16);
 
@@ -137,6 +136,29 @@ FBGEMM_API int SparseAdaGrad(
     float epsilon,
     float lr,
     bool rowwise = false,
+    int prefetch = 16);
+
+// RowWiseSparseAdaGrad fused with SLS gradient
+template <typename IndexType>
+class RowWiseSparseAdaGradFusedSignature {
+ public:
+  using Type = std::function<bool(
+      std::int64_t output_size,
+      std::int64_t index_size,
+      std::int64_t data_size, // number of rows in w
+      float* w, // input/output parameters
+      const float* g, // input gradients
+      float* h, // input/output momentums
+      const IndexType* indices, // indices of each row
+      const int* lengths,
+      float epsilon,
+      float lr)>;
+};
+
+template <typename IndexType>
+FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<IndexType>::Type
+GenerateRowWiseSparseAdaGradFused(
+    int block_size, // number of parameters per row
     int prefetch = 16);
 
 namespace internal {

@@ -38,14 +38,14 @@ void run_benchmark(
     int block_size, // number of parameters per row
     std::uint64_t param_size) { // total number of parameters
   vector<char> llc(64L * 1024L * 1024L, 1.0);
-  vector<float> g(param_size); // gradients
-  vector<float> h(param_size); // input momentums
+  vector<float> g(num_rows * block_size); // gradients
+  vector<float> h(param_size / block_size); // input momentums
   vector<float> w(param_size); // input params
-  vector<float> h_ref(param_size);
+  vector<float> h_ref(param_size / block_size);
   vector<float> w_ref(param_size);
 
   default_random_engine generator;
-  normal_distribution<float> h_w_distribution;
+  // normal_distribution<float> h_w_distribution;
 
   // TODO: check appropriate vals for g,h,w
   for (int i = 0; i < g.size(); ++i) {
@@ -104,7 +104,7 @@ int main() {
   vector<vector<int>> inputs(GetInputs_());
 
   for (auto& input : inputs) {
-    assert(input.size() > 2);
+    assert(input.size() >= 2);
     num_rows = input[0];
     block_size = input[1];
     param_size = num_rows * block_size;

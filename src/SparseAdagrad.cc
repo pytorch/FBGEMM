@@ -9,11 +9,8 @@
 
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
-#include <immintrin.h>
-#include <cassert>
 #include <cmath>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <string>
 #include <tuple>
@@ -133,7 +130,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
       vec_reg_t out_vreg = vec_reg_t(v);
       vec_reg_t g_vreg = vec_reg_t(v + cur_unroll_factor);
 
-      if (prefetch && (v % (64 / (vlen * sizeof(float))) == 0)) {
+      if (prefetch && ((vec_idx + v) % (64 / (vlen * sizeof(float))) == 0)) {
         // Intel SDE (wrongly) thinks prefetchwt1 is not available in BDW
         a->prefetchw(
             x86::dword_ptr(h, temp2_, 0, (vec_idx + v) * vlen * sizeof(float)));
@@ -228,7 +225,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   }
 
   // Even with avx512, we only need to use avx2 registers when computing
-  // partial_sum because some instructions we're using like vmaskmovps
+  // partial_sum because some instructions we're using like vhaddps
   // are only in avx2.
   constexpr int vlen_avx2 = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
   int num_vec_regs_per_block_avx2 = (block_size + vlen_avx2 - 1) / vlen_avx2;
@@ -336,7 +333,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     for (int v = 0; v < cur_unroll_factor; ++v) {
       vec_reg_t out_vreg = vec_reg_t(v);
 
-      if (prefetch && (v % (64 / (vlen * sizeof(float))) == 0)) {
+      if (prefetch && ((vec_idx + v) % (64 / (vlen * sizeof(float))) == 0)) {
         a->prefetchw(
             x86::dword_ptr(w, temp2_, 0, (vec_idx + v) * vlen * sizeof(float)));
       }
@@ -388,12 +385,14 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "SparseAdagrad";
         filename += "_emd_dim_" + std::to_string(block_size);
-        if (rowwise)
+        if (rowwise) {
           filename += "_rowwise";
+        }
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
-        if (prefetch)
+        if (prefetch) {
           filename += "_prefetch";
+        }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
         asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);

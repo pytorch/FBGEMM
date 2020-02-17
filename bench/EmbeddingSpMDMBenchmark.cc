@@ -45,7 +45,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+void run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,
@@ -112,14 +112,13 @@ int run_benchmark(
 
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
-  // Only counts the number of bytes for reading embedding table and ignore
-  // others. Should be good enough as long as embdding_dim is big enough.
-  double bytes =
-      lengths_sum * (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float));
-  double bytes_padded =
-      lengths_sum * 64 *
-      static_cast<int>(
-          (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) + 63) / 64);
+  double bytes = lengths_sum *
+          (embedding_dim * sizeof(float) + (use_32_bit_indices ? 4 : 8)) +
+      batch_size * sizeof(int);
+  double bytes_padded = lengths_sum *
+          ((embedding_dim * sizeof(float) + 63) / 64 * 64 +
+           (use_32_bit_indices ? 4 : 8)) +
+      batch_size * sizeof(int);
 
   for (bool has_weight : {false, true}) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
@@ -304,23 +303,17 @@ int run_benchmark(
            << setw(16) << t << endl;
     } // flush_cache
   } // has_weight
-  return 0;
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
-
   vector<vector<int>> inputs(GetInputs_());
 
   for (auto& input : inputs) {
     assert(input.size() > 3);
-    batch_size = input[0];
-    num_rows = input[1];
-    embedding_dim = input[2];
-    average_len = input[3];
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+    int average_len = input[3];
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)

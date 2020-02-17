@@ -109,7 +109,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
 
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
-      ret_ref = fbgemm::sparse_adagrad_ref(
+      ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -120,10 +120,8 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           epsilon,
           lr);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
-          block_size,
-          false,
-          prefetch);
+      auto fn_fbgemm =
+          GenerateSparseAdaGrad<std::int64_t>(block_size, false, prefetch);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -135,7 +133,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           epsilon,
           lr);
     } else { // 32 bit indices
-      ret_ref = fbgemm::sparse_adagrad_ref(
+      ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -146,10 +144,8 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           epsilon,
           lr);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
-          block_size,
-          false,
-          prefetch);
+      auto fn_fbgemm =
+          GenerateSparseAdaGrad<std::int32_t>(block_size, false, prefetch);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -224,7 +220,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
 
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
-      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+      ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -235,10 +231,8 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           epsilon,
           lr);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
-          block_size,
-          true,
-          prefetch);
+      auto fn_fbgemm =
+          GenerateSparseAdaGrad<std::int64_t>(block_size, true, prefetch);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -250,7 +244,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           epsilon,
           lr);
     } else { // 32 bit indices
-      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+      ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -261,10 +255,8 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           epsilon,
           lr);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
-          block_size,
-          true,
-          prefetch);
+      auto fn_fbgemm =
+          GenerateSparseAdaGrad<std::int32_t>(block_size, true, prefetch);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -342,7 +334,7 @@ TEST_P(SparseAdagradTest, basicTest) {
 
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
-      ret_ref = fbgemm::sparse_adagrad_ref(
+      ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -353,7 +345,7 @@ TEST_P(SparseAdagradTest, basicTest) {
           epsilon,
           lr);
 
-      ret_fbgemm = fbgemm::SparseAdaGrad(
+      ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -366,7 +358,7 @@ TEST_P(SparseAdagradTest, basicTest) {
           false, // rowwise
           prefetch);
     } else { // 32 bit indices
-      ret_ref = fbgemm::sparse_adagrad_ref(
+      ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -377,7 +369,7 @@ TEST_P(SparseAdagradTest, basicTest) {
           epsilon,
           lr);
 
-      ret_fbgemm = fbgemm::SparseAdaGrad(
+      ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -453,7 +445,7 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
 
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
-      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+      ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -464,7 +456,7 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           epsilon,
           lr);
 
-      ret_fbgemm = fbgemm::SparseAdaGrad(
+      ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -477,7 +469,7 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           true, // rowwise
           prefetch);
     } else { // 32 bit indices
-      ret_ref = fbgemm::rowwise_sparse_adagrad_ref(
+      ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters
@@ -488,7 +480,7 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           epsilon,
           lr);
 
-      ret_fbgemm = fbgemm::SparseAdaGrad(
+      ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
           block_size, // number of parameters per rows
           param_size, // total number of parameters

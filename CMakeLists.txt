@@ -56,6 +56,7 @@ set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
                 src/PackWeightsForConv.cc
                 src/QuantUtils.cc
                 src/RefImplementations.cc
+                src/RowWiseSparseAdagradFused.cc
                 src/SparseAdagrad.cc
                 src/Utils.cc)
 
