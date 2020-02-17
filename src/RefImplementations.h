@@ -311,4 +311,18 @@ FBGEMM_API int rowwise_sparse_adagrad_ref(
     float epsilon,
     float lr);
 
+template <typename IndexType>
+FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
+    std::int64_t block_size,
+    std::int64_t output_size,
+    std::int64_t index_size,
+    std::int64_t data_size,
+    float* w, // input/output parameters
+    const float* g, // inupt gradients
+    float* h, // input/output momentums
+    const IndexType* indices,
+    const int* lengths,
+    float epsilon,
+    float lr);
+
 } // namespace fbgemm
