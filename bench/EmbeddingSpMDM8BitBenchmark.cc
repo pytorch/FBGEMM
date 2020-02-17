@@ -131,14 +131,15 @@ int run_benchmark(
 
   constexpr int NUM_WARMUP = 4;
   int NUM_ITER = stress_multi_threading ? 1 << 20 : 10;
-  // Only counts the number of bytes for reading embedding table and ignore
-  // others. Should be good enough as long as embdding_dim is big enough.
-  double bytes =
-      lengths_sum * (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float));
-  double bytes_padded =
-      lengths_sum * 64 *
-      static_cast<int>(
-          (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) + 63) / 64);
+  double bytes = lengths_sum *
+          (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) +
+           (use_32_bit_indices ? 4 : 8)) +
+      batch_size * sizeof(int);
+  double bytes_padded = lengths_sum *
+          ((embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) + 63) / 64 *
+               64 +
+           (use_32_bit_indices ? 4 : 8)) +
+      batch_size * sizeof(int);
 
   vector<bool> has_weight_options;
   has_weight_options.push_back(false);

@@ -635,10 +635,10 @@ void transposeConvWeights(
 
 template <typename inType, typename IndexType>
 bool EmbeddingSpMDM_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
     const inType* input,
     const IndexType* indices,
     const int* lengths,
@@ -646,7 +646,7 @@ bool EmbeddingSpMDM_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional) {
-  bool is8bit = std::is_same<inType, std::uint8_t>::value;
+  bool is8bit = is_same<inType, uint8_t>::value;
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
@@ -714,8 +714,7 @@ bool EmbeddingSpMDM_ref(
           const inType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
-              std::is_same<inType, float16>::value ? cpu_half2float(*inptr)
-                                                   : *inptr,
+              is_same<inType, float16>::value ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 
@@ -736,11 +735,11 @@ bool EmbeddingSpMDM_ref(
 template <typename IndexType>
 bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
     const IndexType* indices,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
@@ -798,16 +797,16 @@ bool EmbeddingSpMDMNBit_ref(
     }
     out += block_size;
   }
-  return true;
+  return current == index_size;
 }
 
 template <typename inType, typename IndexType>
 bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
     const inType* input,
     const IndexType* indices,
     const IndexType* compressed_indices_table,
@@ -816,7 +815,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional) {
-  bool is8bit = std::is_same<inType, std::uint8_t>::value;
+  bool is8bit = is_same<inType, uint8_t>::value;
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
@@ -869,7 +868,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
       }
       out += block_size;
     }
-    return true;
+    return current == index_size;
   } else {
     // Reference implementation of FP32 SLS
     int64_t current = 0;
@@ -902,8 +901,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
           const inType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
-              std::is_same<inType, float16>::value ? cpu_half2float(*inptr)
-                                                   : *inptr,
+              is_same<inType, float16>::value ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 
@@ -924,12 +922,12 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
 template <typename IndexType>
 bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
-    const std::uint8_t* input,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const uint8_t* input,
     const IndexType* indices,
     const IndexType* compressed_indices_table,
     const int* lengths,
@@ -952,14 +950,13 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     if (current + lengths[m] > index_size) {
       return false;
     }
-    for (int i = 0; i < lengths[m]; ++i) {
+    for (int i = 0; i < lengths[m]; ++i, ++current) {
       IndexType uncompressed_idx = indices[current];
       if (uncompressed_idx < 0 || uncompressed_idx >= uncompressed_data_size) {
         return false;
       }
       IndexType idx = compressed_indices_table[uncompressed_idx];
       if (idx == -1) {
-        ++current;
         continue;
       }
       // if (idx < 0 || idx >= compressed_data_size) {
@@ -985,8 +982,6 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
 
         out[j] = std::fma(scale, quantized, out[j] + bias);
       }
-
-      ++current;
     }
     if (normalize_by_lengths && lengths[m]) {
       float scale = 1.f / lengths[m];
@@ -996,14 +991,14 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     }
     out += block_size;
   }
-  return true;
+  return current == index_size;
 }
 
 template <typename IndexType>
 int sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
-    std::uint64_t param_size, // total number of parameters
+    uint64_t param_size, // total number of parameters
     float* w, // input parameters
     const float* g, // input gradients
     float* h, // input momentums
@@ -1011,7 +1006,7 @@ int sparse_adagrad_ref(
     float epsilon,
     float lr) {
   for (auto i = 0; i < num_rows; ++i) {
-    std::uint64_t idx = indices[i];
+    uint64_t idx = indices[i];
     auto offsetI = i * block_size;
     auto offsetIdx = idx * block_size;
 
@@ -1045,7 +1040,7 @@ template <typename IndexType>
 int rowwise_sparse_adagrad_ref(
     int num_rows, // number of rows reading
     int block_size, // number of parameters per rows
-    std::uint64_t param_size, // total number of parameters
+    uint64_t param_size, // total number of parameters
     float* w, // input parameters
     const float* g, // input gradients
     float* h, // input momentums
@@ -1053,7 +1048,7 @@ int rowwise_sparse_adagrad_ref(
     float epsilon,
     float lr) {
   for (auto i = 0; i < num_rows; ++i) {
-    std::uint64_t idx = indices[i];
+    uint64_t idx = indices[i];
     auto offsetI = i * block_size;
     auto offsetIdx = idx * block_size;
 
@@ -1070,9 +1065,10 @@ int rowwise_sparse_adagrad_ref(
     w_ = w + offsetIdx;
 
     float final_sum = 0.0f;
-    // Note the following code assumes fbgemm will generate AVX2 code, which is
-    // OK for now because fbgemm always uses AVX2 for SparseAdagrad due to its
-    // performance is bounded by memory bandwidth hence no speedup from AVX512.
+    // Note the following code assumes fbgemm will generate AVX2 code for
+    // horizontal reduction, which is OK for now because fbgemm always uses AVX2
+    // for SparseAdagrad due to its performance is bounded by memory bandwidth
+    // hence no speedup from AVX512.
     // Non-vectorized version would be just
     // for (auto j = 0; j < block_size; ++j) {
     //   float gj = g_[j];
@@ -1097,6 +1093,66 @@ int rowwise_sparse_adagrad_ref(
     }
   }
   return num_rows;
+}
+
+template <typename IndexType>
+int rowwise_sparse_adagrad_fused_ref(
+    int64_t block_size,
+    int64_t output_size,
+    int64_t index_size,
+    int64_t data_size,
+    float* w,
+    const float* g,
+    float* h,
+    const IndexType* indices,
+    const int* lengths,
+    float epsilon,
+    float lr) {
+  int64_t current = 0;
+  for (int m = 0; m < output_size; ++m) {
+    if (current + lengths[m] > index_size) {
+      return false;
+    }
+    const float* g_ = g + m * block_size;
+    // Note the following code assumes fbgemm will generate AVX2 code for
+    // horizontal reduction, which is OK for now because fbgemm always uses AVX2
+    // for SparseAdagrad due to its performance is bounded by memory bandwidth
+    // hence no speedup from AVX512.
+    // Non-vectorized version would be just
+    // for (auto j = 0; j < block_size; ++j) {
+    //   float gj = g_[j];
+    //   final_sum += gj * gj;
+    // }
+    constexpr int VLEN = 8;
+    array<float, VLEN> partial_sum = {0.0f};
+    for (auto j = 0; j < block_size; ++j) {
+      float gj = g_[j];
+      partial_sum[j % VLEN] += gj * gj;
+    }
+    float final_sum = ((partial_sum[0] + partial_sum[1]) +
+                       (partial_sum[2] + partial_sum[3])) +
+        ((partial_sum[4] + partial_sum[5]) + (partial_sum[6] + partial_sum[7]));
+    final_sum /= block_size;
+
+    for (int i = 0; i < lengths[m]; ++i, ++current) {
+      int64_t idx = indices[current];
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      float* h_ = h + idx;
+      float* w_ = w + idx * block_size;
+
+      float hi = *h_ = *h_ + final_sum;
+      float float_step = lr / (std::sqrt(hi) + epsilon);
+
+      for (int j = 0; j < block_size; ++j) {
+        w_[j] += g_[j] * float_step;
+      }
+    }
+  }
+
+  return current == index_size;
 }
 
 template FBGEMM_API void transposeConvWeights(
@@ -1231,7 +1287,6 @@ template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     float* out,
     bool is_weight_positional);
 
-
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -1379,6 +1434,32 @@ template FBGEMM_API int rowwise_sparse_adagrad_ref(
     const float* g, // input gradients
     float* h, // input momentums
     const std::int32_t* indices, // indices of each row
+    float epsilon,
+    float lr);
+
+template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
+    int64_t block_size,
+    int64_t output_size,
+    int64_t index_size,
+    int64_t data_size,
+    float* w,
+    const float* g,
+    float* h,
+    const int64_t* indices,
+    const int* lengths,
+    float epsilon,
+    float lr);
+
+template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
+    int64_t block_size,
+    int64_t output_size,
+    int64_t index_size,
+    int64_t data_size,
+    float* w,
+    const float* g,
+    float* h,
+    const int32_t* indices,
+    const int* lengths,
     float epsilon,
     float lr);
 
