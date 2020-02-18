@@ -318,6 +318,11 @@ install(EXPORT fbgemmLibraryConfig DESTINATION share/cmake/fbgemm
   FILE fbgemmLibraryConfig.cmake)
 
 if(MSVC)
+  if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+    install(
+      FILES $<TARGET_PDB_FILE:fbgemm> $<TARGET_PDB_FILE:asmjit>
+      DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
+  endif()
   install(TARGETS fbgemm DESTINATION ${CMAKE_INSTALL_LIBDIR})
   install(TARGETS asmjit DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
