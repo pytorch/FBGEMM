@@ -21,7 +21,10 @@ endif()
 
 macro(add_gtest TESTNAME)
   add_executable(${TESTNAME} ${ARGN}
-    ../bench/BenchUtils.cc QuantizationHelpers.cc TestUtils.cc)
+    ../bench/BenchUtils.cc
+    EmbeddingSpMDMTestUtils.cc
+    QuantizationHelpers.cc
+    TestUtils.cc)
   set_target_properties(${TESTNAME} PROPERTIES
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)

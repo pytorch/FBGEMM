@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include "./EmbeddingSpMDMTestUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
@@ -48,8 +49,9 @@ static vector<vector<int>> GetInputs_() {
 vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
+
 class RowWiseSparseAdagradFusedTest
-    : public testing::TestWithParam<tuple<bool, int, bool, bool>> {};
+    : public testing::TestWithParam<tuple<bool, int, EmbeddingSpMDMCornerCase>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -58,14 +60,18 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(), // isIndex64b
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(), // empty_indices
-        ::testing::Bool())); // out_of_bounds
+        ::testing::Values(
+            NONE,
+            EMPTY_INDICES,
+            OUT_OF_BOUND_INDICES,
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
 
 TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, empty_indices, out_of_bounds;
+  bool isIndex64b;
   int prefetch;
-  tie(isIndex64b, prefetch, empty_indices, out_of_bounds) = GetParam();
+  EmbeddingSpMDMCornerCase corner_case;
+  tie(isIndex64b, prefetch, corner_case) = GetParam();
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -88,44 +94,20 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
       g[i] = values_gen(generator);
     }
 
-    // Generate lengths
-    uniform_int_distribution<int> length_distribution(
-        1, std::min(2 * average_len + 1, num_rows));
-    vector<int> lengths(batch_size);
-    for (int i = 0; i < batch_size; ++i) {
-      lengths[i] = empty_indices ? 0 : length_distribution(generator);
-    }
-
-    // Compute the number of indices
-    int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
-    // cout << "lengths_sum " << lengths_sum << endl;
-
-    // Generate indices
+    vector<int> lengths;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
-
-    // Generate indices
-    vector<int> container(num_rows);
-    for (int i = 0; i < batch_size; ++i) {
-      iota(container.begin(), container.end(), 0);
-      random_shuffle(container.begin(), container.end());
-      copy(
-          container.begin(),
-          container.begin() + lengths[i],
-          back_inserter(indices));
-    }
-    // use same indices for 32b and 64b
-    copy(begin(indices), end(indices), back_inserter(indices_32));
-    assert(indices.size() == lengths_sum);
-    assert(indices_32.size() == lengths_sum);
-    if (!empty_indices && out_of_bounds) {
-      int idx = uniform_int_distribution<int>(0, lengths_sum - 1)(generator);
-      indices_32[idx] = indices[idx] = num_rows;
-    }
-    if (!empty_indices) {
-      // To make sure to exercise out-of-bound cases
-      indices_32[0] = indices[0] = num_rows - 1;
-    }
+    vector<float> weights;
+    int lengths_sum = GenerateLengthsIndicesWeights(
+        lengths,
+        indices,
+        indices_32,
+        weights,
+        batch_size,
+        num_rows,
+        embedding_dim,
+        average_len,
+        corner_case);
 
     float epsilon = 1e-5;
     float lr = 0.5;
@@ -140,7 +122,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           w_ref.data(),
           g.data(),
           h_ref.data(),
-          indices.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
           lengths.data(),
           epsilon,
           lr);
@@ -154,7 +136,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           w.data(),
           g.data(),
           h.data(),
-          indices.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices.data(),
           lengths.data(),
           epsilon,
           lr);
@@ -167,7 +149,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           w_ref.data(),
           g.data(),
           h_ref.data(),
-          indices_32.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
           lengths.data(),
           epsilon,
           lr);
@@ -181,7 +163,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           w.data(),
           g.data(),
           h.data(),
-          indices_32.data(),
+          corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
           lengths.data(),
           epsilon,
           lr);

@@ -690,7 +690,7 @@ bool EmbeddingSpMDM_ref(
       }
       out += block_size;
     }
-    return true;
+    return current == index_size;
   } else {
     // Reference implementation of FP32 SLS
     int64_t current = 0;
