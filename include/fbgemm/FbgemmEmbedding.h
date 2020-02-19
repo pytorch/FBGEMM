@@ -66,7 +66,7 @@ class EmbeddingSpMDMRowWiseSparseKernelSignature {
       const int* lengths,
       const float* weights, // optional, can be null for non-weighted sum
       float* out,
-      const IndexType* compressed_indices_table)>;
+      const std::int32_t* compressed_indices_table)>;
 };
 
 /**

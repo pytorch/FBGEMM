@@ -292,10 +292,9 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
     int average_len = input[3];
 
     // Create mapping table for rowwise sparsity
-    vector<int64_t> mapping_table;
-    vector<int32_t> mapping_table_32;
-    int num_compressed_rows = CreateMappingTableForRowWiseSparsity(
-        mapping_table, mapping_table_32, num_rows, sparsity);
+    vector<int32_t> mapping_table;
+    int num_compressed_rows =
+        CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
 
     // Create embedding table
     vector<float> embedding_table(num_compressed_rows * embedding_dim);
@@ -409,7 +408,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            mapping_table_32.data(),
+            mapping_table.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
@@ -431,7 +430,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             lengths.data(),
             use_weight ? weights.data() : nullptr,
             output.data(),
-            mapping_table_32.data());
+            mapping_table.data());
       } else {
         success_ref = EmbeddingSpMDMRowWiseSparse_ref(
             embedding_dim,
@@ -440,7 +439,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            mapping_table_32.data(),
+            mapping_table.data(),
             lengths.data(),
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
@@ -462,7 +461,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             lengths.data(),
             use_weight ? weights.data() : nullptr,
             output.data(),
-            mapping_table_32.data());
+            mapping_table.data());
       }
     }
 

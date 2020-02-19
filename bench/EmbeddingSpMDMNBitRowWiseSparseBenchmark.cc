@@ -68,7 +68,7 @@ int run_benchmark(
   // Generate mapping table
   default_random_engine generator;
   constexpr float sparsity = 0.7;
-  vector<int64_t> mapping_table(num_rows);
+  vector<int32_t> mapping_table(num_rows);
   bernoulli_distribution row_prune_dist(sparsity);
   int num_compressed_rows = 0;
   for (int i = 0; i < num_rows; ++i) {
@@ -80,11 +80,6 @@ int run_benchmark(
       ++num_compressed_rows;
     }
   }
-  vector<int32_t> mapping_table_32;
-  copy(
-      mapping_table.begin(),
-      mapping_table.end(),
-      back_inserter(mapping_table_32));
 
   // Create embedding table
   int num_elem_per_byte = 8 / bit_rate;
@@ -192,7 +187,7 @@ int run_benchmark(
             num_rows,
             fused_embedding_table.data(),
             indices_32.data(),
-            mapping_table_32.data(),
+            mapping_table.data(),
             lengths.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
@@ -243,7 +238,7 @@ int run_benchmark(
                   lengths.data(),
                   has_weight ? weights.data() : nullptr,
                   output.data(),
-                  mapping_table_32.data());
+                  mapping_table.data());
             } else {
               success = kernel_64(
                   batch_size,

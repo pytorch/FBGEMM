@@ -252,7 +252,7 @@ FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     // const std::int64_t compressed_data_size,
     const inType* input,
     const IndexType* indices,
-    const IndexType* compressed_indices_table,
+    const std::int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -269,7 +269,7 @@ FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     // const std::int64_t compressed_data_size,
     const std::uint8_t* input,
     const IndexType* indices,
-    const IndexType* compressed_indices_table,
+    const std::int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,

@@ -30,8 +30,7 @@ int GenerateLengthsIndicesWeights(
  * @return num_compressed_rows
  */
 int CreateMappingTableForRowWiseSparsity(
-    std::vector<std::int64_t>& mapping_table,
-    std::vector<std::int32_t>& mapping_table_32,
+    std::vector<std::int32_t>& mapping_table,
     int num_rows,
     float sparsity);
 

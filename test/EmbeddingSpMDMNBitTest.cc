@@ -246,10 +246,9 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
     int average_len = input[3];
 
     // Create mapping table for rowwise sparsity
-    vector<int64_t> mapping_table;
-    vector<int32_t> mapping_table_32;
-    int num_compressed_rows = CreateMappingTableForRowWiseSparsity(
-        mapping_table, mapping_table_32, num_rows, sparsity);
+    vector<int32_t> mapping_table;
+    int num_compressed_rows =
+        CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
 
     // Create embedding table
     default_random_engine generator;
@@ -342,7 +341,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          mapping_table_32.data(),
+          mapping_table.data(),
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
@@ -365,7 +364,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           lengths.data(),
           use_weight ? weights.data() : nullptr,
           output.data(),
-          mapping_table_32.data());
+          mapping_table.data());
     }
 
     // Check correctness
