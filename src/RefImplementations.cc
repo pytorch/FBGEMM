@@ -809,7 +809,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     // const int64_t compressed_data_size,
     const inType* input,
     const IndexType* indices,
-    const IndexType* compressed_indices_table,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -929,7 +929,7 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     // const int64_t compressed_data_size,
     const uint8_t* input,
     const IndexType* indices,
-    const IndexType* compressed_indices_table,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1273,14 +1273,14 @@ template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
 
 template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
-    const std::uint8_t* input,
-    const std::int64_t* indices,
-    const std::int64_t* compressed_indices_table,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const uint8_t* input,
+    const int64_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1288,14 +1288,14 @@ template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
     const float16* input,
-    const std::int64_t* indices,
-    const std::int64_t* compressed_indices_table,
+    const int64_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1303,14 +1303,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
     const float16* input,
-    const std::int32_t* indices,
-    const std::int32_t* compressed_indices_table,
+    const int32_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1318,14 +1318,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
     const float* input,
-    const std::int64_t* indices,
-    const std::int64_t* compressed_indices_table,
+    const int64_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1333,14 +1333,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
     const float* input,
-    const std::int32_t* indices,
-    const std::int32_t* compressed_indices_table,
+    const int32_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1348,14 +1348,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
-    const std::uint8_t* input,
-    const std::int64_t* indices,
-    const std::int64_t* compressed_indices_table,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const uint8_t* input,
+    const int64_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1363,14 +1363,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
-    const std::uint8_t* input,
-    const std::int32_t* indices,
-    const std::int32_t* compressed_indices_table,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const uint8_t* input,
+    const int32_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
@@ -1379,14 +1379,14 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
 
 template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t uncompressed_data_size,
-    // const std::int64_t compressed_data_size,
-    const std::uint8_t* input,
-    const std::int32_t* indices,
-    const std::int32_t* compressed_indices_table,
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const uint8_t* input,
+    const int32_t* indices,
+    const int32_t* compressed_indices_table,
     const int* lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,

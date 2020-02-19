@@ -67,7 +67,7 @@ class ReturnFunctionSignature<indxType, true> {
       const int* lengths,
       const float* weights,
       float* out,
-      const indxType* compressed_indices_table,
+      const int32_t* compressed_indices_table,
       const int* mask);
 };
 
@@ -217,7 +217,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
                     const int*, // lengths
                     const float*, // weights
                     float*, // out
-                    const indxType* /* compressed_indices_table */,
+                    const int32_t* /* compressed_indices_table */,
                     const int* /* mask */>(asmjit::CallConv::kIdHost));
         } else {
           func.init(asmjit::FuncSignatureT<
@@ -493,21 +493,12 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
           a->jge(error);
 
           if (ROWWISE_SPARSE) {
-            if (areIndices64b) {
-              a->mov(
-                  scratchReg1_,
-                  x86::qword_ptr(
-                      compressed_indices_table,
-                      scratchReg1_,
-                      3)); // use of 3 is to multiply by 8
-            } else {
-              a->mov(
-                  scratchReg1_.r32(),
-                  x86::dword_ptr(
-                      compressed_indices_table,
-                      scratchReg1_,
-                      2)); // use of 2 is to multiply by 4
-            }
+            a->mov(
+                scratchReg1_.r32(),
+                x86::dword_ptr(
+                    compressed_indices_table,
+                    scratchReg1_,
+                    2)); // use of 2 is to multiply by 4
           }
 
           int num_elem_per_byte = 8 / bit_rate;
@@ -553,21 +544,12 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
 
             a->bind(pref_dist_reset_end);
             if (ROWWISE_SPARSE) {
-              if (areIndices64b) {
-                a->mov(
-                    scratchReg2_,
-                    x86::qword_ptr(
-                        compressed_indices_table,
-                        scratchReg2_,
-                        3)); // use of 3 is to multiply by 8
-              } else {
-                a->mov(
-                    scratchReg2_.r32(),
-                    x86::dword_ptr(
-                        compressed_indices_table,
-                        scratchReg2_,
-                        2)); // use of 2 is to multiply by 4
-              }
+              a->mov(
+                  scratchReg2_.r32(),
+                  x86::dword_ptr(
+                      compressed_indices_table,
+                      scratchReg2_,
+                      2)); // use of 2 is to multiply by 4
             }
             // This has to be fused_block_size
             a->imul(scratchReg2_, static_cast<asmjit::Imm>(fused_block_size));
@@ -581,11 +563,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
           }
 
           if (ROWWISE_SPARSE) {
-            if (areIndices64b) {
-              a->cmp(scratchReg1_, static_cast<asmjit::Imm>(-1));
-            } else {
-              a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
-            }
+            a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
             a->je(LoopDataIndexBegin);
           }
 
@@ -977,7 +955,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
                const int* lengths,
                const float* weights,
                float* out,
-               const indxType* compressed_indices_table) {
+               const int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -1009,7 +987,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
                const int* lengths,
                const float* weights,
                float* out,
-               const indxType* compressed_indices_table) {
+               const int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -1034,7 +1012,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
                const int* lengths,
                const float* weights,
                float* out,
-               const indxType* compressed_indices_table) {
+               const int32_t* compressed_indices_table) {
       return EmbeddingSpMDMNBitRowWiseSparse_ref(
           bit_rate,
           block_size,
