@@ -65,8 +65,7 @@ int GenerateLengthsIndicesWeights(
 }
 
 int CreateMappingTableForRowWiseSparsity(
-    vector<int64_t>& mapping_table,
-    vector<int32_t>& mapping_table_32,
+    vector<int32_t>& mapping_table,
     int num_rows,
     float sparsity) {
   default_random_engine generator;
@@ -82,10 +81,6 @@ int CreateMappingTableForRowWiseSparsity(
       ++num_compressed_rows;
     }
   }
-  copy(
-      mapping_table.begin(),
-      mapping_table.end(),
-      back_inserter(mapping_table_32));
 
   return num_compressed_rows;
 }

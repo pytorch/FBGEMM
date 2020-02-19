@@ -60,7 +60,7 @@ class ReturnFunctionSignature<inType, indxType, true> {
       const int* lengths,
       const float* weights,
       float* out,
-      const indxType* compressed_indices_table,
+      const std::int32_t* compressed_indices_table,
       const int* mask);
 };
 
@@ -203,18 +203,19 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
         asmjit::FuncDetail func;
 
         if (ROWWISE_SPARSE) {
-          func.init(asmjit::FuncSignatureT<
-                    bool,
-                    std::int64_t, // output_size
-                    std::int64_t, // index_size
-                    std::int64_t, // uncompressed_data_size
-                    const inType*, // input uint8_t or float
-                    const indxType*, // indices
-                    const int*, // lengths
-                    const float*, // weights
-                    float*, // out
-                    const indxType*, // compressed_indices_table and then mask
-                    const int*>(asmjit::CallConv::kIdHost));
+          func.init(
+              asmjit::FuncSignatureT<
+                  bool,
+                  std::int64_t, // output_size
+                  std::int64_t, // index_size
+                  std::int64_t, // uncompressed_data_size
+                  const inType*, // input uint8_t or float
+                  const indxType*, // indices
+                  const int*, // lengths
+                  const float*, // weights
+                  float*, // out
+                  const std::int32_t*, // compressed_indices_table and then mask
+                  const int*>(asmjit::CallConv::kIdHost));
         } else {
           func.init(asmjit::FuncSignatureT<
                     bool,
@@ -450,21 +451,12 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           a->jge(error);
 
           if (ROWWISE_SPARSE) {
-            if (areIndices64b) {
-              a->mov(
-                  scratchReg1_,
-                  x86::qword_ptr(
-                      compressed_indices_table,
-                      scratchReg1_,
-                      3)); // use of 3 is to multiply by 8
-            } else {
-              a->mov(
-                  scratchReg1_.r32(),
-                  x86::dword_ptr(
-                      compressed_indices_table,
-                      scratchReg1_,
-                      2)); // use of 2 is to multiply by 4
-            }
+            a->mov(
+                scratchReg1_.r32(),
+                x86::dword_ptr(
+                    compressed_indices_table,
+                    scratchReg1_,
+                    2)); // use of 2 is to multiply by 4
           }
 
           int fused_block_size = is8bit
@@ -511,21 +503,12 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
 
             a->bind(pref_dist_reset_end);
             if (ROWWISE_SPARSE) {
-              if (areIndices64b) {
-                a->mov(
-                    scratchReg2_,
-                    x86::qword_ptr(
-                        compressed_indices_table,
-                        scratchReg2_,
-                        3)); // use of 3 is to multiply by 8
-              } else {
-                a->mov(
-                    scratchReg2_.r32(),
-                    x86::dword_ptr(
-                        compressed_indices_table,
-                        scratchReg2_,
-                        2)); // use of 2 is to multiply by 4
-              }
+              a->mov(
+                  scratchReg2_.r32(),
+                  x86::dword_ptr(
+                      compressed_indices_table,
+                      scratchReg2_,
+                      2)); // use of 2 is to multiply by 4
             }
             a->imul(scratchReg2_, static_cast<asmjit::Imm>(fused_block_size));
           }
@@ -538,11 +521,7 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           }
 
           if (ROWWISE_SPARSE) {
-            if (areIndices64b) {
-              a->cmp(scratchReg1_, static_cast<asmjit::Imm>(-1));
-            } else {
-              a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
-            }
+            a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
             a->je(LoopDataIndexBegin);
           }
 
@@ -922,7 +901,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
                const int* lengths,
                const float* weights,
                float* out,
-               const indxType* compressed_indices_table) {
+               const std::int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -953,7 +932,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
                const int* lengths,
                const float* weights,
                float* out,
-               const indxType* compressed_indices_table) {
+               const std::int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -979,7 +958,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             const int* lengths,
             const float* weights, // optional, can be null for non-weighted sum
             float* out,
-            const indxType* compressed_indices_table) {
+            const std::int32_t* compressed_indices_table) {
           return EmbeddingSpMDMRowWiseSparse_ref(
               block_size,
               output_size,
