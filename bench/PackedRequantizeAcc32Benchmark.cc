@@ -85,16 +85,12 @@ void performance_test() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "M, "
-       << "N, "
-       << "K, "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "Total (ms), "
-       << "GOPs" << endl;
+  cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(22)
+       << "Packing (ms), " << setw(22) << "Kernel (ms), " << setw(22)
+       << "Postprocessing (ms), " << setw(22) << "Total (ms), " << setw(22)
+       << "Type, " << setw(5) << "GOPs" << endl;
 #else
-  cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(18)
+  cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(22)
        << "Type, " << setw(5) << "GOPS" << endl;
 #endif
 
@@ -169,13 +165,15 @@ void performance_test() {
 
     ((volatile char*)(llc.data()));
 
-    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
-         << setw(16) << runType << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << nops / ttot << endl;
-
-    for (auto i = 0; i < Cfp32_mkl.size(); ++i) {
-      Cint32_mkl[i] = (int32_t)Cfp32_mkl[i];
-    }
+    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
+         << ", ";
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+    cout << setw(20) << fixed << setprecision(3) << 0.0f << ", " << setw(20)
+         << 0.0f << ", " << setw(20) << 0.0f << ", " << setw(20) << 0.0f
+         << ", ";
+#endif
+    cout << setw(20) << runType << ", " << setw(5) << fixed << setprecision(1)
+         << nops / ttot << endl;
 #endif
 
     vector<int32_t> row_offsets(m);
@@ -311,13 +309,14 @@ void performance_test() {
     // row_offsets.size(), 5);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-    cout << fixed << total_packing_time / (double)NITER / 1e6 << ", "
-         << total_kernel_time / (double)NITER / 1e6 << ", "
-         << total_postprocessing_time / (double)NITER / 1e6 << ", "
+    cout << setprecision(3) << setw(20)
+         << total_packing_time / (double)NITER / 1e6 << ", " << setw(20)
+         << total_kernel_time / (double)NITER / 1e6 << ", " << setw(20)
+         << total_postprocessing_time / (double)NITER / 1e6 << ", " << setw(20)
          << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setw(16) << runType << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << NITER * nops / ttot << endl;
+    cout << setw(20) << runType << ", " << setw(5) << fixed << setprecision(1)
+         << NITER * nops / ttot << endl;
     cout << endl;
 
 #ifdef USE_MKL

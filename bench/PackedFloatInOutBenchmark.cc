@@ -81,16 +81,12 @@ void performance_test() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "M, "
-       << "N, "
-       << "K, "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "Total (ms), "
-       << "GOPs" << endl;
+  cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(22)
+       << "Packing (ms), " << setw(22) << "Kernel (ms), " << setw(22)
+       << "Postprocessing (ms), " << setw(22) << "Total (ms), " << setw(22)
+       << "Type, " << setw(5) << "GOPs" << endl;
 #else
-  cout << setw(7) << "M, " << setw(7) << "N, " << setw(7) << "K, " << setw(18)
+  cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(22)
        << "Type, " << setw(5) << "GOPS" << endl;
 #endif
 
@@ -168,9 +164,16 @@ void performance_test() {
     ttot *= 1e9; // convert to ns
 
     ((volatile char*)(llc.data()));
-    cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
-         << setw(16) << type << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << nops / ttot << endl;
+
+    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
+         << ", ";
+#ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
+    cout << setw(20) << fixed << setprecision(3) << 0.0f << ", " << setw(20)
+         << 0.0f << ", " << setw(20) << 0.0f << ", " << setw(20) << 0.0f
+         << ", ";
+#endif
+    cout << setw(20) << type << ", " << setw(5) << fixed << setprecision(1)
+         << nops / ttot << endl;
 #endif
 
     int32_t C_multiplier = 16544;
@@ -227,6 +230,8 @@ void performance_test() {
     double total_postprocessing_time = 0.0;
     double total_run_time = 0.0;
 #endif
+    cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
+      << ", ";
 
     for (auto i = 0; i < NWARMUP + NITER; ++i) {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -278,14 +283,14 @@ void performance_test() {
     // printMatrix(matrix_op_t::NoTranspose, Cfp32_fb.data(),
     // m, n, n, "C fb fp32");
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-    cout << total_packing_time / (double)NITER / 1e6 << ", "
-         << total_kernel_time / (double)NITER / 1e6 << ", "
-         << total_postprocessing_time / (double)NITER / 1e6 << ", "
+    cout << setprecision(3) << setw(20)
+         << total_packing_time / (double)NITER / 1e6 << ", " << setw(20)
+         << total_kernel_time / (double)NITER / 1e6 << ", " << setw(20)
+         << total_postprocessing_time / (double)NITER / 1e6 << ", " << setw(20)
          << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k << ", "
-         << setw(16) << type << ", " << setw(5) << fixed << setw(5)
-         << setprecision(1) << NITER * nops / ttot << endl;
+    cout << setw(20) << type << ", " << setw(5) << fixed << setprecision(1)
+         << NITER * nops / ttot << endl;
     cout << endl;
     // cout << "total time: " << ttot << " ns" << endl;
 
