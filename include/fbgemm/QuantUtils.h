@@ -72,7 +72,9 @@ FBGEMM_API void Quantize(
     const float* src,
     T* dst,
     int len,
-    const TensorQuantizationParams& qparams);
+    const TensorQuantizationParams& qparams,
+    int thread_id = 0,
+    int num_threads = 1);
 
 /*
  * @brief Quantize floating point data in src to type T
@@ -118,8 +120,12 @@ void Dequantize(
     const T* src,
     float* dst,
     int len,
-    const TensorQuantizationParams& qparams) {
-  for (std::size_t i = 0; i < len; i++) {
+    const TensorQuantizationParams& qparams,
+    int thread_id = 0,
+    int num_threads = 1) {
+  int i_begin, i_end;
+  fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
+  for (std::size_t i = i_begin; i < i_end; i++) {
     dst[i] = Dequantize(src[i], qparams);
   }
 }
@@ -161,7 +167,9 @@ FBGEMM_API void RequantizeFixedPoint(
     const std::int32_t* src,
     T* dst,
     int len,
-    const RequantizationParams& params);
+    const RequantizationParams& params,
+    int thread_id = 0,
+    int num_threads = 1);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (with floats)
@@ -193,6 +201,8 @@ FBGEMM_API void Requantize(
     const std::int32_t* src,
     T* dst,
     int len,
-    const RequantizationParams& params);
+    const RequantizationParams& params,
+    int thread_id = 0,
+    int num_threads = 1);
 
 } // namespace fbgemm
