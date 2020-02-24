@@ -161,39 +161,47 @@ void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-#define FBGEMM_SPECIALIZED_QUANTIZE(T)           \
-  template <>                                    \
-  FBGEMM_API void Quantize<T>(                   \
-      const float* src,                          \
-      T* dst,                                    \
-      const int len,                             \
-      const TensorQuantizationParams& qparams) { \
-    for (int i = 0; i < len; ++i) {              \
-      dst[i] = Quantize<T>(src[i], qparams);     \
-    }                                            \
+#define FBGEMM_SPECIALIZED_QUANTIZE(T)                              \
+  template <>                                                       \
+  FBGEMM_API void Quantize<T>(                                      \
+      const float* src,                                             \
+      T* dst,                                                       \
+      const int len,                                                \
+      const TensorQuantizationParams& qparams,                      \
+      int thread_id,                                                \
+      int num_threads) {                                            \
+    int i_begin, i_end;                                             \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
+    for (int i = i_begin; i < i_end; ++i) {                         \
+      dst[i] = Quantize<T>(src[i], qparams);                        \
+    }                                                               \
   }
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 
-#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                             \
-  template <>                                                           \
-  FBGEMM_API void Quantize<T>(                                          \
-      const float* src,                                                 \
-      T* dst,                                                           \
-      int len,                                                          \
-      const TensorQuantizationParams& qparams) {                        \
-    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support(); \
-    bool fma_support = cpuinfo_has_x86_fma3();                          \
-    if (avx2_support && fma_support && qparams.precision == 8) {        \
-      /* fast path  */                                                  \
-      QuantizeAvx2<T>(src, dst, len, qparams);                          \
-    } else {                                                            \
-      for (std::size_t i = 0; i < len; ++i) {                           \
-        dst[i] = Quantize<T>(src[i], qparams);                          \
-      }                                                                 \
-    }                                                                   \
+#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T)                                    \
+  template <>                                                                  \
+  FBGEMM_API void Quantize<T>(                                                 \
+      const float* src,                                                        \
+      T* dst,                                                                  \
+      int len,                                                                 \
+      const TensorQuantizationParams& qparams,                                 \
+      int thread_id,                                                           \
+      int num_threads) {                                                       \
+    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();        \
+    bool fma_support = cpuinfo_has_x86_fma3();                                 \
+    int i_begin, i_end;                                                        \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);            \
+    if (avx2_support && fma_support && qparams.precision == 8) {               \
+      /* fast path  */                                                         \
+      QuantizeAvx2<T>(&src[i_begin], &dst[i_begin], i_end - i_begin, qparams); \
+    } else {                                                                   \
+      for (std::size_t i = i_begin; i < i_end; ++i) {                          \
+        dst[i] = Quantize<T>(src[i], qparams);                                 \
+      }                                                                        \
+    }                                                                          \
   }
 
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t)
@@ -321,16 +329,20 @@ int64_t SaturatingRoundingMulWithShift(int32_t a, int32_t b, int right_shift) {
   return (ab_64 + nudge) >> right_shift;
 }
 
-#define FBGEMM_SPECIALIZED_REQUANTIZE(T)      \
-  template <>                                 \
-  FBGEMM_API void Requantize<T>(              \
-      const int32_t* src,                     \
-      T* dst,                                 \
-      const int len,                          \
-      const RequantizationParams& params) {   \
-    for (int i = 0; i < len; ++i) {           \
-      dst[i] = Requantize<T>(src[i], params); \
-    }                                         \
+#define FBGEMM_SPECIALIZED_REQUANTIZE(T)                            \
+  template <>                                                       \
+  FBGEMM_API void Requantize<T>(                                    \
+      const int32_t* src,                                           \
+      T* dst,                                                       \
+      const int len,                                                \
+      const RequantizationParams& params,                           \
+      int thread_id,                                                \
+      int num_threads) {                                            \
+    int i_begin, i_end;                                             \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
+    for (int i = i_begin; i < i_end; ++i) {                         \
+      dst[i] = Requantize<T>(src[i], params);                       \
+    }                                                               \
   }
 FBGEMM_SPECIALIZED_REQUANTIZE(uint16_t)
 FBGEMM_SPECIALIZED_REQUANTIZE(int32_t)
@@ -341,59 +353,78 @@ FBGEMM_API void Requantize<uint8_t>(
     const int32_t* src,
     uint8_t* dst,
     const int len,
-    const RequantizationParams& params) {
+    const RequantizationParams& params,
+    int thread_id,
+    int num_threads) {
+  int i_begin, i_end;
+  fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
-    RequantizeAvx2(src, dst, len, params);
+    RequantizeAvx2(&src[i_begin], &dst[i_begin], i_end - i_begin, params);
   } else {
-    for (int i = 0; i < len; ++i) {
+    for (int i = i_begin; i < i_end; ++i) {
       dst[i] = Requantize<uint8_t>(src[i], params);
     }
   }
 }
 
 template <typename T>
-void RequantizeFixedPoint(
+FBGEMM_API void RequantizeFixedPoint(
     const std::int32_t* src,
     T* dst,
     int len,
-    const RequantizationParams& params) {
+    const RequantizationParams& params,
+    int thread_id,
+    int num_threads) {
+  int i_begin, i_end;
+  fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (std::is_same<T, uint8_t>::value && params.target_qparams.precision == 8 &&
       cpuinfo_initialize() && fbgemmHasAvx2Support()) {
-    RequantizeFixedPointAvx2(src, dst, len, params);
+    RequantizeFixedPointAvx2(
+        &src[i_begin], &dst[i_begin], i_end - i_begin, params);
   } else {
-    for (int i = 0; i < len; ++i) {
+    for (int i = i_begin; i < i_end; ++i) {
       dst[i] = RequantizeFixedPoint<T>(src[i], params);
     }
   }
 }
 
-#define FBGEMM_SPECIALIZED_REQUANTIZE(T)                \
-  template <>                                           \
-  void RequantizeFixedPoint<T>(                         \
-      const int32_t* src,                               \
-      T* dst,                                           \
-      const int len,                                    \
-      const RequantizationParams& params) {             \
-    for (int i = 0; i < len; ++i) {                     \
-      dst[i] = RequantizeFixedPoint<T>(src[i], params); \
-    }                                                   \
+#define FBGEMM_SPECIALIZED_REQUANTIZE(T)                            \
+  template <>                                                       \
+  FBGEMM_API void RequantizeFixedPoint<T>(                          \
+      const int32_t* src,                                           \
+      T* dst,                                                       \
+      const int len,                                                \
+      const RequantizationParams& params,                           \
+      int thread_id,                                                \
+      int num_threads) {                                            \
+    int i_begin, i_end;                                             \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
+    for (int i = i_begin; i < i_end; ++i) {                         \
+      dst[i] = RequantizeFixedPoint<T>(src[i], params);             \
+    }                                                               \
   }
 FBGEMM_SPECIALIZED_REQUANTIZE(uint16_t)
 FBGEMM_SPECIALIZED_REQUANTIZE(int32_t)
 #undef FBGEMM_SPECIALIZED_REQUANTIZE
 
 template <>
-void RequantizeFixedPoint<uint8_t>(
+FBGEMM_API void RequantizeFixedPoint<uint8_t>(
     const int32_t* src,
     uint8_t* dst,
     const int len,
-    const RequantizationParams& params) {
+    const RequantizationParams& params,
+    int thread_id,
+    int num_threads) {
+  int i_begin, i_end;
+  fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
+
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
-    RequantizeFixedPointAvx2(src, dst, len, params);
+    RequantizeFixedPointAvx2(
+        &src[i_begin], &dst[i_begin], i_end - i_begin, params);
   } else {
-    for (int i = 0; i < len; ++i) {
+    for (int i = i_begin; i < i_end; ++i) {
       dst[i] = RequantizeFixedPoint<uint8_t>(src[i], params);
     }
   }
