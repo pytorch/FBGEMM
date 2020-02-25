@@ -151,15 +151,15 @@ void CompressedSparseColumn::SpMDM(
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  uint8_t* A_buffer = static_cast<uint8_t*>(ALIGNED_MALLOC(K * 32 * sizeof(uint8_t), 64));
-  int32_t* C_buffer = static_cast<int32_t*>(ALIGNED_MALLOC(N * 32 * sizeof(int32_t), 64));
+  uint8_t* A_buffer = static_cast<uint8_t*>(genericAlignedAlloc(K * 32 * sizeof(uint8_t), 64));
+  int32_t* C_buffer = static_cast<int32_t*>(genericAlignedAlloc(N * 32 * sizeof(int32_t), 64));
 
   // Take 32 rows at a time
   int i_end = block.row_start + block.row_size;
   for (int i1 = block.row_start; i1 < i_end; i1 += 32) {
     // Transpose 32 x K submatrix of A
     if (i_end - i1 < 32) {
-      uint8_t* A_temp_buffer = static_cast<uint8_t*>(ALIGNED_MALLOC(K * 32 * sizeof(uint8_t), 64));
+      uint8_t* A_temp_buffer = static_cast<uint8_t*>(genericAlignedAlloc(K * 32 * sizeof(uint8_t), 64));
       for (int i2 = 0; i2 < (i_end - i1) / 8 * 8; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
       }
@@ -175,7 +175,7 @@ void CompressedSparseColumn::SpMDM(
       for (int i2 = (i_end - i1) / 8 * 8; i2 < 32; i2 += 8) {
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
-      FREE(A_temp_buffer);
+      genericFree(A_temp_buffer);
     } else {
       for (int i2 = 0; i2 < 32; i2 += 8) {
         transpose_8rows(K, A + (i1 + i2) * lda, lda, A_buffer + i2, 32);
@@ -254,8 +254,8 @@ void CompressedSparseColumn::SpMDM(
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  FREE(A_buffer);
-  FREE(C_buffer);
+  genericFree(A_buffer);
+  genericFree(C_buffer);
 }
 
 void CompressedSparseColumn::SparseConv(
