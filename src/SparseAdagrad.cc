@@ -640,6 +640,57 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
       });
 } // getOrCreate
 
+// Specialization for block size 1 internally called by GenerateSparseAdaGrad
+template <typename IndexType>
+int SparseAdaGradBlockSize1_(
+    int num_rows, // number of rows reading
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input/output parameters
+    const float* g, // input gradients
+    float* h, // input/output momentums
+    const IndexType* indices, // indices of each row
+    float epsilon,
+    float lr,
+    bool rowwise) {
+  for (int i = 0; i < num_rows; ++i) {
+    IndexType idx = indices[i];
+    if (idx >= param_size) {
+      return i;
+    }
+
+    float gi = g[i];
+    float hi = h[idx] = h[idx] + gi * gi;
+    if (rowwise) {
+      w[idx] += lr / (std::sqrt(hi) + epsilon) * gi;
+    } else {
+      w[idx] += lr * gi / (std::sqrt(hi) + epsilon);
+    }
+  }
+  return num_rows;
+}
+
+template int SparseAdaGradBlockSize1_(
+    int num_rows, // number of rows reading
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int64_t* indices, // indices of each row
+    float epsilon,
+    float lr,
+    bool rowwise);
+
+template int SparseAdaGradBlockSize1_(
+    int num_rows, // number of rows reading
+    std::uint64_t param_size, // total number of parameters
+    float* w, // input parameters
+    const float* g, // input gradients
+    float* h, // input momentums
+    const std::int32_t* indices, // indices of each row
+    float epsilon,
+    float lr,
+    bool rowwise);
+
 } // namespace
 
 template <typename IndexType>
@@ -652,6 +703,19 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
   }
 
   if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+    if (block_size == 1) {
+      return [=](int num_rows, // number of rows reading
+                 std::uint64_t param_size, // total number of parameters
+                 float* w, // input/output parameters
+                 const float* g, // input gradients
+                 float* h, // input/output momentums
+                 const IndexType* indices, // indices of each row
+                 float epsilon,
+                 float lr) {
+        return SparseAdaGradBlockSize1_(
+            num_rows, param_size, w, g, h, indices, epsilon, lr, rowwise);
+      };
+    }
     static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
     constexpr int VLEN = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
     const int* mask_avx2 = &internal::avx2_ps_or_epi32_combined_mask
