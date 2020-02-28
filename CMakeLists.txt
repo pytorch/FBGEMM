@@ -23,7 +23,7 @@ set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #add address sanitizer
-set(USE_SANITIZER "" CACHE string "options include address, leak, ...")
+set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
 #All the source files that either use avx2 instructions statically or JIT
 #avx2/avx512 instructions.
@@ -237,9 +237,9 @@ if(NOT TARGET cpuinfo)
   set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL "Do not build cpuinfo unit tests")
   set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL "Do not build cpuinfo mock tests")
   set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL "Do not build cpuinfo benchmarks")
-  set(CPUINFO_LIBRARY_TYPE static CACHE string "Set lib type to static")
+  set(CPUINFO_LIBRARY_TYPE static CACHE STRING "Set lib type to static")
   #Select static runtime, needed for static build for MSVC
-  set(CPUINFO_RUNTIME_TYPE static CACHE string "Set runtime to static")
+  set(CPUINFO_RUNTIME_TYPE static CACHE STRING "Set runtime to static")
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()

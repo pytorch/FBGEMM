@@ -19,6 +19,14 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
 endif()
 
+if (USE_SANITIZER)
+  message(WARNING "USING SANITIZER IN TEST")
+endif()
+
+if(${OpenMP_FOUND})
+  message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
+endif()
+
 macro(add_gtest TESTNAME)
   add_executable(${TESTNAME} ${ARGN}
     ../bench/BenchUtils.cc
@@ -41,7 +49,6 @@ macro(add_gtest TESTNAME)
      "-m64" "-mavx2" "-mfma" "-masm=intel")
   endif(MSVC)
   if (USE_SANITIZER)
-    message(WARNING "USING SANITIZER IN TEST")
     target_compile_options(${TESTNAME} PRIVATE
       "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
     target_link_options(${TESTNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
@@ -50,7 +57,6 @@ macro(add_gtest TESTNAME)
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
 
   if(${OpenMP_FOUND})
-    message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
     target_link_libraries(${TESTNAME} ${OpenMP_CXX_LIBRARIES})
   endif()
 
