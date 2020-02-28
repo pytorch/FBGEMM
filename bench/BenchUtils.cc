@@ -93,8 +93,7 @@ int parseArgumentInt(
   for (auto i = 1; i < argc; ++i) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
-      int res;
-      sscanf(ptr + arg_len, "%d", &res);
+      int res = atoi(ptr + arg_len);
       val = (*(ptr + arg_len - 1) == '=') ? res : def_val;
       break;
     }
