@@ -160,6 +160,7 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
 #2) MSVC uses /MD in default cxx compiling flags,
 #need to change it to /MT in static case
 if(MSVC)
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
   if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
     target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
     target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
@@ -183,23 +184,12 @@ else(MSVC)
 endif(MSVC)
 
 if(USE_SANITIZER)
-  if (USE_SANITIZER MATCHES "([Aa]ddress)")
-    target_compile_options(fbgemm_generic PRIVATE
-      "-fsanitize=address" "-fno-omit-frame-pointer")
-    target_compile_options(fbgemm_avx2 PRIVATE
-      "-fsanitize=address" "-fno-omit-frame-pointer")
-    target_compile_options(fbgemm_avx512 PRIVATE
-      "-fsanitize=address" "-fno-omit-frame-pointer")
-  elseif (USE_SANITIZER MATCHES "([Ll]eak)")
-    target_compile_options(fbgemm_generic PRIVATE
-      "-fsanitize=leak" "-fno-omit-frame-pointer")
-    target_compile_options(fbgemm_avx2 PRIVATE
-      "-fsanitize=leak" "-fno-omit-frame-pointer")
-    target_compile_options(fbgemm_avx512 PRIVATE
-      "-fsanitize=leak" "-fno-omit-frame-pointer")
-  else()
-    message(FATAL_ERROR "USE_SANITIZER = ${USE_SANITIZER}: not supported!")
-  endif()
+  target_compile_options(fbgemm_generic PRIVATE
+    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+  target_compile_options(fbgemm_avx2 PRIVATE
+    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+  target_compile_options(fbgemm_avx512 PRIVATE
+    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
 message(WARNING "==========")
@@ -295,7 +285,7 @@ endif()
 
 if(USE_SANITIZER)
   target_link_options(fbgemm PRIVATE
-    "-fsanitize=address" "-fno-omit-frame-pointer")
+    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
 target_include_directories(fbgemm BEFORE
