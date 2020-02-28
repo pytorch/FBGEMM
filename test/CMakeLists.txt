@@ -40,7 +40,8 @@ macro(add_gtest TESTNAME)
   #For static build, defining FBGEMM_STATIC to avoid generating
   #functions with _dllimport attributes.
   if(MSVC)
-    target_compile_options(${TESTNAME} PRIVATE "/arch:AVX2")
+    target_compile_options(${TESTNAME} PRIVATE
+      "/arch:AVX2" "/wd4244" "/wd4267" "/wd4305" "/wd4309")
     if (FBGEMM_LIBRARY_TYPE STREQUAL "static")
       target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
     endif()
@@ -51,7 +52,8 @@ macro(add_gtest TESTNAME)
   if (USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
       "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-    target_link_options(${TESTNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
+    target_link_options(${TESTNAME} PRIVATE
+      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
