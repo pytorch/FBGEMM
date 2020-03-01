@@ -168,8 +168,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
             nBlock,
             kBlock,
             mRegBlockSize,
-            nRegBlockSize,
-            nRegBlockSizeMin)
+            nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
