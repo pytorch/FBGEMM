@@ -15,6 +15,7 @@
 #include <cstring>
 #include <memory>
 #include <vector>
+#include <sstream>
 
 #include <fbgemm/Utils.h>
 
@@ -138,7 +139,7 @@ class SpMM_JitterASMJIT
 
 #ifdef FBGEMM_LOG_CODE
     std::ostringstream oss;
-    oss << "spmm_";
+    oss << "SpMM_";
     if (is_same<ACC_T, float>::value) {
       oss << "float_";
     } else {
@@ -159,8 +160,9 @@ class SpMM_JitterASMJIT
     oss << "_LDA-" << LDA;
     oss << "_LDB-" << LDB;
     oss << "_LDC-" << LDC;
+    oss << ".txt";
 
-    FILE* codeLogFile = fopen(ost.str(), "w");
+    FILE* codeLogFile = fopen(oss.str().c_str(), "w");
     asmjit::FileLogger codeLogger(codeLogFile);
     code.setLogger(&codeLogger);
 #endif
@@ -875,7 +877,7 @@ class SpMM_JitterASMJIT_VaryingN {
 
 #ifdef FBGEMM_LOG_CODE
     std::ostringstream oss;
-    oss << "spmm_";
+    oss << "SpMM_VaryingN_";
     if (is_same<ACC_T, float>::value) {
       oss << "float_";
     } else {
@@ -891,13 +893,11 @@ class SpMM_JitterASMJIT_VaryingN {
       oss << "avx2";
     }
     oss << "_M-" << M;
-    oss << "_N-" << N;
     oss << "_K-" << K;
     oss << "_LDA-" << LDA;
-    oss << "_LDB-" << LDB;
-    oss << "_LDC-" << LDC;
+    oss << ".txt";
 
-    FILE* codeLogFile = fopen(ost.str(), "w");
+    FILE* codeLogFile = fopen(oss.str().c_str(), "w");
     asmjit::FileLogger codeLogger(codeLogFile);
     code.setLogger(&codeLogger);
 #endif
