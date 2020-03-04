@@ -36,7 +36,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     : K_(K), kernel_prod_(kernel_prod) {
   // Transpose the input matrix to make packing faster.
   int8_t* smat_transposed
-      = static_cast<int8_t*>(ALIGNED_MALLOC(K * kernel_prod * sizeof(int8_t), 64));
+      = static_cast<int8_t*>(genericAlignedAlloc(K * kernel_prod * sizeof(int8_t), 64));
 
   for (int i = 0; i < kernel_prod; ++i) {
     for (int j = 0; j < K; ++j) {
@@ -101,7 +101,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
   // (12, 8), (12, 9), (12, 10), zero, ..., (15, 8), (15, 9), (15, 10), zero
   // (28, 8), (28, 9), (28, 10), zero, ..., (31, 8), (31, 9), (31, 10), zero
   for (int k1 = 0; k1 < K; k1 += 32) {
-    __m256i* b_v = static_cast<__m256i*>(ALIGNED_MALLOC(kernel_prod * sizeof(__m256i), 64));
+    __m256i* b_v = static_cast<__m256i*>(genericAlignedAlloc(kernel_prod * sizeof(__m256i), 64));
     int remainder = K - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_loadu_si256(
@@ -118,7 +118,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 2 SIMD registers
-    __m256i* b_interleaved_epi16 = static_cast<__m256i*>(ALIGNED_MALLOC(kernel_prod_aligned * sizeof(__m256i), 64));
+    __m256i* b_interleaved_epi16 = static_cast<__m256i*>(genericAlignedAlloc(kernel_prod_aligned * sizeof(__m256i), 64));
     __m256i zero_v = _mm256_setzero_si256();
     for (int i = 0; i < kernel_prod_aligned / 2; ++i) {
       if (2 * i + 1 >= kernel_prod) {
@@ -134,7 +134,7 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
     }
 
     // Interleave 4 SIMD registers
-    __m256i* b_interleaved_epi32 = static_cast<__m256i*>(ALIGNED_MALLOC(kernel_prod_aligned * sizeof(__m256i), 64));
+    __m256i* b_interleaved_epi32 = static_cast<__m256i*>(genericAlignedAlloc(kernel_prod_aligned * sizeof(__m256i), 64));
     for (int i = 0; i < kernel_prod_aligned / 4; ++i) {
       b_interleaved_epi32[4 * i] = _mm256_unpacklo_epi16(
           b_interleaved_epi16[4 * i], b_interleaved_epi16[4 * i + 2]);
@@ -156,11 +156,11 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
           b_interleaved_epi32[i]);
     }
 
-    FREE(b_v);
-    FREE(b_interleaved_epi16);
-    FREE(b_interleaved_epi32);
+    genericFree(b_v);
+    genericFree(b_interleaved_epi16);
+    genericFree(b_interleaved_epi32);
   }
-  FREE(smat_transposed);
+  genericFree(smat_transposed);
 }
 
 int PackedDepthWiseConvMatrix::addr(int r, int c) {

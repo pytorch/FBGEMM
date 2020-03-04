@@ -490,7 +490,7 @@ static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
 
   //int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
   int32_t* row_offsets
-      = static_cast<int32_t*>(ALIGNED_MALLOC((K + 31) / 32 * 32 * sizeof(int32_t), 64));
+      = static_cast<int32_t*>(genericAlignedAlloc((K + 31) / 32 * 32 * sizeof(int32_t), 64));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -568,7 +568,7 @@ static inline ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
       } // h
     } // t
   } // for each n
-  FREE(row_offsets);
+  genericFree(row_offsets);
 };
 
 template <bool FUSE_RELU, bool HAS_BIAS, bool A_SYMMETRIC, typename BIAS_TYPE>
@@ -606,7 +606,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
 
   //int32_t row_offsets[(K + 31) / 32 * 32] __attribute__((aligned(64)));
   int32_t* row_offsets
-      = static_cast<int32_t*>(ALIGNED_MALLOC((K + 31) / 32 * 32 * sizeof(int32_t), 64));
+      = static_cast<int32_t*>(genericAlignedAlloc((K + 31) / 32 * 32 * sizeof(int32_t), 64));
 
   int n_begin, n_end;
   int t_begin, t_end, h_begin, h_end;
@@ -684,7 +684,7 @@ depthwise_3x3x3_per_channel_quantization_pad_1_(
       } // h
     } // t
   } // for each n
-  FREE(row_offsets);
+  genericFree(row_offsets);
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC

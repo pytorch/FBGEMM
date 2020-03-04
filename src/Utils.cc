@@ -17,6 +17,30 @@
 
 namespace fbgemm {
 
+void * genericAlignedAlloc(size_t size, size_t align) {
+  void* aligned_mem = nullptr;
+  int ret;
+#ifdef _MSC_VER
+  aligned_mem = _aligned_malloc(size, align);
+  ret = 0;
+#else
+  ret = posix_memalign(&aligned_mem, align, size);
+#endif
+  // Throw std::bad_alloc in the case of memory allocation failure.
+  if (ret || aligned_mem == nullptr) {
+    throw std::bad_alloc();
+  }
+  return aligned_mem;
+}
+
+void genericFree(void * p) {
+#ifdef _MSC_VER
+  _aligned_free(p);
+#else
+  free(p);
+#endif
+}
+
 /**
  * @brief Compare the reference and test result matrix to check the correctness.
  * @param ref The buffer for the reference result matrix.
