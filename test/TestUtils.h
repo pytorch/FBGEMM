@@ -30,26 +30,4 @@ int compare_validate_buffers(
 template <typename T>
 bool check_all_zero_entries(const T* test, int m, int n);
 
-/*
- * @brief In-place transposition for nxk matrix ref.
- * @param n number of rows in input (number of columns in output)
- * @param k number of columns in input (number of rows in output)
- */
-template <typename T>
-void transpose_matrix(T* ref, int n, int k);
-
-/*
- * @brief Out-of-place transposition for M*N matrix ref.
- * @param M number of rows in input
- * @param K number of columns in input
- */
-template <typename T>
-void transpose_matrix(
-    int M,
-    int N,
-    const T* src,
-    int ld_src,
-    T* dst,
-    int ld_dst);
-
 } // namespace fbgemm
