@@ -272,3 +272,38 @@ TEST(QuantizeTestSingle, vectorScalar) {
   EXPECT_TRUE(
       adjacent_find(dst.begin(), dst.end(), not_equal_to<int>()) == dst.end());
 }
+
+TEST(QuantizeTest, cornerCases) {
+  TensorQuantizationParams qparams;
+  qparams.scale = 1.19209e-07;
+  qparams.zero_point = 0;
+  qparams.precision = 8;
+  std::vector<float> src1 = {3.40282e+38, -2.16845e+38};
+
+  std::vector<int8_t> dst_int8(src1.size());
+  Quantize<int8_t>(src1.data(), dst_int8.data(), dst_int8.size(), qparams);
+  EXPECT_EQ(dst_int8[0], 127);
+  EXPECT_EQ(dst_int8[1], -128);
+
+  // Tests vectorized and remainder paths
+  std::vector<float> src2 = {3.40282e+38,
+                             -2.16845e+38,
+                             3.40282e+38,
+                             -2.16845e+38,
+                             3.40282e+38,
+                             -2.16845e+38,
+                             3.40282e+38,
+                             -2.16845e+38,
+                             3.40282e+38};
+  std::vector<uint8_t> dst_uint8(src2.size());
+  Quantize<uint8_t>(src2.data(), dst_uint8.data(), dst_uint8.size(), qparams);
+  EXPECT_EQ(dst_uint8[0], 255);
+  EXPECT_EQ(dst_uint8[1], 0);
+  EXPECT_EQ(dst_uint8[8], 255);
+
+  qparams.precision = 16;
+  std::vector<int16_t> dst_int16(src2.size());
+  Quantize<int16_t>(src2.data(), dst_int16.data(), dst_int16.size(), qparams);
+  EXPECT_EQ(dst_int16[0], 32767);
+  EXPECT_EQ(dst_int16[1], -32768);
+}
