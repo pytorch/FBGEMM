@@ -56,10 +56,11 @@ T Quantize(
     int result_precision,
     bool result_is_signed = std::is_signed<T>::value) {
   const float transformed_val = zero_point + src / scale;
-  return clamp<std::int64_t, T>(
-      static_cast<std::int64_t>(std::nearbyint(transformed_val)),
-      result_precision,
-      result_is_signed);
+  // Please note the use of double. Unlike float, a double can represent
+  // all int32 values exactly. Using a float results in a float value >
+  // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
+  return clamp<double, T>(
+      std::nearbyint(transformed_val), result_precision, result_is_signed);
 }
 
 template <typename T>
