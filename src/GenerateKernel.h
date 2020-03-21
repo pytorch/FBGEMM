@@ -47,9 +47,9 @@ class CodeGenBase {
     // vector width in bits
     if (cpuinfo_initialize()) {
       if (fbgemmHasAvx512Support()) {
-        vectorWidth_ = 512;
+        vectorWidth_ = simd_info<inst_set_t::avx512>::WIDTH_BITS;
       } else if (fbgemmHasAvx2Support()) {
-        vectorWidth_ = 256;
+        vectorWidth_ = simd_info<inst_set_t::avx2>::WIDTH_BITS;
       } else {
         // TODO: Have default path
         assert(0 && "unsupported architecture");
