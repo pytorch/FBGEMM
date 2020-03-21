@@ -148,7 +148,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
-        string filename = "embeddinglookup_" + to_string(bit_rate) + "bit_";
+        string filename = "embeddinglookup_" + to_string(bit_rate) + "bit";
         filename += "_emd_dim_" + to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
@@ -584,6 +584,15 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
               vec_reg_t(scale_vreg.id()), half_vec_reg_t(scale_vreg.id()));
           a->vcvtph2ps(
               vec_reg_t(bias_vreg.id()), half_vec_reg_t(bias_vreg.id()));
+          constexpr int CACHE_LINE_LEN = 64;
+          if (pref_dist &&
+              fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float16)) {
+            a->prefetcht0(x86::dword_ptr(
+                input,
+                scratchReg2_,
+                0,
+                fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
+          }
 
           if (has_weight) {
             a->vmulps(scale_vreg, scale_vreg, w_vreg);
@@ -599,7 +608,6 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
           // (epu8->epi32), and then get 4 zmms from each 128-bit portion of
           // zmm via vpmovsxbd (epi8->epi32).
           for (int v = 0; v < cur_unroll_factor; v += 4) {
-            // Divide by 2 because we're doing ymm load rather than zmm
             int bytes_per_vload = (vlen / num_elem_per_byte) * sizeof(uint8_t);
             auto src_addr = x86::dword_ptr(
                 input, scratchReg1_, 0, (vec_idx + v) * bytes_per_vload);
@@ -719,10 +727,9 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
               a->vfmadd231ps(out_vreg, temp_vreg, scale_vreg);
             } // for each i
 
-            constexpr int CACHE_LINE_LEN = 64;
             int vload_per_cache_line = CACHE_LINE_LEN / bytes_per_vload;
             int v_aligned = ceil_div(vec_idx + v, 4) * 4;
-            if (pref_dist && v_aligned * 4 % vload_per_cache_line == 0) {
+            if (pref_dist && v_aligned % vload_per_cache_line == 0) {
               a->prefetcht0(x86::dword_ptr(
                   input, scratchReg2_, 0, v_aligned * bytes_per_vload));
             }

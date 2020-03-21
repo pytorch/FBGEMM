@@ -28,12 +28,11 @@ using namespace fbgemm;
 
 void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
   for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
+    cout << "row: " << i << " : " << endl;
     for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
-                << ",";
+      cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii] << ",";
     }
-    std::cout << std::endl;
+    cout << endl;
   }
 }
 
@@ -259,42 +258,42 @@ int run_benchmark(
             }
           }
         }
+      }
 
 #ifdef _OPENMP
 #pragma omp barrier
 #endif
-        if (fbgemm_get_thread_num() == 0) {
-          if (has_weight) {
-            cout << setw(16) << "SLW(WEIGHTED) ";
-          } else {
-            cout << setw(16) << "SLS ";
-          }
-          if (flush_cache) {
-            cout << setw(20) << "cache flushed";
-          } else {
-            cout << setw(20) << "cache not flushed";
-          }
-          if (prefetch) {
-            cout << setw(16) << "prefetch on";
-          } else {
-            cout << setw(16) << "prefetch off";
-          }
-
-          double max_time = *std::max_element(
-              times.begin(), times.begin() + fbgemm_get_num_threads());
-          double avg_time = std::accumulate(
-                                times.begin(),
-                                times.begin() + fbgemm_get_num_threads(),
-                                0.0) /
-              fbgemm_get_num_threads();
-          double load_imbalance = (max_time - avg_time) / avg_time;
-
-          cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / max_time
-               << " GB/s" << setw(20) << "effective b/w: " << setw(16)
-               << bytes_padded / 1e9 / max_time << "GB/s" << setw(8) << " time "
-               << setw(16) << max_time << " load_imbalance " << load_imbalance
-               << endl;
+      if (fbgemm_get_thread_num() == 0) {
+        if (has_weight) {
+          cout << setw(16) << "SLW(WEIGHTED) ";
+        } else {
+          cout << setw(16) << "SLS ";
         }
+        if (flush_cache) {
+          cout << setw(20) << "cache flushed";
+        } else {
+          cout << setw(20) << "cache not flushed";
+        }
+        if (prefetch) {
+          cout << setw(16) << "prefetch on";
+        } else {
+          cout << setw(16) << "prefetch off";
+        }
+
+        double max_time = *std::max_element(
+            times.begin(), times.begin() + fbgemm_get_num_threads());
+        double avg_time = std::accumulate(
+                              times.begin(),
+                              times.begin() + fbgemm_get_num_threads(),
+                              0.0) /
+            fbgemm_get_num_threads();
+        double load_imbalance = (max_time - avg_time) / avg_time;
+
+        cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / max_time
+             << " GB/s" << setw(20) << "effective b/w: " << setw(16)
+             << bytes_padded / 1e9 / max_time << "GB/s" << setw(8) << " time "
+             << setw(16) << max_time << " load_imbalance " << load_imbalance
+             << endl;
       }
     } // flush_cache
   } // has_weight
