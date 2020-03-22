@@ -541,7 +541,7 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
             a->vbroadcastss(scale_vreg, scale_src);
             a->vbroadcastss(bias_vreg, bias_src);
 
-            if (pref_dist &&
+            if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
                 fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float)) {
               a->prefetcht0(x86::dword_ptr(
                   input,
