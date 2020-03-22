@@ -487,10 +487,11 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
           } else {
             a->mov(scratchReg1_.r32(), x86::dword_ptr(indices));
           }
-          a->cmp(scratchReg1_, 0);
-          a->jl(error);
+          // A trick to check x >= data_size or x < 0 in one shot by treating
+          // scratchReg1_ as if it has unsigned value
+          // (https://stackoverflow.com/a/34072155).
           a->cmp(scratchReg1_, data_size);
-          a->jge(error);
+          a->jae(error);
 
           if (ROWWISE_SPARSE) {
             a->mov(
@@ -525,13 +526,8 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
                   x86::dword_ptr(indices, pref_dist * sizeof(indxType)));
             }
 
-            a->cmp(scratchReg2_, 0);
-            a->jl(pref_dist_reset_start);
             a->cmp(scratchReg2_, data_size);
-            a->jge(pref_dist_reset_start);
-
-            // everything is okay, prefetch a few rows ahead
-            a->jmp(pref_dist_reset_end);
+            a->jb(pref_dist_reset_end);
 
             a->bind(pref_dist_reset_start);
             // things are not okay just get the current row
