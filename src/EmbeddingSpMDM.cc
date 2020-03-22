@@ -529,6 +529,7 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
 
           // broadcast the scale
           x86::Mem scale_src, bias_src;
+          constexpr int CACHE_LINE_LEN = 64;
           if (is8bit) {
             scale_src = x86::dword_ptr(
                 input, scratchReg1_, 0, block_size * sizeof(uint8_t));
@@ -539,6 +540,15 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
                 block_size * sizeof(uint8_t) + sizeof(float));
             a->vbroadcastss(scale_vreg, scale_src);
             a->vbroadcastss(bias_vreg, bias_src);
+
+            if (pref_dist &&
+                fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float)) {
+              a->prefetcht0(x86::dword_ptr(
+                  input,
+                  scratchReg2_,
+                  0,
+                  fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
+            }
           }
 
           if (has_weight && is8bit) {
@@ -648,7 +658,6 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
               }
             }
 
-            constexpr int CACHE_LINE_LEN = 64;
             constexpr int VLOAD_PER_CACHE_LINE =
                 CACHE_LINE_LEN / BYTES_PER_VLOAD;
             if (pref_dist && (vec_idx + v) % VLOAD_PER_CACHE_LINE == 0) {
