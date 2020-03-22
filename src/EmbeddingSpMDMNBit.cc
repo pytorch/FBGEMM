@@ -585,7 +585,7 @@ GenEmbeddingSpMDMNBitLookup<indxType, ROWWISE_SPARSE>::getOrCreate(
           a->vcvtph2ps(
               vec_reg_t(bias_vreg.id()), half_vec_reg_t(bias_vreg.id()));
           constexpr int CACHE_LINE_LEN = 64;
-          if (pref_dist &&
+          if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
               fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float16)) {
             a->prefetcht0(x86::dword_ptr(
                 input,
