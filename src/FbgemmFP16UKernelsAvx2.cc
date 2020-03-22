@@ -40,7 +40,7 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
@@ -162,7 +162,7 @@ void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
@@ -305,7 +305,7 @@ void NOINLINE gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
@@ -467,7 +467,7 @@ void NOINLINE gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
@@ -648,7 +648,7 @@ void NOINLINE gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
@@ -848,7 +848,7 @@ void NOINLINE gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rax, r9\t\n"
       "mov rcx, r12\t\n"
 
-      "mov rbx, 0\t\n"
+      "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
