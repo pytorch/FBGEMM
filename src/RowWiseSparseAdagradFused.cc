@@ -343,10 +343,11 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
         } else {
           a->mov(scratchReg1.r32(), x86::dword_ptr(indices));
         }
-        a->cmp(scratchReg1, 0);
-        a->jl(error);
+        // A trick to check x >= data_size or x < 0 in one shot by treating
+        // scratchReg1_ as if it has unsigned value
+        // (https://stackoverflow.com/a/34072155).
         a->cmp(scratchReg1, data_size);
-        a->jge(error);
+        a->jae(error);
 
         if (prefetch) {
           asmjit::Label pref_dist_reset_start = a->newLabel();
@@ -369,13 +370,8 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
                 x86::dword_ptr(indices, prefetch * sizeof(indxType)));
           }
 
-          a->cmp(scratchReg2, 0);
-          a->jl(pref_dist_reset_start);
           a->cmp(scratchReg2, data_size);
-          a->jge(pref_dist_reset_start);
-
-          // everything is okay, prefetch a few rows ahead
-          a->jmp(pref_dist_reset_end);
+          a->jb(pref_dist_reset_end);
 
           a->bind(pref_dist_reset_start);
           // things are not okay just get the current row
