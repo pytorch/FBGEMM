@@ -423,7 +423,7 @@ int main(int argc, const char* argv[]) {
         addi(srcfile, "mov rcx, r12");
         srcfile << "\n";
 
-        addi(srcfile, "mov rbx, 0");
+        addi(srcfile, "xor ebx, ebx");
         addi(srcfile, label_outer + ":");
         addi(srcfile, "mov r14, r8");
 

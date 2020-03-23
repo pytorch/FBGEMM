@@ -222,11 +222,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
     int colRegs = std::min(currColRegs, maxNRegs);
     if (mRegBlocks > 0) {
       // move 0 to iteration variables
-      a->mov(iIdx, 0);
+      a->xor_(iIdx.r32(), iIdx.r32());
 
       a->bind(LoopMBlocks);
       a->inc(iIdx);
-      a->mov(jIdx, 0);
+      a->xor_(jIdx.r32(), jIdx.r32());
 
       a->bind(LoopNBlocks);
       a->inc(jIdx);
@@ -237,7 +237,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(Loopk);
 
       // k is incremented by row_interleave
@@ -316,7 +316,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       asmjit::Label LoopkRem = a->newLabel();
       int rowRegs = mRegBlocksRem;
 
-      a->mov(jIdx, 0);
+      a->xor_(jIdx.r32(), jIdx.r32());
       a->bind(LoopNRem);
       a->inc(jIdx);
 
@@ -324,7 +324,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
       initCRegs<inst_set_t::avx512_vnni>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopkRem);
 
       // k is incremented by row_interleave

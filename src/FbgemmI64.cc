@@ -116,7 +116,7 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::storeCRegs<
     if (i != 0) {
       a->add(C_Offset, ldcReg);
     } else {
-      a->mov(C_Offset, static_cast<asmjit::Imm>(0));
+      a->xor_(C_Offset.r32(), C_Offset.r32());
     }
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
@@ -255,11 +255,11 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
     int colRegs = std::min(currColRegs, maxNRegs);
     if (mRegBlocks > 0) {
       // move 0 to iteration variables
-      a->mov(iIdx, 0);
+      a->xor_(iIdx.r32(), iIdx.r32());
 
       a->bind(LoopMBlocks);
       a->inc(iIdx);
-      a->mov(jIdx, 0);
+      a->xor_(jIdx.r32(), jIdx.r32());
 
       a->bind(LoopNBlocks);
       a->inc(jIdx);
@@ -270,7 +270,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
       initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(Loopk);
 
       // k is incremented by 1
@@ -342,7 +342,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
       asmjit::Label LoopkRem = a->newLabel();
       int rowRegs = mRegBlocksRem;
 
-      a->mov(jIdx, 0);
+      a->xor_(jIdx.r32(), jIdx.r32());
       a->bind(LoopNRem);
       a->inc(jIdx);
 
@@ -350,7 +350,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
       initCRegs<inst_set_t::avx512>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopkRem);
 
       // k is incremented by 1

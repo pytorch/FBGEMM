@@ -235,7 +235,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     int colRegs = nc * row_interleave / VLEN_;
     if (mRegBlocks > 0) {
       // move 0 to iteration variables
-      a->mov(iIdx, 0);
+      a->xor_(iIdx.r32(), iIdx.r32());
 
       // save B_buffer address
       a->mov(buffer_B_saved, buffer_B);
@@ -250,7 +250,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
       initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(Loopk);
       // k is incremented by row_interleave
       a->add(kIdx, static_cast<asmjit::Imm>(row_interleave));
@@ -303,7 +303,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
       initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs);
 
       // init k loop index
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopkRem);
 
       // k is incremented by row_interleave

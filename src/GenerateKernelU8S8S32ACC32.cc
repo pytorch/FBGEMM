@@ -242,7 +242,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     a->vpcmpeqw(oneReg, oneReg, oneReg);
     a->vpsrlw(oneReg, oneReg, 15);
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
-    a->mov(C_Offset, 0);
+    a->xor_(C_Offset.r32(), C_Offset.r32());
 
     int colRegs = nc * row_interleave / VLEN_;
 
@@ -253,7 +253,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs);
 
       // Loops over K
-      a->mov(kIdx, 0);
+      a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopKLabel);
 
       // k is incremented by row_interleave
@@ -284,7 +284,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
 
     if (mRegBlocks > 0) {
       // move 0 to iteration variables
-      a->mov(iIdx, 0);
+      a->xor_(iIdx.r32(), iIdx.r32());
 
       // save B_buffer address
       a->mov(buffer_B_saved, buffer_B);
@@ -305,7 +305,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       // increment C for next block
       a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(rowRegs));
       a->add(CBase, C_Offset);
-      a->mov(C_Offset, 0);
+      a->xor_(C_Offset.r32(), C_Offset.r32());
 
       // reset B
       a->mov(buffer_B, buffer_B_saved);
