@@ -370,8 +370,7 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
                 x86::dword_ptr(indices, prefetch * sizeof(indxType)));
           }
 
-          a->cmp(scratchReg2, data_size);
-          a->jb(pref_dist_reset_end);
+          a->jmp(pref_dist_reset_end);
 
           a->bind(pref_dist_reset_start);
           // things are not okay just get the current row
