@@ -112,11 +112,12 @@ void run_benchmark(
 
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
+  int elem_bytes = use_fp16_inputs ? sizeof(float16) : sizeof(float);
   double bytes = lengths_sum *
-          (embedding_dim * sizeof(float) + (use_32_bit_indices ? 4 : 8)) +
+          (embedding_dim * elem_bytes + (use_32_bit_indices ? 4 : 8)) +
       batch_size * sizeof(int);
   double bytes_padded = lengths_sum *
-          ((embedding_dim * sizeof(float) + 63) / 64 * 64 +
+          ((embedding_dim * elem_bytes + 63) / 64 * 64 +
            (use_32_bit_indices ? 4 : 8)) +
       batch_size * sizeof(int);
 

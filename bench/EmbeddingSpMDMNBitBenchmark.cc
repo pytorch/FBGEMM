@@ -70,7 +70,6 @@ int run_benchmark(
   int fused_embedding_dim =
       (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(float16);
-  vector<uint8_t> embedding_table(num_rows * fused_embedding_dim);
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
 

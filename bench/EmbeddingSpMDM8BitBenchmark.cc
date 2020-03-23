@@ -66,8 +66,6 @@ int run_benchmark(
     bool prefetch = false,
     bool stress_multi_threading = false) {
   // Create embedding table
-  vector<uint8_t> embedding_table(
-      num_rows * (embedding_dim + 2 * sizeof(float)));
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
 
