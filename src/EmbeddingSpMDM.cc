@@ -485,8 +485,7 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
                   x86::dword_ptr(indices, pref_dist * sizeof(indxType)));
             }
 
-            a->cmp(scratchReg2_, data_size);
-            a->jb(pref_dist_reset_end);
+            a->jmp(pref_dist_reset_end);
 
             a->bind(pref_dist_reset_start);
             // things are not okay just get the current row
@@ -499,12 +498,26 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
 
             a->bind(pref_dist_reset_end);
             if (ROWWISE_SPARSE) {
+              asmjit::Label rowwise_sparse_pref_corner_case_begin =
+                  a->newLabel();
+              asmjit::Label rowwise_sparse_pref_corner_case_end = a->newLabel();
+              a->cmp(scratchReg2_, data_size);
+              a->jae(rowwise_sparse_pref_corner_case_begin);
+
               a->mov(
                   scratchReg2_.r32(),
                   x86::dword_ptr(
                       compressed_indices_table,
                       scratchReg2_,
                       2)); // use of 2 is to multiply by 4
+              a->test(scratchReg2_.r32(), scratchReg2_.r32());
+              // Check negative
+              a->jns(rowwise_sparse_pref_corner_case_end);
+
+              a->bind(rowwise_sparse_pref_corner_case_begin);
+              // For corner case, just set prefetch row id to 0.
+              a->xor_(scratchReg2_.r32(), scratchReg2_.r32());
+              a->bind(rowwise_sparse_pref_corner_case_end);
             }
             a->imul(scratchReg2_, static_cast<asmjit::Imm>(fused_block_size));
           }
