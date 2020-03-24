@@ -10,7 +10,7 @@
 #include <algorithm> //for std::min/std::max
 #include <cmath> //for nearbyint
 #include <limits> //for numeric_limits
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 #include "fbgemm/Fbgemm.h" //for ReQuantizeOutput
 
 namespace fbgemm {

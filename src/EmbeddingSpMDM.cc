@@ -19,7 +19,7 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 #include "./RefImplementations.h"
 #include "fbgemm/Types.h"
 

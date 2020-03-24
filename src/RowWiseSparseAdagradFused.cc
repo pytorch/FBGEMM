@@ -13,7 +13,7 @@
 #include <iostream>
 #include <mutex>
 #include "./CodeCache.h"
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 #include "./RefImplementations.h"
 #include "fbgemm/Utils.h"
 

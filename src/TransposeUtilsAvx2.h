@@ -7,7 +7,7 @@
 #pragma once
 
 #include <immintrin.h>
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 
 namespace fbgemm {
 

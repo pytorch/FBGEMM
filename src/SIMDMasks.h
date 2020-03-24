@@ -34,6 +34,12 @@ static const int avx2_ps_or_epi32_combined_mask[16] = {
   -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
+// mask can be accessed by avx512_ps_or_epi32_combined_mask[(16 - remainder) % 16]
+static const int avx512_ps_or_epi32_combined_mask[32] = {
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+};
+
 // A constant array to initialize an SSE register to be used as a 8-bit
 // granularity mask.
 // clang-format off

@@ -11,7 +11,7 @@
 #include <string>
 
 #include "./FbgemmI8DepthwiseAvx2-inl.h"
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 #include "fbgemm/Utils.h"
 #include "fbgemm/UtilsAvx2.h"
 

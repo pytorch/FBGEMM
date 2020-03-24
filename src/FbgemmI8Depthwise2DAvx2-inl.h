@@ -9,7 +9,7 @@
 #include "fbgemm/UtilsAvx2.h"
 #include "fbgemm/Utils.h"
 #include "src/FbgemmI8DepthwiseAvx2-inl.h"
-#include "src/MaskAvx2.h"
+#include "src/SIMDMasks.h"
 
 namespace fbgemm {
 

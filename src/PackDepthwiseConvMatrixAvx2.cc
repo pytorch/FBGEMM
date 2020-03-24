@@ -9,7 +9,7 @@
 
 #include <immintrin.h>
 
-#include "./MaskAvx2.h"
+#include "./SIMDMasks.h"
 #include "fbgemm/UtilsAvx2.h"
 
 using namespace std;
