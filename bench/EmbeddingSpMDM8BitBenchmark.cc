@@ -54,7 +54,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<double> times;
+vector<double> benchmarkTimes;
 
 int run_benchmark(
     int batch_size,
@@ -190,7 +190,7 @@ int run_benchmark(
 #pragma omp barrier
 #endif
     for (bool flush_cache : flush_cache_options) {
-      times[fbgemm_get_thread_num()] = measureWithWarmup(
+      benchmarkTimes[fbgemm_get_thread_num()] = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
               success = kernel_32(
@@ -279,10 +279,10 @@ int run_benchmark(
         }
 
         double max_time = *std::max_element(
-            times.begin(), times.begin() + fbgemm_get_num_threads());
+            benchmarkTimes.begin(), benchmarkTimes.begin() + fbgemm_get_num_threads());
         double avg_time = std::accumulate(
-                              times.begin(),
-                              times.begin() + fbgemm_get_num_threads(),
+                              benchmarkTimes.begin(),
+                              benchmarkTimes.begin() + fbgemm_get_num_threads(),
                               0.0) /
             fbgemm_get_num_threads();
         double load_imbalance = (max_time - avg_time) / avg_time;
@@ -307,7 +307,7 @@ int main() {
   bool stress_multi_threading = false;
 
   vector<vector<int>> inputs(GetInputs_());
-  times.resize(fbgemm_get_max_threads());
+  benchmarkTimes.resize(fbgemm_get_max_threads());
 
   for (auto& input : inputs) {
     assert(input.size() > 3);
