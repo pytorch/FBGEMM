@@ -51,7 +51,8 @@ vector<int> prefetch_distances{0, 16, 1000000};
 namespace {
 
 class RowWiseSparseAdagradFusedTest
-    : public testing::TestWithParam<tuple<bool, int, EmbeddingSpMDMCornerCase>> {};
+    : public testing::TestWithParam<
+          tuple<bool, int, bool, EmbeddingSpMDMCornerCase>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -60,6 +61,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(), // isIndex64b
         ::testing::ValuesIn(prefetch_distances),
+        ::testing::Bool(), // use_offsets
         ::testing::Values(
             NONE,
             EMPTY_INDICES,
@@ -68,10 +70,10 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b;
+  bool isIndex64b, use_offsets;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(isIndex64b, prefetch, corner_case) = GetParam();
+  tie(isIndex64b, prefetch, use_offsets, corner_case) = GetParam();
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -94,12 +96,13 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
       g[i] = values_gen(generator);
     }
 
-    vector<int> lengths;
+    vector<int> lengths, offsets;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        offsets,
         indices,
         indices_32,
         weights,
@@ -108,6 +111,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         embedding_dim,
         average_len,
         corner_case);
+    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
 
     float epsilon = 1e-5;
     float lr = 0.5;
@@ -123,12 +127,13 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           g.data(),
           h_ref.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-          lengths.data(),
+          offsets_or_lengths,
           epsilon,
-          lr);
+          lr,
+          use_offsets);
 
-      auto kernel =
-          GenerateRowWiseSparseAdaGradFused<int64_t>(embedding_dim, prefetch);
+      auto kernel = GenerateRowWiseSparseAdaGradFused<int64_t>(
+          embedding_dim, prefetch, use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
@@ -137,7 +142,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           g.data(),
           h.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-          lengths.data(),
+          offsets_or_lengths,
           epsilon,
           lr);
     } else { // 32 bit indices
@@ -150,12 +155,13 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           g.data(),
           h_ref.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          lengths.data(),
+          offsets_or_lengths,
           epsilon,
-          lr);
+          lr,
+          use_offsets);
 
-      auto kernel =
-          GenerateRowWiseSparseAdaGradFused<int32_t>(embedding_dim, prefetch);
+      auto kernel = GenerateRowWiseSparseAdaGradFused<int32_t>(
+          embedding_dim, prefetch, use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
@@ -164,7 +170,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
           g.data(),
           h.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          lengths.data(),
+          offsets_or_lengths,
           epsilon,
           lr);
     }

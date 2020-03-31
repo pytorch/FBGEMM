@@ -691,11 +691,12 @@ bool EmbeddingSpMDM_ref(
     const int64_t data_size,
     const inType* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   bool is8bit = is_same<inType, uint8_t>::value;
 
   if (is8bit) {
@@ -706,10 +707,12 @@ bool EmbeddingSpMDM_ref(
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
-      if (current + lengths[m] > index_size) {
+      int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                            : offsets_or_lengths[m];
+      if (current + len > index_size) {
         return false;
       }
-      for (int i = 0; i < lengths[m]; ++i) {
+      for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
           return false;
@@ -732,8 +735,8 @@ bool EmbeddingSpMDM_ref(
 
         ++current;
       }
-      if (normalize_by_lengths && lengths[m]) {
-        float scale = 1.f / lengths[m];
+      if (normalize_by_lengths && len) {
+        float scale = 1.f / len;
         for (int j = 0; j < block_size; ++j) {
           out[j] *= scale;
         }
@@ -746,10 +749,12 @@ bool EmbeddingSpMDM_ref(
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
-      if (current + lengths[m] > index_size) {
+      int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                            : offsets_or_lengths[m];
+      if (current + len > index_size) {
         return false;
       }
-      for (int i = 0; i < lengths[m]; ++i) {
+      for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
           return false;
@@ -770,8 +775,8 @@ bool EmbeddingSpMDM_ref(
 
         ++current;
       }
-      if (normalize_by_lengths && lengths[m]) {
-        float scale = 1.f / lengths[m];
+      if (normalize_by_lengths && len) {
+        float scale = 1.f / len;
         for (int j = 0; j < block_size; ++j) {
           out[j] *= scale;
         }
@@ -791,11 +796,12 @@ bool EmbeddingSpMDMNBit_ref(
     const int64_t data_size,
     const uint8_t* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
   int num_elem_per_byte = 8 / bit_rate;
 
@@ -808,10 +814,12 @@ bool EmbeddingSpMDMNBit_ref(
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     memset(out, 0, sizeof(float) * block_size);
-    if (current + lengths[m] > index_size) {
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
       return false;
     }
-    for (int i = 0; i < lengths[m]; ++i) {
+    for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -839,8 +847,8 @@ bool EmbeddingSpMDMNBit_ref(
 
       ++current;
     }
-    if (normalize_by_lengths && lengths[m]) {
-      float scale = 1.f / lengths[m];
+    if (normalize_by_lengths && len) {
+      float scale = 1.f / len;
       for (int j = 0; j < block_size; ++j) {
         out[j] *= scale;
       }
@@ -860,11 +868,12 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     const inType* input,
     const IndexType* indices,
     const int32_t* compressed_indices_table,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   bool is8bit = is_same<inType, uint8_t>::value;
 
   if (is8bit) {
@@ -875,10 +884,12 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
-      if (current + lengths[m] > index_size) {
+      int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                            : offsets_or_lengths[m];
+      if (current + len > index_size) {
         return false;
       }
-      for (int i = 0; i < lengths[m]; ++i) {
+      for (int i = 0; i < len; ++i) {
         IndexType uncompressed_idx = indices[current];
         if (uncompressed_idx < 0 ||
             uncompressed_idx >= uncompressed_data_size) {
@@ -910,8 +921,8 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
 
         ++current;
       }
-      if (normalize_by_lengths && lengths[m]) {
-        float scale = 1.f / lengths[m];
+      if (normalize_by_lengths && len) {
+        float scale = 1.f / len;
         for (int j = 0; j < block_size; ++j) {
           out[j] *= scale;
         }
@@ -924,10 +935,12 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
-      if (current + lengths[m] > index_size) {
+      int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                            : offsets_or_lengths[m];
+      if (current + len > index_size) {
         return false;
       }
-      for (int i = 0; i < lengths[m]; ++i) {
+      for (int i = 0; i < len; ++i) {
         IndexType uncompressed_idx = indices[current];
         if (uncompressed_idx < 0 ||
             uncompressed_idx >= uncompressed_data_size) {
@@ -957,8 +970,8 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
 
         ++current;
       }
-      if (normalize_by_lengths && lengths[m]) {
-        float scale = 1.f / lengths[m];
+      if (normalize_by_lengths && len) {
+        float scale = 1.f / len;
         for (int j = 0; j < block_size; ++j) {
           out[j] *= scale;
         }
@@ -980,11 +993,12 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     const uint8_t* input,
     const IndexType* indices,
     const int32_t* compressed_indices_table,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
   int num_elem_per_byte = 8 / bit_rate;
 
@@ -997,10 +1011,12 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     memset(out, 0, sizeof(float) * block_size);
-    if (current + lengths[m] > index_size) {
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
       return false;
     }
-    for (int i = 0; i < lengths[m]; ++i, ++current) {
+    for (int i = 0; i < len; ++i, ++current) {
       IndexType uncompressed_idx = indices[current];
       if (uncompressed_idx < 0 || uncompressed_idx >= uncompressed_data_size) {
         return false;
@@ -1033,8 +1049,8 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
         out[j] = std::fma(scale, quantized, out[j] + bias);
       }
     }
-    if (normalize_by_lengths && lengths[m]) {
-      float scale = 1.f / lengths[m];
+    if (normalize_by_lengths && len) {
+      float scale = 1.f / len;
       for (int j = 0; j < block_size; ++j) {
         out[j] *= scale;
       }
@@ -1155,12 +1171,15 @@ int rowwise_sparse_adagrad_fused_ref(
     const float* g,
     float* h,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     float epsilon,
-    float lr) {
+    float lr,
+    bool use_offsets) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
-    if (current + lengths[m] > index_size) {
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
       return false;
     }
     const float* g_ = g + m * block_size;
@@ -1184,7 +1203,7 @@ int rowwise_sparse_adagrad_fused_ref(
         ((partial_sum[4] + partial_sum[5]) + (partial_sum[6] + partial_sum[7]));
     final_sum /= block_size;
 
-    for (int i = 0; i < lengths[m]; ++i, ++current) {
+    for (int i = 0; i < len; ++i, ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -1226,7 +1245,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -1239,7 +1259,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int64_t>(
     const std::int64_t block_size,
@@ -1252,7 +1273,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int64_t>(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int32_t>(
     const std::int64_t block_size,
@@ -1265,7 +1287,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref<float16, std::int32_t>(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -1278,7 +1301,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
@@ -1291,7 +1315,8 @@ template FBGEMM_API bool EmbeddingSpMDM_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
@@ -1305,7 +1330,8 @@ template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
@@ -1319,7 +1345,8 @@ template FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1334,7 +1361,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1349,7 +1377,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1364,7 +1393,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1379,7 +1409,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1394,7 +1425,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1409,7 +1441,8 @@ template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
@@ -1425,7 +1458,8 @@ template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
@@ -1441,7 +1475,8 @@ template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template FBGEMM_API int sparse_adagrad_ref(
     int num_rows, // number of rows reading
@@ -1498,7 +1533,8 @@ template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     const int64_t* indices,
     const int* lengths,
     float epsilon,
-    float lr);
+    float lr,
+    bool use_offsets);
 
 template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     int64_t block_size,
@@ -1511,6 +1547,7 @@ template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     const int32_t* indices,
     const int* lengths,
     float epsilon,
-    float lr);
+    float lr,
+    bool use_offsets);
 
 } // namespace fbgemm

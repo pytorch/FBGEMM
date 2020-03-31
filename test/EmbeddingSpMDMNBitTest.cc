@@ -52,9 +52,15 @@ vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 
-class FusedNBitRowwiseEmbeddingLookupTest
-    : public testing::TestWithParam<
-          tuple<int, bool, bool, int, bool, bool, EmbeddingSpMDMCornerCase>> {};
+class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
+                                                int,
+                                                bool,
+                                                bool,
+                                                int,
+                                                bool,
+                                                bool,
+                                                bool,
+                                                EmbeddingSpMDMCornerCase>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -67,6 +73,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool(), // use_weight
         ::testing::Bool(), // normalize_by_lengths
+        ::testing::Bool(), // use_offsets
         ::testing::Values(
             NONE,
             EMPTY_INDICES,
@@ -75,7 +82,8 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths;
+  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      use_offsets;
   int bit_rate, prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(bit_rate,
@@ -84,6 +92,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       prefetch,
       use_weight,
       normalize_by_lengths,
+      use_offsets,
       corner_case) = GetParam();
 
   int num_elem_per_byte = 8 / bit_rate;
@@ -119,12 +128,13 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       FloatToFloat16_ref(&bias, scale_bias + 1, 1, true /* clip */);
     }
 
-    vector<int> lengths;
+    vector<int> lengths, offsets;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        offsets,
         indices,
         indices_32,
         weights,
@@ -133,6 +143,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         embedding_dim,
         average_len,
         corner_case);
+    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -151,11 +162,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output_ref.data(),
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
 
       auto kernel = GenerateEmbeddingSpMDMNBit<int64_t>(
           bit_rate,
@@ -163,14 +175,15 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight,
           normalize_by_lengths,
           prefetch,
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           output.data());
     } else {
@@ -182,11 +195,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output_ref.data(),
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
 
       auto kernel = GenerateEmbeddingSpMDMNBit<int32_t>(
           bit_rate,
@@ -194,14 +208,15 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
           use_weight,
           normalize_by_lengths,
           prefetch,
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           output.data());
     }
@@ -225,7 +240,8 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths;
+  bool isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      use_offsets;
   int bit_rate, prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(bit_rate,
@@ -234,6 +250,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
       prefetch,
       use_weight,
       normalize_by_lengths,
+      use_offsets,
       corner_case) = GetParam();
 
   int num_elem_per_byte = 8 / bit_rate;
@@ -276,12 +293,13 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
       FloatToFloat16_ref(&bias, scale_bias + 1, 1, true /* clip */);
     }
 
-    vector<int> lengths;
+    vector<int> lengths, offsets;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        offsets,
         indices,
         indices_32,
         weights,
@@ -290,6 +308,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
         embedding_dim,
         average_len,
         corner_case);
+    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -309,11 +328,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
           mapping_table.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output_ref.data(),
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
 
       auto kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<int64_t>(
           bit_rate,
@@ -321,14 +341,15 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           use_weight,
           normalize_by_lengths,
           prefetch,
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           output.data(),
           mapping_table.data());
@@ -342,11 +363,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
           mapping_table.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           normalize_by_lengths,
           output_ref.data(),
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
 
       auto kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<int32_t>(
           bit_rate,
@@ -354,14 +376,15 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
           use_weight,
           normalize_by_lengths,
           prefetch,
-          is_wt_positional);
+          is_wt_positional,
+          use_offsets);
       success = kernel(
           batch_size,
           lengths_sum,
           num_rows,
           fused_embedding_table.data(),
           corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-          lengths.data(),
+          offsets_or_lengths,
           use_weight ? weights.data() : nullptr,
           output.data(),
           mapping_table.data());

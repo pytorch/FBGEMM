@@ -15,6 +15,7 @@ using namespace std;
 
 int GenerateLengthsIndicesWeights(
     vector<int>& lengths,
+    vector<int>& offsets,
     vector<int64_t>& indices,
     vector<int32_t>& indices_32,
     vector<float>& weights,
@@ -58,6 +59,13 @@ int GenerateLengthsIndicesWeights(
     } else {
       --lengths[batch_size - 1];
     }
+  }
+
+  // Generate offsets
+  offsets.resize(lengths.size() + 1);
+  offsets[0] = 0;
+  for (int i = 0; i < lengths.size(); ++i) {
+    offsets[i + 1] = offsets[i] + lengths[i];
   }
 
   // Generate weights

@@ -49,10 +49,15 @@ static vector<vector<int>> GetInputs_() {
 
 namespace {
 
-class EmbeddingSpMDMTest
-    : public testing::TestWithParam<
-          tuple<bool, bool, bool, int, bool, bool, EmbeddingSpMDMCornerCase>> {
-};
+class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
+                               bool,
+                               bool,
+                               bool,
+                               int,
+                               bool,
+                               bool,
+                               bool,
+                               EmbeddingSpMDMCornerCase>> {};
 }; // namespace
 
 vector<int> prefetch_distances = {0, 16, 1000000};
@@ -67,6 +72,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool(), // use_weight
         ::testing::Bool(), // normalize_by_lengths
+        ::testing::Bool(), // use_offsets
         ::testing::Values(
             NONE,
             EMPTY_INDICES,
@@ -75,7 +81,8 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths;
+  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      use_offsets;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
@@ -84,6 +91,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       prefetch,
       use_weight,
       normalize_by_lengths,
+      use_offsets,
       corner_case) = GetParam();
 
   for (auto input : inputs) {
@@ -108,12 +116,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_table.size());
     }
 
-    vector<int> lengths;
+    vector<int> lengths, offsets;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        offsets,
         indices,
         indices_32,
         weights,
@@ -122,6 +131,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         embedding_dim,
         average_len,
         corner_case);
+    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -140,25 +150,27 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDM<float16, int64_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data());
       } else {
@@ -169,25 +181,27 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDM<float, int64_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data());
       }
@@ -200,25 +214,27 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDM<float16, int32_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data());
       } else {
@@ -229,25 +245,27 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDM<float, int32_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data());
       }
@@ -272,7 +290,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 
 TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths;
+  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
+      use_offsets;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
@@ -281,6 +300,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
       prefetch,
       use_weight,
       normalize_by_lengths,
+      use_offsets,
       corner_case) = GetParam();
 
   constexpr float sparsity = 0.7;
@@ -312,12 +332,13 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
           embedding_table.size());
     }
 
-    vector<int> lengths;
+    vector<int> lengths, offsets;
     vector<int64_t> indices;
     vector<int32_t> indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        offsets,
         indices,
         indices_32,
         weights,
@@ -326,6 +347,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
         embedding_dim,
         average_len,
         corner_case);
+    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -345,25 +367,27 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data(),
             mapping_table.data());
@@ -376,25 +400,27 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int64_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data(),
             mapping_table.data());
@@ -409,25 +435,27 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table_fp16.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data(),
             mapping_table.data());
@@ -440,25 +468,27 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data(),
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
 
         auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int32_t>(
             embedding_dim,
             use_weight,
             normalize_by_lengths,
             prefetch,
-            is_wt_positional);
+            is_wt_positional,
+            use_offsets);
         success = kernel(
             batch_size,
             lengths_sum,
             num_rows,
             embedding_table.data(),
             corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            lengths.data(),
+            offsets_or_lengths,
             use_weight ? weights.data() : nullptr,
             output.data(),
             mapping_table.data());

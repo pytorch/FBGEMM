@@ -22,15 +22,18 @@ bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const inType* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     out[m] = 0;
-    if (current + lengths[m] > index_size) {
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
       return false;
     }
     int i = 0;
@@ -97,7 +100,7 @@ bool EmbeddingSpMDMBlockSize1_(
     }
 #endif
 
-    for (; i < lengths[m]; ++i) {
+    for (; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -117,8 +120,8 @@ bool EmbeddingSpMDMBlockSize1_(
 
       ++current;
     }
-    if (normalize_by_lengths && lengths[m]) {
-      float scale = 1.f / lengths[m];
+    if (normalize_by_lengths && len) {
+      float scale = 1.f / len;
       out[m] *= scale;
     }
   }
@@ -131,11 +134,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const float* input,
     const std::int64_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
@@ -143,11 +147,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const float* input,
     const std::int32_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
@@ -155,11 +160,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const float16* input,
     const std::int64_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
@@ -167,11 +173,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const float16* input,
     const std::int32_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
@@ -179,11 +186,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const std::uint8_t* input,
     const std::int64_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t output_size,
@@ -191,11 +199,12 @@ template bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const std::uint8_t* input,
     const std::int32_t* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional);
+    bool is_weight_positional,
+    bool use_offsets);
 
 } // namespace internal
 } // namespace fbgemm
