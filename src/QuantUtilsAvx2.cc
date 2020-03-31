@@ -19,8 +19,11 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
+// ASAN seems to have a false-positive for _mm_maskmoveu_si128
 template <typename T>
-void QuantizeAvx2(
+void
+NO_SANITIZE("address")
+QuantizeAvx2(
     const float* src,
     T* dst,
     int len,
