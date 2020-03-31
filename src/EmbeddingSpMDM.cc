@@ -41,7 +41,7 @@ class ReturnFunctionSignature<inType, indxType, false> {
       std::int64_t data_size,
       const inType* input,
       const indxType* indices,
-      const int* lengths,
+      const int* offsets_or_lengths,
       const float* weights,
       float* out,
       const int* mask);
@@ -57,7 +57,7 @@ class ReturnFunctionSignature<inType, indxType, true> {
       // int64_t compressed_data_size,
       const inType* input,
       const indxType* indices,
-      const int* lengths,
+      const int* offsets_or_lengths,
       const float* weights,
       float* out,
       const std::int32_t* compressed_indices_table,
@@ -79,7 +79,8 @@ class GenEmbeddingSpMDMLookup {
           bool has_weight,
           bool is_weight_positional,
           bool normalize_by_lengths,
-          int prefetch);
+          int prefetch,
+          bool use_offsets);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -93,9 +94,9 @@ class GenEmbeddingSpMDMLookup {
   static std::mutex rtMutex_; ///< Controll access to runtime;
 
   // The hash depends on embedding dimension (block size), weighted sls,
-  // positional weights, normalize by lenths, and prefetch distance
+  // positional weights, normalize by lenths, prefetch distance, and use_offsets
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int>,
+      std::tuple<int, bool, bool, bool, int, bool>,
       typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           jit_embedding_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
@@ -106,7 +107,7 @@ std::mutex GenEmbeddingSpMDMLookup<inType, indxType, ROWWISE_SPARSE>::rtMutex_;
 
 template <typename inType, typename indxType, bool ROWWISE_SPARSE>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int>,
+    std::tuple<int, bool, bool, bool, int, bool>,
     typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
         jit_embedding_kernel>
     GenEmbeddingSpMDMLookup<inType, indxType, ROWWISE_SPARSE>::codeCache_;
@@ -120,13 +121,15 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
         bool has_weight,
         bool is_weight_positional,
         bool normalize_by_lengths,
-        int prefetch) {
-  std::tuple<int, bool, bool, bool, int> kernelSig = std::make_tuple(
+        int prefetch,
+        bool use_offsets) {
+  std::tuple<int, bool, bool, bool, int, bool> kernelSig = std::make_tuple(
       block_size,
       has_weight,
       is_weight_positional,
       normalize_by_lengths,
-      prefetch);
+      prefetch,
+      use_offsets);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -383,7 +386,13 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           asmjit::Label IfLengthsBegin = a->newLabel();
           asmjit::Label IfLengthsEnd = a->newLabel();
           a->bind(IfLengthsBegin);
-          a->cmp(x86::dword_ptr(lengths), 1);
+          if (use_offsets) {
+            a->mov(lengths_R_, x86::dword_ptr(lengths, sizeof(int)));
+            a->sub(lengths_R_, x86::dword_ptr(lengths));
+          } else {
+            a->mov(lengths_R_, x86::dword_ptr(lengths));
+          }
+          a->cmp(lengths_R_, 1);
           // Initialize vlen_inv as 0 in case lengths is 0
           a->vxorps(vlen_inv_vreg, vlen_inv_vreg, vlen_inv_vreg);
           a->jl(IfLengthsEnd);
@@ -391,17 +400,17 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
           if (instSet == inst_set_t::avx2) {
             x86::Xmm vlen_inv_vreg_xmm(vlen_inv_vreg.id());
 
-            a->mov(lengths_R_, 1);
-            a->cvtsi2ss(vlen_inv_vreg_xmm, lengths_R_);
-            a->cvtsi2ss(x86::xmm0, x86::dword_ptr(lengths));
+            a->mov(scratchReg1_, 1);
+            a->cvtsi2ss(vlen_inv_vreg_xmm, scratchReg1_);
+            a->cvtsi2ss(x86::xmm0, lengths_R_);
             a->divss(vlen_inv_vreg_xmm, x86::xmm0);
             a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
           } else { // avx512
             vec_reg_t temp_zmm = vec_reg_t(0);
-            a->mov(lengths_R_, 1);
-            a->cvtsi2ss(x86::xmm(temp_zmm.id()), lengths_R_);
+            a->mov(scratchReg1_, 1);
+            a->cvtsi2ss(x86::xmm(temp_zmm.id()), scratchReg1_);
             a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
-            a->vpbroadcastd(temp_zmm, x86::dword_ptr(lengths));
+            a->vpbroadcastd(temp_zmm, lengths_R_);
             a->vcvtdq2ps(temp_zmm, temp_zmm);
             a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
           }
@@ -419,7 +428,12 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
             a->vxorps(out_vreg, out_vreg, out_vreg);
           }
 
-          a->mov(lengths_R_, x86::dword_ptr(lengths));
+          if (use_offsets) {
+            a->mov(lengths_R_, x86::dword_ptr(lengths, sizeof(int)));
+            a->sub(lengths_R_, x86::dword_ptr(lengths));
+          } else {
+            a->mov(lengths_R_, x86::dword_ptr(lengths));
+          }
 
           // Array out of bound check
           a->imul(
@@ -704,7 +718,12 @@ typename ReturnFunctionSignature<inType, indxType, ROWWISE_SPARSE>::
               (has_weight && is_weight_positional)) {
             // Reset lengths_R_, indices, weights to run the dataIndex loop
             // again
-            a->mov(lengths_R_, x86::dword_ptr(lengths));
+            if (use_offsets) {
+              a->mov(lengths_R_, x86::dword_ptr(lengths, sizeof(int)));
+              a->sub(lengths_R_, x86::dword_ptr(lengths));
+            } else {
+              a->mov(lengths_R_, x86::dword_ptr(lengths));
+            }
 
             if (has_weight) {
               a->imul(
@@ -779,7 +798,8 @@ GenerateEmbeddingSpMDM(
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   static GenEmbeddingSpMDMLookup<inType, indxType> kernel_generator;
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -793,7 +813,7 @@ GenerateEmbeddingSpMDM(
             std::int64_t data_size,
             const inType* input,
             const indxType* indices,
-            const int* lengths,
+            const int* offsets_or_lengths,
             const float* weights, // optional, can be null for non-weighted sum
             float* out) {
           return internal::EmbeddingSpMDMBlockSize1_(
@@ -802,11 +822,12 @@ GenerateEmbeddingSpMDM(
               data_size,
               input,
               indices,
-              lengths,
+              offsets_or_lengths,
               weights,
               normalize_by_lengths,
               out,
-              is_weight_positional);
+              is_weight_positional,
+              use_offsets);
         };
   } else if (fbgemmHasAvx512Support()) {
     const auto original_func =
@@ -815,13 +836,14 @@ GenerateEmbeddingSpMDM(
             has_weight,
             is_weight_positional,
             normalize_by_lengths,
-            prefetch);
+            prefetch,
+            use_offsets);
     return [=](std::int64_t output_size,
                std::int64_t index_size,
                std::int64_t data_size,
                const inType* input,
                const indxType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                const float* weights,
                float* out) {
       return original_func(
@@ -830,7 +852,7 @@ GenerateEmbeddingSpMDM(
           data_size,
           input,
           indices,
-          lengths,
+          offsets_or_lengths,
           weights,
           out,
           nullptr /* mask not used in avx512 */);
@@ -842,13 +864,14 @@ GenerateEmbeddingSpMDM(
             has_weight,
             is_weight_positional,
             normalize_by_lengths,
-            prefetch);
+            prefetch,
+            use_offsets);
     return [=](std::int64_t output_size,
                std::int64_t index_size,
                std::int64_t data_size,
                const inType* input,
                const indxType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                const float* weights,
                float* out) {
       return original_func(
@@ -857,7 +880,7 @@ GenerateEmbeddingSpMDM(
           data_size,
           input,
           indices,
-          lengths,
+          offsets_or_lengths,
           weights,
           out,
           internal::avx2_ps_or_epi32_combined_mask);
@@ -871,7 +894,7 @@ GenerateEmbeddingSpMDM(
                std::int64_t data_size,
                const inType* input,
                const indxType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                const float* weights,
                float* out) {
       return EmbeddingSpMDM_ref(
@@ -881,7 +904,7 @@ GenerateEmbeddingSpMDM(
           data_size,
           input,
           indices,
-          lengths,
+          offsets_or_lengths,
           weights,
           normalize_by_lengths,
           out,
@@ -897,7 +920,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
-    bool is_weight_positional) {
+    bool is_weight_positional,
+    bool use_offsets) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -910,13 +934,14 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             has_weight,
             is_weight_positional,
             normalize_by_lengths,
-            prefetch);
+            prefetch,
+            use_offsets);
     return [=](std::int64_t output_size,
                std::int64_t index_size,
                std::int64_t uncompressed_data_size,
                const inType* input,
                const indxType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                const float* weights,
                float* out,
                const std::int32_t* compressed_indices_table) {
@@ -926,7 +951,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
           uncompressed_data_size,
           input,
           indices,
-          lengths,
+          offsets_or_lengths,
           weights,
           out,
           compressed_indices_table,
@@ -941,13 +966,14 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             has_weight,
             is_weight_positional,
             normalize_by_lengths,
-            prefetch);
+            prefetch,
+            use_offsets);
     return [=](std::int64_t output_size,
                std::int64_t index_size,
                std::int64_t uncompressed_data_size,
                const inType* input,
                const indxType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                const float* weights,
                float* out,
                const std::int32_t* compressed_indices_table) {
@@ -957,7 +983,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
           uncompressed_data_size,
           input,
           indices,
-          lengths,
+          offsets_or_lengths,
           weights,
           out,
           compressed_indices_table,
@@ -973,7 +999,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             int64_t uncompressed_data_size,
             const inType* input,
             const indxType* indices,
-            const int* lengths,
+            const int* offsets_or_lengths,
             const float* weights, // optional, can be null for non-weighted sum
             float* out,
             const std::int32_t* compressed_indices_table) {
@@ -986,11 +1012,12 @@ GenerateEmbeddingSpMDMRowWiseSparse(
               input,
               indices,
               compressed_indices_table,
-              lengths,
+              offsets_or_lengths,
               weights,
               normalize_by_lengths,
               out,
-              is_weight_positional);
+              is_weight_positional,
+              use_offsets);
         };
   }
 }
@@ -1002,7 +1029,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<float, std::int32_t>::Type
@@ -1011,7 +1039,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<float16, std::int64_t>::Type
@@ -1020,7 +1049,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<float16, std::int32_t>::Type
@@ -1029,7 +1059,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int64_t>::Type
@@ -1038,7 +1069,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<std::uint8_t, std::int32_t>::Type
@@ -1047,7 +1079,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<float, int64_t>::Type
@@ -1056,7 +1089,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<float, int32_t>::Type
@@ -1065,7 +1099,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<float16, int64_t>::Type
@@ -1074,7 +1109,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<float16, int32_t>::Type
@@ -1083,7 +1119,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<uint8_t, int64_t>::Type
@@ -1092,7 +1129,8 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 template FBGEMM_API
     typename EmbeddingSpMDMRowWiseSparseKernelSignature<uint8_t, int32_t>::Type
@@ -1101,6 +1139,7 @@ template FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch,
-        bool is_weight_positional);
+        bool is_weight_positional,
+        bool use_offsets);
 
 } // namespace fbgemm

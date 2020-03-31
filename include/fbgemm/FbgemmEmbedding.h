@@ -21,7 +21,7 @@ class EmbeddingSpMDMKernelSignature {
       std::int64_t data_size,
       const inType* input,
       const IndexType* indices,
-      const int* lengths,
+      const int* offsets_or_lengths,
       const float* weights, // optional, can be null for non-weighted sum
       float* out)>;
 };
@@ -29,6 +29,14 @@ class EmbeddingSpMDMKernelSignature {
 /**
  * @tparam inType can be float or uint8_t
  * @tparam IndexType can be int32_t or int64_t
+ *
+ * @param use_offsets If true, the generated code assumes we will pass offsets
+ *                    instead of lengths that confirms PyTorch EmbeddingBag
+ *                    interface. In this case, the length of offsets array
+ *                    should be output_size + 1 and offsets[output_size] should
+ *                    be index_size.
+ *                    If false, the generate code assumes we will pass lengths
+ *                    that confirms Caffe2 SparseLengthsSum interface.
  */
 template <typename inType, typename IndexType>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<inType, IndexType>::Type
@@ -37,7 +45,8 @@ GenerateEmbeddingSpMDM(
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch = 16,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -51,7 +60,8 @@ GenerateEmbeddingSpMDMNBit(
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch = 16,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 template <typename inType, typename IndexType>
 class EmbeddingSpMDMRowWiseSparseKernelSignature {
@@ -63,7 +73,7 @@ class EmbeddingSpMDMRowWiseSparseKernelSignature {
       // TODO: add compressed_data_size and check array bound
       const inType* input,
       const IndexType* indices,
-      const int* lengths,
+      const int* offsets_or_lengths,
       const float* weights, // optional, can be null for non-weighted sum
       float* out,
       const std::int32_t* compressed_indices_table)>;
@@ -81,7 +91,8 @@ FBGEMM_API
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch = 16,
-        bool is_weight_positional = false);
+        bool is_weight_positional = false,
+        bool use_offsets = false);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -97,7 +108,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch = 16,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 /**
  * @return The number of rows processed. If smaller than num_rows, an error
@@ -150,7 +162,7 @@ class RowWiseSparseAdaGradFusedSignature {
       const float* g, // input gradients
       float* h, // input/output momentums
       const IndexType* indices, // indices of each row
-      const int* lengths,
+      const int* offsets_or_lengths,
       float epsilon,
       float lr)>;
 };
@@ -159,7 +171,8 @@ template <typename IndexType>
 FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<IndexType>::Type
 GenerateRowWiseSparseAdaGradFused(
     int block_size, // number of parameters per row
-    int prefetch = 16);
+    int prefetch = 16,
+    bool use_offsets = false);
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM
@@ -170,11 +183,12 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     const std::int64_t data_size, // the number of rows in input
     const inType* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 } // namespace internal
 

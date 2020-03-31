@@ -222,11 +222,12 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t data_size,
     const inType* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 template <typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
@@ -237,11 +238,12 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     const std::int64_t data_size,
     const std::uint8_t* input,
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
@@ -253,11 +255,12 @@ FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const inType* input,
     const IndexType* indices,
     const std::int32_t* compressed_indices_table,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 template <typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
@@ -270,11 +273,12 @@ FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     const std::uint8_t* input,
     const IndexType* indices,
     const std::int32_t* compressed_indices_table,
-    const int* lengths,
+    const int* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
-    bool is_weight_positional = false);
+    bool is_weight_positional = false,
+    bool use_offsets = false);
 
 template <typename IndexType>
 FBGEMM_API int sparse_adagrad_ref(
@@ -310,8 +314,9 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     const float* g, // inupt gradients
     float* h, // input/output momentums
     const IndexType* indices,
-    const int* lengths,
+    const int* offsets_or_lengths,
     float epsilon,
-    float lr);
+    float lr,
+    bool use_offsets = false);
 
 } // namespace fbgemm

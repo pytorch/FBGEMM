@@ -34,7 +34,7 @@ class ReturnFunctionSignature {
       const float* g, // input gradients
       float* h, // input/output momentums
       const indxType* indices, // indices of each row
-      const int* lengths,
+      const int* offsets_or_lengths,
       float epsilon,
       float lr,
       const int* mask_avx2);
@@ -46,7 +46,7 @@ class GenRowWiseSparseAdagradFused {
   GenRowWiseSparseAdagradFused() {}
 
   typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
-  getOrCreate(int block_size, int prefetch);
+  getOrCreate(int block_size, int prefetch, bool use_offsets);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -56,9 +56,10 @@ class GenRowWiseSparseAdagradFused {
 
   static mutex rtMutex_; /// Controll access to runtime;
 
-  // The hash depends on embedding dimension (block size), and prefetch distance
+  // The hash depends on embedding dimension (block size), prefetch distance,
+  // and use_offsets
   static CodeCache<
-      tuple<int, int>,
+      tuple<int, int, bool>,
       typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // class GenRowWiseSparseAdagradFused
@@ -68,7 +69,7 @@ mutex GenRowWiseSparseAdagradFused<indxType, instSet>::rtMutex_;
 
 template <typename indxType, inst_set_t instSet>
 CodeCache<
-    tuple<int, int>,
+    tuple<int, int, bool>,
     typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
     GenRowWiseSparseAdagradFused<indxType, instSet>::codeCache_;
 
@@ -76,8 +77,10 @@ template <typename indxType, inst_set_t instSet>
 typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
 GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
     int block_size,
-    int prefetch) {
-  tuple<int, int> kernelSig = make_tuple(block_size, prefetch);
+    int prefetch,
+    bool use_offsets) {
+  tuple<int, int, bool> kernelSig =
+      make_tuple(block_size, prefetch, use_offsets);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -319,7 +322,12 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
         // final_sum /= N
         a->divss(partial_sum_xmm, float_step_xmm);
 
-        a->mov(lengths_R, x86::dword_ptr(lengths));
+        if (use_offsets) {
+          a->mov(lengths_R, x86::dword_ptr(lengths, sizeof(int)));
+          a->sub(lengths_R, x86::dword_ptr(lengths));
+        } else {
+          a->mov(lengths_R, x86::dword_ptr(lengths));
+        }
 
         // Array out of bound check
         a->imul(
@@ -500,7 +508,8 @@ template <typename IndexType>
 FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<IndexType>::Type
 GenerateRowWiseSparseAdaGradFused(
     int block_size, // number of parameters per row
-    int prefetch) {
+    int prefetch,
+    bool use_offsets) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -510,7 +519,7 @@ GenerateRowWiseSparseAdaGradFused(
     static GenRowWiseSparseAdagradFused<IndexType, inst_set_t::avx2>
         kernel_generator;
     const auto original_func =
-        kernel_generator.getOrCreate(block_size, prefetch);
+        kernel_generator.getOrCreate(block_size, prefetch, use_offsets);
     const auto lambda_func = [=](int64_t output_size,
                                  int64_t index_size,
                                  int64_t data_size,
@@ -518,7 +527,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  const float* g,
                                  float* h,
                                  const IndexType* indices,
-                                 const int* lengths,
+                                 const int* offsets_or_lengths,
                                  float epsilon,
                                  float lr) {
       return original_func(
@@ -529,7 +538,7 @@ GenerateRowWiseSparseAdaGradFused(
           g, // input gradients
           h, // input/output momentums
           indices, // indices of each row
-          lengths,
+          offsets_or_lengths,
           epsilon,
           lr,
           internal::avx2_ps_or_epi32_combined_mask);
@@ -543,7 +552,7 @@ GenerateRowWiseSparseAdaGradFused(
                const float* g,
                float* h,
                const IndexType* indices,
-               const int* lengths,
+               const int* offsets_or_lengths,
                float epsilon,
                float lr) {
       return rowwise_sparse_adagrad_fused_ref(
@@ -555,7 +564,7 @@ GenerateRowWiseSparseAdaGradFused(
           g,
           h,
           indices,
-          lengths,
+          offsets_or_lengths,
           epsilon,
           lr);
     };
@@ -565,11 +574,13 @@ GenerateRowWiseSparseAdaGradFused(
 template FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<int64_t>::Type
 GenerateRowWiseSparseAdaGradFused<int64_t>(
     int block_size, // number of parameters per row
-    int prefetch);
+    int prefetch,
+    bool use_offsets);
 
 template FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<int32_t>::Type
 GenerateRowWiseSparseAdaGradFused<int32_t>(
     int block_size, // number of parameters per row
-    int prefetch);
+    int prefetch,
+    bool use_offsets);
 
 } // namespace fbgemm
