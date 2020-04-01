@@ -114,4 +114,37 @@ bool parseArgumentBool(
   }
   return def_val;
 }
+
+aligned_vector<float> getRandomSparseVector(
+    unsigned size,
+    float fractionNonZeros) {
+  aligned_vector<float> res(size);
+
+  std::mt19937 gen(345);
+
+  std::uniform_real_distribution<double> dis(0.0, 1.0);
+
+  for (auto& f : res) {
+    f = dis(gen);
+  }
+
+  // Create exactly fractionNonZeros in result
+  aligned_vector<float> sorted_res(res);
+  std::sort(sorted_res.begin(), sorted_res.end());
+  int32_t numZeros =
+      size - static_cast<int32_t>(std::round(size * fractionNonZeros));
+  float thr;
+  if (numZeros) {
+    thr = sorted_res[numZeros - 1];
+
+    for (auto& f : res) {
+      if (f <= thr) {
+        f = 0.0f;
+      }
+    }
+  }
+
+  return res;
+}
+
 } // namespace fbgemm

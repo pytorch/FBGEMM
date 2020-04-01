@@ -319,4 +319,17 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     float lr,
     bool use_offsets = false);
 
+template <typename TA, typename TB, typename TC>
+FBGEMM_API void sparseDenseMMRef(
+    int M,
+    int N,
+    const int* row_ptr,
+    const int* col_idx,
+    const TA* values,
+    const TB* B,
+    int ldb,
+    TC* C,
+    int ldc,
+    bool accum = false);
+
 } // namespace fbgemm

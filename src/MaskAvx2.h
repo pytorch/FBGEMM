@@ -30,7 +30,7 @@ alignas(64) static const int avx2_ps_or_epi32_masks[9][8] = {
 // clang-format on
 
 // mask can be accessed by avx2_ps_or_epi32_combined_mask[(8 - remainder) % 8]
-static const int avx2_ps_or_epi32_combined_mask[16] = {
+alignas(64) static const int avx2_ps_or_epi32_combined_mask[16] = {
   -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 

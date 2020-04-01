@@ -8,6 +8,7 @@
 #include <chrono>
 #include <functional>
 #include <vector>
+#include <random>
 
 #include <immintrin.h>
 
@@ -154,4 +155,7 @@ void transpose_matrix(T* ref, int n, int k) {
   memcpy(ref, local.data(), n * k * sizeof(T));
 }
 
+aligned_vector<float> getRandomSparseVector(
+    unsigned size,
+    float fractionNonZeros = 1.0);
 } // namespace fbgemm
