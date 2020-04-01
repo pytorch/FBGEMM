@@ -1224,6 +1224,51 @@ int rowwise_sparse_adagrad_fused_ref(
   return current == index_size;
 }
 
+template <typename TA, typename TB, typename TC>
+FBGEMM_API void sparseDenseMMRef(
+    int M,
+    int N,
+    const int* row_ptr,
+    const int* col_idx,
+    const TA* values,
+    const TB* B,
+    int ldb,
+    TC* C,
+    int ldc,
+    bool accum) {
+  // Calcualtes accum ? C += A * B : C = A * B
+  // size of values is equal to number of non-zeros (nnzs)
+  // size of row_ptr is equal to M + 1
+  // size of col_idx is equal to nnzs
+  for (int i = 0; i < M; ++i) {
+    if (!accum) {
+      for (int j = 0; j < N; ++j) {
+        C[i * ldc + j] = 0;
+      }
+    }
+    for (int r = row_ptr[i]; r < row_ptr[i + 1]; ++r) {
+      int acbr = col_idx[r];
+      TA v = values[r];
+      for (int j = 0; j < N; ++j) {
+        C[i * ldc + j] +=
+            static_cast<TC>(v) * static_cast<TC>(B[acbr * ldb + j]);
+      }
+    }
+  }
+}
+
+template FBGEMM_API void sparseDenseMMRef(
+    int M,
+    int N,
+    const int* row_ptr,
+    const int* col_idx,
+    const float* values,
+    const float* B,
+    int ldb,
+    float* C,
+    int ldc,
+    bool accum);
+
 template FBGEMM_API void transposeConvWeights(
     const conv_param_t<2>& conv_p,
     const std::int8_t* src,
