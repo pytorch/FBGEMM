@@ -16,6 +16,7 @@
 #include <omp.h>
 #endif
 #include "./AlignedVec.h"
+#include "fbgemm/FbgemmBuild.h"
 
 namespace fbgemm {
 
@@ -32,16 +33,27 @@ int fbgemm_get_num_threads();
 int fbgemm_get_thread_num();
 
 template <typename T>
-void cache_evict(const T& vec) {
+NOINLINE
+float cache_evict(const T& vec) {
   auto const size = vec.size();
   auto const elemSize = sizeof(typename T::value_type);
   auto const dataSize = size * elemSize;
 
   const char* data = reinterpret_cast<const char*>(vec.data());
   constexpr int CACHE_LINE_SIZE = 64;
+  // Not having this dummy computation significantly slows down the computation
+  // that follows.
+  float dummy = 0.0f;
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
+    dummy += data[i] * 1.0f;
+    _mm_mfence();
+#ifndef _MSC_VER
+    asm volatile("" ::: "memory");
+#endif
     _mm_clflush(&data[i]);
   }
+
+  return dummy;
 }
 
 /**
