@@ -254,7 +254,7 @@ struct PackingTraits<
            ///< 16 because 16*ROW_INTERLEAVE int8 elements
            ///< completely fill a 512-bit wide vector.
   static constexpr int NR{
-      32}; ///< Register block for N dimension.
+      48}; ///< Register block for N dimension.
            ///< Must be a multiple of 16 because 16*ROW_INTERLEAVE int8 elements
            ///< completely fill a 512-bit wide vector. Total registers used for
            ///< N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
@@ -266,8 +266,8 @@ struct PackingTraits<
           ///< B matrix.
 
   static constexpr int MCB{
-      128}; ///< Cache block for M dimension (multiple of MR).
+      384}; ///< Cache block for M dimension (multiple of MR).
   static constexpr int NCB{
-      32}; ///< Cache block for N dimension (multiple of NR).
-  static constexpr int KCB{256}; ///< Cache block for K dimension.
+      48}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{512}; ///< Cache block for K dimension.
 };

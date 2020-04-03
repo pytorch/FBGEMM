@@ -40,21 +40,20 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
   // used for matrix A
   x86::Zmm AReg = x86::zmm31;
 
-  // used for matrix B
-  x86::Zmm BReg = x86::zmm30;
-
   using CRegs = x86::Zmm;
 
+  assert(colRegs * (rowRegs + 1) <= 31);
+
   for (int j = 0; j < colRegs; ++j) {
-    // load B
-    a->vmovaps(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
-    // load A, broadcast and fmas
-    for (int i = 0; i < rowRegs; ++i) {
-      a->vpbroadcastd(
-          AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
-      a->vpdpbusd(CRegs(i * colRegs + j), AReg, BReg);
+    a->vmovaps(x86::Zmm(30-j), x86::dword_ptr(buffer_B,  j * VLEN_ * sizeof(int8_t)));
+  }
+
+  for (int i = 0; i < rowRegs; i++) {
+    a->vpbroadcastd(
+      AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
+    for (int j = 0; j < colRegs; ++j) {
+      a->vpdpbusd(CRegs(i * colRegs + j), AReg, x86::Zmm(30-j));
     }
-    a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
   }
 }
 
@@ -125,13 +124,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
     // generated code logging
     FILE* codeLogfile = fopen(
         getCodeLoggingFile<inst_set_t::avx512_vnni>(
-            accum,
-            mc,
-            nc,
-            nBlock,
-            kBlock,
-            mRegBlockSize,
-            nRegBlockSize)
+            accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
