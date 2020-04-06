@@ -55,7 +55,17 @@ T Quantize(
     float scale,
     int result_precision,
     bool result_is_signed = std::is_signed<T>::value) {
-  const float transformed_val = zero_point + src / scale;
+  // Note: We want to multiply with src with inv_scale instead of
+  // dividing src by scale. The same is done in vector code and
+  // at other places.
+  //
+  // Example:
+  // With scale = 0.00214854861f and src = 0.273939937f
+  // transformed_val is 127.5 for src * inv_scale while
+  // transformed_val is 127.499992 for src / scale.
+  // Eventually 127.5 gets rounded to 128 while 127.499992 gets rounded to 127.
+  float inv_scale = 1.0f / scale;
+  const float transformed_val = zero_point + src * inv_scale;
   // Please note the use of double. Unlike float, a double can represent
   // all int32 values exactly. Using a float results in a float value >
   // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
