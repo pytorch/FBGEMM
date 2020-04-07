@@ -38,6 +38,7 @@ set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
                 src/FbgemmFloat16Convert.cc
                 src/FbgemmI64.cc
                 src/FbgemmI8Spmdm.cc
+                src/GenerateI8Depthwise.cc
                 src/GenerateKernelU8S8S32ACC16.cc
                 src/GenerateKernelU8S8S32ACC16Avx512.cc
                 src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc
