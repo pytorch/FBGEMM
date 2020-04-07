@@ -147,7 +147,7 @@ add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS})
 add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
 
 set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
-      CXX_STANDARD 11
+      CXX_STANDARD 14
       CXX_STANDARD_REQUIRED YES
       CXX_EXTENSIONS NO
       CXX_VISIBILITY_PRESET hidden)
