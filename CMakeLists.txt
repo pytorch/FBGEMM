@@ -35,6 +35,7 @@ set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
                 src/FbgemmBfloat16Convert.cc
                 src/FbgemmConv.cc
                 src/FbgemmFP16.cc
+                src/FbgemmFakeFP16.cc
                 src/FbgemmFloat16Convert.cc
                 src/FbgemmI64.cc
                 src/FbgemmI8Spmdm.cc
@@ -131,6 +132,7 @@ endif()
 set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmBuild.h
                           include/fbgemm/FbgemmFP16.h
+                          include/fbgemm/FbgemmFakeFP16.h
                           include/fbgemm/FbgemmI8DepthwiseAvx2.h
                           include/fbgemm/OutputProcessing-inl.h
                           include/fbgemm/PackingTraits-inl.h
