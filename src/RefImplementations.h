@@ -227,7 +227,7 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 template <typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
@@ -243,7 +243,7 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
@@ -260,7 +260,7 @@ FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 template <typename IndexType = std::int64_t>
 FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
@@ -278,7 +278,7 @@ FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 template <typename IndexType>
 FBGEMM_API int sparse_adagrad_ref(
@@ -317,6 +317,6 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     const int* offsets_or_lengths,
     float epsilon,
     float lr,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 } // namespace fbgemm
