@@ -5,6 +5,18 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 #install libraries into correct locations on all platforms
 include(GNUInstallDirs)
 
+# function to extract filelists from defs.bzl file
+find_package(PythonInterp)
+function(get_filelist name outputvar)
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+            "exec(open('defs.bzl').read());print(';'.join(${name}))"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE _tempvar)
+  string(REPLACE "\n" "" _tempvar "${_tempvar}")
+  set(${outputvar} ${_tempvar} PARENT_SCOPE)
+endfunction()
+
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 
 set(FBGEMM_LIBRARY_TYPE "default" CACHE STRING
@@ -25,48 +37,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #add address sanitizer
 set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
-#All the source files that either use avx2 instructions statically or JIT
-#avx2/avx512 instructions.
-set(FBGEMM_GENERIC_SRCS src/EmbeddingSpMDM.cc
-                src/EmbeddingSpMDMNBit.cc
-                src/ExecuteKernel.cc
-                src/ExecuteKernelU8S8.cc
-                src/Fbgemm.cc
-                src/FbgemmBfloat16Convert.cc
-                src/FbgemmConv.cc
-                src/FbgemmFP16.cc
-                src/FbgemmFakeFP16.cc
-                src/FbgemmFloat16Convert.cc
-                src/FbgemmI64.cc
-                src/FbgemmI8Spmdm.cc
-                src/GenerateI8Depthwise.cc
-                src/GenerateKernelU8S8S32ACC16.cc
-                src/GenerateKernelU8S8S32ACC16Avx512.cc
-                src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc
-                src/GenerateKernelU8S8S32ACC32.cc
-                src/GenerateKernelU8S8S32ACC32Avx512.cc
-                src/GenerateKernelU8S8S32ACC32Avx512VNNI.cc
-                src/GroupwiseConvAcc32Avx2.cc
-                src/PackAMatrix.cc
-                src/PackAWithIm2Col.cc
-                src/PackBMatrix.cc
-                src/PackMatrix.cc
-                src/PackAWithQuantRowOffset.cc
-                src/PackAWithRowOffset.cc
-                src/PackWeightMatrixForGConv.cc
-                src/PackWeightsForConv.cc
-                src/QuantUtils.cc
-                src/RefImplementations.cc
-                src/RowWiseSparseAdagradFused.cc
-                src/SparseAdagrad.cc
-                src/Utils.cc)
-
 #check if compiler supports avx512
 include(CheckCXXCompilerFlag)
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
+  set(MSVC_BOOL True)
 else(MSVC)
   CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
+  set(MSVC_BOOL False)
 endif(MSVC)
 if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
@@ -89,65 +67,21 @@ else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
 
-#All the source files that either use avx2 instructions statically
-set(FBGEMM_AVX2_SRCS
-  src/EmbeddingSpMDMAvx2.cc
-  src/FbgemmBfloat16ConvertAvx2.cc
-  src/FbgemmFloat16ConvertAvx2.cc
-  src/FbgemmI8Depthwise3DAvx2.cc
-  src/FbgemmI8Depthwise3x3Avx2.cc
-  src/FbgemmI8DepthwiseAvx2.cc
-  src/FbgemmI8DepthwisePerChannelQuantAvx2.cc
-  src/OptimizedKernelsAvx2.cc
-  src/PackDepthwiseConvMatrixAvx2.cc
-  src/QuantUtilsAvx2.cc
-  src/UtilsAvx2.cc)
-
-#All the source files that use avx512 instructions statically
-set(FBGEMM_AVX512_SRCS
-  src/FbgemmBfloat16ConvertAvx512.cc
-  src/FbgemmFloat16ConvertAvx512.cc
-  src/UtilsAvx512.cc)
-
-#FP16 kernels contain inline assembly and inline assembly syntax
-#for MSVC is different. Also, MSVC doesn't support inline assembly
-#for x64 builds. We fallback to default slower kernel for MSVC builds
-#for now.
-if(MSVC)
-  list(APPEND FBGEMM_AVX2_SRCS
-    src/FbgemmFP16UKernelsIntrinsicAvx2.cc)
-
-  list(APPEND FBGEMM_AVX512_SRCS
-    src/FbgemmFP16UKernelsIntrinsicAvx512.cc
-    src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc)
-else()
-  list(APPEND FBGEMM_AVX2_SRCS
-    src/FbgemmFP16UKernelsAvx2.cc)
-
-  list(APPEND FBGEMM_AVX512_SRCS
-    src/FbgemmFP16UKernelsAvx512.cc
-    src/FbgemmFP16UKernelsAvx512_256.cc)
-endif()
-
-set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
-                          include/fbgemm/FbgemmBuild.h
-                          include/fbgemm/FbgemmFP16.h
-                          include/fbgemm/FbgemmFakeFP16.h
-                          include/fbgemm/FbgemmI8DepthwiseAvx2.h
-                          include/fbgemm/OutputProcessing-inl.h
-                          include/fbgemm/PackingTraits-inl.h
-                          include/fbgemm/QuantUtils.h
-                          include/fbgemm/QuantUtilsAvx2.h
-                          include/fbgemm/Utils.h
-                          include/fbgemm/UtilsAvx2.h
-                          include/fbgemm/ConvUtils.h
-                          include/fbgemm/Types.h
-                          include/fbgemm/FbgemmI8Spmdm.h)
-
+# Define file lists
+get_filelist("get_fbgemm_generic_srcs(with_fp16=True)" FBGEMM_GENERIC_SRCS)
+get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+get_filelist("get_fbgemm_public_headers(with_fp16=True)" FBGEMM_PUBLIC_HEADERS)
 
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS})
 add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
+
+# Make libraries depend on defs.bzl
+add_custom_target(defs.bzl DEPENDS defs.bzl)
+add_dependencies(fbgemm_generic defs.bzl)
+add_dependencies(fbgemm_avx2 defs.bzl)
+add_dependencies(fbgemm_avx512 defs.bzl)
 
 set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_STANDARD 14
