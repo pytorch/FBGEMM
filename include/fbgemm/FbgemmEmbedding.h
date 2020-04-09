@@ -46,7 +46,7 @@ GenerateEmbeddingSpMDM(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -61,7 +61,7 @@ GenerateEmbeddingSpMDMNBit(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 template <typename inType, typename IndexType>
 class EmbeddingSpMDMRowWiseSparseKernelSignature {
@@ -92,7 +92,7 @@ FBGEMM_API
         bool normalize_by_lengths,
         int prefetch = 16,
         bool is_weight_positional = false,
-        bool use_offsets = false);
+        bool use_offsets = true);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -109,7 +109,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 /**
  * @return The number of rows processed. If smaller than num_rows, an error
@@ -172,7 +172,7 @@ FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<IndexType>::Type
 GenerateRowWiseSparseAdaGradFused(
     int block_size, // number of parameters per row
     int prefetch = 16,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM
@@ -188,7 +188,7 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = false);
+    bool use_offsets = true);
 
 } // namespace internal
 
