@@ -108,8 +108,7 @@ FBGEMM_API void cblas_sgemm_ref(
     int ldb,
     float beta,
     float* Cfp32,
-    int ldc
-    );
+    int ldc);
 
 FBGEMM_API void cblas_gemm_i64_i64acc_ref(
     matrix_op_t transa,
@@ -214,22 +213,25 @@ FBGEMM_API void im2col_ref(
     std::int32_t A_zero_point,
     std::uint8_t* Ao);
 
-template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
+template <
+    typename InType = std::uint8_t,
+    typename IndexType = std::int64_t,
+    typename OffsetType = std::int32_t>
 FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
     const std::int64_t data_size,
-    const inType* input,
+    const InType* input,
     const IndexType* indices,
-    const int* offsets_or_lengths,
+    const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
     bool use_offsets = true);
 
-template <typename IndexType = std::int64_t>
+template <typename IndexType = std::int64_t, typename OffsetType = std::int32_t>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
     const std::int64_t block_size,
@@ -238,31 +240,34 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     const std::int64_t data_size,
     const std::uint8_t* input,
     const IndexType* indices,
-    const int* offsets_or_lengths,
+    const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
     bool use_offsets = true);
 
-template <typename inType = std::uint8_t, typename IndexType = std::int64_t>
+template <
+    typename InType = std::uint8_t,
+    typename IndexType = std::int64_t,
+    typename OffsetType = std::int32_t>
 FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
     const std::int64_t uncompressed_data_size,
     // const std::int64_t compressed_data_size,
-    const inType* input,
+    const InType* input,
     const IndexType* indices,
     const std::int32_t* compressed_indices_table,
-    const int* offsets_or_lengths,
+    const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
     bool use_offsets = true);
 
-template <typename IndexType = std::int64_t>
+template <typename IndexType = std::int64_t, typename OffsetType = std::int32_t>
 FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     int bit_rate,
     const std::int64_t block_size,
@@ -273,7 +278,7 @@ FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     const std::uint8_t* input,
     const IndexType* indices,
     const std::int32_t* compressed_indices_table,
-    const int* offsets_or_lengths,
+    const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     float* out,
@@ -304,7 +309,7 @@ FBGEMM_API int rowwise_sparse_adagrad_ref(
     float epsilon,
     float lr);
 
-template <typename IndexType>
+template <typename IndexType, typename OffsetType>
 FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     std::int64_t block_size,
     std::int64_t output_size,
@@ -314,7 +319,7 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     const float* g, // inupt gradients
     float* h, // input/output momentums
     const IndexType* indices,
-    const int* offsets_or_lengths,
+    const OffsetType* offsets_or_lengths,
     float epsilon,
     float lr,
     bool use_offsets = true);
