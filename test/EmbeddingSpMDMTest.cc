@@ -53,6 +53,7 @@ class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
                                bool,
                                bool,
                                bool,
+                               bool,
                                int,
                                bool,
                                bool,
@@ -68,6 +69,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(), // is fp16
         ::testing::Bool(), // isIndex64b
+        ::testing::Bool(), // isOffset64b
         ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Bool(), // use_weight
@@ -81,12 +83,13 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
-      use_offsets;
+  bool isFp16, isIndex64b, isOffset64b, is_wt_positional, use_weight,
+      normalize_by_lengths, use_offsets;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
       isIndex64b,
+      isOffset64b,
       is_wt_positional,
       prefetch,
       use_weight,
@@ -116,13 +119,14 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_table.size());
     }
 
-    vector<int> lengths, offsets;
-    vector<int64_t> indices;
-    vector<int32_t> indices_32;
+    vector<int64_t> lengths, offsets, indices;
+    vector<int32_t> lengths_32, offsets_32, indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        lengths_32,
         offsets,
+        offsets_32,
         indices,
         indices_32,
         weights,
@@ -131,7 +135,10 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         embedding_dim,
         average_len,
         corner_case);
-    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
+    const int64_t* offsets_or_lengths =
+        (use_offsets ? offsets : lengths).data();
+    const int32_t* offsets_or_lengths_32 =
+        (use_offsets ? offsets_32 : lengths_32).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -141,133 +148,265 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     vector<float>& output = use_weight ? output_slws : output_sls;
     bool success, success_ref;
 
-    if (isIndex64b) {
-      if (isFp16) {
-        success_ref = EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+    if (isOffset64b) {
+      if (isIndex64b) {
+        if (isFp16) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDM<float16, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
+          auto kernel = GenerateEmbeddingSpMDM<float16, int64_t, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDM<float, int64_t, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        }
       } else {
-        success_ref = EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+        if (isFp16) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDM<float, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
+          auto kernel = GenerateEmbeddingSpMDM<float16, int32_t, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDM<float, int32_t, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        }
       }
     } else {
-      if (isFp16) {
-        success_ref = EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+      if (isIndex64b) {
+        if (isFp16) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDM<float16, int32_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
+          auto kernel = GenerateEmbeddingSpMDM<float16, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDM<float, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        }
       } else {
-        success_ref = EmbeddingSpMDM_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+        if (isFp16) {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDM<float, int32_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
+          auto kernel = GenerateEmbeddingSpMDM<float16, int32_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        } else {
+          success_ref = EmbeddingSpMDM_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDM<float, int32_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data());
+        }
       }
     }
 
@@ -290,12 +429,13 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 
 TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isFp16, isIndex64b, is_wt_positional, use_weight, normalize_by_lengths,
-      use_offsets;
+  bool isFp16, isIndex64b, isOffset64b, is_wt_positional, use_weight,
+      normalize_by_lengths, use_offsets;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
       isIndex64b,
+      isOffset64b,
       is_wt_positional,
       prefetch,
       use_weight,
@@ -332,13 +472,14 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
           embedding_table.size());
     }
 
-    vector<int> lengths, offsets;
-    vector<int64_t> indices;
-    vector<int32_t> indices_32;
+    vector<int64_t> lengths, offsets, indices;
+    vector<int32_t> lengths_32, offsets_32, indices_32;
     vector<float> weights;
     int lengths_sum = GenerateLengthsIndicesWeights(
         lengths,
+        lengths_32,
         offsets,
+        offsets_32,
         indices,
         indices_32,
         weights,
@@ -347,7 +488,10 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
         embedding_dim,
         average_len,
         corner_case);
-    const int* offsets_or_lengths = (use_offsets ? offsets : lengths).data();
+    const int64_t* offsets_or_lengths =
+        (use_offsets ? offsets : lengths).data();
+    const int32_t* offsets_or_lengths_32 =
+        (use_offsets ? offsets_32 : lengths_32).data();
 
     vector<float> output_sls_ref(batch_size * embedding_dim);
     vector<float> output_slws_ref(output_sls_ref.size()),
@@ -357,141 +501,285 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
     vector<float>& output = use_weight ? output_slws : output_sls;
     bool success, success_ref;
 
-    if (isIndex64b) {
-      if (isFp16) {
-        success_ref = EmbeddingSpMDMRowWiseSparse_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            mapping_table.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+    if (isOffset64b) {
+      if (isIndex64b) {
+        if (isFp16) {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data(),
-            mapping_table.data());
+          auto kernel =
+              GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t, int64_t>(
+                  embedding_dim,
+                  use_weight,
+                  normalize_by_lengths,
+                  prefetch,
+                  is_wt_positional,
+                  use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        } else {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel =
+              GenerateEmbeddingSpMDMRowWiseSparse<float, int64_t, int64_t>(
+                  embedding_dim,
+                  use_weight,
+                  normalize_by_lengths,
+                  prefetch,
+                  is_wt_positional,
+                  use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        }
       } else {
-        success_ref = EmbeddingSpMDMRowWiseSparse_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            mapping_table.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+        if (isFp16) {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data(),
-            mapping_table.data());
+          auto kernel =
+              GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t, int64_t>(
+                  embedding_dim,
+                  use_weight,
+                  normalize_by_lengths,
+                  prefetch,
+                  is_wt_positional,
+                  use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        } else {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel =
+              GenerateEmbeddingSpMDMRowWiseSparse<float, int32_t, int64_t>(
+                  embedding_dim,
+                  use_weight,
+                  normalize_by_lengths,
+                  prefetch,
+                  is_wt_positional,
+                  use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        }
       }
     } else {
-      if (isFp16) {
-        success_ref = EmbeddingSpMDMRowWiseSparse_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            mapping_table.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+      if (isIndex64b) {
+        if (isFp16) {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table_fp16.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data(),
-            mapping_table.data());
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        } else {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        }
       } else {
-        success_ref = EmbeddingSpMDMRowWiseSparse_ref(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            mapping_table.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+        if (isFp16) {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
 
-        auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int32_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data(),
-            mapping_table.data());
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table_fp16.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        } else {
+          success_ref = EmbeddingSpMDMRowWiseSparse_ref(
+              embedding_dim,
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              mapping_table.data(),
+              offsets_or_lengths,
+              use_weight ? weights.data() : nullptr,
+              normalize_by_lengths,
+              output_ref.data(),
+              is_wt_positional,
+              use_offsets);
+
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float, int32_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets);
+          success = kernel(
+              batch_size,
+              lengths_sum,
+              num_rows,
+              embedding_table.data(),
+              corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
+              offsets_or_lengths_32,
+              use_weight ? weights.data() : nullptr,
+              output.data(),
+              mapping_table.data());
+        }
       }
     }
 
