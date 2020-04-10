@@ -32,30 +32,6 @@ using namespace std;
 
 namespace fbgemm {
 
-void FloatToFloat16_ref(
-    const float* src,
-    float16* dst,
-    int size,
-    bool do_clip) {
-  constexpr float FP16_MAX = 65504.f;
-  if (do_clip) {
-    for (int i = 0; i < size; i++) {
-      float cur_src = std::max(-FP16_MAX, std::min(src[i], FP16_MAX));
-      dst[i] = cpu_float2half_rn(cur_src);
-    }
-  } else {
-    for (int i = 0; i < size; i++) {
-      dst[i] = cpu_float2half_rn(src[i]);
-    }
-  }
-}
-
-void Float16ToFloat_ref(const float16* src, float* dst, int size) {
-  for (int i = 0; i < size; i++) {
-    dst[i] = cpu_half2float(src[i]);
-  }
-}
-
 void FloatToFloat16_simd(
     const float* src,
     float16* dst,
