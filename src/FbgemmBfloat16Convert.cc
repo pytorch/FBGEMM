@@ -42,6 +42,21 @@ using namespace std;
 
 namespace fbgemm {
 
+void FloatToBfloat16_ref(const float* src, bfloat16* dst, int size) {
+  for (int i = 0; i < size; i++) {
+    // Add 2^15 and right shift 16 to do round-nearest
+    dst[i] = (*reinterpret_cast<const uint32_t*>(src + i) + (1 << 15)) >> 16;
+  }
+}
+
+void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, int size) {
+  for (int i = 0; i < size; i++) {
+    uint32_t val_fp32 =
+        static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(src)[i]) << 16;
+    reinterpret_cast<uint32_t*>(dst)[i] = val_fp32;
+  }
+}
+
 void FloatToBfloat16_simd(const float* src, bfloat16* dst, int size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {

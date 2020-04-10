@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include "./TransposeUtils.h"
 
 namespace fbgemm {
 
@@ -168,6 +169,44 @@ template void printMatrix<int32_t>(
     size_t C,
     size_t ld,
     std::string name);
+
+void transpose_ref(
+    int M,
+    int N,
+    const float* src,
+    int ld_src,
+    float* dst,
+    int ld_dst) {
+  for (int j = 0; j < N; j++) {
+    for (int i = 0; i < M; i++) {
+      dst[i + j * ld_dst] = src[i * ld_src + j];
+    }
+  } // for each output row
+}
+
+void transpose_simd(
+    int M,
+    int N,
+    const float* src,
+    int ld_src,
+    float* dst,
+    int ld_dst) {
+  if ((M == 1 && ld_dst == 1) || (N == 1 && ld_src == 1)) {
+    if (dst != src) {
+      memcpy(dst, src, M * N * sizeof(float));
+    }
+    return;
+  }
+  static const auto iset = fbgemmInstructionSet();
+  // Run time CPU detection
+  if (isZmm(iset)) {
+    internal::transpose_avx512(M, N, src, ld_src, dst, ld_dst);
+  } else if (isYmm(iset)) {
+    internal::transpose_avx2(M, N, src, ld_src, dst, ld_dst);
+  } else {
+    transpose_ref(M, N, src, ld_src, dst, ld_dst);
+  }
+}
 
 namespace {
 inst_set_t g_forced_isa = inst_set_t::anyarch;
