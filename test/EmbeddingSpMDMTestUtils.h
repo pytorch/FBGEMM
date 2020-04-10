@@ -22,8 +22,10 @@ enum EmbeddingSpMDMCornerCase {
  * @return lengths_sum
  */
 int GenerateLengthsIndicesWeights(
-    std::vector<int>& lengths,
-    std::vector<int>& offsets,
+    std::vector<std::int64_t>& lengths,
+    std::vector<std::int32_t>& lengths_32,
+    std::vector<std::int64_t>& offsets,
+    std::vector<std::int32_t>& offsets_32,
     std::vector<std::int64_t>& indices,
     std::vector<std::int32_t>& indices_32,
     std::vector<float>& weights,

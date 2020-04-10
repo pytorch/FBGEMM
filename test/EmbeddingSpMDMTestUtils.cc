@@ -14,8 +14,10 @@ namespace fbgemm {
 using namespace std;
 
 int GenerateLengthsIndicesWeights(
-    vector<int>& lengths,
-    vector<int>& offsets,
+    vector<int64_t>& lengths,
+    vector<int32_t>& lengths_32,
+    vector<int64_t>& offsets,
+    vector<int32_t>& offsets_32,
     vector<int64_t>& indices,
     vector<int32_t>& indices_32,
     vector<float>& weights,
@@ -63,9 +65,13 @@ int GenerateLengthsIndicesWeights(
 
   // Generate offsets
   offsets.resize(lengths.size() + 1);
+  lengths_32.resize(lengths.size());
+  offsets_32.resize(offsets.size());
   offsets[0] = 0;
+  offsets_32[0] = 0;
   for (int i = 0; i < lengths.size(); ++i) {
-    offsets[i + 1] = offsets[i] + lengths[i];
+    offsets_32[i + 1] = offsets[i + 1] = offsets[i] + lengths[i];
+    lengths_32[i] = lengths[i];
   }
 
   // Generate weights

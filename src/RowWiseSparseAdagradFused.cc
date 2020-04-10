@@ -23,7 +23,7 @@ namespace fbgemm {
 namespace {
 namespace x86 = asmjit::x86;
 
-template <typename indxType = int64_t>
+template <typename indxType, typename offsetType>
 class ReturnFunctionSignature {
  public:
   using jit_sparse_adagrad_kernel = bool (*)(
@@ -34,19 +34,23 @@ class ReturnFunctionSignature {
       const float* g, // input gradients
       float* h, // input/output momentums
       const indxType* indices, // indices of each row
-      const int* offsets_or_lengths,
+      const offsetType* offsets_or_lengths,
       float epsilon,
       float lr,
       const int* mask_avx2);
 };
 
-template <typename indxType = int64_t, inst_set_t instSet = inst_set_t::avx2>
+template <
+    typename indxType,
+    typename offsetType,
+    inst_set_t instSet = inst_set_t::avx2>
 class GenRowWiseSparseAdagradFused {
  public:
   GenRowWiseSparseAdagradFused() {}
 
-  typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
-  getOrCreate(int block_size, int prefetch, bool use_offsets);
+  typename ReturnFunctionSignature<indxType, offsetType>::
+      jit_sparse_adagrad_kernel
+      getOrCreate(int block_size, int prefetch, bool use_offsets);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -60,32 +64,36 @@ class GenRowWiseSparseAdagradFused {
   // and use_offsets
   static CodeCache<
       tuple<int, int, bool>,
-      typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
+      typename ReturnFunctionSignature<indxType, offsetType>::
+          jit_sparse_adagrad_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
 }; // class GenRowWiseSparseAdagradFused
 
-template <typename indxType, inst_set_t instSet>
-mutex GenRowWiseSparseAdagradFused<indxType, instSet>::rtMutex_;
+template <typename indxType, typename offsetType, inst_set_t instSet>
+mutex GenRowWiseSparseAdagradFused<indxType, offsetType, instSet>::rtMutex_;
 
-template <typename indxType, inst_set_t instSet>
+template <typename indxType, typename offsetType, inst_set_t instSet>
 CodeCache<
     tuple<int, int, bool>,
-    typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel>
-    GenRowWiseSparseAdagradFused<indxType, instSet>::codeCache_;
+    typename ReturnFunctionSignature<indxType, offsetType>::
+        jit_sparse_adagrad_kernel>
+    GenRowWiseSparseAdagradFused<indxType, offsetType, instSet>::codeCache_;
 
-template <typename indxType, inst_set_t instSet>
-typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
-GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
-    int block_size,
-    int prefetch,
-    bool use_offsets) {
+template <typename indxType, typename offsetType, inst_set_t instSet>
+typename ReturnFunctionSignature<indxType, offsetType>::
+    jit_sparse_adagrad_kernel
+    GenRowWiseSparseAdagradFused<indxType, offsetType, instSet>::getOrCreate(
+        int block_size,
+        int prefetch,
+        bool use_offsets) {
   tuple<int, int, bool> kernelSig =
       make_tuple(block_size, prefetch, use_offsets);
 
   return codeCache_.getOrCreate(
       kernelSig,
-      [&]() ->
-      typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel {
+      [&]() -> typename ReturnFunctionSignature<
+                indxType,
+                offsetType>::jit_sparse_adagrad_kernel {
         asmjit::CodeHolder code;
         code.init(runtime().codeInfo());
         x86::Assembler assembler(&code);
@@ -323,7 +331,7 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
         a->divss(partial_sum_xmm, float_step_xmm);
 
         if (use_offsets) {
-          a->mov(lengths_R, x86::dword_ptr(lengths, sizeof(int)));
+          a->mov(lengths_R, x86::dword_ptr(lengths, sizeof(offsetType)));
           a->sub(lengths_R, x86::dword_ptr(lengths));
         } else {
           a->mov(lengths_R, x86::dword_ptr(lengths));
@@ -466,7 +474,7 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
         a->jmp(LoopDataIndexBegin);
         a->bind(LoopDataIndexEnd);
 
-        a->add(lengths, static_cast<asmjit::Imm>(sizeof(int)));
+        a->add(lengths, static_cast<asmjit::Imm>(sizeof(offsetType)));
         a->add(g, static_cast<asmjit::Imm>(block_size * sizeof(float)));
 
         a->jmp(LoopRangeIndexBegin);
@@ -482,8 +490,8 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
         a->emitEpilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
-        typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
-            fn;
+        typename ReturnFunctionSignature<indxType, offsetType>::
+            jit_sparse_adagrad_kernel fn;
         asmjit::Error err;
         {
           unique_lock<mutex> lock(rtMutex_);
@@ -504,19 +512,20 @@ GenRowWiseSparseAdagradFused<indxType, instSet>::getOrCreate(
 
 } // namespace
 
-template <typename IndexType>
-FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<IndexType>::Type
-GenerateRowWiseSparseAdaGradFused(
-    int block_size, // number of parameters per row
-    int prefetch,
-    bool use_offsets) {
+template <typename IndexType, typename OffsetType>
+FBGEMM_API
+    typename RowWiseSparseAdaGradFusedSignature<IndexType, OffsetType>::Type
+    GenerateRowWiseSparseAdaGradFused(
+        int block_size, // number of parameters per row
+        int prefetch,
+        bool use_offsets) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
 
   // Always use avx2 because avx512 doesn't provide speedups
   if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
-    static GenRowWiseSparseAdagradFused<IndexType, inst_set_t::avx2>
+    static GenRowWiseSparseAdagradFused<IndexType, OffsetType, inst_set_t::avx2>
         kernel_generator;
     const auto original_func =
         kernel_generator.getOrCreate(block_size, prefetch, use_offsets);
@@ -527,7 +536,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  const float* g,
                                  float* h,
                                  const IndexType* indices,
-                                 const int* offsets_or_lengths,
+                                 const OffsetType* offsets_or_lengths,
                                  float epsilon,
                                  float lr) {
       return original_func(
@@ -552,7 +561,7 @@ GenerateRowWiseSparseAdaGradFused(
                const float* g,
                float* h,
                const IndexType* indices,
-               const int* offsets_or_lengths,
+               const OffsetType* offsets_or_lengths,
                float epsilon,
                float lr) {
       return rowwise_sparse_adagrad_fused_ref(
@@ -571,16 +580,32 @@ GenerateRowWiseSparseAdaGradFused(
   }
 }
 
-template FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<int64_t>::Type
-GenerateRowWiseSparseAdaGradFused<int64_t>(
-    int block_size, // number of parameters per row
-    int prefetch,
-    bool use_offsets);
+template FBGEMM_API
+    typename RowWiseSparseAdaGradFusedSignature<int64_t, int32_t>::Type
+    GenerateRowWiseSparseAdaGradFused<int64_t, int32_t>(
+        int block_size, // number of parameters per row
+        int prefetch,
+        bool use_offsets);
 
-template FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<int32_t>::Type
-GenerateRowWiseSparseAdaGradFused<int32_t>(
-    int block_size, // number of parameters per row
-    int prefetch,
-    bool use_offsets);
+template FBGEMM_API
+    typename RowWiseSparseAdaGradFusedSignature<int64_t, int64_t>::Type
+    GenerateRowWiseSparseAdaGradFused<int64_t, int64_t>(
+        int block_size, // number of parameters per row
+        int prefetch,
+        bool use_offsets);
+
+template FBGEMM_API
+    typename RowWiseSparseAdaGradFusedSignature<int32_t, int32_t>::Type
+    GenerateRowWiseSparseAdaGradFused<int32_t, int32_t>(
+        int block_size, // number of parameters per row
+        int prefetch,
+        bool use_offsets);
+
+template FBGEMM_API
+    typename RowWiseSparseAdaGradFusedSignature<int32_t, int64_t>::Type
+    GenerateRowWiseSparseAdaGradFused<int32_t, int64_t>(
+        int block_size, // number of parameters per row
+        int prefetch,
+        bool use_offsets);
 
 } // namespace fbgemm
