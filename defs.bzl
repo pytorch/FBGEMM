@@ -1,4 +1,4 @@
-def get_fbgemm_generic_srcs(with_fp16 = False):
+def get_fbgemm_generic_srcs():
     return [
         "src/EmbeddingSpMDM.cc",
         "src/EmbeddingSpMDMNBit.cc",
@@ -32,9 +32,9 @@ def get_fbgemm_generic_srcs(with_fp16 = False):
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
         "src/Utils.cc",
-    ] + (["src/FbgemmFakeFP16.cc"] if with_fp16 else [])
+    ]
 
-def get_fbgemm_public_headers(with_fp16 = False):
+def get_fbgemm_public_headers():
     return [
         "include/fbgemm/Fbgemm.h",
         "include/fbgemm/FbgemmBuild.h",
@@ -52,7 +52,7 @@ def get_fbgemm_public_headers(with_fp16 = False):
         "include/fbgemm/ConvUtils.h",
         "include/fbgemm/Types.h",
         "include/fbgemm/FbgemmI8Spmdm.h",
-    ] + (["include/fbgemm/FbgemmFakeFP16.h"] if with_fp16 else [])
+    ]
 
 def get_fbgemm_avx2_srcs(msvc = False):
     return [

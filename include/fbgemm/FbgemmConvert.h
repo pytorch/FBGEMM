@@ -136,4 +136,15 @@ FBGEMM_API void Float16ToFloat_avx2(const float16* src, float* dst, int size);
  */
 FBGEMM_API void Float16ToFloat_avx512(const float16* src, float* dst, int size);
 
+/**
+ * @brief Transform all entries in a matrix from fp32 to float16 and back to
+ * fp32.
+ */
+FBGEMM_API void RoundToFloat16(
+    const float* input,
+    float* output,
+    int len,
+    bool clamp = false,
+    bool clamp_denorms = false);
+
 }; // namespace fbgemm
