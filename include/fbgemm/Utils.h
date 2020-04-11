@@ -76,7 +76,6 @@ struct simd_info<inst_set_t::avx2> {
   static constexpr int NUM_VEC_REGS = 16;
 
   using vec_reg_t = asmjit::x86::Ymm;
-  using half_vec_reg_t = asmjit::x86::Xmm;
 };
 
 template <>
@@ -87,7 +86,6 @@ struct simd_info<inst_set_t::avx512> {
   static constexpr int NUM_VEC_REGS = 32;
 
   using vec_reg_t = asmjit::x86::Zmm;
-  using half_vec_reg_t = asmjit::x86::Ymm;
 };
 
 template <>
