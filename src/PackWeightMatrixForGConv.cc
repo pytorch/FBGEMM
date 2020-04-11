@@ -135,7 +135,7 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::packed_index_(
 }
 
 /**
- * @ brief Pack or unpack matrix
+ * @brief Pack or unpack matrix
  *
  * Let IC_per_G be number of input channels per group and OC_per_G be number of
  * output channels per group.
