@@ -226,7 +226,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual)
+            EXPECT_EQ(actual, expected)
                 << "Depthwise " << R << "x" << S << " results differ at (" << n
                 << ", " << h << ", " << w << ", " << k << ").";
           }
@@ -367,7 +367,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
               int32_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              EXPECT_EQ(expected, actual)
+              EXPECT_EQ(actual, expected)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
             }
@@ -499,7 +499,7 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
-            EXPECT_EQ(expected, actual)
+            EXPECT_EQ(actual, expected)
                 << "Depthwise " << R << "x" << S << " results differ at (" << n
                 << ", " << h << ", " << w << ", " << k << ").";
           }
@@ -637,7 +637,7 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
               int32_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
-              ASSERT_EQ(expected, actual)
+              ASSERT_EQ(actual, expected)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
             }
@@ -662,7 +662,7 @@ TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
   PackedDepthWiseConvMatrix BPacked(K, kernel_prod, B.data());
   BPacked.unpack(BUnpacked.data());
 
-  ASSERT_EQ(B, BUnpacked)
+  ASSERT_EQ(BUnpacked, B)
       << "Original and unpacked data elements are not the same";
 } // TestPackUnpack
 

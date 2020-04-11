@@ -282,7 +282,7 @@ TEST_P(uniConvTest, packUnpackTest) {
 
   packedB_2D.unpack(Bint8_2d_unpacked.data());
 
-  ASSERT_EQ(Bint8_2d, Bint8_2d_unpacked)
+  ASSERT_EQ(Bint8_2d_unpacked, Bint8_2d)
       << "Original and unpacked data elements are not the same [2D]";
 
   conv_param_t<3> conv_p_3d(
@@ -307,7 +307,7 @@ TEST_P(uniConvTest, packUnpackTest) {
 
   packedB_3D.unpack(Bint8_3d_unpacked.data());
 
-  ASSERT_EQ(Bint8_3d, Bint8_3d_unpacked)
+  ASSERT_EQ(Bint8_3d_unpacked, Bint8_3d)
       << "Original and unpacked data elements are not the same [3D]";
 }
 

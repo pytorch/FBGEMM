@@ -42,7 +42,7 @@ TEST(TransposeTest, TransposeTest) {
       for (int j = 0; j < n; ++j) {
         int expected = a[i * ld_src + j];
         int actual = b[i + j * ld_dst];
-        EXPECT_EQ(expected, actual)
+        EXPECT_EQ(actual, expected)
             << "Transpose results differ at (" << i << ", " << j << "). ref "
             << expected << " actual " << actual;
       }
