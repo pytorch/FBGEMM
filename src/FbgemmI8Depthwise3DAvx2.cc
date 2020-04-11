@@ -146,8 +146,12 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
+#ifdef _MSC_VER
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
+#endif
 
   int n_begin, n_end, t_begin, t_end, h_begin, h_end;
   // Reuse the 3-dim partition scheme for parallelization in matrix
@@ -727,7 +731,9 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
       } // h
     } // t
   } // for each n
+#ifdef _MSC_VER
   fbgemmAlignedFree(row_offsets);
+#endif
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -753,8 +759,12 @@ static void depthwise_3x3x3_pad_1_(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
+#ifdef _MSC_VER
   int32_t* C_int32_temp = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t C_int32_temp[(K + 31) / 32 * 32];
+#endif
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (B_zero_point == 0) {
       depthwise_3x3x3_pad_1_<
@@ -876,7 +886,9 @@ static void depthwise_3x3x3_pad_1_(
           num_threads);
     }
   }
+#ifdef _MSC_VER
   fbgemmAlignedFree(C_int32_temp);
+#endif
 }
 
 // Dispatch HAS_BIAS
@@ -1059,8 +1071,12 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
+#ifdef _MSC_VER
   int32_t* C_int32_temp = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t C_int32_temp[(K + 31) / 32 * 32];
+#endif
   if (A_zero_point == 0 || col_offsets == nullptr) {
     depthwise_3x3x3_pad_1_<
         FUSE_RELU,
@@ -1120,7 +1136,9 @@ static void depthwise_3x3x3_per_channel_quantization_pad_1_(
         thread_id,
         num_threads);
   }
+#ifdef _MSC_VER
   fbgemmAlignedFree(C_int32_temp);
+#endif
 }
 
 // Dispatch HAS_BIAS

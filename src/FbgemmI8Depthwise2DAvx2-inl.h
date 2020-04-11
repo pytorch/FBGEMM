@@ -141,8 +141,12 @@ static ALWAYS_INLINE void depthwise_2d_(
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
 
+#ifdef _MSC_VER
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t row_offsets[(K + 31) / 32 * 32];
+#endif
 
   int n_begin, n_end, h_begin, h_end, w_begin, w_end;
   // Reuse the 3-dim partition scheme for parallelization in matrix
@@ -476,7 +480,9 @@ static ALWAYS_INLINE void depthwise_2d_(
     }
   } // for each n
 
+#ifdef _MSC_VER
   fbgemmAlignedFree(row_offsets);
+#endif
 };
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
@@ -500,8 +506,12 @@ static void depthwise_2d_(
     float act_times_w_scale,
     int thread_id,
     int num_threads) {
+#ifdef _MSC_VER
   int32_t* C_int32_temp = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t C_int32_temp[(K + 31) / 32 * 32];
+#endif
   if (A_zero_point == 0 || col_offsets == nullptr) {
     if (B_zero_point == 0) {
       depthwise_2d_<
@@ -619,7 +629,9 @@ static void depthwise_2d_(
           num_threads);
     }
   }
+#ifdef _MSC_VER
   fbgemmAlignedFree(C_int32_temp);
+#endif
 }
 
 // Dispatch HAS_BIAS
@@ -707,8 +719,12 @@ static void depthwise_2d_per_channel_quantization_(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
+#ifdef _MSC_VER
   int32_t* C_int32_temp = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (K + 31) / 32 * 32 * sizeof(int32_t)));
+#else
+  alignas(64) int32_t C_int32_temp[(K + 31) / 32 * 32];
+#endif
   if (A_zero_point == 0 || col_offsets == nullptr) {
     depthwise_2d_<
         S,
@@ -766,7 +782,9 @@ static void depthwise_2d_per_channel_quantization_(
         thread_id,
         num_threads);
   }
+#ifdef _MSC_VER
   fbgemmAlignedFree(C_int32_temp);
+#endif
 }
 
 // Dispatch HAS_BIAS
