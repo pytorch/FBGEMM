@@ -58,7 +58,7 @@ static void genMaddEpi16xNPacked(
     x86::Ymm one_epi16,
     x86::Ymm zero) {
   // Interleave inputs. Reuse a[1] and a[3] to save registers
-  x86::Ymm a01_lo(0), a01_hi(1), a23_lo(a[1].id()), a23_hi(a[3].id());
+  x86::Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
   e->vpunpcklbw(a01_lo, a[0], n == 1 ? zero : a[1]);
   if (remainder >= 8) {
     e->vpunpckhbw(a01_hi, a[0], n == 1 ? zero : a[1]);
@@ -141,28 +141,28 @@ static void genMaddEpi16xNPacked(
     e->vpmaddubsw(a[1], a01_hi, x86::ymmword_ptr(b, 32));
 
     if (accumulation) {
-      e->vpmovsxwd(a[2], x86::Xmm(a[0].id()));
+      e->vpmovsxwd(a[2], a[0].half());
       e->vpaddd(c[0], c[0], a[2]);
-      e->vpmovsxwd(a[3], x86::Xmm(a[1].id()));
+      e->vpmovsxwd(a[3], a[1].half());
       e->vpaddd(c[1], c[1], a[3]);
 
       if (remainder >= 16) {
-        e->vextracti128(x86::Xmm(a[0].id()), a[0], asmjit::Imm(1));
-        e->vpmovsxwd(a[0], x86::Xmm(a[0].id()));
+        e->vextracti128(a[0].half(), a[0], asmjit::Imm(1));
+        e->vpmovsxwd(a[0], a[0].half());
         e->vpaddd(c[2], c[2], a[0]);
-        e->vextracti128(x86::Xmm(a[1].id()), a[1], asmjit::Imm(1));
-        e->vpmovsxwd(a[1], x86::Xmm(a[1].id()));
+        e->vextracti128(a[1].half(), a[1], asmjit::Imm(1));
+        e->vpmovsxwd(a[1], a[1].half());
         e->vpaddd(c[3], c[3], a[1]);
       }
     } else {
-      e->vpmovsxwd(c[0], x86::Xmm(a[0].id()));
-      e->vpmovsxwd(c[1], x86::Xmm(a[1].id()));
+      e->vpmovsxwd(c[0], a[0].half());
+      e->vpmovsxwd(c[1], a[1].half());
 
       if (remainder >= 16) {
-        e->vextracti128(x86::Xmm(a[0].id()), a[0], asmjit::Imm(1));
-        e->vpmovsxwd(c[2], x86::Xmm(a[0].id()));
-        e->vextracti128(x86::Xmm(a[1].id()), a[1], asmjit::Imm(1));
-        e->vpmovsxwd(c[3], x86::Xmm(a[1].id()));
+        e->vextracti128(a[0].half(), a[0], asmjit::Imm(1));
+        e->vpmovsxwd(c[2], a[0].half());
+        e->vextracti128(a[1].half(), a[1], asmjit::Imm(1));
+        e->vpmovsxwd(c[3], a[1].half());
       }
     }
   }
@@ -308,8 +308,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     x86::Ymm a_zero_point_vreg(vreg_id);
     if (!recompute_zero && has_pad) {
-      e->movq(x86::Xmm(a_zero_point_vreg.id()), a_zero_point);
-      e->vpbroadcastb(a_zero_point_vreg, x86::Xmm(a_zero_point_vreg.id()));
+      e->movq(a_zero_point_vreg.half(), a_zero_point);
+      e->vpbroadcastb(a_zero_point_vreg, a_zero_point_vreg.half());
     }
     if (vreg_id < 15) {
       ++vreg_id;
@@ -347,8 +347,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
 
       if (recompute_zero && has_pad) {
-        e->movq(x86::Xmm(a_zero_point_vreg.id()), a_zero_point);
-        e->vpbroadcastb(a_zero_point_vreg, x86::Xmm(a_zero_point_vreg.id()));
+        e->movq(a_zero_point_vreg.half(), a_zero_point);
+        e->vpbroadcastb(a_zero_point_vreg, a_zero_point_vreg.half());
       }
 
       int i = 0;
@@ -441,7 +441,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         } else {
           e->vpbroadcastd(c[0], x86::dword_ptr(b_zero_point_addr));
         }
-        e->vpmovsxwd(a[0], x86::Xmm(a_sum[0].id()));
+        e->vpmovsxwd(a[0], a_sum[0].half());
         e->vpmulld(a[0], a[0], c[0]);
         e->vmovups(x86::ymmword_ptr(a_sum_addr), a[0]);
 
@@ -449,7 +449,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           if (per_channel_quantization) {
             e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 32));
           }
-          e->vpmovsxwd(a[1], x86::Xmm(a_sum[1].id()));
+          e->vpmovsxwd(a[1], a_sum[1].half());
           e->vpmulld(a[1], a[1], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 32), a[1]);
         }
@@ -458,8 +458,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           if (per_channel_quantization) {
             e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 64));
           }
-          e->vextracti128(x86::Xmm(a_sum[0].id()), a_sum[0], asmjit::Imm(1));
-          e->vpmovsxwd(a_sum[0], x86::Xmm(a_sum[0].id()));
+          e->vextracti128(a_sum[0].half(), a_sum[0], asmjit::Imm(1));
+          e->vpmovsxwd(a_sum[0], a_sum[0].half());
           e->vpmulld(a_sum[0], a_sum[0], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 64), a_sum[0]);
         }
@@ -468,8 +468,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           if (per_channel_quantization) {
             e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 96));
           }
-          e->vextracti128(x86::Xmm(a_sum[1].id()), a_sum[1], asmjit::Imm(1));
-          e->vpmovsxwd(a_sum[1], x86::Xmm(a_sum[1].id()));
+          e->vextracti128(a_sum[1].half(), a_sum[1], asmjit::Imm(1));
+          e->vpmovsxwd(a_sum[1], a_sum[1].half());
           e->vpmulld(a_sum[1], a_sum[1], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 96), a_sum[1]);
         }

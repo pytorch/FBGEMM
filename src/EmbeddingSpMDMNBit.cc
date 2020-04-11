@@ -313,7 +313,6 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         int unroll_factor = NUM_VEC_REG;
 
         typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
-        typedef typename simd_info<instSet>::half_vec_reg_t half_vec_reg_t;
 
         int num_vec_regs_per_block = ceil_div(block_size, vlen);
         int remainder = block_size % vlen;
@@ -625,12 +624,10 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
               scratchReg1_,
               0,
               ceil_div(block_size, num_elem_per_byte) + sizeof(float16));
-          a->vpbroadcastw(half_vec_reg_t(scale_vreg.id()), scale_src);
-          a->vpbroadcastw(half_vec_reg_t(bias_vreg.id()), bias_src);
-          a->vcvtph2ps(
-              vec_reg_t(scale_vreg.id()), half_vec_reg_t(scale_vreg.id()));
-          a->vcvtph2ps(
-              vec_reg_t(bias_vreg.id()), half_vec_reg_t(bias_vreg.id()));
+          a->vpbroadcastw(scale_vreg.half(), scale_src);
+          a->vpbroadcastw(bias_vreg.half(), bias_src);
+          a->vcvtph2ps(scale_vreg, scale_vreg.half());
+          a->vcvtph2ps(bias_vreg, bias_vreg.half());
           constexpr int CACHE_LINE_LEN = 64;
           if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
               fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float16)) {
@@ -670,7 +667,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                       x86::Xmm(mask2_vreg.id()),
                       src_addr);
                 }
-                a->vpmovzxbw(src_vreg, half_vec_reg_t(src_vreg.id()));
+                a->vpmovzxbw(src_vreg, src_vreg.half());
               } else {
                 a->vpmovzxbw(src_vreg, src_addr);
               }
