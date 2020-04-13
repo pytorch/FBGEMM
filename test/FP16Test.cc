@@ -125,7 +125,7 @@ TEST_P(FBGemmFP16Test, Test) {
       for (int j = 0; j < n; ++j) {
         float expected = C_ref[i * n + j];
         float actual = C[i * n + j];
-        EXPECT_EQ(expected, actual)
+        EXPECT_EQ(actual, expected)
             << "GEMM results differ at (" << i << ", " << j << "). ref "
             << expected << " FBGemm " << actual;
       }
@@ -193,7 +193,7 @@ TEST_P(FBGemmFP16Test, Unpack) {
     memcpy(tmp.data(), Bp.pmat(), Bp.matSize() * sizeof(float16));
     for (int i = 0; i < k; ++i) {
       for (int j = 0; j < n; ++j) {
-        EXPECT_EQ(B[i * n + j], cpu_half2float(tmp[i * n + j]));
+        EXPECT_EQ(cpu_half2float(tmp[i * n + j]), B[i * n + j]);
       }
     }
 
@@ -217,7 +217,7 @@ TEST_P(FBGemmFP16Test, Unpack) {
       for (int j = 0; j < n; ++j) {
         float expected = C_ref[i * n + j];
         float actual = C[i * n + j];
-        EXPECT_EQ(expected, actual)
+        EXPECT_EQ(actual, expected)
             << "GEMM results differ at (" << i << ", " << j << "). ref "
             << expected << " FBGemm " << actual;
       }
