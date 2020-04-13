@@ -1,13 +1,19 @@
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
-load("defs.bzl", "get_fbgemm_generic_srcs", "get_fbgemm_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_public_headers")
+load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests")
 
 cc_library(
-    name = "fbgemm_src_headers",
-    hdrs = [
-        "src/RefImplementations.h",
+    name = "fbgemm_base",
+    srcs = get_fbgemm_base_srcs()  + glob(["src/*.h"]),
+    includes = [
+        "src",
     ],
-    include_prefix = "fbgemm",
+    deps = [
+        ":fbgemm_headers",
+        "@cpuinfo",
+        "@asmjit",
+    ],
+    linkstatic = 1,
 )
 
 cc_library(
@@ -20,10 +26,7 @@ cc_library(
     deps = [
         ":fbgemm_avx2",
         ":fbgemm_avx512",
-        ":fbgemm_headers",
-        ":fbgemm_src_headers",
-        "@asmjit",
-        "@cpuinfo",
+        ":fbgemm_base",
     ],
     linkstatic = 1,
 )
@@ -39,8 +42,7 @@ cc_library(
         "-masm=intel",
     ],
     deps = [
-        ":fbgemm_headers",
-        "@asmjit",
+        ":fbgemm_base",
     ],
     linkstatic = 1,
 )
@@ -58,7 +60,7 @@ cc_library(
         "-masm=intel",
     ],
     deps = [
-        ":fbgemm_headers",
+        ":fbgemm_base",
     ],
     linkstatic = 1,
 )
@@ -71,6 +73,17 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+# This header is included from pytorch/caffe2/quantization/server/conv_dnnlowp_op.cc
+cc_library(
+    name = "fbgemm_src_headers",
+    hdrs = [
+        "src/RefImplementations.h",
+    ],
+    include_prefix = "fbgemm",
+    visibility = ["//visibility:public"],
+)
+
 
 cc_library(
     name = "test_utils",
@@ -94,15 +107,16 @@ cc_library(
           "@com_google_googletest//:gtest_main",
     ],
 )
+
 [
   cc_test(
       name = paths.split_extension(paths.basename(filename))[0],
-      size = "small",
+      size = "medium",
       srcs = [
           filename,
       ],
       deps = [
           ":test_utils",
       ],
-  ) for filename in ["test/GConvTest.cc", "test/TransposeTest.cc", "test/QuantUtilsTest.cc", "test/I64Test.cc"]
+  ) for filename in get_fbgemm_tests()
 ]

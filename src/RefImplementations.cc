@@ -8,6 +8,7 @@
 #include "./RefImplementations.h"
 
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Types.h"
 
 #include <algorithm>
@@ -19,6 +20,45 @@
 using namespace std;
 
 namespace fbgemm {
+
+void FloatToFloat16_ref(
+    const float* src,
+    float16* dst,
+    int size,
+    bool do_clip) {
+  constexpr float FP16_MAX = 65504.f;
+  if (do_clip) {
+    for (int i = 0; i < size; i++) {
+      float cur_src = std::max(-FP16_MAX, std::min(src[i], FP16_MAX));
+      dst[i] = cpu_float2half_rn(cur_src);
+    }
+  } else {
+    for (int i = 0; i < size; i++) {
+      dst[i] = cpu_float2half_rn(src[i]);
+    }
+  }
+}
+
+void Float16ToFloat_ref(const float16* src, float* dst, int size) {
+  for (int i = 0; i < size; i++) {
+    dst[i] = cpu_half2float(src[i]);
+  }
+}
+
+void FloatToBfloat16_ref(const float* src, bfloat16* dst, int size) {
+  for (int i = 0; i < size; i++) {
+    // Add 2^15 and right shift 16 to do round-nearest
+    dst[i] = (*reinterpret_cast<const uint32_t*>(src + i) + (1 << 15)) >> 16;
+  }
+}
+
+void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, int size) {
+  for (int i = 0; i < size; i++) {
+    uint32_t val_fp32 =
+        static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(src)[i]) << 16;
+    reinterpret_cast<uint32_t*>(dst)[i] = val_fp32;
+  }
+}
 
 void requantize_u8acc32_ref(
     int M,
