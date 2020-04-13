@@ -21,9 +21,7 @@ using namespace std;
 
 // ASAN seems to have a false-positive for _mm_maskmoveu_si128
 template <typename T>
-void
-NO_SANITIZE("address")
-QuantizeAvx2(
+void NO_SANITIZE("address") QuantizeAvx2(
     const float* src,
     T* dst,
     int len,
@@ -1083,10 +1081,8 @@ void requantizeOutputProcessingGConvAvx2(
                       _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 0])),
                   _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 1]),
                   1);
-
             } else if (C_PER_G == 8) {
               diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);
-
             } else {
               assert(C_PER_G == 16);
               diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);

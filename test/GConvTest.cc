@@ -292,8 +292,8 @@ void runRequantizeTest(matrix_op_t /* unused */,
     // weights
     // when btrans == Transpose, the weight matrix is
     // in layout G K/G (T R S C/G) instead of G (T R S C/G) K/G
-    aligned_vector<int8_t> Bint8(T * R * S * conv_p.G * IC_per_G * OC_per_G, 0);
-    aligned_vector<int8_t> Bint8_tr(T * R * S * G * IC_per_G * OC_per_G, 0);
+    aligned_vector<int8_t> Bint8(T * R * S * G * IC_per_G * OC_per_G, 0);
+    aligned_vector<int8_t> Bint8_tr(Bint8.size(), 0);
 
     aligned_vector<int32_t> Cint32_ref(conv_p.MB *OT *OH * OW * OC, 0);
     aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);

@@ -422,8 +422,8 @@ TEST_P(UniConvQGranTest, requantizeTest) {
 
     // weights
     // The weight matrix is in layout G K/G (R S C/G)
-    aligned_vector<int8_t> Bint8(R * S * conv_p.G * IC_per_G * OC_per_G, 0);
-    aligned_vector<int8_t> Bint8_tr(R * S * G * IC_per_G * OC_per_G, 0);
+    aligned_vector<int8_t> Bint8(R * S * G * IC_per_G * OC_per_G, 0);
+    aligned_vector<int8_t> Bint8_tr(Bint8.size(), 0);
 
     aligned_vector<int32_t> Cint32_ref(conv_p.MB * OH * OW * OC, 0);
     aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
@@ -511,9 +511,8 @@ TEST_P(UniConvQGranTest, requantizeTest) {
     }
     // reference implementation
     // conv_ref expects weights to be in G (R S C/G) K/G
-    int8_t* rightBData = Bint8.data();
     transposeConvWeights(conv_p, Bint8.data(), Bint8_tr.data());
-    rightBData = Bint8_tr.data();
+    int8_t* rightBData = Bint8_tr.data();
     for (int g = 0; g < G; ++g) {
       col_offsets_with_zero_pt_s8acc32_ref(
           R * S * IC_per_G,
