@@ -14,6 +14,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <numeric>
 
 using namespace std;
 
@@ -590,43 +591,18 @@ void transposeConvWeights(
   assert(
       (SPATIAL_DIM == 3 || SPATIAL_DIM == 2) &&
       "Only 2D and 3D convolutions are supported");
-  if (SPATIAL_DIM == 2) {
-    int R = conv_p.K[0];
-    int S = conv_p.K[1];
-    // Transforms weights from  G K/G (R S C/G) to G (R S C/G) K/G format.
-    for (int r = 0; r < R; ++r) {
-      for (int s = 0; s < S; ++s) {
-        for (int k = 0; k < OC_per_G; ++k) {
-          for (int g = 0; g < G; ++g) {
-            for (int c = 0; c < IC_per_G; ++c) {
-              dest[(((g * R + r) * S + s) * IC_per_G + c) * OC_per_G + k] =
-                  src[(((g * OC_per_G + k) * R + r) * S + s) * IC_per_G + c];
-            }
-          }
-        }
-      }
-    }
-  } else {
-    // Transforms weights from  G K/G (T R S C/G) to G (T R S C/G) K/G format.
-    int T = conv_p.K[0];
-    int R = conv_p.K[1];
-    int S = conv_p.K[2];
-    for (int t = 0; t < T; ++t) {
-      for (int r = 0; r < R; ++r) {
-        for (int s = 0; s < S; ++s) {
-          for (int k = 0; k < OC_per_G; ++k) {
-            for (int g = 0; g < G; ++g) {
-              for (int c = 0; c < IC_per_G; ++c) {
-                dest
-                    [((((g * T + t) * R + r) * S + s) * IC_per_G + c) *
-                         OC_per_G +
-                     k] =
-                        src[((((g * OC_per_G + k) * T + t) * R + r) * S + s) *
-                                IC_per_G +
-                            c];
-              }
-            }
-          }
+  int filter_prod = std::accumulate(
+      conv_p.K.begin(),
+      conv_p.K.begin() + SPATIAL_DIM,
+      1,
+      std::multiplies<int>());
+  // Transforms weights from  G K/G (T R S C/G) to G (T R S C/G) K/G format.
+  for (int g = 0; g < G; ++g) {
+    for (int k = 0; k < OC_per_G; ++k) {
+      for (int f = 0; f < filter_prod; ++f) {
+        for (int c = 0; c < IC_per_G; ++c) {
+          dest[((g * filter_prod + f) * IC_per_G + c) * OC_per_G + k] =
+              src[((g * OC_per_G + k) * filter_prod + f) * IC_per_G + c];
         }
       }
     }
