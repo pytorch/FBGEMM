@@ -27,6 +27,7 @@ template <
     typename BIAS_TYPE>
 static ALWAYS_INLINE void requantize_(
     std::int32_t A_zero_point,
+    const std::int32_t* B_zero_point,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     const std::int32_t* C_int32,
@@ -39,11 +40,13 @@ static ALWAYS_INLINE void requantize_(
   __m256 multiplier_v = _mm256_setzero_ps();
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v = _mm256_setzero_ps();
+  __m256i B_zero_point_v = _mm256_setzero_si256();
   if (!PER_CHANNEL_QUANTIZATION) {
     multiplier_v = _mm256_set1_ps(*C_multiplier);
     if (std::is_same<BIAS_TYPE, float>::value) {
       act_times_w_rcp_v = _mm256_set1_ps(1.0f / (*act_times_w_scale));
     }
+    B_zero_point_v = _mm256_set1_epi32(B_zero_point[0]);
   }
 
   __m256i min_v = _mm256_set1_epi8(static_cast<std::uint8_t>(0));
@@ -75,6 +78,11 @@ static ALWAYS_INLINE void requantize_(
     if (!B_SYMMETRIC) {
       row_offset_v =
           _mm256_loadu_si256(reinterpret_cast<const __m256i*>(row_offsets + j));
+      if (PER_CHANNEL_QUANTIZATION) {
+        B_zero_point_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(B_zero_point + j));
+      }
+      row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
     }
     __m256i col_off_v;
@@ -89,6 +97,11 @@ static ALWAYS_INLINE void requantize_(
     if (!B_SYMMETRIC) {
       row_offset_v = _mm256_loadu_si256(
           reinterpret_cast<const __m256i*>(row_offsets + j + VLEN));
+      if (PER_CHANNEL_QUANTIZATION) {
+        B_zero_point_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(B_zero_point + j + VLEN));
+      }
+      row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       y_v = _mm256_sub_epi32(y_v, row_offset_v);
     }
     if (!A_SYMMETRIC) {
@@ -102,6 +115,11 @@ static ALWAYS_INLINE void requantize_(
     if (!B_SYMMETRIC) {
       row_offset_v = _mm256_loadu_si256(
           reinterpret_cast<const __m256i*>(row_offsets + j + 2 * VLEN));
+      if (PER_CHANNEL_QUANTIZATION) {
+        B_zero_point_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(B_zero_point + j + 2 * VLEN));
+      }
+      row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       z_v = _mm256_sub_epi32(z_v, row_offset_v);
     }
     if (!A_SYMMETRIC) {
@@ -115,6 +133,11 @@ static ALWAYS_INLINE void requantize_(
     if (!B_SYMMETRIC) {
       row_offset_v = _mm256_loadu_si256(
           reinterpret_cast<const __m256i*>(row_offsets + j + 3 * VLEN));
+      if (PER_CHANNEL_QUANTIZATION) {
+        B_zero_point_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(B_zero_point + j + 3 * VLEN));
+      }
+      row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       w_v = _mm256_sub_epi32(w_v, row_offset_v);
     }
     if (!A_SYMMETRIC) {
@@ -243,6 +266,11 @@ static ALWAYS_INLINE void requantize_(
     if (!B_SYMMETRIC) {
       __m256i row_offset_v =
           _mm256_loadu_si256(reinterpret_cast<const __m256i*>(row_offsets + j));
+      if (PER_CHANNEL_QUANTIZATION) {
+        B_zero_point_v = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(B_zero_point + j));
+      }
+      row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
     }
     if (!A_SYMMETRIC) {
@@ -302,7 +330,7 @@ static ALWAYS_INLINE void requantize_(
   for (; j < n; ++j) {
     std::int32_t raw = C_int32[j];
     if (!B_SYMMETRIC) {
-      raw -= row_offsets[j];
+      raw -= B_zero_point[PER_CHANNEL_QUANTIZATION ? j : 0] * row_offsets[j];
     }
     if (!A_SYMMETRIC) {
       raw -= A_zero_point * col_offsets[j];

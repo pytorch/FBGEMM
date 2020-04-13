@@ -70,7 +70,6 @@ static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
             /*D=*/3,
             /*S=*/3,
             /*compute_a_sum=*/!B_SYMMETRIC,
-            PER_CHANNEL_QUANTIZATION,
             remainder,
             /*prev_skip=*/std::max(-t_in, 0),
             /*next_skip=*/std::max(t_in + 3 - T, 0),
@@ -87,8 +86,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
       W,
       K,
       internal::avx2_ps_or_epi32_combined_mask,
-      A_zero_point,
-      B_zero_point);
+      A_zero_point);
 
   requantize_<
       FUSE_RELU,
@@ -97,6 +95,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
       A_SYMMETRIC,
       B_SYMMETRIC>(
       A_zero_point,
+      B_zero_point,
       C_multiplier,
       C_zero_point,
       C_int32,
@@ -251,7 +250,6 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
                 /*D=*/3,
                 /*F=*/3,
                 /*compute_a_sum=*/!B_SYMMETRIC,
-                /*per_chnnale_quantization=*/PER_CHANNEL_QUANTIZATION,
                 remainder,
                 /*prev_skip=*/std::max(-t_in, 0),
                 /*next_skip=*/std::max(t_in + 3 - T, 0),
@@ -435,7 +433,6 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
                 /*D=*/3,
                 /*F=*/3,
                 /*compute_a_sum=*/!B_SYMMETRIC,
-                /*per_chnnale_quantization=*/PER_CHANNEL_QUANTIZATION,
                 remainder,
                 0,
                 0,
@@ -621,7 +618,6 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
                 /*D=*/3,
                 /*F=*/3,
                 /*compute_a_sum=*/!B_SYMMETRIC,
-                /*per_chnnale_quantization=*/PER_CHANNEL_QUANTIZATION,
                 remainder,
                 /*prev_skip=*/std::max(-t_in, 0),
                 /*next_skip=*/std::max(t_in + 3 - T, 0),

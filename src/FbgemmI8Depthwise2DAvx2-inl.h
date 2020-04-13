@@ -48,8 +48,6 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
   int h_in = -PAD_T + h * stride_h;
   int w_in = -PAD_L + w * stride_w;
 
-  constexpr int KERNEL_PROD_ALIGNED = (S * S + 1) / 2 * 2;
-
   int remainder = K % 32;
   if (remainder == 0) {
     remainder = 32;
@@ -61,7 +59,6 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
             /*D=*/2,
             S,
             /*compute_a_sum=*/!B_SYMMETRIC,
-            PER_CHANNEL_QUANTIZAITON,
             remainder,
             0,
             0,
@@ -79,8 +76,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
       W,
       K,
       internal::avx2_ps_or_epi32_combined_mask,
-      A_zero_point,
-      B_zero_point);
+      A_zero_point);
 
   requantize_<
       FUSE_RELU,
@@ -90,6 +86,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
       B_SYMMETRIC,
       BIAS_TYPE>(
       A_zero_point,
+      B_zero_point,
       C_multiplier,
       C_zero_point,
       C_int32,
@@ -313,7 +310,6 @@ static ALWAYS_INLINE void depthwise_2d_(
               /*D=*/2,
               S,
               /*compute_a_sum=*/!B_SYMMETRIC,
-              PER_CHANNEL_QUANTIZATION,
               remainder,
               0,
               0,

@@ -30,7 +30,7 @@ std::mutex rtMutex_;
 // The hash depends on D, F, compute_a_sum, per_channel_quantization, remainder,
 // prev_skip, next_skip, top_skip, bottom_skip, left_skip, and right_skip.
 CodeCache<
-    std::tuple<int, int, bool, bool, int, int, int, int, int, int, int>,
+    std::tuple<int, int, bool, int, int, int, int, int, int, int>,
     GenI8Depthwise::jit_kernel_signature>
     codeCache_;
 } // namespace
@@ -172,7 +172,6 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int D,
     int S,
     bool compute_a_sum,
-    bool per_channel_quantization,
     int remainder,
     int prev_skip,
     int next_skip,
@@ -180,12 +179,11 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int bottom_skip,
     int left_skip,
     int right_skip) {
-  std::tuple<int, int, bool, bool, int, int, int, int, int, int, int>
+  std::tuple<int, int, bool, int, int, int, int, int, int, int>
       kernelSig = std::make_tuple(
           D,
           S,
           compute_a_sum,
-          per_channel_quantization,
           remainder,
           prev_skip,
           next_skip,
@@ -436,48 +434,27 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
 
       if (compute_a_sum) {
-        if (per_channel_quantization) {
-          e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr));
-        } else {
-          e->vpbroadcastd(c[0], x86::dword_ptr(b_zero_point_addr));
-        }
         e->vpmovsxwd(a[0], a_sum[0].half());
-        e->vpmulld(a[0], a[0], c[0]);
         e->vmovups(x86::ymmword_ptr(a_sum_addr), a[0]);
 
         if (main_loop || remainder >= 8) {
-          if (per_channel_quantization) {
-            e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 32));
-          }
           e->vpmovsxwd(a[1], a_sum[1].half());
-          e->vpmulld(a[1], a[1], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 32), a[1]);
         }
 
         if (main_loop || remainder >= 16) {
-          if (per_channel_quantization) {
-            e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 64));
-          }
           e->vextracti128(a_sum[0].half(), a_sum[0], asmjit::Imm(1));
           e->vpmovsxwd(a_sum[0], a_sum[0].half());
-          e->vpmulld(a_sum[0], a_sum[0], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 64), a_sum[0]);
         }
 
         if (main_loop || remainder >= 24) {
-          if (per_channel_quantization) {
-            e->vmovups(c[0], x86::ymmword_ptr(b_zero_point_addr, 96));
-          }
           e->vextracti128(a_sum[1].half(), a_sum[1], asmjit::Imm(1));
           e->vpmovsxwd(a_sum[1], a_sum[1].half());
-          e->vpmulld(a_sum[1], a_sum[1], c[0]);
           e->vmovups(x86::ymmword_ptr(a_sum_addr, 96), a_sum[1]);
         }
 
         if (main_loop) {
-          if (per_channel_quantization) {
-            e->add(b_zero_point_addr, asmjit::Imm(128));
-          }
           e->add(a_sum_addr, asmjit::Imm(128));
         }
       }
