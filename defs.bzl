@@ -1,4 +1,11 @@
-def get_fbgemm_generic_srcs():
+def get_fbgemm_base_srcs():
+    return [
+        "src/GenerateI8Depthwise.cc",
+        "src/RefImplementations.cc",
+        "src/Utils.cc",
+    ]
+
+def get_fbgemm_generic_srcs(with_base = False):
     return [
         "src/EmbeddingSpMDM.cc",
         "src/EmbeddingSpMDMNBit.cc",
@@ -11,7 +18,6 @@ def get_fbgemm_generic_srcs():
         "src/FbgemmFloat16Convert.cc",
         "src/FbgemmI64.cc",
         "src/FbgemmI8Spmdm.cc",
-        "src/GenerateI8Depthwise.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",
@@ -28,11 +34,10 @@ def get_fbgemm_generic_srcs():
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/QuantUtils.cc",
-        "src/RefImplementations.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
-        "src/Utils.cc",
-    ]
+        "src/TransposeUtils.cc",
+    ] + (get_fbgemm_base_srcs() if with_base else [])
 
 def get_fbgemm_public_headers():
     return [

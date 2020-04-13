@@ -68,7 +68,7 @@ else()
 endif()
 
 # Define file lists
-get_filelist("get_fbgemm_generic_srcs()" FBGEMM_GENERIC_SRCS)
+get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
