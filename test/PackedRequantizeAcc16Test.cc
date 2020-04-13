@@ -905,7 +905,7 @@ TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
         // Sanity check
         for (int i = 0; i < k; i++) {
           for (int j = 0; j < n_adjusted; j++) {
-            EXPECT_EQ(Bint8.data()[i * n + j], unpack_buf.data()[i * n + j])
+            EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
                 << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
                 << ", Pack-Unpacked: "

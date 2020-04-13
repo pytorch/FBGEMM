@@ -762,7 +762,7 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
         for (int j = 0; j < groups * n_adjusted; ++j) {
           float expected = Cfp32_ref[i * groups * n + j];
           int32_t actual = Cint32_fb[i * groups * n + j];
-          EXPECT_EQ(expected, actual)
+          EXPECT_EQ(actual, expected)
               << "GEMM results differ at (" << i << ", " << j << "). ref "
               << expected << " FBGemm " << actual;
         }
@@ -835,7 +835,7 @@ TEST_P(fbgemmPackUnpackAcc32Test, TestPackUnpack) {
         // Sanity check
         for (int i = 0; i < k; i++) {
           for (int j = 0; j < n_adjusted; j++) {
-            EXPECT_EQ(Bint8.data()[i * n + j], unpack_buf.data()[i * n + j])
+            EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
                 << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
                 << ", Pack-Unpacked: "

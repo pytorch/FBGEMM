@@ -21,7 +21,7 @@ int compare_validate_buffers(
   for (int i = 0; i < m; ++i) {
     for (int j = 0; j < n; ++j) {
       if (std::is_integral<T>::value) {
-        EXPECT_EQ(ref[i * ld + j], test[i * ld + j])
+        EXPECT_EQ(test[i * ld + j], ref[i * ld + j])
             << "GEMM results differ at (" << i << ", " << j
             << ") reference: " << (int64_t)ref[i * ld + j]
             << ", FBGEMM: " << (int64_t)test[i * ld + j];

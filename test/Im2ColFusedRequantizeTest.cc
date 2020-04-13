@@ -222,7 +222,7 @@ static void Im2colTest(bool b_symmetric) {
                   [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
                        conv_p.OC +
                    k];
-              EXPECT_EQ(expected, actual)
+              EXPECT_EQ(actual, expected)
                   << "Im2Col fused results differ at (" << n << ", " << h
                   << ", " << w << ", " << k << ").";
             }
@@ -456,7 +456,7 @@ void SConvTest() {
                   [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
                        conv_p.OC +
                    k];
-              EXPECT_EQ(expected, actual)
+              EXPECT_EQ(actual, expected)
                   << "Im2Col fused results differ at (" << n << ", " << h
                   << ", " << w << ", " << k << ").";
             }
@@ -728,7 +728,7 @@ static void Im2col3DTest(bool b_symmetric) {
                       w) *
                          conv_p.OC +
                      k];
-                EXPECT_EQ(expected, actual)
+                EXPECT_EQ(actual, expected)
                     << "Im2Col fused results differ at (" << n << ", " << t
                     << ", " << h << ", " << w << ", " << k << ").";
               }
