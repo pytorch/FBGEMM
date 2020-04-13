@@ -21,14 +21,12 @@ class GenI8Depthwise {
       int w,
       int c_in, // the number of input channels
       const int* mask,
-      int A_zero_point,
-      const int32_t* B_zero_point);
+      int A_zero_point);
 
   jit_kernel_signature getOrCreate(
       int D, // dimension
       int F, // filter size per dimension
       bool compute_a_sum,
-      bool per_channel_quantization,
       int remainder, // the number of channels in the remainder loop
       int prev_skip,
       int next_skip,
