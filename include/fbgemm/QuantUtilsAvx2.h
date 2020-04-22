@@ -40,7 +40,7 @@ struct FBGEMM_API RequantizationParams {
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-template <typename T = std::uint8_t>
+template <typename T = std::uint8_t, bool LEGACY = true>
 void QuantizeAvx2(
     const float* src,
     T* dst,
