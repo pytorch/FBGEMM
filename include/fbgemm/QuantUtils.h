@@ -48,7 +48,7 @@ T2 clamp(T1 src, int precision, bool is_signed = false) {
 
 /// Quantize src using zero_point and scale, clamp to the specified precision,
 /// and convert it to type T
-template <typename T>
+template <typename T, bool LEGACY = true>
 T Quantize(
     float src,
     std::int32_t zero_point,
@@ -65,20 +65,32 @@ T Quantize(
   // transformed_val is 127.499992 for src / scale.
   // Eventually 127.5 gets rounded to 128 while 127.499992 gets rounded to 127.
   float inv_scale = 1.0f / scale;
-  const float transformed_val = zero_point + src * inv_scale;
+
+  float transformed_val = src * inv_scale;
+  // nearbyint here performs round-to-nearest-ties-to-even with
+  // default rounding mode.
+  // For example, nearbyint(1.4) is 1.0, nearbyint(1.5) is 2.0
+  // and nearbyint(2.5) is 2.0
+  // Adding zero_point before or after rounding can make a difference
+  // in exactly halfway cases.
+  if (LEGACY) {
+    transformed_val = std::nearbyint(zero_point + transformed_val);
+  } else {
+    transformed_val = zero_point + std::nearbyint(transformed_val);
+  }
   // Please note the use of double. Unlike float, a double can represent
   // all int32 values exactly. Using a float results in a float value >
   // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
-  return clamp<double, T>(
-      std::nearbyint(transformed_val), result_precision, result_is_signed);
+  return clamp<double, T>(transformed_val, result_precision, result_is_signed);
 }
 
-template <typename T>
+template <typename T, bool LEGACY = true>
 T Quantize(float src, const TensorQuantizationParams& qparams) {
-  return Quantize<T>(src, qparams.zero_point, qparams.scale, qparams.precision);
+  return Quantize<T, LEGACY>(
+      src, qparams.zero_point, qparams.scale, qparams.precision);
 }
 
-template <typename T>
+template <typename T, bool LEGACY = true>
 FBGEMM_API void Quantize(
     const float* src,
     T* dst,

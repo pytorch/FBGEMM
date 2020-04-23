@@ -20,7 +20,7 @@ using namespace std;
 // Utility functions
 
 // ASAN seems to have a false-positive for _mm_maskmoveu_si128
-template <typename T>
+template <typename T, bool LEGACY>
 void NO_SANITIZE("address") QuantizeAvx2(
     const float* src,
     T* dst,
@@ -28,60 +28,57 @@ void NO_SANITIZE("address") QuantizeAvx2(
     const TensorQuantizationParams& qparams) {
 #if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
   constexpr int VLEN = 8;
-  constexpr float min_val = std::numeric_limits<T>::min();
-  constexpr float max_val = std::numeric_limits<T>::max();
+  constexpr int32_t min_val = std::numeric_limits<T>::min();
+  constexpr int32_t max_val = std::numeric_limits<T>::max();
+  // This is the largest int32 value less than int32_max
+  // that is exactly representable in float
+  constexpr int32_t int32_float_max_val =
+      std::numeric_limits<int32_t>::max() - 127;
   std::size_t i = 0;
   float inverse_scale = 1.f / qparams.scale;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
+  // clang-format off
   __m256i shuffle_mask_v = _mm256_set_epi8(
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0x0c,
-      0x08,
-      0x04,
-      0x00,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-      0x0c,
-      0x08,
-      0x04,
-      0x00);
+      0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff,
+      0x0c, 0x08, 0x04, 0x00,
+      0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff,
+      0x0c, 0x08, 0x04, 0x00);
+  // clang-format on
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
-    __m256 transformed_v = _mm256_fmadd_ps(
-        src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
-    __m256 clipped_v = _mm256_min_ps(
-        _mm256_max_ps(transformed_v, _mm256_set1_ps(min_val)),
-        _mm256_set1_ps(max_val));
-    __m256i rounded_v = _mm256_cvtps_epi32(clipped_v);
+    __m256 transformed_v;
+    if (LEGACY) { // static if
+      transformed_v = _mm256_fmadd_ps(
+          src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
+    } else {
+      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    }
+    // If the floating point value is greater than int32_max,
+    // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
+    // to avoid this.
+    transformed_v =
+        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
+
+    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
+    if (!LEGACY) {
+      rounded_v =
+          _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+    }
+    __m256i clipped_v = _mm256_min_epi32(
+        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
+        _mm256_set1_epi32(max_val));
 
     // An instruction sequence to save 8 32-bit integers as 8 8-bit integers
-    rounded_v = _mm256_shuffle_epi8(rounded_v, shuffle_mask_v);
-    rounded_v = _mm256_permutevar8x32_epi32(rounded_v, permute_mask_v);
+    clipped_v = _mm256_shuffle_epi8(clipped_v, shuffle_mask_v);
+    clipped_v = _mm256_permutevar8x32_epi32(clipped_v, permute_mask_v);
     _mm_storel_epi64(
-        reinterpret_cast<__m128i*>(dst + i), _mm256_castsi256_si128(rounded_v));
+        reinterpret_cast<__m128i*>(dst + i), _mm256_castsi256_si128(clipped_v));
   }
 
   // Handle remainder using mask instructions so that
@@ -93,19 +90,31 @@ void NO_SANITIZE("address") QuantizeAvx2(
     __m128i store_mask_v = _mm_load_si128(
         reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
-    __m256 transformed_v = _mm256_fmadd_ps(
-        src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
-    __m256 clipped_v = _mm256_min_ps(
-        _mm256_max_ps(transformed_v, _mm256_set1_ps(min_val)),
-        _mm256_set1_ps(max_val));
-    __m256i rounded_v = _mm256_cvtps_epi32(clipped_v);
+    __m256 transformed_v;
+    if (LEGACY) {
+      transformed_v = _mm256_fmadd_ps(
+          src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
+    } else {
+      transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    }
+    transformed_v =
+        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
+
+    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
+    if (!LEGACY) {
+      rounded_v =
+          _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+    }
+    __m256i clipped_v = _mm256_min_epi32(
+        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
+        _mm256_set1_epi32(max_val));
 
     // An instruction sequence to save "rem" number of 32-bit integers
     // as "rem" number of 8-bit integers
-    rounded_v = _mm256_shuffle_epi8(rounded_v, shuffle_mask_v);
-    rounded_v = _mm256_permutevar8x32_epi32(rounded_v, permute_mask_v);
+    clipped_v = _mm256_shuffle_epi8(clipped_v, shuffle_mask_v);
+    clipped_v = _mm256_permutevar8x32_epi32(clipped_v, permute_mask_v);
     _mm_maskmoveu_si128(
-        _mm256_castsi256_si128(rounded_v),
+        _mm256_castsi256_si128(clipped_v),
         store_mask_v,
         reinterpret_cast<char*>(dst + i));
   }
@@ -113,16 +122,17 @@ void NO_SANITIZE("address") QuantizeAvx2(
 }
 
 // Instantiate QuantizeAvx2 for known datatypes
-template void QuantizeAvx2<uint8_t>(
-    const float* src,
-    uint8_t* dst,
-    int len,
-    const TensorQuantizationParams& qparams);
-template void QuantizeAvx2<int8_t>(
-    const float* src,
-    int8_t* dst,
-    int len,
-    const TensorQuantizationParams& qparams);
+#define SPECIALIZE_QUANTIZEAVX2(T, LEGACY) \
+  template void QuantizeAvx2<T, LEGACY>(   \
+      const float* src,                    \
+      T* dst,                              \
+      int len,                             \
+      const TensorQuantizationParams& qparams);
+SPECIALIZE_QUANTIZEAVX2(uint8_t, true)
+SPECIALIZE_QUANTIZEAVX2(int8_t, true)
+SPECIALIZE_QUANTIZEAVX2(uint8_t, false)
+SPECIALIZE_QUANTIZEAVX2(int8_t, false)
+#undef SPECIALIZE_QUANTIZEAVX2
 
 void FindMinMax(const float* a, float* min, float* max, int len) {
   if (len <= 0) {
