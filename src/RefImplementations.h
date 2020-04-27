@@ -295,7 +295,8 @@ FBGEMM_API int sparse_adagrad_ref(
     float* h, // input momentums
     const IndexType* indices, // indices of each row
     float epsilon,
-    float lr);
+    float lr,
+    float weight_decay = 0.f);
 
 template <typename IndexType>
 FBGEMM_API int rowwise_sparse_adagrad_ref(
@@ -307,7 +308,8 @@ FBGEMM_API int rowwise_sparse_adagrad_ref(
     float* h, // input momentums
     const IndexType* indices, // indices of each row
     float epsilon,
-    float lr);
+    float lr,
+    float weight_decay = 0.f);
 
 template <typename IndexType, typename OffsetType>
 FBGEMM_API int rowwise_sparse_adagrad_fused_ref(

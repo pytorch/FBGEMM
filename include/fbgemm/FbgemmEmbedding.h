@@ -149,7 +149,8 @@ class SparseAdaGradSignature {
       float* h, // input/output momentums
       const IndexType* indices, // indices of each row
       float epsilon,
-      float lr)>;
+      float lr,
+      float weight_decay)>;
 };
 
 template <typename IndexType>
@@ -171,7 +172,8 @@ FBGEMM_API int SparseAdaGrad(
     float epsilon,
     float lr,
     bool rowwise = false,
-    int prefetch = 16);
+    int prefetch = 16,
+    float weight_decay = 0.f);
 
 // RowWiseSparseAdaGrad fused with SLS gradient
 template <typename IndexType, typename OffsetType = std::int32_t>
