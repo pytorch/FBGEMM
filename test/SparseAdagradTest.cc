@@ -21,19 +21,19 @@ using namespace fbgemm;
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
       // num_rows, block_size
-      {1500, 1},
-      {1500, 4},
+      {150, 1},
+      {150, 4},
       {10, 8},
-      {1500, 16},
+      {150, 16},
       {1, 8},
       {1, 16},
-      {1500, 24},
-      {1500, 32},
-      {1500, 40},
-      {1500, 64},
-      {1500, 80},
-      {1500, 128},
-      {1500, 384},
+      {150, 24},
+      {150, 32},
+      {150, 40},
+      {150, 64},
+      {150, 80},
+      {150, 128},
+      {150, 384},
       {10, 385},
       {10, 769},
   };
@@ -44,7 +44,7 @@ vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 class SparseAdagradTest
-    : public testing::TestWithParam<tuple<bool, int, bool>> {};
+    : public testing::TestWithParam<tuple<bool, int, bool, bool>> {};
 }; // namespace
 
 // Test:
@@ -58,13 +58,14 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(),
         ::testing::ValuesIn(prefetch_distances),
+        ::testing::Bool(),
         ::testing::Bool()));
 
 TEST_P(SparseAdagradTest, basicTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds;
+  bool isIndex64b, out_of_bounds, use_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -97,6 +98,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
     vector<std::int32_t> indices_32(num_rows);
     float epsilon = 1e-5;
     float lr = 0.5;
+    float weight_decay = use_weight_decay ? 0.1f : 0.0f;
 
     uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
@@ -118,10 +120,11 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           h_ref.data(), // input momentums
           indices.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
-      auto fn_fbgemm =
-          GenerateSparseAdaGrad<std::int64_t>(block_size, false, prefetch);
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+          block_size, false, prefetch, weight_decay);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -142,10 +145,11 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           h_ref.data(), // input momentums
           indices_32.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
-      auto fn_fbgemm =
-          GenerateSparseAdaGrad<std::int32_t>(block_size, false, prefetch);
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+          block_size, false, prefetch, weight_decay);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -176,9 +180,9 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
 
 TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds;
+  bool isIndex64b, out_of_bounds, use_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -208,6 +212,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
     vector<std::int32_t> indices_32(num_rows);
     float epsilon = 1e-5;
     float lr = 0.5;
+    float weight_decay = use_weight_decay ? 0.1f : 0.0f;
 
     uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
@@ -229,10 +234,11 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           h_ref.data(), // input momentums
           indices.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
-      auto fn_fbgemm =
-          GenerateSparseAdaGrad<std::int64_t>(block_size, true, prefetch);
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+          block_size, true, prefetch, weight_decay);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -253,10 +259,11 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           h_ref.data(), // input momentums
           indices_32.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
-      auto fn_fbgemm =
-          GenerateSparseAdaGrad<std::int32_t>(block_size, true, prefetch);
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+          block_size, true, prefetch, weight_decay);
 
       ret_fbgemm = fn_fbgemm(
           num_rows, // number of rows reading
@@ -287,9 +294,9 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
 
 TEST_P(SparseAdagradTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds;
+  bool isIndex64b, out_of_bounds, use_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -322,6 +329,7 @@ TEST_P(SparseAdagradTest, basicTest) {
     vector<std::int32_t> indices_32(num_rows);
     float epsilon = 1e-5;
     float lr = 0.5;
+    float weight_decay = use_weight_decay ? 0.1f : 0.0f;
 
     uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
@@ -343,7 +351,8 @@ TEST_P(SparseAdagradTest, basicTest) {
           h_ref.data(), // input momentums
           indices.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
       ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
@@ -356,7 +365,8 @@ TEST_P(SparseAdagradTest, basicTest) {
           epsilon,
           lr,
           false, // rowwise
-          prefetch);
+          prefetch,
+          weight_decay);
     } else { // 32 bit indices
       ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -367,7 +377,8 @@ TEST_P(SparseAdagradTest, basicTest) {
           h_ref.data(), // input momentums
           indices_32.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
       ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
@@ -380,7 +391,8 @@ TEST_P(SparseAdagradTest, basicTest) {
           epsilon,
           lr,
           false, // rowwise
-          prefetch);
+          prefetch,
+          weight_decay);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
@@ -401,9 +413,9 @@ TEST_P(SparseAdagradTest, basicTest) {
 
 TEST_P(SparseAdagradTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds;
+  bool isIndex64b, out_of_bounds, use_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds) = GetParam();
+  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -433,6 +445,7 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
     vector<std::int32_t> indices_32(num_rows);
     float epsilon = 1e-5;
     float lr = 0.5;
+    float weight_decay = use_weight_decay ? 0.1f : 0.0f;
 
     uniform_int_distribution<std::int64_t> index_distribution(0, num_rows - 1);
     for (int i = 0; i < num_rows; ++i) {
@@ -454,7 +467,8 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           h_ref.data(), // input momentums
           indices.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
       ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
@@ -467,7 +481,8 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           epsilon,
           lr,
           true, // rowwise
-          prefetch);
+          prefetch,
+          weight_decay);
     } else { // 32 bit indices
       ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -478,7 +493,8 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           h_ref.data(), // input momentums
           indices_32.data(), // indices of each row
           epsilon,
-          lr);
+          lr,
+          weight_decay);
 
       ret_fbgemm = SparseAdaGrad(
           num_rows, // number of rows reading
@@ -491,7 +507,8 @@ TEST_P(SparseAdagradTest, rowwiseTest) {
           epsilon,
           lr,
           true, // rowwise
-          prefetch);
+          prefetch,
+          weight_decay);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
