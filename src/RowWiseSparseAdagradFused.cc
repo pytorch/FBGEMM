@@ -121,8 +121,8 @@ typename ReturnFunctionSignature<indxType, offsetType>::
         x86::Gp h = a->gpz(9);
         x86::Gp indices = a->gpz(10);
         x86::Gp lengths = a->gpz(11);
-        x86::Xmm epsilon = x86::xmm0;
-        x86::Xmm lr = x86::xmm1;
+        x86::Xmm epsilon(0);
+        x86::Xmm lr(1);
         x86::Gp mask_avx2 = a->gpz(12);
 
         // reuse mask_avx2 because mask_avx2 is used only at the beginning
@@ -301,8 +301,8 @@ typename ReturnFunctionSignature<indxType, offsetType>::
         // __m256 partial_sum_3 = _mm256_hadd_ps(partial_sum_2, partial_sum_2);
         // Use YMM/XMMs with smaller ids for AVX2 specific instructions like
         // vhaddps
-        x86::Xmm partial_sum_xmm = x86::Xmm(partial_sum_vreg.id());
-        x86::Xmm float_step_xmm = x86::Xmm(float_step_vreg.id());
+        x86::Xmm partial_sum_xmm(partial_sum_vreg.id());
+        x86::Xmm float_step_xmm(float_step_vreg.id());
         // a->vmovups(partial_sum_temp0_ymm, partial_sum_vreg);
         a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);
         a->vhaddps(partial_sum_vreg, partial_sum_vreg, partial_sum_vreg);
@@ -442,13 +442,13 @@ typename ReturnFunctionSignature<indxType, offsetType>::
                 w, scratchReg1, 0, (vec_idx + v) * vlen * sizeof(float));
             if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
               if (instSet == inst_set_t::avx2) {
-                a->vmaskmovps(x86::ymm(src_vreg.id()), mask_vreg, g_ptr);
+                a->vmaskmovps(src_vreg.ymm(), mask_vreg, g_ptr);
                 a->vmulps(src_vreg, float_step_vreg, src_vreg);
 
-                a->vmaskmovps(x86::ymm(out_vreg.id()), mask_vreg, w_ptr);
+                a->vmaskmovps(out_vreg.ymm(), mask_vreg, w_ptr);
                 a->vaddps(out_vreg, src_vreg, out_vreg);
 
-                a->vmaskmovps(w_ptr, mask_vreg, x86::ymm(out_vreg.id()));
+                a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
               } else {
                 a->k(x86::k(1)).vmulps(out_vreg, float_step_vreg, g_ptr);
                 a->k(x86::k(1)).vaddps(out_vreg, out_vreg, w_ptr);
