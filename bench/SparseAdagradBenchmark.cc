@@ -78,16 +78,12 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   double data_moved = 5 * sizeof(float) * num_rows * block_size;
 
-#define PRE_GENERATE
   double t = 0.0;
   if (isIndex64b) {
-#ifdef PRE_GENERATE
     auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(block_size);
-#endif
 
     t = measureWithWarmup(
         [&]() {
-#ifdef PRE_GENERATE
           fn_indices_64(
               num_rows, // number of rows reading
               param_size, // total number of parameters
@@ -97,18 +93,6 @@ void run_benchmark(
               indices.data(), // indices of each row
               epsilon,
               lr);
-#else
-          SparseAdaGrad(
-              num_rows, // number of rows reading
-              block_size, // number of parameters per row
-              param_size, // total number of parameters
-              w.data(), // input parameters
-              g.data(), // input gradients
-              h.data(), // input momentums
-              indices.data(), // indices of each row
-              epsilon,
-              lr);
-#endif
         },
         NUM_WARMUP,
         NUM_ITER,
@@ -127,13 +111,10 @@ void run_benchmark(
           lr);
     }
   } else {
-#ifdef PRE_GENERATE
     auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(block_size);
-#endif
 
     t = measureWithWarmup(
         [&]() {
-#ifdef PRE_GENERATE
           fn_indices_32(
               num_rows, // number of rows reading
               param_size, // total number of parameters
@@ -143,18 +124,6 @@ void run_benchmark(
               indices_32.data(), // indices of each row
               epsilon,
               lr);
-#else
-          SparseAdaGrad(
-              num_rows, // number of rows reading
-              block_size, // number of parameters per row
-              param_size, // total number of parameters
-              w.data(), // input parameters
-              g.data(), // input gradients
-              h.data(), // input momentums
-              indices_32.data(), // indices of each row
-              epsilon,
-              lr);
-#endif
         },
         NUM_WARMUP,
         NUM_ITER,
