@@ -160,21 +160,6 @@ GenerateSparseAdaGrad(
     int prefetch = 16,
     float weight_decay = 0.0f);
 
-template <typename IndexType>
-FBGEMM_API int SparseAdaGrad(
-    int num_rows, // number of rows reading
-    int block_size, // number of parameters per rows
-    std::uint64_t param_size, // total number of parameters
-    float* w, // input/output parameters
-    const float* g, // input gradients
-    float* h, // input/output momentums
-    const IndexType* indices, // indices of each row
-    float epsilon,
-    float lr,
-    bool rowwise = false,
-    int prefetch = 16,
-    float weight_decay = 0.f);
-
 // RowWiseSparseAdaGrad fused with SLS gradient
 template <typename IndexType, typename OffsetType = std::int32_t>
 class RowWiseSparseAdaGradFusedSignature {
