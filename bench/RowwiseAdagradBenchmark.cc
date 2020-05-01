@@ -73,19 +73,18 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   double data_moved = num_rows * (3 * sizeof(float) * block_size + 2 * 64);
 
+  auto fn = GenerateSparseAdaGrad<int64_t>(block_size, /*rowwise=*/true);
+
   double t = measureWithWarmup(
       [&]() {
-        fbgemm::SparseAdaGrad(
-            num_rows, // number of rows reading
-            block_size, // number of parameters per row
-            param_size, // total number of parameters
-            w.data(), // input parameters
-            g.data(), // input gradients
-            h.data(), // input momentums
-            indices.data(), // indices of each row
-            epsilon,
-            lr,
-            true); // rowwise
+        fn(num_rows, // number of rows reading
+           param_size, // total number of parameters
+           w.data(), // input parameters
+           g.data(), // input gradients
+           h.data(), // input momentums
+           indices.data(), // indices of each row
+           epsilon,
+           lr);
       },
       NUM_WARMUP,
       NUM_ITER,
