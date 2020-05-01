@@ -462,22 +462,20 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
           a->vxorps(vlen_inv_vreg, vlen_inv_vreg, vlen_inv_vreg);
           a->jl(IfLengthsEnd);
 
+          vec_reg_t temp_vreg0(0);
           if (instSet == inst_set_t::avx2) {
-            x86::Xmm vlen_inv_vreg_xmm(vlen_inv_vreg.id());
-
             a->mov(scratchReg1_, 1);
-            a->cvtsi2ss(vlen_inv_vreg_xmm, scratchReg1_);
-            a->cvtsi2ss(x86::xmm0, lengths_R_);
-            a->divss(vlen_inv_vreg_xmm, x86::xmm0);
-            a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
+            a->cvtsi2ss(vlen_inv_vreg.xmm(), scratchReg1_);
+            a->cvtsi2ss(temp_vreg0.xmm(), lengths_R_);
+            a->divss(vlen_inv_vreg.xmm(), temp_vreg0.xmm());
+            a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg.xmm());
           } else {
-            vec_reg_t temp_zmm = vec_reg_t(0);
             a->mov(scratchReg1_, 1);
-            a->cvtsi2ss(x86::xmm(temp_zmm.id()), scratchReg1_);
-            a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
-            a->vpbroadcastd(temp_zmm, lengths_R_);
-            a->vcvtdq2ps(temp_zmm, temp_zmm);
-            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
+            a->cvtsi2ss(temp_vreg0.xmm(), scratchReg1_);
+            a->vpbroadcastd(vlen_inv_vreg, temp_vreg0.xmm());
+            a->vpbroadcastd(temp_vreg0, lengths_R_);
+            a->vcvtdq2ps(temp_vreg0, temp_vreg0);
+            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_vreg0);
           }
           a->bind(IfLengthsEnd);
         }
@@ -660,12 +658,9 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
               if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
                   remainder_32bit_granularity) {
                 if (instSet == inst_set_t::avx512) {
-                  a->k(x86::k(2)).vmovups(x86::Ymm(src_vreg.id()), src_addr);
+                  a->k(x86::k(2)).vmovups(src_vreg.ymm(), src_addr);
                 } else {
-                  a->vpmaskmovd(
-                      x86::Xmm(src_vreg.id()),
-                      x86::Xmm(mask2_vreg.id()),
-                      src_addr);
+                  a->vpmaskmovd(src_vreg.xmm(), mask2_vreg.xmm(), src_addr);
                 }
                 a->vpmovzxbw(src_vreg, src_vreg.half());
               } else {
@@ -676,27 +671,19 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                 a->vpord(src_vreg, src_vreg, temp_vreg);
                 a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
               } else {
-                a->vpor(
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(temp_vreg.id()));
+                a->vpor(src_vreg.ymm(), src_vreg.ymm(), temp_vreg.ymm());
                 a->vpand(
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(extract_mask_vreg.id()));
+                    src_vreg.ymm(), src_vreg.ymm(), extract_mask_vreg.ymm());
               }
             } else {
               if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
                   remainder_32bit_granularity) {
                 if (instSet == inst_set_t::avx512) {
-                  a->k(x86::k(2)).vmovups(x86::Xmm(src_vreg.id()), src_addr);
-                  a->vpmovzxbd(src_vreg, x86::Xmm(src_vreg.id()));
+                  a->k(x86::k(2)).vmovups(src_vreg.xmm(), src_addr);
+                  a->vpmovzxbd(src_vreg, src_vreg.xmm());
                 } else {
-                  a->vpmaskmovd(
-                      x86::Xmm(src_vreg.id()),
-                      x86::Xmm(mask2_vreg.id()),
-                      src_addr);
-                  a->vpmovzxbd(src_vreg, x86::Xmm(src_vreg.id()));
+                  a->vpmaskmovd(src_vreg.xmm(), mask2_vreg.xmm(), src_addr);
+                  a->vpmovzxbd(src_vreg, src_vreg.xmm());
                 }
               } else {
                 a->vpmovzxbd(src_vreg, src_addr);
@@ -706,10 +693,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
               if (instSet == inst_set_t::avx512) {
                 a->vpord(temp_vreg, temp_vreg, temp2_vreg);
               } else {
-                a->vpor(
-                    x86::Ymm(temp_vreg.id()),
-                    x86::Ymm(temp_vreg.id()),
-                    x86::Ymm(temp2_vreg.id()));
+                a->vpor(temp_vreg.ymm(), temp_vreg.ymm(), temp2_vreg.ymm());
               }
               a->vpslld(temp2_vreg, src_vreg, 6);
               if (instSet == inst_set_t::avx512) {
@@ -717,18 +701,10 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                 a->vpord(src_vreg, temp_vreg, src_vreg);
                 a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
               } else {
-                a->vpor(
-                    x86::Ymm(temp_vreg.id()),
-                    x86::Ymm(temp_vreg.id()),
-                    x86::Ymm(temp2_vreg.id()));
-                a->vpor(
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(temp_vreg.id()),
-                    x86::Ymm(src_vreg.id()));
+                a->vpor(temp_vreg.ymm(), temp_vreg.ymm(), temp2_vreg.ymm());
+                a->vpor(src_vreg.ymm(), temp_vreg.ymm(), src_vreg.ymm());
                 a->vpand(
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(src_vreg.id()),
-                    x86::Ymm(extract_mask_vreg.id()));
+                    src_vreg.ymm(), src_vreg.ymm(), extract_mask_vreg.ymm());
               }
             }
 
@@ -737,34 +713,27 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                  ++i) {
               vec_reg_t out_vreg = vec_reg_t(v + i);
               if (i == 0) {
-                a->vpmovsxbd(temp_vreg, x86::Xmm(src_vreg.id()));
+                a->vpmovsxbd(temp_vreg, src_vreg.xmm());
               } else {
                 if (instSet == inst_set_t::avx512) {
                   // We could've used avx512_ymm for clock frequency advantage,
                   // if there's an instruction to extract a 64-bit portion from
                   // a YMM as an XMM register.
-                  a->vextracti32x4(
-                      x86::Xmm(temp_vreg.id()), src_vreg, asmjit::Imm(i));
+                  a->vextracti32x4(temp_vreg.xmm(), src_vreg, asmjit::Imm(i));
                 } else {
                   if (i == 1) {
-                    a->pextrq(
-                        scratchReg3_, x86::Xmm(src_vreg.id()), asmjit::Imm(1));
-                    a->movq(x86::Xmm(temp_vreg.id()), scratchReg3_);
+                    a->pextrq(scratchReg3_, src_vreg.xmm(), asmjit::Imm(1));
+                    a->movq(temp_vreg.xmm(), scratchReg3_);
                   } else {
                     a->vextractf128(
-                        x86::Xmm(temp_vreg.id()),
-                        x86::Ymm(src_vreg.id()),
-                        asmjit::Imm(i >> 1));
+                        temp_vreg.xmm(), src_vreg.ymm(), asmjit::Imm(i >> 1));
                     if (i == 3) {
-                      a->pextrq(
-                          scratchReg3_,
-                          x86::Xmm(temp_vreg.id()),
-                          asmjit::Imm(1));
-                      a->movq(x86::Xmm(temp_vreg.id()), scratchReg3_);
+                      a->pextrq(scratchReg3_, temp_vreg.xmm(), asmjit::Imm(1));
+                      a->movq(temp_vreg.xmm(), scratchReg3_);
                     }
                   }
                 } // avx2
-                a->vpmovsxbd(temp_vreg, x86::Xmm(temp_vreg.id()));
+                a->vpmovsxbd(temp_vreg, temp_vreg.xmm());
               } // i > 0
               a->vcvtdq2ps(temp_vreg, temp_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
@@ -797,7 +766,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
               if (instSet == inst_set_t::avx512) {
                 a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
               } else {
-                a->vmaskmovps(dst_addr, mask_vreg, x86::Ymm(out_vreg.id()));
+                a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
               }
             } else {
               a->vmovups(dst_addr, out_vreg);

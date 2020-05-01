@@ -443,22 +443,21 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
           a->vxorps(vlen_inv_vreg, vlen_inv_vreg, vlen_inv_vreg);
           a->jl(IfLengthsEnd);
 
+          // OK to use vreg0 because it's for out_vreg used in the main loop
+          vec_reg_t temp_vreg(0);
           if (instSet == inst_set_t::avx2) {
-            x86::Xmm vlen_inv_vreg_xmm(vlen_inv_vreg.id());
-
             a->mov(scratchReg1_, 1);
-            a->cvtsi2ss(vlen_inv_vreg_xmm, scratchReg1_);
-            a->cvtsi2ss(x86::xmm0, lengths_R_);
-            a->divss(vlen_inv_vreg_xmm, x86::xmm0);
-            a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg_xmm);
+            a->cvtsi2ss(vlen_inv_vreg.xmm(), scratchReg1_);
+            a->cvtsi2ss(temp_vreg.xmm(), lengths_R_);
+            a->divss(vlen_inv_vreg.xmm(), temp_vreg.xmm());
+            a->vpbroadcastd(vlen_inv_vreg, vlen_inv_vreg.xmm());
           } else { // avx512
-            vec_reg_t temp_zmm = vec_reg_t(0);
             a->mov(scratchReg1_, 1);
-            a->cvtsi2ss(x86::xmm(temp_zmm.id()), scratchReg1_);
-            a->vpbroadcastd(vlen_inv_vreg, x86::xmm(temp_zmm.id()));
-            a->vpbroadcastd(temp_zmm, lengths_R_);
-            a->vcvtdq2ps(temp_zmm, temp_zmm);
-            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_zmm);
+            a->cvtsi2ss(temp_vreg.xmm(), scratchReg1_);
+            a->vpbroadcastd(vlen_inv_vreg, temp_vreg.xmm());
+            a->vpbroadcastd(temp_vreg, lengths_R_);
+            a->vcvtdq2ps(temp_vreg, temp_vreg);
+            a->vdivps(vlen_inv_vreg, vlen_inv_vreg, temp_vreg);
           }
           a->bind(IfLengthsEnd);
         }
@@ -651,11 +650,10 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx2) {
                   if (remainder % 2 == 0) {
-                    a->vmaskmovps(
-                        x86::xmm(src_vreg.id()), mask_fp16_vreg, src_addr);
+                    a->vmaskmovps(src_vreg.xmm(), mask_fp16_vreg, src_addr);
                   } else {
                     a->vpbroadcastw(
-                        x86::xmm(src_vreg.id()),
+                        src_vreg.xmm(),
                         x86::word_ptr(
                             input,
                             scratchReg1_,
@@ -666,22 +664,18 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
                       // AVX2 can't do masking for the last 16-bit so we store
                       // them to a stack and reload.
                       // First put broadcasted last 16-bit element
-                      a->vmovups(
-                          x86::xmmword_ptr(x86::rsp), x86::xmm(src_vreg.id()));
+                      a->vmovups(x86::xmmword_ptr(x86::rsp), src_vreg.xmm());
                       // Mask store the remaining 16-bit elements
-                      a->vmaskmovps(
-                          x86::xmm(src_vreg.id()), mask_fp16_vreg, src_addr);
+                      a->vmaskmovps(src_vreg.xmm(), mask_fp16_vreg, src_addr);
                       a->vmaskmovps(
                           x86::xmmword_ptr(x86::rsp),
                           mask_fp16_vreg,
-                          x86::xmm(src_vreg.id()));
+                          src_vreg.xmm());
                       // Load combined 16-bit elements
-                      a->vmovups(
-                          x86::xmm(src_vreg.id()), x86::xmmword_ptr(x86::rsp));
+                      a->vmovups(src_vreg.xmm(), x86::xmmword_ptr(x86::rsp));
                     } // remainder > 1
                   } // remainder % 2
-                  a->vcvtph2ps(
-                      x86::ymm(src_vreg.id()), x86::xmm(src_vreg.id()));
+                  a->vcvtph2ps(src_vreg.ymm(), src_vreg.xmm());
                 } else {
                   // avx512
                   a->k(x86::k(1)).z().vcvtph2ps(src_vreg, src_addr);
@@ -699,10 +693,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
               // This part for FP32 SLS
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx2) {
-                a->vmaskmovps(
-                    x86::ymm(src_vreg.id()),
-                    x86::ymm(mask_vreg.id()),
-                    src_addr);
+                a->vmaskmovps(src_vreg.ymm(), mask_vreg.ymm(), src_addr);
               }
               if (has_weight) {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
@@ -751,7 +742,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
 
             if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
               if (instSet == inst_set_t::avx2) {
-                a->vmaskmovps(dst_addr, mask_vreg, x86::Ymm(out_vreg.id()));
+                a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
               } else {
                 a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
               }

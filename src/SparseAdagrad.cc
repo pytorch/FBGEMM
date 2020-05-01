@@ -158,17 +158,17 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
         if (instSet == inst_set_t::avx2) {
-          a->vmaskmovps(x86::ymm(g_vreg.id()), mask_vreg, g_ptr);
+          a->vmaskmovps(g_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
             // TODO(@taiqing) use a vreg for weights to avoid duplicate indexing
-            a->vmaskmovps(x86::ymm(temp_vreg.id()), mask_vreg, w_ptr);
+            a->vmaskmovps(temp_vreg.ymm(), mask_vreg, w_ptr);
             a->vfmadd231ps(g_vreg, temp_vreg, weight_decay_vreg);
           }
           a->vmulps(out_vreg, g_vreg, g_vreg);
-          a->vmaskmovps(x86::ymm(temp_vreg.id()), mask_vreg, h_ptr);
+          a->vmaskmovps(temp_vreg.ymm(), mask_vreg, h_ptr);
           a->vaddps(out_vreg, out_vreg, temp_vreg);
 
-          a->vmaskmovps(h_ptr, mask_vreg, x86::ymm(out_vreg.id()));
+          a->vmaskmovps(h_ptr, mask_vreg, out_vreg.ymm());
 
           a->vsqrtps(out_vreg, out_vreg);
           a->vaddps(out_vreg, out_vreg, epsilon_vreg);
@@ -176,10 +176,10 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
           a->vmulps(g_vreg, lr_vreg, g_vreg);
           a->vdivps(out_vreg, g_vreg, out_vreg);
 
-          a->vmaskmovps(x86::ymm(temp_vreg.id()), mask_vreg, w_ptr);
+          a->vmaskmovps(temp_vreg.ymm(), mask_vreg, w_ptr);
           a->vaddps(out_vreg, out_vreg, temp_vreg);
 
-          a->vmaskmovps(w_ptr, mask_vreg, x86::ymm(out_vreg.id()));
+          a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
         } else if (instSet == inst_set_t::avx512) {
           a->k(x86::k(1)).vmovups(g_vreg, g_ptr);
           if (has_weight_decay) {
@@ -270,8 +270,8 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   int num_vec_regs_per_block_avx2 = (block_size + vlen_avx2 - 1) / vlen_avx2;
 
   // Use YMM/XMMs with smaller ids for AVX2 specific instructions like vhaddps
-  x86::Ymm partial_sum_vreg_avx2 = x86::Ymm(0);
-  x86::Xmm partial_sum_xmm0 = x86::Xmm(partial_sum_vreg_avx2.id());
+  x86::Ymm partial_sum_vreg_avx2(0);
+  x86::Xmm partial_sum_xmm0(partial_sum_vreg_avx2.id());
 
   a->vxorps(
       partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
@@ -297,7 +297,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
         if (instSet == inst_set_t::avx2) {
           a->vmaskmovps(out_vreg, mask_vreg, g_ptr);
           if (has_weight_decay) {
-            a->vmaskmovps(x86::ymm(temp_vreg.id()), mask_vreg, w_ptr);
+            a->vmaskmovps(temp_vreg.ymm(), mask_vreg, w_ptr);
             a->vfmadd231ps(out_vreg, temp_vreg, weight_decay_vreg);
           }
         } else {
@@ -326,7 +326,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
   a->vhaddps(
       partial_sum_vreg_avx2, partial_sum_vreg_avx2, partial_sum_vreg_avx2);
 
-  x86::Xmm partial_sum_xmm1 = x86::Xmm(1);
+  x86::Xmm partial_sum_xmm1(1);
 
   //_mm_cvtss_f32(_mm256_castps256_ps128(partial_sum_3))
   a->movss(partial_sum_xmm1, partial_sum_xmm0);
@@ -397,18 +397,18 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
         if (instSet == inst_set_t::avx2) {
-          a->vmaskmovps(x86::ymm(temp_vreg.id()), mask_vreg, g_ptr);
+          a->vmaskmovps(temp_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
-            a->vmaskmovps(x86::ymm(out_vreg.id()), mask_vreg, w_ptr);
+            a->vmaskmovps(out_vreg.ymm(), mask_vreg, w_ptr);
             // TODO(@taiqing): have vreg for weights
             a->vfmadd231ps(temp_vreg, weight_decay_vreg, out_vreg);
           }
           a->vmulps(temp_vreg, partial_sum_vreg, temp_vreg);
 
-          a->vmaskmovps(x86::ymm(out_vreg.id()), mask_vreg, w_ptr);
+          a->vmaskmovps(out_vreg.ymm(), mask_vreg, w_ptr);
           a->vaddps(out_vreg, temp_vreg, out_vreg);
 
-          a->vmaskmovps(w_ptr, mask_vreg, x86::ymm(out_vreg.id()));
+          a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
         } else {
           if (has_weight_decay) {
             a->k(x86::k(1)).vmovups(out_vreg, g_ptr);
@@ -480,10 +480,10 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         g = a->zcx();
         h = a->gpz(8);
         indices = a->gpz(9);
-        x86::Xmm epsilon = x86::xmm0;
-        x86::Xmm lr = x86::xmm1;
+        x86::Xmm epsilon(0);
+        x86::Xmm lr(1);
         x86::Gp mask_avx2 = a->gpz(10);
-        x86::Xmm weight_decay = x86::xmm2;
+        x86::Xmm weight_decay(2);
 
         // reuse mask_avx2 because mask_avx2 is used only at the beginning
         base_offset = a->gpz(10);
