@@ -37,16 +37,16 @@ inline void Bfloat16ToFloatKernelAvx512(const bfloat16* src, float* dst) {
 
 } // namespace
 
-void FloatToBfloat16_avx512(const float* src, bfloat16* dst, int size) {
-  int i = 0;
+void FloatToBfloat16_avx512(const float* src, bfloat16* dst, size_t size) {
+  size_t i = 0;
   for (i = 0; i + 16 <= size; i += 16) {
     FloatToBfloat16KernelAvx512(src + i, dst + i);
   }
   FloatToBfloat16_avx2(src + i, dst + i, size - i);
 }
 
-void Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, int size) {
-  int i = 0;
+void Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, size_t size) {
+  size_t i = 0;
   for (i = 0; i + 16 <= size; i += 16) {
     Bfloat16ToFloatKernelAvx512(src + i, dst + i);
   }

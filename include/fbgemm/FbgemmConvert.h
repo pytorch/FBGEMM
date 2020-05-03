@@ -19,54 +19,54 @@ typedef uint16_t bfloat16;
  * implementation.
  *
  */
-FBGEMM_API void FloatToBfloat16_ref(const float* src, bfloat16* dst, int size);
+FBGEMM_API void FloatToBfloat16_ref(const float* src, bfloat16* dst, size_t size);
 
 /**
  * @ Transform all entries in a matrix from bfloat16 to fp32: reference
  * implementation.
  *
  */
-FBGEMM_API void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, int size);
+FBGEMM_API void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, size_t size);
 
 /**
  * @ Transform all entries in a matrix from fp32 to bfloat16: simd
  * implementation.
  *
  */
-FBGEMM_API void FloatToBfloat16_simd(const float* src, bfloat16* dst, int size);
+FBGEMM_API void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size);
 
 /**
  * @ Transform all entries in a matrix from bfloat16 to fp32: simd
  * implementation.
  *
  */
-FBGEMM_API void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, int size);
+FBGEMM_API void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size);
 
 /**
  * @brief AVX2 implementation to convert fp32 numbers to bf16 numbers.
  *
  */
-FBGEMM_API void FloatToBfloat16_avx2(const float* src, bfloat16* dst, int size);
+FBGEMM_API void FloatToBfloat16_avx2(const float* src, bfloat16* dst, size_t size);
 
 /**
  * @brief AVX512 implementation to convert fp32 numbers to bf16 numbers.
  *
  */
 FBGEMM_API void
-FloatToBfloat16_avx512(const float* src, bfloat16* dst, int size);
+FloatToBfloat16_avx512(const float* src, bfloat16* dst, size_t size);
 
 /**
  * @brief AVX2 implementation to convert bf16 numbers to fp32 numbers.
  *
  */
-FBGEMM_API void Bfloat16ToFloat_avx2(const bfloat16* src, float* dst, int size);
+FBGEMM_API void Bfloat16ToFloat_avx2(const bfloat16* src, float* dst, size_t size);
 
 /**
  * @brief AVX512 implementation to convert bf16 numbers to fp32 numbers.
  *
  */
 FBGEMM_API void
-Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, int size);
+Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, size_t size);
 
 /**
  * @ Transform all entries in a matrix from fp32 to float16: reference
@@ -76,7 +76,7 @@ Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, int size);
 FBGEMM_API void FloatToFloat16_ref(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip = false);
 
 /**
@@ -84,7 +84,7 @@ FBGEMM_API void FloatToFloat16_ref(
  * implementation.
  *
  */
-FBGEMM_API void Float16ToFloat_ref(const float16* src, float* dst, int size);
+FBGEMM_API void Float16ToFloat_ref(const float16* src, float* dst, size_t size);
 
 /**
  * @ Transform all entries in a matrix from fp32 to float16: simd
@@ -94,7 +94,7 @@ FBGEMM_API void Float16ToFloat_ref(const float16* src, float* dst, int size);
 FBGEMM_API void FloatToFloat16_simd(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip = false);
 
 /**
@@ -102,7 +102,7 @@ FBGEMM_API void FloatToFloat16_simd(
  * implementation.
  *
  */
-FBGEMM_API void Float16ToFloat_simd(const float16* src, float* dst, int size);
+FBGEMM_API void Float16ToFloat_simd(const float16* src, float* dst, size_t size);
 
 /**
  * @brief AVX2 implementation to convert fp32 numbers to fp16 numbers.
@@ -111,7 +111,7 @@ FBGEMM_API void Float16ToFloat_simd(const float16* src, float* dst, int size);
 FBGEMM_API void FloatToFloat16_avx2(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip = false);
 
 /**
@@ -121,20 +121,20 @@ FBGEMM_API void FloatToFloat16_avx2(
 FBGEMM_API void FloatToFloat16_avx512(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip = false);
 
 /**
  * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
  *
  */
-FBGEMM_API void Float16ToFloat_avx2(const float16* src, float* dst, int size);
+FBGEMM_API void Float16ToFloat_avx2(const float16* src, float* dst, size_t size);
 
 /**
  * @brief AVX512 implementation to convert fp16 numbers to fp32 numbers.
  *
  */
-FBGEMM_API void Float16ToFloat_avx512(const float16* src, float* dst, int size);
+FBGEMM_API void Float16ToFloat_avx512(const float16* src, float* dst, size_t size);
 
 /**
  * @brief Transform all entries in a matrix from fp32 to float16 and back to
@@ -143,7 +143,7 @@ FBGEMM_API void Float16ToFloat_avx512(const float16* src, float* dst, int size);
 FBGEMM_API void RoundToFloat16(
     const float* input,
     float* output,
-    int len,
+    size_t size,
     bool clamp = false,
     bool clamp_denorms = false);
 

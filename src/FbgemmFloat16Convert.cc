@@ -35,7 +35,7 @@ namespace fbgemm {
 void FloatToFloat16_simd(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
@@ -52,7 +52,7 @@ void FloatToFloat16_simd(
   }
 }
 
-void Float16ToFloat_simd(const float16* src, float* dst, int size) {
+void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
@@ -71,7 +71,7 @@ void Float16ToFloat_simd(const float16* src, float* dst, int size) {
 void RoundToFloat16(
     const float* input,
     float* output,
-    int size,
+    size_t size,
     bool clamp,
     bool clamp_denorms) {
   std::vector<fbgemm::float16> data_fp16(size);
@@ -80,7 +80,7 @@ void RoundToFloat16(
 
   if (clamp) {
     // TODO: Use intrinsics to optimize clamping performance.
-    for (int i = 0; i < size; ++i) {
+    for (size_t i = 0; i < size; ++i) {
       output[i] = std::max(std::min(output[i], 65504.0f), -65504.0f);
     }
   }
@@ -94,7 +94,7 @@ void RoundToFloat16(
     union epsilon_t epsilon;
     epsilon.i = 0x38800000u; // 1 / 16384
 
-    for (int i = 0; i < size; ++i) {
+    for (size_t i = 0; i < size; ++i) {
       if (std::abs(output[i]) < epsilon.f) {
         output[i] = 0.0;
       }
