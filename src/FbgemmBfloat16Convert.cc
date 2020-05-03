@@ -42,7 +42,7 @@ using namespace std;
 
 namespace fbgemm {
 
-void FloatToBfloat16_simd(const float* src, bfloat16* dst, int size) {
+void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {
@@ -58,7 +58,7 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, int size) {
   }
 }
 
-void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, int size) {
+void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support()) {

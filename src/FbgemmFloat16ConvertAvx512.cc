@@ -45,16 +45,16 @@ inline void Float16ToFloatKernelAvx512(const float16* src, float* dst) {
 void FloatToFloat16_avx512(
     const float* src,
     float16* dst,
-    int size,
+    size_t size,
     bool do_clip) {
   if (do_clip) {
-    int i = 0;
+    size_t i = 0;
     for (i = 0; i + 16 <= size; i += 16) {
       FloatToFloat16KernelAvx512WithClip(src + i, dst + i);
     }
     FloatToFloat16_avx2(src + i, dst + i, size - i, do_clip);
   } else {
-    int i = 0;
+    size_t i = 0;
     for (i = 0; i + 16 <= size; i += 16) {
       FloatToFloat16KernelAvx512(src + i, dst + i);
     }
@@ -62,8 +62,8 @@ void FloatToFloat16_avx512(
   }
 }
 
-void Float16ToFloat_avx512(const float16* src, float* dst, int size) {
-  int i = 0;
+void Float16ToFloat_avx512(const float16* src, float* dst, size_t size) {
+  size_t i = 0;
   for (i = 0; i + 16 <= size; i += 16) {
     Float16ToFloatKernelAvx512(src + i, dst + i);
   }
