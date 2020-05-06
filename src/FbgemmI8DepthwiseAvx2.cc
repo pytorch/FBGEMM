@@ -181,6 +181,50 @@ template FBGEMM_API void depthwise_2d_same_pad<QuantizationGranularity::TENSOR>(
     int thread_id,
     int num_threads);
 
+template FBGEMM_API void depthwise_2d_same_pad<QuantizationGranularity::GROUP>(
+    int N,
+    int H,
+    int W,
+    int IC,
+    int OC,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const int32_t* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
+template FBGEMM_API void depthwise_2d_same_pad<QuantizationGranularity::GROUP>(
+    int N,
+    int H,
+    int W,
+    int IC,
+    int OC,
+    int stride_h,
+    int stride_w,
+    int32_t A_zero_point,
+    const uint8_t* A,
+    const int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& B,
+    const float* C_multiplier,
+    int32_t C_zero_point,
+    uint8_t* C,
+    const int32_t* col_offsets,
+    const float* bias,
+    bool fuse_relu,
+    const float* act_times_w_scale,
+    int thread_id,
+    int num_threads);
+
 template FBGEMM_API void
 depthwise_2d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
     int N,

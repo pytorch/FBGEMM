@@ -70,6 +70,7 @@ static vector<conv_param_t<>> GetShapes_() {
     conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 3}, {1, 1}, {1, 1, 1, 1}),
     conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 5}, {1, 1}, {1, 1, 1, 1}),
     conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
+    conv_param_t<>(1, 128, 256, {32, 100}, 128, {3, 3}, {1, 1}, {1, 1, 1, 1}),
     // Pointwise
     conv_param_t<>(1, 32, 32, {10, 30}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0}),
     conv_param_t<>(1, 16, 32, {10, 30}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0}),
@@ -436,21 +437,20 @@ TEST_P(UniConvQGranTest, requantizeTest) {
     randFill<int8_t>(Bint8, -4, 4);
 
     // computing column offset
-    vector<int32_t> col_offsets(G * OC_per_G);
+    vector<int32_t> col_offsets(OC);
 
-    int ncols_per_quant_group = G * OC_per_G;
+    int ncols_per_quant_group = OC;
     if (q_granularity == QuantizationGranularity::GROUP) {
       ncols_per_quant_group = OC_per_G;
     } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
       ncols_per_quant_group = 1;
     }
 
-    aligned_vector<int32_t> Bint8_zero_point(
-        G * OC_per_G / ncols_per_quant_group);
+    aligned_vector<int32_t> Bint8_zero_point(OC / ncols_per_quant_group);
     if (b_symmetric) {
-      randFill(Bint8_zero_point, -3, 3);
-    } else {
       randFill(Bint8_zero_point, 0, 0);
+    } else {
+      randFill(Bint8_zero_point, -3, 3);
     }
 
     // matrix dimensions after im2col for each GEMM.
