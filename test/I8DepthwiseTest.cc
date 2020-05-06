@@ -24,7 +24,7 @@ namespace fbgemm {
 static vector<vector<int>> shapes = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
-  // N, K, H_in, W_in, stride, kernel
+  // N, G, H_in, W_in, stride, kernel
   {   1,  272,  47, 125, 1, 3 },
   {   1,  272,  47, 125, 1, 5 },
 //  {   1,  272,  64, 125, 1, 3 },
@@ -83,7 +83,11 @@ static vector<vector<int>> shapes_3d = {
 
 namespace {
 
-class FBGemmDepthWiseTest : public testing::TestWithParam<tuple<bool, bool>> {};
+class FBGemmDepthWiseTest
+    : public testing::TestWithParam<tuple<bool, bool, int>> {};
+
+class FBGemmDepthWisePerChannelQuantizationTest
+    : public testing::TestWithParam<int> {};
 
 // Two parameters are K (or Groups) and kernel_prod, i.e.,
 // (output_channels)(kernel_prod)
@@ -97,22 +101,31 @@ class FBGemmDepthWisePackUnpackTest
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     FBGemmDepthWiseTest,
-    ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+    ::testing::Combine(
+        ::testing::Bool(), // a_symmetric
+        ::testing::Bool(), // b_symmetric
+        ::testing::Values(1, 2)));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    FBGemmDepthWisePerChannelQuantizationTest,
+    ::testing::Values(1, 2));
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     FBGemmDepthWisePackUnpackTest,
     ::testing::Combine(
-        ::testing::ValuesIn({8, 16, 24, 32, 40, 64, 72}),
-        ::testing::ValuesIn({1, 2, 3, 4, 5, 9, 10, 11, 27})));
+        ::testing::Values(8, 16, 24, 32, 40, 64, 72),
+        ::testing::Values(1, 2, 3, 4, 5, 9, 10, 11, 27)));
 
 TEST_P(FBGemmDepthWiseTest, Test3x3) {
   bool a_symmetric, b_symmetric;
-  tie(a_symmetric, b_symmetric) = GetParam();
+  int oc_per_g;
+  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
 
   for (auto shape : shapes) {
     int N = shape[0];
-    int K = shape[1];
+    int G = shape[1];
     int H = shape[2];
     int W = shape[3];
     int stride_h = shape[4];
@@ -121,13 +134,14 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
     int S = R;
     int PAD_T = (R - 1) / 2, PAD_B = (R - 1) / 2, PAD_L = (S - 1) / 2,
         PAD_R = (S - 1) / 2;
+    int OC = G * oc_per_g;
 
     conv_param_t<2> conv_p(
         N,
-        K,
-        K,
+        G,
+        OC,
         {H, W},
-        K,
+        G,
         {R, S},
         {stride_h, stride_w},
         {PAD_T, PAD_L, PAD_B, PAD_R});
@@ -135,12 +149,13 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
     int W_OUT = conv_p.OUT_DIM[1];
 
     int MDim = N * H_OUT * W_OUT;
-    int KDim = R * S * K;
-    int KDimPerGroup = KDim / conv_p.G;
+    int KDim = R * S * G;
+    int KDimPerGroup = KDim / G;
 
-    aligned_vector<uint8_t> A(N * H * W * K);
-    aligned_vector<int8_t> B(KDim);
-    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> A(N * H * W * G);
+    aligned_vector<int8_t> B(KDim * oc_per_g);
+    aligned_vector<int8_t> B_tr(B.size());
+    aligned_vector<int32_t> C_ref(MDim * OC), C(C_ref.size());
     aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
@@ -153,8 +168,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
     randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<int32_t> col_offsets(K);
-    aligned_vector<int32_t> bias(K);
+    aligned_vector<int32_t> col_offsets(OC);
+    aligned_vector<int32_t> bias(OC);
     randFill(col_offsets, -100, 100);
     randFill(bias, -40, 40);
 
@@ -166,7 +181,10 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
       im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
     }
 
-    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+    // reference implementation conv_ref expects weights to be in G (R S C/G)
+    // K/G
+    transposeConvWeights(conv_p, B.data(), B_tr.data());
+    conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
     for (int g = 0; g < conv_p.G; ++g) {
       // Compute row offset
@@ -182,39 +200,40 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
       // Requantization
       requantize_u8acc32_ref(
           MDim,
-          1,
-          conv_p.G,
-          C_ref.data() + g,
-          C_uint8_ref.data() + g,
+          oc_per_g,
+          OC,
+          C_ref.data() + g * oc_per_g,
+          C_uint8_ref.data() + g * oc_per_g,
           C_multiplier.data(),
           C_zero_point,
           A_zero_point,
           &B_zero_point,
           row_offsets.data(),
-          col_offsets.data() + g,
-          bias.data() + g,
-          K);
+          col_offsets.data() + g * oc_per_g,
+          bias.data() + g * oc_per_g,
+          OC);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, R * S, B.data());
-    depthwise_2d_same_pad(
+    PackedDepthWiseConvMatrix Bp(OC, R * S, B.data());
+    depthwise_2d_same_pad<QuantizationGranularity::TENSOR>(
         N,
         H,
         W,
-        K,
+        G,
+        OC,
         stride_h,
         stride_w,
         A_zero_point,
         A.data(),
-        B_zero_point,
+        &B_zero_point,
         Bp,
-        C_multiplier[0],
+        C_multiplier.data(),
         C_zero_point,
         C_uint8.data(),
         a_symmetric ? nullptr : col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
-        1.0f, /* act_scale * w_scale */
+        nullptr, /* act_scale * w_scale */
         0,
         1);
 
@@ -222,10 +241,10 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
     for (int n = 0; n < N; ++n) {
       for (int h = 0; h < H_OUT; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < K; ++k) {
+          for (int k = 0; k < OC; ++k) {
             int32_t expected =
-                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
-            int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
+                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * OC + k];
+            int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * OC + k];
             EXPECT_EQ(actual, expected)
                 << "Depthwise " << R << "x" << S << " results differ at (" << n
                 << ", " << h << ", " << w << ", " << k << ").";
@@ -238,7 +257,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3) {
 
 TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
   bool a_symmetric, b_symmetric;
-  tie(a_symmetric, b_symmetric) = GetParam();
+  int oc_per_g;
+  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
 
   // 3x3x3 tests take a long time so for a symmetric quantization, we only
   // test with 2 shapes.
@@ -246,7 +266,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
            ? vector<vector<int>>(shapes_3d.cbegin(), shapes_3d.cbegin() + 2)
            : shapes_3d) {
     int N = shape[0];
-    int K = shape[1];
+    int G = shape[1];
     int T = shape[2];
     int H = shape[3];
     int W = shape[4];
@@ -256,13 +276,14 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
     constexpr int K_T = 3, K_H = 3, K_W = 3;
     constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
                   PAD_R = 1;
+    int OC = G * oc_per_g;
 
     conv_param_t<3> conv_p(
         N,
-        K,
-        K,
+        G,
+        OC,
         {T, H, W},
-        K,
+        G,
         {K_T, K_H, K_W},
         {stride_t, stride_h, stride_w},
         {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
@@ -271,12 +292,13 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
     int W_OUT = conv_p.OUT_DIM[2];
 
     int MDim = N * T_OUT * H_OUT * W_OUT;
-    int KDim = K_T * K_H * K_W * K;
-    int KDimPerGroup = KDim / conv_p.G;
+    int KDim = K_T * K_H * K_W * G;
+    int KDimPerGroup = KDim / G;
 
-    aligned_vector<uint8_t> A(N * T * H * W * K);
-    aligned_vector<int8_t> B(KDim);
-    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> A(N * T * H * W * G);
+    aligned_vector<int8_t> B(KDim * oc_per_g);
+    aligned_vector<int8_t> B_tr(B.size());
+    aligned_vector<int32_t> C_ref(MDim * OC), C(C_ref.size());
     aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
@@ -289,8 +311,8 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
     randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<int32_t> col_offsets(K);
-    aligned_vector<int32_t> bias(K);
+    aligned_vector<int32_t> col_offsets(OC);
+    aligned_vector<int32_t> bias(OC);
     randFill(col_offsets, -100, 100);
     randFill(bias, -40, 40);
 
@@ -302,7 +324,10 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
       im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
     }
 
-    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+    // reference implementation conv_ref expects weights to be in G (T R S C/G)
+    // K/G
+    transposeConvWeights(conv_p, B.data(), B_tr.data());
+    conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
     for (int g = 0; g < conv_p.G; ++g) {
       // Compute row offset
@@ -318,42 +343,43 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
       // Requantization
       requantize_u8acc32_ref(
           MDim,
-          1,
-          conv_p.G,
-          C_ref.data() + g,
-          C_uint8_ref.data() + g,
+          oc_per_g,
+          OC,
+          C_ref.data() + g * oc_per_g,
+          C_uint8_ref.data() + g * oc_per_g,
           C_multiplier.data(),
           C_zero_point,
           A_zero_point,
           &B_zero_point,
           row_offsets.data(),
-          col_offsets.data() + g,
-          bias.data() + g,
-          K);
+          col_offsets.data() + g * oc_per_g,
+          bias.data() + g * oc_per_g,
+          OC);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, 3 * 3 * 3, B.data());
+    PackedDepthWiseConvMatrix Bp(OC, 3 * 3 * 3, B.data());
 
-    depthwise_3x3x3_pad_1(
+    depthwise_3x3x3_pad_1<QuantizationGranularity::TENSOR>(
         N,
         T,
         H,
         W,
-        K,
+        G,
+        OC,
         stride_t,
         stride_h,
         stride_w,
         A_zero_point,
         A.data(),
-        B_zero_point,
+        &B_zero_point,
         Bp,
-        C_multiplier[0],
+        C_multiplier.data(),
         C_zero_point,
         C_uint8.data(),
         a_symmetric ? nullptr : col_offsets.data(),
         bias.data(),
         false, /* fuse_relu */
-        1.0f, /* act_scale * w_scale */
+        nullptr, /* act_scale * w_scale */
         0,
         1);
 
@@ -362,11 +388,11 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
       for (int t = 0; t < T_OUT; ++t) {
         for (int h = 0; h < H_OUT; ++h) {
           for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < K; ++k) {
+            for (int k = 0; k < OC; ++k) {
               int32_t expected = C_uint8_ref
-                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               int32_t actual =
-                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               EXPECT_EQ(actual, expected)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
@@ -378,10 +404,14 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
   } // for each shape
 } // Test3x3x3
 
-TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
+TEST_P(
+    FBGemmDepthWisePerChannelQuantizationTest,
+    Test3x3PerChannelQuantization) {
+  int oc_per_g = GetParam();
+
   for (auto shape : shapes) {
     int N = shape[0];
-    int K = shape[1];
+    int G = shape[1];
     int H = shape[2];
     int W = shape[3];
     int stride_h = shape[4];
@@ -390,13 +420,14 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     int S = R;
     int PAD_T = (R - 1) / 2, PAD_B = (R - 1) / 2, PAD_L = (S - 1) / 2,
         PAD_R = (S - 1) / 2;
+    int OC = G * oc_per_g;
 
     conv_param_t<2> conv_p(
         N,
-        K,
-        K,
+        G,
+        OC,
         {H, W},
-        K,
+        G,
         {R, S},
         {stride_h, stride_w},
         {PAD_T, PAD_L, PAD_B, PAD_R});
@@ -404,12 +435,13 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     int W_OUT = conv_p.OUT_DIM[1];
 
     int MDim = N * H_OUT * W_OUT;
-    int KDim = R * S * K;
-    int KDimPerGroup = KDim / conv_p.G;
+    int KDim = R * S * G;
+    int KDimPerGroup = KDim / G;
 
-    aligned_vector<uint8_t> A(N * H * W * K);
-    aligned_vector<int8_t> B(KDim);
-    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> A(N * H * W * G);
+    aligned_vector<int8_t> B(KDim * oc_per_g);
+    aligned_vector<int8_t> B_tr(B.size());
+    aligned_vector<int32_t> C_ref(MDim * OC), C(C_ref.size());
     aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
@@ -417,8 +449,8 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
 
     // Each row of G has a different range to really test per-channel
     // quantization.
-    vector<int32_t> B_zero_point(K);
-    for (auto k = 0; k < K; ++k) {
+    vector<int32_t> B_zero_point(OC);
+    for (auto k = 0; k < OC; ++k) {
       aligned_vector<int8_t> Bk(R * S);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
@@ -427,12 +459,12 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
       B_zero_point[k] = 5 + k;
     }
 
-    aligned_vector<float> C_multiplier(K);
+    aligned_vector<float> C_multiplier(OC);
     randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<int32_t> col_offsets(K);
-    aligned_vector<int32_t> bias(K);
+    aligned_vector<int32_t> col_offsets(OC);
+    aligned_vector<int32_t> bias(OC);
     randFill(col_offsets, -100, 100);
     randFill(bias, -40, 40);
 
@@ -441,7 +473,10 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     vector<uint8_t> A_im2col(MDim * KDim);
     im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
 
-    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+    // reference implementation conv_ref expects weights to be in G (R S C/G)
+    // K/G
+    transposeConvWeights(conv_p, B.data(), B_tr.data());
+    conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
     for (int g = 0; g < conv_p.G; ++g) {
       // Compute row offset
@@ -455,26 +490,27 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
       // Requantization
       requantize_u8acc32_ref(
           MDim,
-          1,
-          conv_p.G,
-          C_ref.data() + g,
-          C_uint8_ref.data() + g,
-          C_multiplier.data() + g,
+          oc_per_g,
+          OC,
+          C_ref.data() + g * oc_per_g,
+          C_uint8_ref.data() + g * oc_per_g,
+          C_multiplier.data() + g * oc_per_g,
           C_zero_point,
           A_zero_point,
-          B_zero_point.data() + g,
+          B_zero_point.data() + g * oc_per_g,
           row_offsets.data(),
-          col_offsets.data() + g,
-          bias.data() + g,
-          K);
+          col_offsets.data() + g * oc_per_g,
+          bias.data() + g * oc_per_g,
+          1);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, R * S, B.data());
-    depthwise_2d_per_channel_quantization_same_pad(
+    PackedDepthWiseConvMatrix Bp(OC, R * S, B.data());
+    depthwise_2d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
         N,
         H,
         W,
-        K,
+        G,
+        OC,
         stride_h,
         stride_w,
         A_zero_point,
@@ -495,10 +531,10 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
     for (int n = 0; n < N; ++n) {
       for (int h = 0; h < H_OUT; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < K; ++k) {
+          for (int k = 0; k < OC; ++k) {
             int32_t expected =
-                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * K + k];
-            int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * K + k];
+                C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * OC + k];
+            int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * OC + k];
             EXPECT_EQ(actual, expected)
                 << "Depthwise " << R << "x" << S << " results differ at (" << n
                 << ", " << h << ", " << w << ", " << k << ").";
@@ -509,10 +545,14 @@ TEST(FBGemmDepthWiseTest, Test3x3PerChannelQuantization) {
   } // for each shape
 } // Test3x3PerChannelQuantization
 
-TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
+TEST_P(
+    FBGemmDepthWisePerChannelQuantizationTest,
+    Test3x3x3PerChannelQuantization) {
+  int oc_per_g = GetParam();
+
   for (auto shape : shapes_3d) {
     int N = shape[0];
-    int K = shape[1];
+    int G = shape[1];
     int T = shape[2];
     int H = shape[3];
     int W = shape[4];
@@ -522,13 +562,14 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
     constexpr int K_T = 3, K_H = 3, K_W = 3;
     constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
                   PAD_R = 1;
+    int OC = G * oc_per_g;
 
     conv_param_t<3> conv_p(
         N,
-        K,
-        K,
+        G,
+        OC,
         {T, H, W},
-        K,
+        G,
         {K_T, K_H, K_W},
         {stride_t, stride_h, stride_w},
         {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
@@ -537,12 +578,13 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
     int W_OUT = conv_p.OUT_DIM[2];
 
     int MDim = N * T_OUT * H_OUT * W_OUT;
-    int KDim = K_T * K_H * K_W * K;
-    int KDimPerGroup = KDim / conv_p.G;
+    int KDim = K_T * K_H * K_W * G;
+    int KDimPerGroup = KDim / G;
 
-    aligned_vector<uint8_t> A(N * T * H * W * K);
-    aligned_vector<int8_t> B(KDim);
-    aligned_vector<int32_t> C_ref(MDim * K), C(C_ref.size());
+    aligned_vector<uint8_t> A(N * T * H * W * G);
+    aligned_vector<int8_t> B(KDim * oc_per_g);
+    aligned_vector<int8_t> B_tr(B.size());
+    aligned_vector<int32_t> C_ref(MDim * OC), C(C_ref.size());
     aligned_vector<uint8_t> C_uint8_ref(C_ref.size()), C_uint8(C_ref.size());
 
     randFill<uint8_t>(A, 0, 86);
@@ -550,8 +592,8 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
 
     // Each row of G has a different range to really test per-channel
     // quantization.
-    vector<int32_t> B_zero_point(K);
-    for (auto k = 0; k < K; ++k) {
+    vector<int32_t> B_zero_point(OC);
+    for (auto k = 0; k < OC; ++k) {
       aligned_vector<int8_t> Bk(K_T * K_H * K_W);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
@@ -560,12 +602,12 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
       B_zero_point[k] = 5 + k;
     }
 
-    aligned_vector<float> C_multiplier(K);
+    aligned_vector<float> C_multiplier(OC);
     randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
     int32_t C_zero_point = 5;
 
-    aligned_vector<int32_t> col_offsets(K);
-    aligned_vector<int32_t> bias(K);
+    aligned_vector<int32_t> col_offsets(OC);
+    aligned_vector<int32_t> bias(OC);
     randFill(col_offsets, -100, 100);
     randFill(bias, -40, 40);
 
@@ -574,7 +616,10 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
     vector<uint8_t> A_im2col(MDim * KDim);
     im2col_ref(conv_p, A.data(), A_zero_point, A_im2col.data());
 
-    conv_ref(conv_p, A.data(), A_zero_point, B.data(), C_ref.data());
+    // reference implementation conv_ref expects weights to be in G (T R S C/G)
+    // K/G
+    transposeConvWeights(conv_p, B.data(), B_tr.data());
+    conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
     for (int g = 0; g < conv_p.G; ++g) {
       // Compute row offset
@@ -588,28 +633,29 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
       // Requantization
       requantize_u8acc32_ref(
           MDim,
-          1,
-          conv_p.G,
-          C_ref.data() + g,
-          C_uint8_ref.data() + g,
-          C_multiplier.data() + g,
+          oc_per_g,
+          OC,
+          C_ref.data() + g * oc_per_g,
+          C_uint8_ref.data() + g * oc_per_g,
+          C_multiplier.data() + g * oc_per_g,
           C_zero_point,
           A_zero_point,
-          B_zero_point.data() + g,
+          B_zero_point.data() + g * oc_per_g,
           row_offsets.data(),
-          col_offsets.data() + g,
-          bias.data() + g,
-          K);
+          col_offsets.data() + g * oc_per_g,
+          bias.data() + g * oc_per_g,
+          1);
     }
 
-    PackedDepthWiseConvMatrix Bp(K, 3 * 3 * 3, B.data());
+    PackedDepthWiseConvMatrix Bp(OC, 3 * 3 * 3, B.data());
 
-    depthwise_3x3x3_per_channel_quantization_pad_1(
+    depthwise_3x3x3_pad_1<QuantizationGranularity::OUT_CHANNEL>(
         N,
         T,
         H,
         W,
-        K,
+        G,
+        OC,
         stride_t,
         stride_h,
         stride_w,
@@ -632,11 +678,11 @@ TEST(FBGemmDepthWiseTest, Test3x3x3PerChannelQuantization) {
       for (int t = 0; t < T_OUT; ++t) {
         for (int h = 0; h < H_OUT; ++h) {
           for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < K; ++k) {
+            for (int k = 0; k < OC; ++k) {
               int32_t expected = C_uint8_ref
-                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+                  [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               int32_t actual =
-                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + k];
+                  C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               ASSERT_EQ(actual, expected)
                   << "Depthwise 3x3 results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";

@@ -8,19 +8,21 @@
 
 #include <cstdint>
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
 class FBGEMM_API PackedDepthWiseConvMatrix {
  public:
   /**
-   * @param K the number of channels (same as the number of groups because
-   *          depth-wise convolution has one input/output channel per group)
+   * @param IC the number of input channels (same as the number of groups
+   *           because depth-wise convolution has one input channel per group)
+   * @param OC the number of output channels
    * @param kernel_prod the product of all kernels. For example, kernel_prod =
    *                    9 for 3x3 conv, and 27 for 3x3x3 conv.
    * @param smat the source unpacked weight in GRS layout
    */
-  PackedDepthWiseConvMatrix(int K, int kernel_prod, const std::int8_t* smat);
+  PackedDepthWiseConvMatrix(int OC, int kernel_prod, const std::int8_t* smat);
   virtual ~PackedDepthWiseConvMatrix();
 
   const std::int8_t* PackedMat() const {
@@ -43,7 +45,7 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
   int addr(int r, int c);
 
  private:
-  const int K_; /**< the number of channels */
+  const int OC_; /**< the number of output channels */
   const int kernel_prod_; /** the product of all kernel dims */
   std::int8_t* pmat_; /** packed weight */
 }; // PackedDepthWiseConvMatrix
@@ -52,16 +54,39 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
  * Depth-wise convolution that results in the same output feature size as the
  * input feature. That is PAD_T = PAD_B = (R - 1) / 2 and PAD_L = PAD_R =
  * (S - 1) / 2. This function also does requantization.
- * @col_offsets nullptr if col_offsets are folded into bias
- * @act_times_w_scale Only used if BIAS_TYPE is float, i.e., bias is
- *                    unquantized.
+ * @param col_offsets nullptr if col_offsets are folded into bias
+ * @param act_times_w_scale Only used if BIAS_TYPE is float, i.e., bias is
+ *                          unquantized.
  */
+template <QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void depthwise_2d_same_pad(
+    int N,
+    int H,
+    int W,
+    int IC,
+    int OC,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    const float* act_times_w_scale = nullptr,
+    int thread_id = 0,
+    int num_threads = 1);
+
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_2d_same_pad(
     int N,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_h,
     int stride_w,
     std::int32_t A_zero_point,
@@ -83,16 +108,16 @@ FBGEMM_API void depthwise_2d_same_pad(
  * input feature. That is PAD_T = PAD_B = (R - 1) / 2 and PAD_L = PAD_R =
  * (S - 1) / 2. This function also does requantization and uses per-channel
  * quantization.
- * @col_offsets nullptr if col_offsets are folded into bias
- * @act_times_w_scale Only used if BIAS_TYPE is float, i.e., bias is
- *                    unquantized.
+ * @param col_offsets nullptr if col_offsets are folded into bias
+ * @param act_times_w_scale Only used if BIAS_TYPE is float, i.e., bias is
+ *                          unquantized.
  */
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_2d_per_channel_quantization_same_pad(
     int N,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_h,
     int stride_w,
     std::int32_t A_zero_point,
@@ -110,15 +135,40 @@ FBGEMM_API void depthwise_2d_per_channel_quantization_same_pad(
     int num_threads = 1);
 
 /**
- * @col_offsets nullptr if col_offsets are folded into bias
+ * @param col_offsets nullptr if col_offsets are folded into bias
  */
+template <QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void depthwise_3x3x3_pad_1(
+    int N,
+    int T,
+    int H,
+    int W,
+    int IC,
+    int OC,
+    int stride_t,
+    int stride_h,
+    int stride_w,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    const float* act_times_w_scale = nullptr,
+    int thread_id = 0,
+    int num_threads = 1);
+
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_3x3x3_pad_1(
     int N,
     int T,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_t,
     int stride_h,
     int stride_w,
@@ -136,16 +186,13 @@ FBGEMM_API void depthwise_3x3x3_pad_1(
     int thread_id = 0,
     int num_threads = 1);
 
-/**
- * @col_offsets nullptr if col_offsets are folded into bias
- */
 template <typename BIAS_TYPE = std::int32_t>
 FBGEMM_API void depthwise_3x3x3_per_channel_quantization_pad_1(
     int N,
     int T,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_t,
     int stride_h,
     int stride_w,

@@ -17,27 +17,28 @@ using namespace std;
 namespace fbgemm {
 
 PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
-    int K,
+    int OC,
     int kernel_prod,
     const int8_t* smat)
-    : K_(K), kernel_prod_(kernel_prod) {
+    : OC_(OC), kernel_prod_(kernel_prod) {
+  // The input is in OC T R S layout.
   // Transpose the input matrix to make packing faster.
   int8_t* smat_transposed = static_cast<int8_t*>(
-      fbgemmAlignedAlloc(64, K * kernel_prod * sizeof(int8_t)));
+      fbgemmAlignedAlloc(64, OC * kernel_prod * sizeof(int8_t)));
   for (int i = 0; i < kernel_prod; ++i) {
-    for (int j = 0; j < K; ++j) {
-      smat_transposed[i * K + j] = smat[i + j * kernel_prod];
+    for (int j = 0; j < OC; ++j) {
+      smat_transposed[i * OC + j] = smat[i + j * kernel_prod];
     }
   }
 
   // Allocate packed arrays
   int kernel_prod_aligned = (kernel_prod + 1) / 2 * 2;
   pmat_ = static_cast<int8_t*>(fbgemmAlignedAlloc(
-      64, ((K + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
+      64, ((OC + 31) / 32) * kernel_prod_aligned * 32 * sizeof(int8_t)));
 
   // Pack input matrix
   // The layout is optimized to use vpmaddubsw efficiently (see
-  // madd_epi16x4_packed function).
+  // genMaddEpi16xNPacked function).
   // For a group of 32 channels, we have 10 32B SIMD registers.
   // Denote ith channel jth filter as (i, j)
   // 0th SIMD register:
@@ -95,19 +96,20 @@ PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(
       fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
   auto b_interleaved_epi32 = static_cast<__m256i*>(
       fbgemmAlignedAlloc(64, kernel_prod_aligned * sizeof(__m256i)));
-  for (int k1 = 0; k1 < K; k1 += 32) {
-    int remainder = K - k1;
+  for (int k1 = 0; k1 < OC; k1 += 32) {
+    int remainder = OC - k1;
     if (remainder < 32) {
       __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
           internal::avx2_ps_or_epi32_masks[remainder / 4]));
       for (int i = 0; i < kernel_prod; ++i) {
         b_v[i] = _mm256_maskload_epi32(
-            reinterpret_cast<const int*>(smat_transposed + i * K + k1), mask_v);
+            reinterpret_cast<const int*>(smat_transposed + i * OC + k1),
+            mask_v);
       }
     } else {
       for (int i = 0; i < kernel_prod; ++i) {
         b_v[i] = _mm256_lddqu_si256(
-            reinterpret_cast<const __m256i*>(smat_transposed + i * K + k1));
+            reinterpret_cast<const __m256i*>(smat_transposed + i * OC + k1));
       }
     }
 
@@ -184,7 +186,7 @@ int PackedDepthWiseConvMatrix::addr(int r, int c) {
 }
 
 void PackedDepthWiseConvMatrix::unpack(int8_t* unpacked_data) {
-  for (int r = 0; r < K_; ++r) {
+  for (int r = 0; r < OC_; ++r) {
     for (int c = 0; c < kernel_prod_; ++c) {
       unpacked_data[r * kernel_prod_ + c] = pmat_[addr(r, c)];
     }

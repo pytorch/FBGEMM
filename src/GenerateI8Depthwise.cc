@@ -7,6 +7,7 @@
 #include "./GenerateI8Depthwise.h"
 
 #include <asmjit/asmjit.h>
+#include <cassert>
 #include <iostream>
 
 #include "./CodeCache.h"
@@ -27,10 +28,11 @@ asmjit::JitRuntime& runtime() {
 // Controll access to runtime;
 std::mutex rtMutex_;
 
-// The hash depends on D, F, compute_a_sum, per_channel_quantization, remainder,
-// prev_skip, next_skip, top_skip, bottom_skip, left_skip, and right_skip.
+// The hash depends on D, F, oc_per_g, compute_a_sum,
+// remainder, prev_skip, next_skip, top_skip, bottom_skip, left_skip, and
+// right_skip.
 CodeCache<
-    std::tuple<int, int, bool, int, int, int, int, int, int, int>,
+    std::tuple<int, int, int, bool, int, int, int, int, int, int, int>,
     GenI8Depthwise::jit_kernel_signature>
     codeCache_;
 } // namespace
@@ -171,6 +173,7 @@ static void genMaddEpi16xNPacked(
 GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int D,
     int S,
+    int oc_per_g,
     bool compute_a_sum,
     int remainder,
     int prev_skip,
@@ -179,10 +182,11 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int bottom_skip,
     int left_skip,
     int right_skip) {
-  std::tuple<int, int, bool, int, int, int, int, int, int, int>
-      kernelSig = std::make_tuple(
+  std::tuple<int, int, int, bool, int, int, int, int, int, int, int> kernelSig =
+      std::make_tuple(
           D,
           S,
+          oc_per_g,
           compute_a_sum,
           remainder,
           prev_skip,
@@ -197,6 +201,38 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     code.init(runtime().codeInfo());
     x86::Assembler assembler(&code);
     x86::Emitter* e = assembler.as<x86::Emitter>();
+#ifdef FBGEMM_LOG_CODE
+    std::string filename = "dwconv_" + std::to_string(D) + "d_S" +
+        std::to_string(S) + "_" + std::to_string(oc_per_g);
+    if (compute_a_sum) {
+      filename += "_asum";
+    }
+    if (remainder) {
+      filename += "_remainder" + std::to_string(remainder);
+    }
+    if (prev_skip) {
+      filename += "_prev_skip" + std::to_string(prev_skip);
+    }
+    if (next_skip) {
+      filename += "_next_skip" + std::to_string(next_skip);
+    }
+    if (top_skip) {
+      filename += "_top_skip" + std::to_string(top_skip);
+    }
+    if (bottom_skip) {
+      filename += "_bottom_skip" + std::to_string(bottom_skip);
+    }
+    if (left_skip) {
+      filename += "_left_skip" + std::to_string(left_skip);
+    }
+    if (right_skip) {
+      filename += "_right_skip" + std::to_string(right_skip);
+    }
+    filename += ".txt";
+    FILE* codeLogFile = fopen(filename.c_str(), "w");
+    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogFile);
+    code.setLogger(codeLogger);
+#endif
 
     x86::Gp a_addr = e->zdi();
     x86::Gp b_addr = e->zsi();
@@ -204,7 +240,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     x86::Gp a_sum_addr = e->zcx();
     x86::Gp h = e->gpz(8);
     x86::Gp w = e->gpz(9);
-    x86::Gp c_in = e->gpz(10);
+    x86::Gp ic = e->gpz(10);
     x86::Gp mask_addr = e->gpz(11);
     x86::Gp a_zero_point = e->gpz(12);
     x86::Gp b_zero_point_addr = e->gpz(13);
@@ -244,7 +280,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
         a_sum_addr,
         h,
         w,
-        c_in,
+        ic,
         mask_addr,
         a_zero_point,
         b_zero_point_addr);
@@ -280,7 +316,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       e->vmovups(
           mask_vreg,
           x86::ymmword_ptr(
-              mask_addr, (vlen - remainder / 4) % vlen * sizeof(int32_t)));
+              mask_addr,
+              (vlen - remainder / 4 / oc_per_g) % vlen * sizeof(int32_t)));
     }
     x86::Ymm one_epi8(vreg_id);
     if (compute_a_sum) {
@@ -318,20 +355,20 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     }
 
     // Assign scalar registers
-    e->imul(w, c_in);
+    e->imul(w, ic);
     e->imul(h, w);
     if (D >= 3) {
       e->mov(a_addr_save, w);
       e->imul(a_addr_save, S);
       e->sub(h, a_addr_save);
     }
-    e->mov(a_addr_save, c_in);
+    e->mov(a_addr_save, ic);
     e->imul(a_addr_save, S);
     e->sub(w, a_addr_save);
 
-    e->mov(ic_loop_count, c_in);
-    e->add(ic_loop_count, asmjit::Imm(31));
-    e->sar(ic_loop_count, asmjit::Imm(5));
+    e->mov(ic_loop_count, ic);
+    e->add(ic_loop_count, asmjit::Imm(32 / oc_per_g - 1));
+    e->sar(ic_loop_count, asmjit::Imm(oc_per_g == 1 ? 5 : 4));
 
     e->mov(a_addr_save, a_addr);
     asmjit::Label ic_loop_begin = e->newLabel(), ic_loop_end = e->newLabel();
@@ -369,10 +406,26 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             if (pad) {
               e->vmovups(a[i % 4], a_zero_point_vreg);
             } else {
-              if (!main_loop && remainder != 32) {
-                e->vmaskmovps(a[i % 4], mask_vreg, x86::ymmword_ptr(a_addr));
+              if (oc_per_g == 1) {
+                if (!main_loop && remainder != 32) {
+                  e->vmaskmovps(a[i % 4], mask_vreg, x86::ymmword_ptr(a_addr));
+                } else {
+                  e->vmovups(a[i % 4], x86::ymmword_ptr(a_addr));
+                }
               } else {
-                e->vmovups(a[i % 4], x86::ymmword_ptr(a_addr));
+                assert(oc_per_g == 2);
+                if (!main_loop && remainder != 32) {
+                  e->vmaskmovps(
+                      a[i % 4].half(),
+                      mask_vreg.half(),
+                      x86::xmmword_ptr(a_addr));
+                } else {
+                  e->vmovups(a[i % 4].half(), x86::xmmword_ptr(a_addr));
+                }
+                // Duplicate each byte.
+                e->vpmovzxbw(a[i % 4], a[i % 4].half());
+                e->vpsllw(x86::ymm(i % 2), a[i % 4], asmjit::Imm(8));
+                e->vpaddw(a[i % 4], a[i % 4], x86::ymm(i % 2));
               }
             }
 
@@ -417,7 +470,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
               }
             }
             if (i != K - 1) {
-              e->add(a_addr, c_in);
+              e->add(a_addr, ic);
             }
           }
           if (i != K - 1) {
@@ -434,34 +487,54 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       }
 
       if (compute_a_sum) {
-        e->vpmovsxwd(a[0], a_sum[0].half());
-        e->vmovups(x86::ymmword_ptr(a_sum_addr), a[0]);
+        if (oc_per_g == 1) {
+          e->vpmovsxwd(a[0], a_sum[0].half());
+          e->vmovups(x86::ymmword_ptr(a_sum_addr), a[0]);
+        } else {
+          // Rollback duplication
+          e->vpsrld(a_sum[0], a_sum[0], asmjit::Imm(16));
+          e->vmovups(x86::xmmword_ptr(a_sum_addr), a_sum[0].half());
+        }
 
         if (main_loop || remainder >= 8) {
-          e->vpmovsxwd(a[1], a_sum[1].half());
-          e->vmovups(x86::ymmword_ptr(a_sum_addr, 32), a[1]);
+          if (oc_per_g == 1) {
+            e->vpmovsxwd(a[1], a_sum[1].half());
+            e->vmovups(x86::ymmword_ptr(a_sum_addr, 32), a[1]);
+          } else {
+            // Rollback duplication
+            e->vpsrld(a_sum[1], a_sum[1], asmjit::Imm(16));
+            e->vmovups(x86::xmmword_ptr(a_sum_addr, 16), a_sum[1].half());
+          }
         }
 
         if (main_loop || remainder >= 16) {
           e->vextracti128(a_sum[0].half(), a_sum[0], asmjit::Imm(1));
-          e->vpmovsxwd(a_sum[0], a_sum[0].half());
-          e->vmovups(x86::ymmword_ptr(a_sum_addr, 64), a_sum[0]);
+          if (oc_per_g == 1) {
+            e->vpmovsxwd(a_sum[0], a_sum[0].half());
+            e->vmovups(x86::ymmword_ptr(a_sum_addr, 64), a_sum[0]);
+          } else {
+            e->vmovups(x86::xmmword_ptr(a_sum_addr, 32), a_sum[0].half());
+          }
         }
 
         if (main_loop || remainder >= 24) {
           e->vextracti128(a_sum[1].half(), a_sum[1], asmjit::Imm(1));
-          e->vpmovsxwd(a_sum[1], a_sum[1].half());
-          e->vmovups(x86::ymmword_ptr(a_sum_addr, 96), a_sum[1]);
+          if (oc_per_g == 1) {
+            e->vpmovsxwd(a_sum[1], a_sum[1].half());
+            e->vmovups(x86::ymmword_ptr(a_sum_addr, 96), a_sum[1]);
+          } else {
+            e->vmovups(x86::xmmword_ptr(a_sum_addr, 48), a_sum[1].half());
+          }
         }
 
         if (main_loop) {
-          e->add(a_sum_addr, asmjit::Imm(128));
+          e->add(a_sum_addr, asmjit::Imm(128 / oc_per_g));
         }
       }
 
       if (main_loop) {
         e->add(c_addr, asmjit::Imm(128));
-        e->add(a_addr_save, asmjit::Imm(32));
+        e->add(a_addr_save, asmjit::Imm(32 / oc_per_g));
         e->mov(a_addr, a_addr_save);
         e->jmp(ic_loop_begin);
 
@@ -481,6 +554,11 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       std::cout << "Error: in fn add" << std::endl;
       return nullptr;
     }
+
+#ifdef FBGEMM_LOG_CODE
+    fclose(codeLogFile);
+    delete codeLogger;
+#endif
 
     return fn;
   });
