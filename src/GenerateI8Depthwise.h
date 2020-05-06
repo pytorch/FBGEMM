@@ -19,13 +19,14 @@ class GenI8Depthwise {
       std::int32_t* a_sum, // row_wise sum of A
       int h,
       int w,
-      int c_in, // the number of input channels
+      int ic, // the number of input channels == the number of groups
       const int* mask,
       int A_zero_point);
 
   jit_kernel_signature getOrCreate(
       int D, // dimension
       int F, // filter size per dimension
+      int oc_per_g, // the number of output channels per group
       bool compute_a_sum,
       int remainder, // the number of channels in the remainder loop
       int prev_skip,

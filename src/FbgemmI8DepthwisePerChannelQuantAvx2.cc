@@ -16,13 +16,13 @@ using namespace std;
 
 namespace fbgemm {
 
-// Dispatch input shape and FUSE_RELU
+// Old interface
 template <typename BIAS_TYPE /*=std::int32_t*/>
 void depthwise_2d_per_channel_quantization_same_pad(
     int N,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_h,
     int stride_w,
     int32_t A_zero_point,
@@ -38,77 +38,27 @@ void depthwise_2d_per_channel_quantization_same_pad(
     const float* act_times_w_scale,
     int thread_id,
     int num_threads) {
-  if (Bp.GetKernelProduct() == 3 * 3) {
-    depthwise_3x3_per_channel_quantization_pad_1(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        fuse_relu,
-        act_times_w_scale,
-        thread_id,
-        num_threads);
-    return;
-  }
-
-  if (Bp.GetKernelProduct() != 5 * 5) {
-    string msg =
-        "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
-        to_string(5 * 5) + " but has " + to_string(Bp.GetKernelProduct());
-    throw logic_error(msg);
-  }
-  if (fuse_relu) {
-    depthwise_2d_per_channel_quantization_<5, true /* FUSE_RELU */, BIAS_TYPE>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        act_times_w_scale,
-        thread_id,
-        num_threads);
-  } else {
-    depthwise_2d_per_channel_quantization_<5, false /* FUSE_RELU */, BIAS_TYPE>(
-        N,
-        H,
-        W,
-        K,
-        stride_h,
-        stride_w,
-        A_zero_point,
-        A,
-        B_zero_point,
-        Bp,
-        C_multiplier,
-        C_zero_point,
-        C,
-        col_offsets,
-        bias,
-        act_times_w_scale,
-        thread_id,
-        num_threads);
-  }
+  depthwise_2d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
+      N,
+      H,
+      W,
+      IC_OC,
+      IC_OC,
+      stride_h,
+      stride_w,
+      A_zero_point,
+      A,
+      B_zero_point,
+      Bp,
+      C_multiplier,
+      C_zero_point,
+      C,
+      col_offsets,
+      bias,
+      fuse_relu,
+      act_times_w_scale,
+      thread_id,
+      num_threads);
 }
 
 template FBGEMM_API void
@@ -116,7 +66,7 @@ depthwise_2d_per_channel_quantization_same_pad<int32_t>(
     int N,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_h,
     int stride_w,
     int32_t A_zero_point,
@@ -137,7 +87,7 @@ template FBGEMM_API void depthwise_2d_per_channel_quantization_same_pad<float>(
     int N,
     int H,
     int W,
-    int K,
+    int IC_OC,
     int stride_h,
     int stride_w,
     int32_t A_zero_point,
