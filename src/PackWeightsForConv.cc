@@ -29,7 +29,7 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       W_dw_packed_ = std::make_shared<PackedDepthWiseConvMatrix>(
-          conv_p.G, kernel_d * kernel_h * kernel_w, sdata);
+          conv_p.OC, kernel_d * kernel_h * kernel_w, sdata);
       break;
     }
     case optimized_conv_t::groupwise: {

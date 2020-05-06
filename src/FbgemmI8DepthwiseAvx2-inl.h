@@ -89,9 +89,17 @@ static ALWAYS_INLINE void requantize_(
                     reinterpret_cast<const float*>(row_offsets + j / 2))),
                 permute_mask_v)));
       }
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        assert(K_PER_G == 2);
+        B_zero_point_v =
+            _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(B_zero_point + j / 2))),
+                permute_mask_v)));
       }
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
@@ -117,9 +125,17 @@ static ALWAYS_INLINE void requantize_(
                         row_offsets + (j + VLEN) / 2))),
                 permute_mask_v)));
       }
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j + VLEN));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        B_zero_point_v =
+            _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                _mm256_castps128_ps256(
+                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                        B_zero_point + (j + VLEN) / 2))),
+                permute_mask_v)));
       }
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       y_v = _mm256_sub_epi32(y_v, row_offset_v);
@@ -144,9 +160,17 @@ static ALWAYS_INLINE void requantize_(
                         row_offsets + (j + 2 * VLEN) / 2))),
                 permute_mask_v)));
       }
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j + 2 * VLEN));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        B_zero_point_v =
+            _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                _mm256_castps128_ps256(
+                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                        B_zero_point + (j + 2 * VLEN) / 2))),
+                permute_mask_v)));
       }
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       z_v = _mm256_sub_epi32(z_v, row_offset_v);
@@ -171,9 +195,17 @@ static ALWAYS_INLINE void requantize_(
                         row_offsets + (j + 3 * VLEN) / 2))),
                 permute_mask_v)));
       }
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j + 3 * VLEN));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        B_zero_point_v =
+            _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                _mm256_castps128_ps256(
+                    _mm_loadu_ps(reinterpret_cast<const float*>(
+                        B_zero_point + (j + 3 * VLEN) / 2))),
+                permute_mask_v)));
       }
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       w_v = _mm256_sub_epi32(w_v, row_offset_v);
@@ -191,7 +223,8 @@ static ALWAYS_INLINE void requantize_(
     if (HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+            (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
           x_bias_v = _mm256_div_ps(
               _mm256_loadu_ps(
                   reinterpret_cast<const float*>(bias + j + 0 * VLEN)),
@@ -208,6 +241,36 @@ static ALWAYS_INLINE void requantize_(
               _mm256_loadu_ps(
                   reinterpret_cast<const float*>(bias + j + 3 * VLEN)),
               _mm256_loadu_ps(act_times_w_scale + j + 3 * VLEN));
+        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          assert(K_PER_G == 2);
+          x_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 0 * VLEN)),
+              _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(act_times_w_scale + j / 2)),
+                  permute_mask_v)));
+          y_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 1 * VLEN)),
+              _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(act_times_w_scale + (j + VLEN) / 2)),
+                  permute_mask_v)));
+          z_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 2 * VLEN)),
+              _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(act_times_w_scale + (j + 2 * VLEN) / 2)),
+                  permute_mask_v)));
+          w_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(
+                  reinterpret_cast<const float*>(bias + j + 3 * VLEN)),
+              _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(act_times_w_scale + (j + 3 * VLEN) / 2)),
+                  permute_mask_v)));
         } else {
           x_bias_v = _mm256_mul_ps(
               _mm256_loadu_ps(
@@ -259,20 +322,42 @@ static ALWAYS_INLINE void requantize_(
       wf_v = _mm256_cvtepi32_ps(w_v);
     }
 
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 0 * VLEN);
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+          _mm256_castps128_ps256(_mm_loadu_ps(C_multiplier + j / 2)),
+          permute_mask_v));
     }
     __m256 x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 1 * VLEN);
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+          _mm256_castps128_ps256(_mm_loadu_ps(C_multiplier + (j + VLEN) / 2)),
+          permute_mask_v));
     }
     __m256 y_scaled_v = _mm256_mul_ps(yf_v, multiplier_v);
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 2 * VLEN);
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+          _mm256_castps128_ps256(
+              _mm_loadu_ps(C_multiplier + (j + 2 * VLEN) / 2)),
+          permute_mask_v));
     }
     __m256 z_scaled_v = _mm256_mul_ps(zf_v, multiplier_v);
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j + 3 * VLEN);
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+          _mm256_castps128_ps256(
+              _mm_loadu_ps(C_multiplier + (j + 3 * VLEN) / 2)),
+          permute_mask_v));
     }
     __m256 w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
 
@@ -315,9 +400,17 @@ static ALWAYS_INLINE void requantize_(
                     reinterpret_cast<const float*>(row_offsets + j / 2))),
                 permute_mask_v)));
       }
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+          (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        assert(K_PER_G == 2);
+        B_zero_point_v =
+            _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                _mm256_castps128_ps256(_mm_loadu_ps(
+                    reinterpret_cast<const float*>(B_zero_point + j / 2))),
+                permute_mask_v)));
       }
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
@@ -335,10 +428,18 @@ static ALWAYS_INLINE void requantize_(
     if (HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v;
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+            (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
           x_bias_v = _mm256_div_ps(
               _mm256_loadu_ps(reinterpret_cast<const float*>(bias + j)),
               _mm256_loadu_ps(act_times_w_scale + j));
+        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          x_bias_v = _mm256_div_ps(
+              _mm256_loadu_ps(reinterpret_cast<const float*>(bias + j)),
+              _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(act_times_w_scale + j / 2)),
+                  permute_mask_v)));
         } else {
           x_bias_v = _mm256_mul_ps(
               _mm256_loadu_ps(reinterpret_cast<const float*>(bias + j)),
@@ -355,8 +456,13 @@ static ALWAYS_INLINE void requantize_(
       xf_v = _mm256_cvtepi32_ps(x_v);
     }
 
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
       multiplier_v = _mm256_loadu_ps(C_multiplier + j);
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+          _mm256_castps128_ps256(_mm_loadu_ps(C_multiplier + j / 2)),
+          permute_mask_v));
     }
     __m256 x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
     __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
@@ -378,10 +484,15 @@ static ALWAYS_INLINE void requantize_(
 
   for (; j < n; ++j) {
     std::int32_t raw = C_int32[j];
+    int quant_param_idx = 0;
+    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
+        (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
+      quant_param_idx = j;
+    } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+      quant_param_idx = j / 2;
+    }
     if (!B_SYMMETRIC) {
-      raw -=
-          B_zero_point[Q_GRAN == QuantizationGranularity::OUT_CHANNEL ? j : 0] *
-          row_offsets[j / K_PER_G];
+      raw -= B_zero_point[quant_param_idx] * row_offsets[j / K_PER_G];
     }
     if (!A_SYMMETRIC) {
       raw -= A_zero_point * col_offsets[j];
@@ -390,9 +501,7 @@ static ALWAYS_INLINE void requantize_(
     if (HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         raw_f = raw;
-        raw_f += bias[j] /
-            act_times_w_scale
-                [Q_GRAN == QuantizationGranularity::OUT_CHANNEL ? j : 0];
+        raw_f += bias[j] / act_times_w_scale[quant_param_idx];
       } else {
         raw += bias[j];
         raw_f = raw;
@@ -401,8 +510,7 @@ static ALWAYS_INLINE void requantize_(
       raw_f = raw;
     }
 
-    float ab = raw_f *
-        C_multiplier[Q_GRAN == QuantizationGranularity::OUT_CHANNEL ? j : 0];
+    float ab = raw_f * C_multiplier[quant_param_idx];
     long rounded = lrintf(ab) + C_zero_point;
 
     C_uint8[j] = std::max(
