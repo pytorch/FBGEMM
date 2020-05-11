@@ -45,14 +45,14 @@ void run_benchmark(
     int num_rows,
     int embedding_dim,
     int average_len,
+    bool use_fp16_weights,
     bool use_32_bit_indices = false,
     bool prefetch = false) {
   vector<char> llc(64L * 1024L * 1024L, 1.0);
   vector<float> g(batch_size * embedding_dim); // gradients
   vector<float> h(num_rows); // input momentums
   vector<float> w(num_rows * embedding_dim); // input params
-  vector<float> h_ref(h.size());
-  vector<float> w_ref(w.size());
+  vector<float16> w_fp16(w.size()); // input params
 
   default_random_engine generator;
   // normal_distribution<float> h_w_distribution;
@@ -62,10 +62,10 @@ void run_benchmark(
     g[i] = 4 + i; // h_w_distribution(generator);
   }
   for (int i = 0; i < h.size(); ++i) {
-    h_ref[i] = h[i] = 2 + i; // h_w_distribution(generator);
+    h[i] = 2 + i; // h_w_distribution(generator);
   }
   for (int i = 0; i < w.size(); ++i) {
-    w_ref[i] = w[i] = 3 + i; // h_w_distribution(generator);
+    w[i] = 3 + i; // h_w_distribution(generator);
   }
 
   // Generate lengths
@@ -104,47 +104,81 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   // Only counts the number of bytes for reading embedding table and ignore
   // others. Should be good enough as long as embdding_dim is big enough.
-  double bytes = lengths_sum *
-          ((embedding_dim + 1) * sizeof(float) * 2 +
-           (use_32_bit_indices ? 4 : 8)) +
-      batch_size * (embedding_dim * sizeof(float) + sizeof(int));
-  double bytes_padded = lengths_sum *
-          (((embedding_dim * sizeof(float) + 63) / 64 + 1) * 64 * 2 +
-           (use_32_bit_indices ? 4 : 8)) +
-      batch_size * (embedding_dim * sizeof(float) + sizeof(int));
+  double bytes =
+    lengths_sum * ((embedding_dim + 1) *
+                   (use_fp16_weights ? sizeof(float16) : sizeof(float)) * 2 +
+                   (use_32_bit_indices ? 4 : 8)) +
+    batch_size * (embedding_dim * sizeof(float) + sizeof(int));
+  // FIXME: float16 is counted as float for effective byte loading
+  double bytes_padded =
+    lengths_sum * (((embedding_dim * sizeof(float) + 63) / 64 + 1) * 64 * 2 +
+                   (use_32_bit_indices ? 4 : 8)) +
+    batch_size * (embedding_dim * sizeof(float) + sizeof(int));
 
-  auto kernel_i32 = GenerateRowWiseSparseAdaGradFused<int32_t>(
-      embedding_dim, prefetch ? 16 : 0);
-  auto kernel_i64 = GenerateRowWiseSparseAdaGradFused<int64_t>(
-      embedding_dim, prefetch ? 16 : 0);
+  auto kernel_i32 = GenerateRowWiseSparseAdaGradFused
+    <int32_t, int32_t, float>(embedding_dim, prefetch ? 16 : 0);
+  auto kernel_i64 = GenerateRowWiseSparseAdaGradFused
+    <int64_t, int32_t, float>(embedding_dim, prefetch ? 16 : 0);
+  auto kernel_fp16_i32 = GenerateRowWiseSparseAdaGradFused
+    <int32_t, int32_t, float16>(embedding_dim, prefetch ? 16 : 0);
+  auto kernel_fp16_i64 = GenerateRowWiseSparseAdaGradFused
+    <int64_t, int32_t, float16>(embedding_dim, prefetch ? 16 : 0);
 
   for (bool flush_cache : {false, true}) {
     double t = measureWithWarmup(
         [&]() {
-          if (use_32_bit_indices) {
-            kernel_i32(
-                batch_size,
-                lengths_sum,
-                num_rows,
-                w.data(),
-                g.data(),
-                h.data(),
-                indices_32.data(),
-                lengths.data(),
-                epsilon,
-                lr);
+          if (use_fp16_weights) {
+            if (use_32_bit_indices) {
+              kernel_fp16_i32(
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  w_fp16.data(),
+                  g.data(),
+                  h.data(),
+                  indices_32.data(),
+                  lengths.data(),
+                  epsilon,
+                  lr);
+            } else {
+              kernel_fp16_i64(
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  w_fp16.data(),
+                  g.data(),
+                  h.data(),
+                  indices.data(),
+                  lengths.data(),
+                  epsilon,
+                  lr);
+            }
           } else {
-            kernel_i64(
-                batch_size,
-                lengths_sum,
-                num_rows,
-                w.data(),
-                g.data(),
-                h.data(),
-                indices.data(),
-                lengths.data(),
-                epsilon,
-                lr);
+            if (use_32_bit_indices) {
+              kernel_i32(
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  w.data(),
+                  g.data(),
+                  h.data(),
+                  indices_32.data(),
+                  lengths.data(),
+                  epsilon,
+                  lr);
+            } else {
+              kernel_i64(
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  w.data(),
+                  g.data(),
+                  h.data(),
+                  indices.data(),
+                  lengths.data(),
+                  epsilon,
+                  lr);
+            }
           }
         },
         NUM_WARMUP,
@@ -183,23 +217,27 @@ int main() {
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
          << endl;
 
-    for (bool use_32_bit_indices : {false, true}) {
-      for (bool prefetch : {false, true}) {
-        // args: batch sz, num rows, emb dim, avg len, use 32b, prefetch
-        cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
-        if (prefetch) {
-          cout << " with prefetching";
-        }
-        cout << ", ";
-        run_benchmark(
-            batch_size,
-            num_rows,
-            embedding_dim,
-            average_len,
-            use_32_bit_indices,
-            prefetch);
-      } // prefetch
-    } // use_32_bit_indices
+    for (bool use_fp16_weights : {false, true}) {
+      for (bool use_32_bit_indices : {false, true}) {
+        for (bool prefetch : {false, true}) {
+          // args: batch sz, num rows, emb dim, avg len, use 32b, prefetch
+          cout << (use_fp16_weights ? " float16" : " float32") << " weights";
+          cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
+          if (prefetch) {
+            cout << " with prefetching";
+          }
+          cout << ", ";
+          run_benchmark(
+              batch_size,
+              num_rows,
+              embedding_dim,
+              average_len,
+              use_fp16_weights,
+              use_32_bit_indices,
+              prefetch);
+        } // prefetch
+      } // use_32_bit_indices
+    } // use_fp16_weights
   } // for each input
 
   return 0;
