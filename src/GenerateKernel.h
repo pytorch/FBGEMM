@@ -131,7 +131,7 @@ class CodeGenBase {
     }
     oss << "accum-" + std::to_string(accum) << "_MC-" + std::to_string(mc)
         << "_NC-" + std::to_string(nc) << "_NCB-" + std::to_string(NCB)
-        << "_NCB-" + std::to_string(KCB) << "_MR-" + std::to_string(MR)
+        << "_KCB-" + std::to_string(KCB) << "_MR-" + std::to_string(MR)
         << "_NR-" + std::to_string(NR);
     if (instSet == inst_set_t::avx512_vnni) {
       oss << "_avx512vnni";
