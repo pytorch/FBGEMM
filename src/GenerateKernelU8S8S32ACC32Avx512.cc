@@ -19,10 +19,12 @@ template <>
 template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
     inst_set_t::avx512>(x86::Emitter* a, int rowRegs, int colRegs) {
-  using CRegs = x86::Zmm;
+  using CRegs = x86::Xmm;
+  // Take advantage of implicit zeroing out
+  // i.e., zero out xmm and zmm will be zeroed out too
   for (int i = 0; i < rowRegs; ++i) {
     for (int j = 0; j < colRegs; ++j) {
-      a->vxorps(
+      a->vpxor(
           CRegs(i * colRegs + j),
           CRegs(i * colRegs + j),
           CRegs(i * colRegs + j));
@@ -60,7 +62,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
   using CRegs = x86::Zmm;
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    a->vmovaps(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
+    a->vmovdqa32(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
       a->vpbroadcastd(

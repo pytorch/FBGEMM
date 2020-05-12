@@ -351,7 +351,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     }
     x86::Ymm zero(vreg_id);
     if (need_zero && (!recompute_zero || !has_pad)) {
-      e->vxorps(zero, zero, zero);
+      e->vpxor(zero.xmm(), zero.xmm(), zero.xmm());
     }
 
     // Assign scalar registers
@@ -433,7 +433,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             if (i % 4 == 3 || i == K - 1) {
               if (i == K - 1 && (i / 4 * 4 == K - 3 || i / 4 * 4 == K - 1)) {
                 if (recompute_zero && has_pad) {
-                  e->vxorps(zero, zero, zero);
+                  e->vpxor(zero.xmm(), zero.xmm(), zero.xmm());
                 }
               }
 
@@ -465,7 +465,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
                       asmjit::Imm(r < 2 ? 0x20 : 0x31));
                 }
                 for (int r = 0; r < (main_loop ? 4 : remainder / 8); ++r) {
-                  e->vmovaps(c[r], a[r]);
+                  e->vmovdqa(c[r], a[r]);
                 }
               }
             }
