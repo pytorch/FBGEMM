@@ -18,7 +18,7 @@
 #include <numeric>
 #include <thread>
 #include <iostream>
-#include <x86intrin.h>
+#include <immintrin.h>
 
 using namespace std;
 
