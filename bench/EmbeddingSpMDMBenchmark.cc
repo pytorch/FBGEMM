@@ -74,13 +74,14 @@ void run_benchmark(
   // Generate lengths
   uniform_int_distribution<int> length_distribution(
       1, std::min(2 * average_len + 1, num_rows));
-  vector<int> lengths(batch_size);
+  vector<int> offsets(batch_size + 1);
+  offsets[0] = 0;
   for (int i = 0; i < batch_size; ++i) {
-    lengths[i] = length_distribution(generator);
+    offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
   // Compute the number of indices
-  int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
+  int lengths_sum = offsets[batch_size];
   cout << "lengths_sum " << lengths_sum << endl;
 
   // Generate indices
@@ -95,7 +96,7 @@ void run_benchmark(
     random_shuffle(container.begin(), container.end());
     copy(
         container.begin(),
-        container.begin() + lengths[i],
+        container.begin() + (offsets[i + 1] - offsets[i]),
         back_inserter(indices));
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
@@ -135,7 +136,7 @@ void run_benchmark(
             num_rows,
             embedding_table_fp16.data(),
             indices_32.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -147,7 +148,7 @@ void run_benchmark(
             num_rows,
             embedding_table_fp16.data(),
             indices.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -161,7 +162,7 @@ void run_benchmark(
             num_rows,
             embedding_table.data(),
             indices_32.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -173,7 +174,7 @@ void run_benchmark(
             num_rows,
             embedding_table.data(),
             indices.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -201,7 +202,7 @@ void run_benchmark(
                     num_rows,
                     embedding_table_fp16.data(),
                     indices_32.data(),
-                    lengths.data(),
+                    offsets.data(),
                     has_weight ? weights.data() : nullptr,
                     output.data());
               } else {
@@ -211,7 +212,7 @@ void run_benchmark(
                     num_rows,
                     embedding_table_fp16.data(),
                     indices.data(),
-                    lengths.data(),
+                    offsets.data(),
                     has_weight ? weights.data() : nullptr,
                     output.data());
               }
@@ -223,7 +224,7 @@ void run_benchmark(
                     num_rows,
                     embedding_table.data(),
                     indices_32.data(),
-                    lengths.data(),
+                    offsets.data(),
                     has_weight ? weights.data() : nullptr,
                     output.data());
               } else {
@@ -233,7 +234,7 @@ void run_benchmark(
                     num_rows,
                     embedding_table.data(),
                     indices.data(),
-                    lengths.data(),
+                    offsets.data(),
                     has_weight ? weights.data() : nullptr,
                     output.data());
               }
@@ -246,7 +247,7 @@ void run_benchmark(
               cache_evict(embedding_table);
               cache_evict(indices);
               cache_evict(indices_32);
-              cache_evict(lengths);
+              cache_evict(offsets);
               cache_evict(weights);
               cache_evict(output);
             }
