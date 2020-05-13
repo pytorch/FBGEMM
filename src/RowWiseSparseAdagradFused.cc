@@ -617,7 +617,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                     a->vpaddd(out_vreg, r0_vreg, out_vreg);
                   }
                   // Truncate rounding to 'counterwork' the random added part
-                  a->vcvtps2ph(x86::word_ptr(x86::rsp), out_vreg, 0b11);
+                  a->vcvtps2ph(x86::word_ptr(x86::rsp), out_vreg, 11);
                   // Copy results back
                   for (size_t r = 0; r < remainder; ++r) {
                     a->mov(h.r16(), x86::ptr(x86::rsp, sizeof(dataType) * r));
@@ -637,7 +637,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                     a->vpaddd(out_vreg, r0_vreg, out_vreg);
                   }
                   // Truncate rounding
-                  a->k(x86::k(1)).vcvtps2ph(w_ptr, out_vreg, 0b11);
+                  a->k(x86::k(1)).vcvtps2ph(w_ptr, out_vreg, 11);
                 }
               } else {
                 a->vcvtph2ps(out_vreg, w_ptr);
@@ -646,7 +646,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   a->vpaddd(out_vreg, r0_vreg, out_vreg);
                 }
                 // Truncate rounding
-                a->vcvtps2ph(w_ptr, out_vreg, 0b11);
+                a->vcvtps2ph(w_ptr, out_vreg, 11);
               }
             }
 

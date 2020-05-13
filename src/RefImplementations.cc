@@ -18,7 +18,20 @@
 #include <numeric>
 #include <thread>
 #include <iostream>
-#include <immintrin.h>
+#include <immintrin.h> // for _cvtss_sh/_cvtsh_ss
+
+#ifdef _MSC_VER
+// MSVC does not provide _cvtsh_ss/_cvtss_sh
+#define _cvtsh_ss(a) \
+  _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(a)))
+
+// FIXME -
+// MSVC assumes rounding is 0...7 so the _MM_FROUND_NO_EXC (which is 0x8
+// if set) will lose.
+#define _cvtss_sh(a, rounding) static_cast<unsigned short> \
+  (_mm_cvtsi128_si32(_mm_cvtps_ph(_mm_set_ss(a), ((rounding) & 0x7U))))
+
+#endif
 
 using namespace std;
 
