@@ -71,13 +71,14 @@ void run_benchmark(
   // Generate lengths
   uniform_int_distribution<int> length_distribution(
       1, std::min(2 * average_len + 1, num_rows));
-  vector<int> lengths(batch_size);
+  vector<int> offsets(batch_size + 1);
+  offsets[0] = 0;
   for (int i = 0; i < batch_size; ++i) {
-    lengths[i] = length_distribution(generator);
+    offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
   // Compute the number of indices
-  int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
+  int lengths_sum = offsets[batch_size];
   cout << "lengths_sum " << lengths_sum << endl;
 
   // Generate indices
@@ -92,7 +93,7 @@ void run_benchmark(
     random_shuffle(container.begin(), container.end());
     copy(
         container.begin(),
-        container.begin() + lengths[i],
+        container.begin() + (offsets[i + 1] - offsets[i]),
         back_inserter(indices));
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
@@ -130,7 +131,7 @@ void run_benchmark(
                 g.data(),
                 h.data(),
                 indices_32.data(),
-                lengths.data(),
+                offsets.data(),
                 epsilon,
                 lr);
           } else {
@@ -142,7 +143,7 @@ void run_benchmark(
                 g.data(),
                 h.data(),
                 indices.data(),
-                lengths.data(),
+                offsets.data(),
                 epsilon,
                 lr);
           }
