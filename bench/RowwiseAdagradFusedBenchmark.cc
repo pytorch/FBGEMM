@@ -109,9 +109,9 @@ void run_benchmark(
                    (use_fp16_weights ? sizeof(float16) : sizeof(float)) * 2 +
                    (use_32_bit_indices ? 4 : 8)) +
     batch_size * (embedding_dim * sizeof(float) + sizeof(int));
-  // FIXME: float16 is counted as float for effective byte loading
   double bytes_padded =
-    lengths_sum * (((embedding_dim * sizeof(float) + 63) / 64 + 1) * 64 * 2 +
+    lengths_sum * (((embedding_dim * (use_fp16_weights ? sizeof(float16) :
+                                      sizeof(float)) + 63) / 64 + 1) * 64 * 2 +
                    (use_32_bit_indices ? 4 : 8)) +
     batch_size * (embedding_dim * sizeof(float) + sizeof(int));
 

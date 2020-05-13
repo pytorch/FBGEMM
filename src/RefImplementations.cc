@@ -17,6 +17,8 @@
 #include <cstring>
 #include <numeric>
 #include <thread>
+#include <iostream>
+#include <x86intrin.h>
 
 using namespace std;
 
@@ -26,7 +28,7 @@ namespace fbgemm {
 //
 // Return a random 32bit integer using xoshiro128++
 // http://prng.di.unimi.it/xoshiro128plusplus.c
-inline uint32_t rnd128_next(int v, int vlen) {
+inline uint32_t rnd128_next(int idx, int vlen) {
   constexpr int VLEN_MAX = 16; // max vector size
   alignas(64) static thread_local uint32_t g_rnd128_buffer[4 * VLEN_MAX];
   static thread_local bool g_rnd128_initialized = false;
@@ -58,19 +60,19 @@ inline uint32_t rnd128_next(int v, int vlen) {
   }
 
   const uint32_t result =
-    rotl(g_rnd128_buffer[v] + g_rnd128_buffer[3 * vlen + v], 7)
-    + g_rnd128_buffer[v];
+    rotl(g_rnd128_buffer[idx] + g_rnd128_buffer[3 * vlen + idx], 7)
+    + g_rnd128_buffer[idx];
 
-  const uint32_t t = g_rnd128_buffer[1 * vlen + v] << 9;
+  const uint32_t t = g_rnd128_buffer[1 * vlen + idx] << 9;
 
-  g_rnd128_buffer[2 * vlen + v] ^= g_rnd128_buffer[0 * vlen + v];
-  g_rnd128_buffer[3 * vlen + v] ^= g_rnd128_buffer[1 * vlen + v];
-  g_rnd128_buffer[1 * vlen + v] ^= g_rnd128_buffer[2 * vlen + v];
-  g_rnd128_buffer[0 * vlen + v] ^= g_rnd128_buffer[3 * vlen + v];
+  g_rnd128_buffer[2 * vlen + idx] ^= g_rnd128_buffer[0 * vlen + idx];
+  g_rnd128_buffer[3 * vlen + idx] ^= g_rnd128_buffer[1 * vlen + idx];
+  g_rnd128_buffer[1 * vlen + idx] ^= g_rnd128_buffer[2 * vlen + idx];
+  g_rnd128_buffer[0 * vlen + idx] ^= g_rnd128_buffer[3 * vlen + idx];
 
-  g_rnd128_buffer[2 * vlen + v] ^= t;
+  g_rnd128_buffer[2 * vlen + idx] ^= t;
 
-  g_rnd128_buffer[3 * vlen + v] = rotl(g_rnd128_buffer[3 * vlen + v], 11);
+  g_rnd128_buffer[3 * vlen + idx] = rotl(g_rnd128_buffer[3 * vlen + idx], 11);
 
   return result;
 }
@@ -1200,16 +1202,16 @@ int rowwise_sparse_adagrad_fused_ref(
     bool use_stochastic_rounding,
     int emu_vector_size) {
   constexpr bool isFloat16w = std::is_same<float16, DataType>::value;
-  // TODO: warning on vector-size not 8/16
-  int vlen = emu_vector_size;
   // Local random buffer to emulate SIMD vector
   // R: generated 32bit base random numbers
   // r: extracted 8-bit for rounding
-  uint32_t *R = nullptr, *r = nullptr;
-  if (isFloat16w && use_stochastic_rounding) {
-    // Random vector buffer for stochastic rounding
-    R = new uint32_t[vlen];
-    r = new uint32_t[vlen];
+  constexpr int VLEN_MAX = 16;
+  uint32_t R[VLEN_MAX], r[VLEN_MAX];
+  int vlen = emu_vector_size;
+  if (vlen != 8 && vlen != 16) {
+    // Raise error as it may cause buffer overflow
+    cout << "Not supported emu_vector_size: " << emu_vector_size << endl;
+    return false;
   }
 
   int64_t current = 0;
@@ -1272,39 +1274,40 @@ int rowwise_sparse_adagrad_fused_ref(
       // This will be effectively adding a random variable of [0,1]
 
       for (int n = 0; n < nvec; ++n) {
-        int len = (n == nvec - 1) ? rem : vlen;
+        int cur_vlen = (n == nvec - 1) ? rem : vlen;
         int sr_idx = n % 4;
 
         if (isFloat16w && use_stochastic_rounding) {
           if (sr_idx == 0) {
             for (int v = 0; v < vlen; ++v) {
               R[v] = rnd128_next(v, vlen);
-              r[v] = (R[v] << 24) >> 19;
+              r[v] = (R[v] & 0xFFU) << 5;
             }
           } else if (sr_idx == 1) {
             for (int v = 0; v < vlen; ++v)
-              r[v] = ((R[v] >> 8) << 24) >> 19;
+              r[v] = ((R[v] & 0xFF00U) >> 8) << 5;
           } else if (sr_idx == 2) {
             for (int v = 0; v < vlen; ++v)
-              r[v] = ((R[v] << 8) >> 24) << 5;
+              r[v] = ((R[v] & 0xFF0000U) >> 16) << 5;
           } else { // 3
             for (int v = 0; v < vlen; ++v)
-              r[v] = (R[v] >> 24) << 5;
+              r[v] = ((R[v] & 0xFF000000U) >> 24) << 5;
           }
         }
 
-        for (int v = 0; v < len; ++v) {
+        for (int v = 0; v < cur_vlen; ++v) {
           int j = n * vlen + v;
           if (isFloat16w) {
             union {
               float w_f32;
               uint32_t w_i32;
             };
-            w_f32 = cpu_half2float(w_[j]);
+            w_f32 = _cvtsh_ss(w_[j]);
             w_f32 = std::fma(float_step, g_[j], w_f32);
             if (use_stochastic_rounding)
               w_i32 += r[v];
-            w_[j] = cpu_float2half_rn(w_f32);
+            // Use truncate rounding to 'counterwork' the random added part
+            w_[j] = _cvtss_sh(w_f32, _MM_FROUND_TO_ZERO |_MM_FROUND_NO_EXC);
           } else { // float
             w_[j] += g_[j] * float_step;
           }
@@ -1312,10 +1315,6 @@ int rowwise_sparse_adagrad_fused_ref(
       }
     }
   }
-  if (R != nullptr)
-    delete[] R;
-  if (r != nullptr)
-    delete[] r;
 
   return current == index_size;
 }

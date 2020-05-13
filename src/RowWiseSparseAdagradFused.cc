@@ -62,8 +62,9 @@ class GenRowWiseSparseAdagradFused {
 
   static mutex rtMutex_; /// Controll access to runtime;
 
-  // The hash depends on embedding dimension (block size), prefetch distance,
-  // and use_offsets
+  // The hash depends on:
+  // avx2 mask array, embedding dimension (block size), prefetch distance,
+  // use_offsets and use_stochastic_rouding switch
   static CodeCache<
       tuple<const int*, int, int, bool, bool>,
       typename ReturnFunctionSignature<indxType, offsetType, dataType>::
@@ -128,6 +129,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         code.setLogger(codeLogger);
 #endif
 
+        x86::Gp rand_buffer = a->zax();
         x86::Gp output_size = a->zdi();
         x86::Gp index_size = a->zsi();
         x86::Gp data_size = a->zdx();
@@ -138,10 +140,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         x86::Gp lengths = a->gpz(11);
         x86::Xmm epsilon(0);
         x86::Xmm lr(1);
-        x86::Gp rand_buffer = a->gpz(12);
-
-        // FP32 weights does not need rand_buffer
-        x86::Gpd lengths_R = areWeightsFp16 ? a->zbx().r32() : a->gpz(12).r32();
+        x86::Gpd lengths_R = a->gpz(12).r32();
         x86::Gp scratchReg1 = a->gpz(13);
         x86::Gp scratchReg2 = a->gpz(14); // for prefetching
 
@@ -177,16 +176,9 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
         }
 
-        if (areWeightsFp16) {
-          // Random buffer will use R12 exclusively
-          frame.setDirtyRegs(
-              x86::Reg::kGroupGp,
-              asmjit::Support::bitMask(3, 8, 9, 10, 11, 12, 13, 14));
-        } else {
-          frame.setDirtyRegs(
-              x86::Reg::kGroupGp,
-              asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
-        }
+        frame.setDirtyRegs(
+            x86::Reg::kGroupGp,
+            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
         args.assignAll(
@@ -624,7 +616,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   if (use_stochastic_rounding) {
                     a->vpaddd(out_vreg, r0_vreg, out_vreg);
                   }
-                  a->vcvtps2ph(x86::word_ptr(x86::rsp), out_vreg, 0);
+                  // Truncate rounding to 'counterwork' the random added part
+                  a->vcvtps2ph(x86::word_ptr(x86::rsp), out_vreg, 0b11);
                   // Copy results back
                   for (size_t r = 0; r < remainder; ++r) {
                     a->mov(h.r16(), x86::ptr(x86::rsp, sizeof(dataType) * r));
@@ -643,7 +636,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   if (use_stochastic_rounding) {
                     a->vpaddd(out_vreg, r0_vreg, out_vreg);
                   }
-                  a->k(x86::k(1)).vcvtps2ph(w_ptr, out_vreg, 0);
+                  // Truncate rounding
+                  a->k(x86::k(1)).vcvtps2ph(w_ptr, out_vreg, 0b11);
                 }
               } else {
                 a->vcvtph2ps(out_vreg, w_ptr);
@@ -651,7 +645,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 if (use_stochastic_rounding) {
                   a->vpaddd(out_vreg, r0_vreg, out_vreg);
                 }
-                a->vcvtps2ph(w_ptr, out_vreg, 0);
+                // Truncate rounding
+                a->vcvtps2ph(w_ptr, out_vreg, 0b11);
               }
             }
 
@@ -678,10 +673,10 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
         a->cmp(indices, index_size);
         a->jne(error);
-        a->mov(x86::eax, true);
+        a->mov(scratchReg1.r32(), true);
         a->jmp(exit);
         a->bind(error);
-        a->mov(x86::eax, false);
+        a->mov(scratchReg1.r32(), false);
         a->bind(exit);
 
         if (areWeightsFp16 && use_stochastic_rounding) {
@@ -703,6 +698,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                                   3 * vlen * sizeof(uint32_t)), S3_vreg);
           }
         }
+
+        a->mov(x86::eax, scratchReg1.r32());
         a->emitEpilog(frame);
 
         // jit_fused8bitembedding_kernel fn;
