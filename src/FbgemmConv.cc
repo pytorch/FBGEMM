@@ -49,6 +49,11 @@ bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       std::accumulate(conv_p.pad.begin(), conv_p.pad.end(), 0) == 0;
 }
 
+template <int SPATIAL_DIM>
+bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  return false;
+}
+
 template <int SPATIAL_DIM, typename ACC_T>
 optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   if (takeDepthWiseFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
@@ -57,6 +62,8 @@ optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
     return optimized_conv_t::groupwise;
   } else if (takePointWiseFastPath<SPATIAL_DIM>(conv_p)) {
     return optimized_conv_t::pointwise;
+  } else if (take1DFastPath<SPATIAL_DIM>(conv_p)) {
+    return optimized_conv_t::fastpath1d;
   } else {
     return optimized_conv_t::im2col;
   }
@@ -73,10 +80,6 @@ int fbgemmConv(
     int thread_id,
     int num_threads,
     const BlockingFactors* blocking_params) {
-  static_assert(
-      SPATIAL_DIM == 2 || SPATIAL_DIM == 3,
-      "Only 2D and 3D convolutions are supported");
-
   if (!packed_weights.isPackingCompliant(conv_p)) {
     std::string msg =
         "[FBGEMM_CONV_ERROR] Convolution parameters "
@@ -317,6 +320,9 @@ int fbgemmConv(
           blocking_params);
       break;
     }
+    case optimized_conv_t::fastpath1d: {
+      break;
+    }
     case optimized_conv_t::im2col: {
       // All other convolutions go through im2col-based implementation
       // std::cout << "Im2col path" << std::endl;
@@ -391,6 +397,7 @@ int fbgemmConv(
   INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, int32_t);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, RELU) \
+  INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 1);        \
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 2);        \
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 3);
 
@@ -421,9 +428,14 @@ template bool takeDepthWiseFastPath<3, std::int16_t>(
     const conv_param_t<3>& conv_p);
 
 template FBGEMM_API optimized_conv_t
+ConvFastPath<1, std::int32_t>(const conv_param_t<1>& conv_p);
+template FBGEMM_API optimized_conv_t
 ConvFastPath<2, std::int32_t>(const conv_param_t<2>& conv_p);
 template FBGEMM_API optimized_conv_t
 ConvFastPath<3, std::int32_t>(const conv_param_t<3>& conv_p);
+
+template FBGEMM_API optimized_conv_t
+ConvFastPath<1, std::int16_t>(const conv_param_t<1>& conv_p);
 template FBGEMM_API optimized_conv_t
 ConvFastPath<2, std::int16_t>(const conv_param_t<2>& conv_p);
 template FBGEMM_API optimized_conv_t

@@ -351,6 +351,50 @@ int32_t clip_16bit(int32_t x) {
   }
 }
 
+/* Imitate the Im2Col<float, CPUContext, StorageOrder::NWC> function
+ * from caffe2/utils/math_cpu.cc
+ * NWC StorageOrder/Layout
+ * A:  NWC: NW_0 x C_0
+ * Ao: NWC: NW_1 x G RS C_0/G
+ */
+template <>
+FBGEMM_API void im2col_ref(
+    const conv_param_t<1>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    uint8_t* Ao) {
+  int IC = conv_p.IC;
+  int G = conv_p.G;
+  assert(IC % G == 0);
+  array<int, 1> IN_DIM = conv_p.IN_DIM;
+  array<int, 1> OUT_DIM = conv_p.OUT_DIM;
+  array<int, 1> K = conv_p.K;
+
+  for (int n = 0; n < conv_p.MB; ++n) {
+    for (int w = 0; w < OUT_DIM[0]; ++w) {
+      for (int s = 0; s < K[0]; ++s) {
+        int w_in =
+            -conv_p.pad[0] + w * conv_p.stride[0] + s * conv_p.dilation[0];
+        if (w_in < 0 || w_in >= IN_DIM[0]) {
+          for (int g = 0; g < G; ++g) {
+            memset(
+                Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
+                A_zero_point,
+                sizeof(uint8_t) * (IC / G));
+          }
+        } else {
+          for (int g = 0; g < G; ++g) {
+            memcpy(
+                Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
+                A + (n * IN_DIM[0] + w_in) * IC + g * (IC / G),
+                sizeof(uint8_t) * (IC / G));
+          }
+        }
+      } // for each s
+    } // for each w
+  } // for each n
+}
+
 /* Imitate the Im2Col<float, CPUContext, StorageOrder::NHWC> function
  * from caffe2/utils/math_cpu.cc
  * NHWC StorageOrder/Layout
@@ -501,6 +545,51 @@ FBGEMM_API void im2col_ref(
   } // for each n
 }
 
+// 1D Conv
+template <>
+FBGEMM_API void conv_ref(
+    const conv_param_t<1>& conv_p,
+    const uint8_t* A,
+    int32_t A_zero_point,
+    const int8_t* B,
+    int32_t* C) {
+  // A is assumed to be (N Lin Cin)
+  // B is assumed to be (G K Cin/G Cout/G)
+  // C is assumed to be (N Lout Cout)
+  int IC = conv_p.IC;
+  int OC = conv_p.OC;
+  int G = conv_p.G;
+  assert(IC % G == 0);
+  assert(OC % G == 0);
+  array<int, 1> IN_DIM = conv_p.IN_DIM;
+  array<int, 1> OUT_DIM = conv_p.OUT_DIM;
+  array<int, 1> K = conv_p.K;
+
+  for (int n = 0; n < conv_p.MB; ++n) {
+    for (int w = 0; w < OUT_DIM[0]; ++w) {
+      for (int g = 0; g < G; ++g) {
+        for (int m = 0; m < OC / G; ++m) {
+          int sum = 0;
+          for (int r = 0; r < K[0]; ++r) {
+            int w_in =
+                -conv_p.pad[0] + w * conv_p.stride[0] + r * conv_p.dilation[0];
+            for (int c = 0; c < IC / G; ++c) {
+              int a = w_in < 0 || w_in >= IN_DIM[0]
+                  ? A_zero_point
+                  : A[(n * IN_DIM[0] + w_in) * IC + g * (IC / G) + c];
+              int b =
+                  B[((g * K[0] + r) * (IC / G) + c) * (OC / G) +
+                    m]; // G K (Cin / G) (Cout / G)  after  transpose
+              sum += a * b;
+            } // for each c
+          } // for each r
+          C[(n * OUT_DIM[0] + w) * OC + g * (OC / G) + m] = sum;
+        } // for each w
+      } // for each m
+    } // for each group
+  } // for each n
+}
+
 // 2D Conv
 template <>
 FBGEMM_API void conv_ref(
@@ -628,9 +717,6 @@ void transposeConvWeights(
   int IC_per_G = conv_p.IC / conv_p.G;
   int OC_per_G = conv_p.OC / conv_p.G;
 
-  assert(
-      (SPATIAL_DIM == 3 || SPATIAL_DIM == 2) &&
-      "Only 2D and 3D convolutions are supported");
   int filter_prod = std::accumulate(
       conv_p.K.begin(),
       conv_p.K.begin() + SPATIAL_DIM,
@@ -1191,6 +1277,11 @@ int rowwise_sparse_adagrad_fused_ref(
 
   return current == index_size;
 }
+
+template FBGEMM_API void transposeConvWeights(
+    const conv_param_t<1>& conv_p,
+    const std::int8_t* src,
+    std::int8_t* dest);
 
 template FBGEMM_API void transposeConvWeights(
     const conv_param_t<2>& conv_p,

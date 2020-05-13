@@ -25,6 +25,17 @@ using namespace std;
 using namespace fbgemm;
 
 // clang-format off
+// 1D conv shapes
+vector<conv_param_t<1>> shapes_1d = {
+  // MB, IC, OC, IW, G, KW, stride_w, pad_w_left, pad_w_right
+  // regular
+  conv_param_t<1>(1, 600, 100, {1}, 1, {3}, {1}, {2, 2}),
+  conv_param_t<1>(1, 600, 100, {2}, 1, {3}, {1}, {2, 2}),
+  conv_param_t<1>(1, 600, 100, {3}, 1, {3}, {1}, {2, 2}),
+  conv_param_t<1>(1, 200, 162, {1}, 1, {3}, {1}, {2, 2}),
+  conv_param_t<1>(1, 600, 100, {4}, 1, {3}, {1}, {2, 2})
+};
+
 // 2D conv shapes
 vector<conv_param_t<2>> shapes_2d = {
   // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
@@ -119,23 +130,38 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
   if (SPATIAL_DIM == 3) {
     header += "IT, ";
   }
-  header += "IH, IW, G, ";
+  if (SPATIAL_DIM > 1) {
+    header += "IH, ";
+  }
+  header += "IW, G, ";
   if (SPATIAL_DIM == 3) {
     header += "KT, ";
   }
-  header += "KH, KW, ";
+  if (SPATIAL_DIM > 1) {
+    header += "KH, ";
+  }
+  header += "KW, ";
   if (SPATIAL_DIM == 3) {
     header += "stride_t, ";
   }
-  header += "stride_h, stride_w, ";
+  if (SPATIAL_DIM > 1) {
+    header += "stride_h, ";
+  }
+  header += "stride_w, ";
   if (SPATIAL_DIM == 3) {
     header += "pad_t, ";
   }
-  header += "pad_h, pad_w, ";
+  if (SPATIAL_DIM > 1) {
+    header += "pad_h, ";
+  }
+  header += "pad_w, ";
   if (SPATIAL_DIM == 3) {
     header += "dilation_t, ";
   }
-  header += "dilation_h, dilation_w, ";
+  if (SPATIAL_DIM > 1) {
+    header += "dilation_h, ";
+  }
+  header += "dilation_w, ";
 
   header += "Type, M, N, K, ";
 
@@ -375,6 +401,7 @@ int main() {
   }
 #endif
   // performance_test<int16_t>();
+  performance_test<1, int32_t>(shapes_1d);
   performance_test<2, int32_t>(shapes_2d);
   performance_test<3, int32_t>(shapes_3d);
   return 0;

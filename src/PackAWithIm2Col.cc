@@ -45,8 +45,6 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
       conv_p_(conv_p),
       sdata_(sdata),
       a_zero_pt_(a_zero_pt) {
-  static_assert(
-      SPATIAL_DIM == 2 || SPATIAL_DIM == 3, "unsupported conv dimension ");
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -203,11 +201,12 @@ void pack_a_with_im2col_opt(
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
-  block_type_t block_p = {block.row_start,
-                          block.row_size,
-                          block.col_start,
-                          (block.col_size + row_interleave_B_ - 1) /
-                              row_interleave_B_ * row_interleave_B_};
+  block_type_t block_p = {
+      block.row_start,
+      block.row_size,
+      block.col_start,
+      (block.col_size + row_interleave_B_ - 1) / row_interleave_B_ *
+          row_interleave_B_};
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
   // accumulate into row offset?
@@ -307,7 +306,46 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
   }
 
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    if (SPATIAL_DIM == 2) { // static if
+    if (SPATIAL_DIM == 1) { // static if
+      int n = i / (conv_p_.OUT_DIM[0]);
+      int w = i % (conv_p_.OUT_DIM[0]);
+      for (int j = block.col_start;
+           j < block.col_start + block.col_size + ic_per_group - 1;
+           j += ic_per_group) {
+        int j_blk_id = j / ic_per_group;
+        // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+        int j_blk_end = std::min(
+            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+        if (j_blk_start >= j_blk_end) {
+          break;
+        }
+
+        int grs = j / ic_per_group;
+        int s = grs % conv_p_.K[0];
+        int g = grs / conv_p_.K[0];
+
+        int w_in =
+            -conv_p_.pad[0] + w * conv_p_.stride[0] + s * conv_p_.dilation[0];
+        if (w_in < 0 || w_in >= conv_p_.IN_DIM[0]) {
+          // Please note that padding for convolution should be filled with
+          // zero_pt
+          std::memset(
+              out + (i - block.row_start) * BaseType::blockColSize() +
+                  (j_blk_start - block.col_start),
+              a_zero_pt_,
+              sizeof(T) * (j_blk_end - j_blk_start));
+        } else {
+          std::memcpy(
+              out + (i - block.row_start) * BaseType::blockColSize() +
+                  j_blk_start - block.col_start,
+              sdata_ + (n * conv_p_.IN_DIM[0] + w_in) * conv_p_.IC +
+                  g * ic_per_group + (j_blk_start % ic_per_group),
+              sizeof(T) * (j_blk_end - j_blk_start));
+        }
+      }
+
+    } else if (SPATIAL_DIM == 2) { // static if
       int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
       int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
       int w = hw % conv_p_.OUT_DIM[1];
@@ -485,8 +523,10 @@ int PackAWithIm2Col<T, accT, SPATIAL_DIM>::rowOffsetBufferSize(
   }
 }
 
-template class PackAWithIm2Col<uint8_t, int32_t>;
-template class PackAWithIm2Col<uint8_t, int16_t>;
+template class PackAWithIm2Col<uint8_t, int32_t, 1>;
+template class PackAWithIm2Col<uint8_t, int16_t, 1>;
+template class PackAWithIm2Col<uint8_t, int32_t, 2>;
+template class PackAWithIm2Col<uint8_t, int16_t, 2>;
 template class PackAWithIm2Col<uint8_t, int32_t, 3>;
 template class PackAWithIm2Col<uint8_t, int16_t, 3>;
 
