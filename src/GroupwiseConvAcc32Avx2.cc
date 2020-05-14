@@ -308,11 +308,13 @@ template <int SPATIAL_DIM>
 void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::initResultRegs(
     x86::Emitter* a) {
   if (kLoopIters_ > 0) {
+    // Take advantage of implicit zeroing out
+    // i.e., zero out xmm and ymm will be zeroed out too
     for (int k = 0; k < kLoopIters_; ++k) {
-      a->vxorps(x86::Ymm(9 - k), x86::Ymm(9 - k), x86::Ymm(9 - k));
+      a->vpxor(x86::Xmm(9 - k), x86::Xmm(9 - k), x86::Xmm(9 - k));
     }
   } else {
-    a->vxorps(x86::Ymm(9), x86::Ymm(9), x86::Ymm(9));
+    a->vpxor(x86::Xmm(9), x86::Xmm(9), x86::Xmm(9));
   }
 }
 
@@ -557,7 +559,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
 
   // row offset
   if (this->needRowOffset_) {
-    a->vxorps(rowOffsetReg_V_, rowOffsetReg_V_, rowOffsetReg_V_);
+    a->vpxor(
+        rowOffsetReg_V_.xmm(), rowOffsetReg_V_.xmm(), rowOffsetReg_V_.xmm());
   }
 
   bool isWidthMiddle = !isLeft && !isRight;

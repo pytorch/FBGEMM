@@ -45,7 +45,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
   assert(colRegs * (rowRegs + 1) <= 31);
 
   for (int j = 0; j < colRegs; ++j) {
-    a->vmovaps(x86::Zmm(30-j), x86::dword_ptr(buffer_B,  j * VLEN_ * sizeof(int8_t)));
+    a->vmovdqa32(
+        x86::Zmm(30 - j), x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
   }
 
   for (int i = 0; i < rowRegs; i++) {
