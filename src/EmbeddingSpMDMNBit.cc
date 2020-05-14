@@ -430,8 +430,12 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         }
 
         // Compute the end address of indices
-        a->lea(
-            index_size, x86::ptr(indices, index_size, areIndices64b ? 3 : 2));
+        a->imul(
+            scratchReg1_,
+            index_size,
+            static_cast<asmjit::Imm>(sizeof(indxType)));
+        a->add(scratchReg1_, indices);
+        a->mov(index_size, scratchReg1_);
 
         asmjit::Label exit = a->newLabel();
         asmjit::Label error = a->newLabel();
@@ -495,9 +499,12 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
           }
 
           // Array out of bound check
-          a->lea(
+          a->imul(
               scratchReg1_,
-              x86::ptr(indices, lengths_R_, areIndices64b ? 3 : 2));
+              lengths_R_,
+              static_cast<asmjit::Imm>(sizeof(indxType)));
+
+          a->add(scratchReg1_, indices);
           a->cmp(scratchReg1_, index_size);
           a->jg(error);
 
@@ -537,8 +544,10 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
             asmjit::Label pref_dist_reset_start = a->newLabel();
             asmjit::Label pref_dist_reset_end = a->newLabel();
             // out of bound handling for prefetch
-            a->lea(
-                scratchReg2_, x86::ptr(indices, pref_dist * sizeof(indxType)));
+            a->mov(scratchReg2_, indices);
+            a->add(
+                scratchReg2_,
+                static_cast<asmjit::Imm>(pref_dist * sizeof(indxType)));
             a->cmp(scratchReg2_, index_size);
             a->jge(pref_dist_reset_start);
 
