@@ -206,7 +206,9 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
-  static_assert(SPATIAL_DIM >= 2, "Unsupported spatial dims");
+
+  if (SPATIAL_DIM == 1) return false;
+
   int C_per_G = conv_p.IC / conv_p.G;
   int K_per_G = conv_p.OC / conv_p.G;
 
@@ -247,6 +249,7 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
            std::bind(areEqual, std::placeholders::_1, 2)));
 }
 
+template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<1>& conv_p);
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
@@ -383,6 +386,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1);       \
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
 
@@ -451,6 +455,7 @@ INSTANTIATE_RELU(PackAWithQuantRowOffset);
       ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1);       \
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
   INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
 
@@ -588,6 +593,7 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T) \
+  INSTANTIATE_BASE(ACC_T, 1);          \
   INSTANTIATE_BASE(ACC_T, 2);          \
   INSTANTIATE_BASE(ACC_T, 3);
 

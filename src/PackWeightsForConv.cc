@@ -18,15 +18,12 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
     const T* sdata,
     const BlockingFactors* blocking_params)
     : conv_param_(conv_p) {
-  static_assert(
-      SPATIAL_DIM == 2 || SPATIAL_DIM == 3,
-      "Only 2D and 3D convolutions are supported");
   // Note: The following logic should *exactly* match with what we have in
   // FbgemmConv.cc
   switch (ConvFastPath<SPATIAL_DIM, accT>(conv_p)) {
     case optimized_conv_t::depthwise: {
-      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
-      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_d = SPATIAL_DIM <= 2 ? 1 : conv_p.K[0];
+      const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       W_dw_packed_ = std::make_shared<PackedDepthWiseConvMatrix>(
           conv_p.OC, kernel_d * kernel_h * kernel_w, sdata);
@@ -40,8 +37,8 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
     }
     case optimized_conv_t::pointwise: {
       const int N = conv_p.OC / conv_p.G;
-      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
-      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_d = SPATIAL_DIM <= 2 ? 1 : conv_p.K[0];
+      const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       const int K = kernel_d * kernel_h * kernel_w * conv_p.IC;
       W_pointwise_packed_ = std::make_shared<PackBMatrix<T, accT>>(
@@ -55,10 +52,13 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
           blocking_params);
       break;
     }
+    case optimized_conv_t::fastpath1d: {
+      break;
+    }
     case optimized_conv_t::im2col: {
       const int N = conv_p.OC / conv_p.G;
-      const int kernel_d = SPATIAL_DIM == 2 ? 1 : conv_p.K[0];
-      const int kernel_h = conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_d = SPATIAL_DIM <= 2 ? 1 : conv_p.K[0];
+      const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
       const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
       const int K = kernel_d * kernel_h * kernel_w * conv_p.IC;
       W_im2col_packed_ = std::make_shared<PackBMatrix<T, accT>>(
@@ -181,6 +181,7 @@ std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
   return msg;
 }
 
+template class PackWeightsForConv<1, int8_t, int32_t>;
 template class PackWeightsForConv<2, int8_t, int32_t>;
 template class PackWeightsForConv<3, int8_t, int32_t>;
 

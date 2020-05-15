@@ -25,8 +25,9 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{matrix_op_t::NoTranspose,
-                                  matrix_op_t::Transpose};
+vector<matrix_op_t> transposeVals{
+    matrix_op_t::NoTranspose,
+    matrix_op_t::Transpose};
 
 vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
@@ -271,16 +272,16 @@ void runRequantizeTest(matrix_op_t /* unused */,
     bool a_symmetric, bool b_symmetric) {
   vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
   for (auto conv_p : shapes) {
-    int T = SPATIAL_DIM == 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
-    int R = conv_p.K[SPATIAL_DIM - 2];
+    int T = SPATIAL_DIM <= 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
+    int R = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
     int S = conv_p.K[SPATIAL_DIM - 1];
     int G = conv_p.G;
     int OC = conv_p.OC;
-    int IT = SPATIAL_DIM == 2 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 3];
-    int IH = conv_p.IN_DIM[SPATIAL_DIM - 2];
+    int IT = SPATIAL_DIM <= 2 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 3];
+    int IH = SPATIAL_DIM == 1 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 2];
     int IW = conv_p.IN_DIM[SPATIAL_DIM - 1];
-    int OT = SPATIAL_DIM == 2 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 3];
-    int OH = conv_p.OUT_DIM[SPATIAL_DIM - 2];
+    int OT = SPATIAL_DIM <= 2 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 3];
+    int OH = SPATIAL_DIM == 1 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 2];
     int OW = conv_p.OUT_DIM[SPATIAL_DIM - 1];
     int IC_per_G = conv_p.IC / conv_p.G;
     int OC_per_G = conv_p.OC / conv_p.G;
@@ -591,8 +592,8 @@ void runPackUnpackTest(matrix_op_t btrans) {
   vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
 
   for (auto conv_p : shapes) {
-    int T = SPATIAL_DIM == 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
-    int R = conv_p.K[SPATIAL_DIM - 2];
+    int T = SPATIAL_DIM <= 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
+    int R = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
     int S = conv_p.K[SPATIAL_DIM - 1];
     int IC_per_G = conv_p.IC / conv_p.G;
     int OC_per_G = conv_p.OC / conv_p.G;

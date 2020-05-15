@@ -26,7 +26,24 @@ vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::OUT_CHANNEL};
 
 // clang-format off
-static vector<conv_param_t<>> GetShapes_() {
+template <int SPATIAL_DIM = 1>
+static typename std::enable_if<SPATIAL_DIM == 1, vector<conv_param_t<1>>>::type
+GetShapes_() {
+  vector<conv_param_t<1>> shapes = {
+    // MB, IC, OC, {IW}, G, {KW}, {stride_w}, {pad_l,pad_r}, {dilation_w}
+    // Regular
+    conv_param_t<1>(1, 16, 16, {30}, 1, {3}, {1}, {1, 1}),
+    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {1}, {1, 1}),
+    conv_param_t<1>(1, 32, 16, {30}, 1, {3}, {1}, {0, 0}, {2}),
+  };
+  return shapes;
+}
+// clang-format on
+
+// clang-format off
+template <int SPATIAL_DIM = 2>
+static typename std::enable_if<SPATIAL_DIM == 2, vector<conv_param_t<2>>>::type
+GetShapes_() {
   vector<conv_param_t<>> shapes = {
     // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
     // pad_b, pad_r}, {dilation_h, dilation_w}
@@ -130,6 +147,64 @@ TEST_P(uniConvTest, packingTest) {
   int MB, IC, OC, IT, IH, IW, G, kernel, stride, pad;
   tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
 
+  conv_param_t<1> conv_p_1d(
+      MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
+
+  int kernel_dim_1d = kernel;
+  aligned_vector<int8_t> Bint8_1d(
+      kernel_dim_1d * conv_p_1d.IC * (conv_p_1d.OC / conv_p_1d.G));
+  PackWeightsForConv<1> packedB_1D(conv_p_1d, Bint8_1d.data());
+
+  switch (ConvFastPath<1, int32_t>(conv_p_1d)) {
+    case optimized_conv_t::depthwise: {
+      ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix is null";
+      break;
+    }
+    case optimized_conv_t::groupwise: {
+      ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "Groupwise packed matrix is null";
+      break;
+    }
+    case optimized_conv_t::pointwise: {
+      ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should null";
+      ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "Groupwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix is null";
+      break;
+    }
+    case optimized_conv_t::fastpath1d: {
+      break;
+    }
+    case optimized_conv_t::im2col: {
+      ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix is null";
+      break;
+    }
+  }
+
   conv_param_t<2> conv_p_2d(
       MB,
       IC,
@@ -177,6 +252,9 @@ TEST_P(uniConvTest, packingTest) {
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix is null";
+      break;
+    }
+    case optimized_conv_t::fastpath1d: {
       break;
     }
     case optimized_conv_t::im2col: {
@@ -241,6 +319,9 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix is null";
       break;
     }
+    case optimized_conv_t::fastpath1d: {
+      break;
+    }
     case optimized_conv_t::im2col: {
       ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
@@ -261,6 +342,23 @@ TEST_P(uniConvTest, packingTest) {
 TEST_P(uniConvTest, packUnpackTest) {
   int MB, IC, OC, IT, IH, IW, G, kernel, stride, pad;
   tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
+
+  conv_param_t<1> conv_p_1d(
+      MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
+
+  int kernel_dim_1d = kernel;
+
+  aligned_vector<int8_t> Bint8_1d(
+      kernel_dim_1d * conv_p_1d.IC * (conv_p_1d.OC / conv_p_1d.G));
+  aligned_vector<int8_t> Bint8_1d_unpacked(
+      kernel_dim_1d * conv_p_1d.IC * (conv_p_1d.OC / conv_p_1d.G));
+
+  PackWeightsForConv<1> packedB_1D(conv_p_1d, Bint8_1d.data());
+
+  packedB_1D.unpack(Bint8_1d_unpacked.data());
+
+  ASSERT_EQ(Bint8_1d, Bint8_1d_unpacked)
+      << "Original and unpacked data elements are not the same [1D]";
 
   conv_param_t<2> conv_p_2d(
       MB,
@@ -399,27 +497,30 @@ TEST(uniConvTest, cornerCases) {
  * @brief Unit test for uint8 activations, int8 weights, and 32-bit
  * accumulation. Output processing: requantization -> nothing
  */
-TEST_P(UniConvQGranTest, requantizeTest) {
-  vector<conv_param_t<>> shapes(GetShapes_());
-  QuantizationGranularity q_granularity;
-  bool a_symmetric, b_symmetric;
-  bool test_bias, test_float_bias;
-  tie(q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias) =
-      GetParam();
+
+template <int SPATIAL_DIM = 2>
+void runRequantizeTest(
+    QuantizationGranularity q_granularity,
+    bool a_symmetric,
+    bool b_symmetric,
+    bool test_bias,
+    bool test_float_bias) {
+  vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
 
   for (auto conv_p : shapes) {
-    int R = conv_p.K[0];
-    int S = conv_p.K[1];
+    int R = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
+    int S = conv_p.K[SPATIAL_DIM - 1];
     int G = conv_p.G;
     int OC = conv_p.OC;
-    int OH = conv_p.OUT_DIM[0];
-    int OW = conv_p.OUT_DIM[1];
+    int OH = SPATIAL_DIM == 1 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 2];
+    int OW = conv_p.OUT_DIM[SPATIAL_DIM - 1];
     int IC_per_G = conv_p.IC / conv_p.G;
     int OC_per_G = conv_p.OC / conv_p.G;
+    int IH = SPATIAL_DIM == 1 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 2];
+    int IW = conv_p.IN_DIM[SPATIAL_DIM - 1];
 
     // activations
-    aligned_vector<uint8_t> Aint8(
-        conv_p.MB * conv_p.IN_DIM[0] * conv_p.IN_DIM[1] * conv_p.IC, 0);
+    aligned_vector<uint8_t> Aint8(conv_p.MB * IH * IW * conv_p.IC, 0);
 
     // weights
     // The weight matrix is in layout G K/G (R S C/G)
@@ -550,7 +651,7 @@ TEST_P(UniConvQGranTest, requantizeTest) {
           ncols_per_quant_group);
     }
 
-    PackWeightsForConv<2> packedWeights(conv_p, Bint8.data());
+    PackWeightsForConv<SPATIAL_DIM> packedWeights(conv_p, Bint8.data());
 
     // TODO: Uncomment once we support multiple threads in fbgemmGroupwiseConv
     // #ifdef _OPENMP
@@ -723,4 +824,17 @@ TEST_P(UniConvQGranTest, requantizeTest) {
         NDim * G,
         static_cast<uint8_t>(0));
   } // for each shape
+}
+
+TEST_P(UniConvQGranTest, requantizeTest) {
+  QuantizationGranularity q_granularity;
+  bool a_symmetric, b_symmetric;
+  bool test_bias, test_float_bias;
+  tie(q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias) =
+      GetParam();
+
+  runRequantizeTest<1>(
+      q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias);
+  runRequantizeTest<2>(
+      q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias);
 }

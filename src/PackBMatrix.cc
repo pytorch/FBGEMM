@@ -334,10 +334,11 @@ template <typename T, typename accT>
 void PackBMatrix<T, accT>::unpack(
     T* origin_buf,
     const BlockingFactors* params) {
-  block_type_t blockB{BaseType::packedRowStart(),
-                      BaseType::numPackedRows(),
-                      BaseType::packedColStart(),
-                      BaseType::numPackedCols()};
+  block_type_t blockB{
+      BaseType::packedRowStart(),
+      BaseType::numPackedRows(),
+      BaseType::packedColStart(),
+      BaseType::numPackedCols()};
   pack_unpack_(blockB, origin_buf, BaseType::getBuf(), false, params);
 }
 

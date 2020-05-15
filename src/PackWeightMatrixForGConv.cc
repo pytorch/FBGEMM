@@ -86,8 +86,8 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::unpacked_index_(
     bool tr) {
   // Get the full dimensions
   // Can't use T as varname because T is a template parameter.
-  int F = SPATIAL_DIM == 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
-  int R = conv_param_.K[SPATIAL_DIM - 2];
+  int F = SPATIAL_DIM <= 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
+  int R = SPATIAL_DIM == 1 ? 1 : conv_param_.K[SPATIAL_DIM - 2];
   int S = conv_param_.K[SPATIAL_DIM - 1];
   int G = conv_param_.G;
   int IC_per_G = conv_param_.IC / G;
@@ -118,8 +118,8 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::packed_index_(
     int c) {
   // Get the full dimensions
   // Can't use T as varname because T is a template parameter.
-  int F = SPATIAL_DIM == 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
-  int R = conv_param_.K[SPATIAL_DIM - 2];
+  int F = SPATIAL_DIM <= 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
+  int R = SPATIAL_DIM == 1 ? 1 : conv_param_.K[SPATIAL_DIM - 2];
   int S = conv_param_.K[SPATIAL_DIM - 1];
   int G = conv_param_.G;
   int IC_per_G = conv_param_.IC / G;
@@ -159,8 +159,8 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::pack_unpack_(
     T* dst,
     bool ispack) {
   // Can't use T as varname because T is a template parameter.
-  int F = SPATIAL_DIM == 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
-  int R = conv_param_.K[SPATIAL_DIM - 2];
+  int F = SPATIAL_DIM <= 2 ? 1 : conv_param_.K[SPATIAL_DIM - 3];
+  int R = SPATIAL_DIM == 1 ? 1 : conv_param_.K[SPATIAL_DIM - 2];
   int S = conv_param_.K[SPATIAL_DIM - 1];
   int G = conv_param_.G;
   int IC_per_G = conv_param_.IC / G;
@@ -257,6 +257,8 @@ void PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::unpack(T* origin_buf) {
   pack_unpack_(const_cast<const T*>(pdata_), origin_buf, false);
 }
 
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int32_t, 1>;
+template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int16_t, 1>;
 template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int32_t, 2>;
 template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int16_t, 2>;
 template class FBGEMM_API PackWeightMatrixForGConv<int8_t, int32_t, 3>;
