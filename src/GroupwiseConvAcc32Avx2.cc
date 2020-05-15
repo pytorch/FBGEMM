@@ -1453,11 +1453,11 @@ void fbgemmGroupwiseConv(
   }
 
   int MB = conv_param.MB;
-  int OT = SPATIAL_DIM == 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
-  int OH = conv_param.OUT_DIM[SPATIAL_DIM - 2];
+  int OT = SPATIAL_DIM <= 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
+  int OH = SPATIAL_DIM == 1 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 2];
   int OW = conv_param.OUT_DIM[SPATIAL_DIM - 1];
-  int T = SPATIAL_DIM == 2 ? 1 : conv_param.K[SPATIAL_DIM - 3];
-  int R = conv_param.K[SPATIAL_DIM - 2];
+  int T = SPATIAL_DIM <= 2 ? 1 : conv_param.K[SPATIAL_DIM - 3];
+  int R = SPATIAL_DIM == 1 ? 1 : conv_param.K[SPATIAL_DIM - 2];
   int S = conv_param.K[SPATIAL_DIM - 1];
   int G = conv_param.G;
   int OC = conv_param.OC;
@@ -1466,8 +1466,8 @@ void fbgemmGroupwiseConv(
   int C_per_G = conv_param.IC / G;
   int OH_OW = OH * OW;
   int OT_OH_OW = OT * OH * OW;
-  int IT = SPATIAL_DIM == 2 ? 1 : conv_param.IN_DIM[SPATIAL_DIM - 3];
-  int IH = conv_param.IN_DIM[SPATIAL_DIM - 2];
+  int IT = SPATIAL_DIM <= 2 ? 1 : conv_param.IN_DIM[SPATIAL_DIM - 3];
+  int IH = SPATIAL_DIM == 1 ? 1 : conv_param.IN_DIM[SPATIAL_DIM - 2];
   int IW = conv_param.IN_DIM[SPATIAL_DIM - 1];
   int IH_IW = IH * IW;
   int IT_IH_IW = IT * IH * IW;
@@ -1479,6 +1479,9 @@ void fbgemmGroupwiseConv(
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
 
+  if (SPATIAL_DIM == 1) {
+    throw std::runtime_error("Groupwise 1D not implemented!");
+  }
   if (SPATIAL_DIM == 2) {
     // Parallelization:
     int batch_start = 0;
@@ -1558,10 +1561,11 @@ void fbgemmGroupwiseConv(
             rowOffsetBuf_start_group);
 
         const int32_t* inp = out_start_group;
-        block_type_t block{i * OT_OH_OW + oh_start * OW,
-                           (oh_end - oh_start) * OW,
-                           g * K_per_G,
-                           G_together * K_per_G};
+        block_type_t block{
+            i * OT_OH_OW + oh_start * OW,
+            (oh_end - oh_start) * OW,
+            g * K_per_G,
+            G_together * K_per_G};
         int ld_out = G * K_per_G;
         int ld_in = G * K_per_G;
 
@@ -1700,10 +1704,11 @@ void fbgemmGroupwiseConv(
           }
 
           const int32_t* inp = out_start_t;
-          block_type_t block{i * OT_OH_OW + oh_start * OW,
-                             (oh_end - oh_start) * OW,
-                             g * K_per_G,
-                             G_together * K_per_G};
+          block_type_t block{
+              i * OT_OH_OW + oh_start * OW,
+              (oh_end - oh_start) * OW,
+              g * K_per_G,
+              G_together * K_per_G};
           int ld_out = G * K_per_G;
           int ld_in = G * K_per_G;
 
@@ -1729,9 +1734,9 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   // row offset buffer should be a able to hold row offsets for however
   // number of groups we process at a time.
   if (cpuinfo_initialize()) {
-    int OT = SPATIAL_DIM == 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
-    int bufferSize = OT * conv_param.OUT_DIM[SPATIAL_DIM - 2] *
-        conv_param.OUT_DIM[SPATIAL_DIM - 1];
+    int OT = SPATIAL_DIM <= 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
+    int OH = SPATIAL_DIM == 1 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 2];
+    int bufferSize = OT * OH * conv_param.OUT_DIM[SPATIAL_DIM - 1];
     if (fbgemmHasAvx512Support()) {
       return conv_param.MB * bufferSize * conv_param.G;
     } else if (fbgemmHasAvx2Support()) {
@@ -1746,6 +1751,8 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
   }
 }
 
+template FBGEMM_API int rowOffsetBufferSizeGConv<1>(
+    const conv_param_t<1>& conv_param);
 template FBGEMM_API int rowOffsetBufferSizeGConv<2>(
     const conv_param_t<2>& conv_param);
 template FBGEMM_API int rowOffsetBufferSizeGConv<3>(
@@ -1769,6 +1776,7 @@ template FBGEMM_API int rowOffsetBufferSizeGConv<3>(
   INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, int32_t);
 
 #define INSTANTIATE_SPATIAL_DIM(RELU, Q_GRAN) \
+  INSTANTIATE_BIAS_T(RELU, Q_GRAN, 1);        \
   INSTANTIATE_BIAS_T(RELU, Q_GRAN, 2);        \
   INSTANTIATE_BIAS_T(RELU, Q_GRAN, 3);
 
