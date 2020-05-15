@@ -111,6 +111,7 @@ if(MSVC)
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
 else(MSVC)
+  target_compile_options(fbgemm_generic PRIVATE "-mf16c")
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma" "-masm=intel")
   target_compile_options(fbgemm_avx512 PRIVATE
