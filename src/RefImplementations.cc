@@ -11,84 +11,15 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Types.h"
 
-#include <immintrin.h> // for _cvtss_sh/_cvtsh_ss
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <numeric>
-#include <thread>
-
-#ifdef _MSC_VER
-// MSVC does not provide _cvtsh_ss/_cvtss_sh
-#define _cvtsh_ss(a) _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(a)))
-
-// FIXME -
-// MSVC assumes rounding is 0...7 so the _MM_FROUND_NO_EXC (which is 0x8
-// if set) will lose.
-#define _cvtss_sh(a, rounding) \
-  static_cast<unsigned short>( \
-      _mm_cvtsi128_si32(_mm_cvtps_ph(_mm_set_ss(a), ((rounding)&0x7U))))
-
-#endif
 
 using namespace std;
 
 namespace fbgemm {
-
-// Thread-safe random number generator
-//
-// Return a random 32bit integer using xoshiro128++
-// http://prng.di.unimi.it/xoshiro128plusplus.c
-inline uint32_t rnd128_next(int idx, int vlen) {
-  constexpr int VLEN_MAX = 16; // max vector size
-  alignas(64) static thread_local uint32_t g_rnd128_buffer[4 * VLEN_MAX];
-  static thread_local bool g_rnd128_initialized = false;
-
-  // Splitmix64: http://prng.di.unimi.it/splitmix64.c
-  auto rnd128_init_next = [](uint64_t& x) {
-    uint64_t z = (x += 0x9e3779b97f4a7c15);
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
-    return z ^ (z >> 31);
-  };
-
-  auto rotl = [](const uint32_t x, int k) {
-    return (x << k) | (x >> (32 - k));
-  };
-
-  if (!g_rnd128_initialized) {
-    // Initialize rand buffer with uniq values per thread
-    uint64_t h0 = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    for (auto i = 0; i < 4; ++i) {
-      // Use thread hash as seed
-      g_rnd128_buffer[i * VLEN_MAX] = rnd128_init_next(h0);
-      uint64_t h1 = g_rnd128_buffer[i * VLEN_MAX];
-      for (auto v = 1; v < VLEN_MAX; ++v) {
-        g_rnd128_buffer[i * VLEN_MAX + v] = rnd128_init_next(h1);
-      }
-    }
-    g_rnd128_initialized = true;
-  }
-
-  const uint32_t result =
-      rotl(g_rnd128_buffer[idx] + g_rnd128_buffer[3 * vlen + idx], 7) +
-      g_rnd128_buffer[idx];
-
-  const uint32_t t = g_rnd128_buffer[1 * vlen + idx] << 9;
-
-  g_rnd128_buffer[2 * vlen + idx] ^= g_rnd128_buffer[0 * vlen + idx];
-  g_rnd128_buffer[3 * vlen + idx] ^= g_rnd128_buffer[1 * vlen + idx];
-  g_rnd128_buffer[1 * vlen + idx] ^= g_rnd128_buffer[2 * vlen + idx];
-  g_rnd128_buffer[0 * vlen + idx] ^= g_rnd128_buffer[3 * vlen + idx];
-
-  g_rnd128_buffer[2 * vlen + idx] ^= t;
-
-  g_rnd128_buffer[3 * vlen + idx] = rotl(g_rnd128_buffer[3 * vlen + idx], 11);
-
-  return result;
-}
 
 void FloatToFloat16_ref(
     const float* src,
@@ -1284,35 +1215,20 @@ int rowwise_sparse_adagrad_ref(
   return num_rows;
 }
 
-template <typename DataType, typename IndexType, typename OffsetType>
+template <typename IndexType, typename OffsetType>
 int rowwise_sparse_adagrad_fused_ref(
     int64_t block_size,
     int64_t output_size,
     int64_t index_size,
     int64_t data_size,
-    DataType* w,
+    float* w,
     const float* g,
     float* h,
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     float epsilon,
     float lr,
-    bool use_offsets,
-    bool use_stochastic_rounding,
-    int emu_vector_size) {
-  constexpr bool isFloat16w = std::is_same<float16, DataType>::value;
-  // Local random buffer to emulate SIMD vector
-  // R: generated 32bit base random numbers
-  // r: extracted 8-bit for rounding
-  constexpr int VLEN_MAX = 16;
-  uint32_t R[VLEN_MAX], r[VLEN_MAX];
-  int vlen = emu_vector_size;
-  if (vlen != 8 && vlen != 16) {
-    // Raise error as it may cause buffer overflow
-    cerr << "Not supported emu_vector_size: " << emu_vector_size << endl;
-    return 0;
-  }
-
+    bool use_offsets) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
@@ -1330,11 +1246,11 @@ int rowwise_sparse_adagrad_fused_ref(
     //   float gj = g_[j];
     //   final_sum += gj * gj;
     // }
-    constexpr int VLEN_AVX2 = 8;
-    array<float, VLEN_AVX2> partial_sum = {0.0f};
+    constexpr int VLEN = 8;
+    array<float, VLEN> partial_sum = {0.0f};
     for (auto j = 0; j < block_size; ++j) {
       float gj = g_[j];
-      partial_sum[j % VLEN_AVX2] += gj * gj;
+      partial_sum[j % VLEN] += gj * gj;
     }
     float final_sum = ((partial_sum[0] + partial_sum[1]) +
                        (partial_sum[2] + partial_sum[3])) +
@@ -1348,73 +1264,13 @@ int rowwise_sparse_adagrad_fused_ref(
       }
 
       float* h_ = h + idx;
-      DataType* w_ = w + idx * block_size;
+      float* w_ = w + idx * block_size;
 
       float hi = *h_ = *h_ + final_sum;
       float float_step = lr / (std::sqrt(hi) + epsilon);
 
-      int nvec = (block_size + vlen - 1) / vlen;
-      int rem = (block_size % vlen) ? (block_size % vlen) : vlen;
-
-      // Emulate JIT behavior of stochastic rounding with vector-length
-      //
-      // Generate R buffer every 4 steps of nvec loop. Each 8-bit in R
-      // (uint32_t) will be used once. It is shifted to bits[5..13] then
-      // added to FP32 weights before FP16 conversion.
-      //
-      // The shifted 8 bit region
-      // +-------+--------+--------+--------+
-      // |       |        |   xxxxx|xxx     |
-      //  31      23       15       7      0
-      //
-      // Half float has 10 bits of mantissa, and float has 23, we are shifting
-      // the bits to cover the region where half floats can't represent data.
-      // This is bit 13-23 of the mantissa of fp32.
-      // This will be effectively adding a random variable of [0,1]
-
-      for (int n = 0; n < nvec; ++n) {
-        int cur_vlen = (n == nvec - 1) ? rem : vlen;
-        int sr_idx = n % 4;
-
-        if (isFloat16w && use_stochastic_rounding) {
-          if (sr_idx == 0) {
-            for (int v = 0; v < vlen; ++v) {
-              R[v] = rnd128_next(v, vlen);
-              r[v] = (R[v] & 0xFFU) << 5;
-            }
-          } else if (sr_idx == 1) {
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF00U) >> 8) << 5;
-            }
-          } else if (sr_idx == 2) {
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF0000U) >> 16) << 5;
-            }
-          } else { // 3
-            for (int v = 0; v < vlen; ++v) {
-              r[v] = ((R[v] & 0xFF000000U) >> 24) << 5;
-            }
-          }
-        }
-
-        for (int v = 0; v < cur_vlen; ++v) {
-          int j = n * vlen + v;
-          if (isFloat16w) {
-            union {
-              float w_f32;
-              uint32_t w_i32;
-            };
-            w_f32 = _cvtsh_ss(w_[j]);
-            w_f32 = std::fma(float_step, g_[j], w_f32);
-            if (use_stochastic_rounding) {
-              w_i32 += r[v];
-            }
-            // Use truncate rounding to 'counterwork' the random added part
-            w_[j] = _cvtss_sh(w_f32, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
-          } else { // float
-            w_[j] += g_[j] * float_step;
-          }
-        }
+      for (int j = 0; j < block_size; ++j) {
+        w_[j] += g_[j] * float_step;
       }
     }
   }
@@ -1571,33 +1427,27 @@ template FBGEMM_API int rowwise_sparse_adagrad_ref(
     float lr,
     float weight_decay);
 
-#define INSTANTIATE_SPMDM_BASE(DATA_TYPE, INDEX_TYPE, OFFSET_TYPE) \
-  template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(        \
-      int64_t block_size,                                          \
-      int64_t output_size,                                         \
-      int64_t index_size,                                          \
-      int64_t data_size,                                           \
-      DATA_TYPE* w,                                                \
-      const float* g,                                              \
-      float* h,                                                    \
-      const INDEX_TYPE* indices,                                   \
-      const OFFSET_TYPE* offsets_or_lengths,                       \
-      float epsilon,                                               \
-      float lr,                                                    \
-      bool use_offsets,                                            \
-      bool use_stochastic_rounding,                                \
-      int emu_vector_size);
+#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE)     \
+  template FBGEMM_API int rowwise_sparse_adagrad_fused_ref( \
+      int64_t block_size,                                   \
+      int64_t output_size,                                  \
+      int64_t index_size,                                   \
+      int64_t data_size,                                    \
+      float* w,                                             \
+      const float* g,                                       \
+      float* h,                                             \
+      const INDEX_TYPE* indices,                            \
+      const OFFSET_TYPE* offsets_or_lengths,                \
+      float epsilon,                                        \
+      float lr,                                             \
+      bool use_offsets);
 
-#define INSTANTIATE_SPMDM_OFFSET_T(DATA_TYPE, INDEX_TYPE) \
-  INSTANTIATE_SPMDM_BASE(DATA_TYPE, INDEX_TYPE, int32_t)  \
-  INSTANTIATE_SPMDM_BASE(DATA_TYPE, INDEX_TYPE, int64_t)
+#define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, int32_t)  \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, int64_t)
 
-#define INSTANTIATE_SPMDM_INDEX_T(DATA_TYPE)     \
-  INSTANTIATE_SPMDM_OFFSET_T(DATA_TYPE, int32_t) \
-  INSTANTIATE_SPMDM_OFFSET_T(DATA_TYPE, int64_t)
-
-INSTANTIATE_SPMDM_INDEX_T(float)
-INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_OFFSET_T(int32_t)
+INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_BASE

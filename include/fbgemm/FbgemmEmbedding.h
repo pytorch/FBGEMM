@@ -161,16 +161,14 @@ GenerateSparseAdaGrad(
     float weight_decay = 0.0f);
 
 // RowWiseSparseAdaGrad fused with SLS gradient
-// Weights can be either float or float16
-template <typename IndexType, typename OffsetType = std::int32_t,
-         typename DataType = float>
+template <typename IndexType, typename OffsetType = std::int32_t>
 class RowWiseSparseAdaGradFusedSignature {
  public:
   using Type = std::function<bool(
       std::int64_t output_size,
       std::int64_t index_size,
       std::int64_t data_size, // number of rows in w
-      DataType* w, // input/output parameters
+      float* w, // input/output parameters
       const float* g, // input gradients
       float* h, // input/output momentums
       const IndexType* indices, // indices of each row
@@ -179,16 +177,13 @@ class RowWiseSparseAdaGradFusedSignature {
       float lr)>;
 };
 
-template <typename IndexType, typename OffsetType = std::int32_t,
-          typename DataType = float>
+template <typename IndexType, typename OffsetType = std::int32_t>
 FBGEMM_API
-    typename
-    RowWiseSparseAdaGradFusedSignature<IndexType, OffsetType, DataType>::Type
+    typename RowWiseSparseAdaGradFusedSignature<IndexType, OffsetType>::Type
     GenerateRowWiseSparseAdaGradFused(
         int block_size, // number of parameters per row
         int prefetch = 16,
-        bool use_offsets = true,
-        bool use_stochastic_rounding = true);
+        bool use_offsets = true);
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM

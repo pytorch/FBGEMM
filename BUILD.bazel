@@ -8,9 +8,6 @@ cc_library(
     includes = [
         "src",
     ],
-    copts = [
-        "-mf16c",
-    ],
     deps = [
         ":fbgemm_headers",
         "@cpuinfo",
