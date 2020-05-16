@@ -14,6 +14,7 @@ namespace fbgemm {
 
 using float16 = std::uint16_t;
 
+// Round to nearest even
 static inline float16 cpu_float2half_rn(float f) {
   float16 ret;
 
@@ -69,6 +70,61 @@ static inline float16 cpu_float2half_rn(float f) {
       mantissa = 0;
     }
   }
+
+  ret = (sign | (exponent << 10) | mantissa);
+
+  return ret;
+}
+
+// Round to zero
+static inline float16 cpu_float2half_rz(float f) {
+  float16 ret;
+
+  static_assert(
+      sizeof(unsigned int) == sizeof(float),
+      "Programming error sizeof(unsigned int) != sizeof(float)");
+
+  unsigned* xp = reinterpret_cast<unsigned int*>(&f);
+  unsigned x = *xp;
+  unsigned u = (x & 0x7fffffff), remainder, shift, lsb, lsb_s1, lsb_m1;
+  unsigned sign, exponent, mantissa;
+
+  // Get rid of +NaN/-NaN case first.
+  if (u > 0x7f800000) {
+    ret = 0x7fffU;
+    return ret;
+  }
+
+  sign = ((x >> 16) & 0x8000);
+
+  // Get rid of +Inf/-Inf, +0/-0.
+  if (u > 0x477fefff) {
+    ret = sign | 0x7c00U;
+    return ret;
+  }
+  if (u < 0x33000001) {
+    ret = (sign | 0x0000);
+    return ret;
+  }
+
+  exponent = ((u >> 23) & 0xff);
+  mantissa = (u & 0x7fffff);
+
+  if (exponent > 0x70) {
+    shift = 13;
+    exponent -= 0x70;
+  } else {
+    shift = 0x7e - exponent;
+    exponent = 0;
+    mantissa |= 0x800000;
+  }
+  lsb = (1 << shift);
+  lsb_s1 = (lsb >> 1);
+  lsb_m1 = (lsb - 1);
+
+  // Round to zero.
+  remainder = (mantissa & lsb_m1);
+  mantissa >>= shift;
 
   ret = (sign | (exponent << 10) | mantissa);
 

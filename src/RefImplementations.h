@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "fbgemm/Types.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
 
@@ -311,19 +312,21 @@ FBGEMM_API int rowwise_sparse_adagrad_ref(
     float lr,
     float weight_decay = 0.f);
 
-template <typename IndexType, typename OffsetType>
+template <typename DataType, typename IndexType, typename OffsetType>
 FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     std::int64_t block_size,
     std::int64_t output_size,
     std::int64_t index_size,
     std::int64_t data_size,
-    float* w, // input/output parameters
+    DataType* w, // input/output parameters
     const float* g, // inupt gradients
     float* h, // input/output momentums
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     float epsilon,
     float lr,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    bool use_stochastic_rounding = true, // For DataType=float16
+    int emu_vector_size = 8);
 
 } // namespace fbgemm
