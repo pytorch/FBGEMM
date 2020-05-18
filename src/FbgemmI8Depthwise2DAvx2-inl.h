@@ -8,9 +8,9 @@
 
 #include "fbgemm/Utils.h"
 #include "fbgemm/UtilsAvx2.h"
-#include "src/FbgemmI8DepthwiseAvx2-inl.h"
-#include "src/GenerateI8Depthwise.h"
-#include "src/MaskAvx2.h"
+#include "FbgemmI8DepthwiseAvx2-inl.h"
+#include "GenerateI8Depthwise.h"
+#include "MaskAvx2.h"
 
 namespace fbgemm {
 
