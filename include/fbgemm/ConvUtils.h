@@ -7,6 +7,7 @@
 #pragma once
 
 #include <array>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 
