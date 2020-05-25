@@ -123,9 +123,10 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
       (block.col_start % (this->numCols() / this->numGroups())) != 0;
   int32_t* row_offset_buf = getRowOffsetBuffer();
 
-  float* smat_transposed = static_cast<float*>(
-      fbgemmAlignedAlloc(64, block.row_size * block.col_size * sizeof(float)));
+  float* smat_transposed = nullptr;
   if (tr) {
+    smat_transposed = static_cast<float*>(
+        fbgemmAlignedAlloc(64, block.row_size * block.col_size * sizeof(float)));
     transpose_simd(
         block.col_size,
         block.row_size,
@@ -163,7 +164,9 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
       out[i * BaseType::blockColSize() + j] = 0;
     }
   }
-  fbgemmAlignedFree(smat_transposed);
+  if (smat_transposed) {
+    fbgemmAlignedFree(smat_transposed);
+  }
 }
 
 template <typename T, typename accT>
