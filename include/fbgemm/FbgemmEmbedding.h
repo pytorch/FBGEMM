@@ -18,6 +18,23 @@ template <
     typename OffsetType = std::int32_t>
 class EmbeddingSpMDMKernelSignature {
  public:
+  /**
+   * Behavior is as the follow pseudocode
+   * (when use_offsets == true, lengths[i] == offsets[i + 1] - offsets[i])
+   * (when is_weight_positional == true, use weights[j - offsets[i]] instead of
+   *  weights[j])
+   *
+   * for i in range(output_size):
+   *  out[i * block_size : (i + 1) * block_size] = 0
+   *  for j in range(offsets[i], offsets[i + 1]):
+   *   for k in range(block_size):
+   *    out[i * block_size + k] += input[indices[j] * block_size + k] *
+   *                               weights ? weights[j] : 1;
+   *  if normalize_weights and lengths[i] > 0:
+   *   out[i * block_size : (i + 1) * block_size] /= lengths[i]
+   *
+   * @param data_size the number of rows in embedding table
+   */
   using Type = std::function<bool(
       std::int64_t output_size,
       std::int64_t index_size,
@@ -162,8 +179,10 @@ GenerateSparseAdaGrad(
 
 // RowWiseSparseAdaGrad fused with SLS gradient
 // Weights can be either float or float16
-template <typename IndexType, typename OffsetType = std::int32_t,
-         typename DataType = float>
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename DataType = float>
 class RowWiseSparseAdaGradFusedSignature {
  public:
   using Type = std::function<bool(
@@ -179,16 +198,19 @@ class RowWiseSparseAdaGradFusedSignature {
       float lr)>;
 };
 
-template <typename IndexType, typename OffsetType = std::int32_t,
-          typename DataType = float>
-FBGEMM_API
-    typename
-    RowWiseSparseAdaGradFusedSignature<IndexType, OffsetType, DataType>::Type
-    GenerateRowWiseSparseAdaGradFused(
-        int block_size, // number of parameters per row
-        int prefetch = 16,
-        bool use_offsets = true,
-        bool use_stochastic_rounding = true);
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename DataType = float>
+FBGEMM_API typename RowWiseSparseAdaGradFusedSignature<
+    IndexType,
+    OffsetType,
+    DataType>::Type
+GenerateRowWiseSparseAdaGradFused(
+    int block_size, // number of parameters per row
+    int prefetch = 16,
+    bool use_offsets = true,
+    bool use_stochastic_rounding = true);
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM
