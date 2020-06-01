@@ -110,13 +110,14 @@ int run_benchmark(
   // Generate lengths
   uniform_int_distribution<int> length_distribution(
       1, std::min(2 * average_len + 1, num_rows));
-  vector<int> lengths(batch_size);
+  vector<int> offsets(batch_size + 1);
+  offsets[0] = 0;
   for (int i = 0; i < batch_size; ++i) {
-    lengths[i] = length_distribution(generator);
+    offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
   // Compute the number of indices
-  int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
+  int lengths_sum = offsets[batch_size];
 
   // Generate indices
   vector<int64_t> indices;
@@ -131,7 +132,7 @@ int run_benchmark(
     random_shuffle(container.begin(), container.end());
     copy(
         container.begin(),
-        container.begin() + lengths[i],
+        container.begin() + (offsets[i + 1] - offsets[i]),
         back_inserter(indices));
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
@@ -187,7 +188,7 @@ int run_benchmark(
             fused_embedding_table.data(),
             indices_32.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -202,7 +203,7 @@ int run_benchmark(
             fused_embedding_table.data(),
             indices.data(),
             mapping_table.data(),
-            lengths.data(),
+            offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
             output_ref.data());
@@ -234,7 +235,7 @@ int run_benchmark(
                   num_rows,
                   fused_embedding_table.data(),
                   indices_32.data(),
-                  lengths.data(),
+                  offsets.data(),
                   has_weight ? weights.data() : nullptr,
                   output.data(),
                   mapping_table.data());
@@ -245,7 +246,7 @@ int run_benchmark(
                   num_rows,
                   fused_embedding_table.data(),
                   indices.data(),
-                  lengths.data(),
+                  offsets.data(),
                   has_weight ? weights.data() : nullptr,
                   output.data(),
                   mapping_table.data());
@@ -258,7 +259,7 @@ int run_benchmark(
               cache_evict(fused_embedding_table);
               cache_evict(indices);
               cache_evict(indices_32);
-              cache_evict(lengths);
+              cache_evict(offsets);
               cache_evict(weights);
               cache_evict(output);
             }
