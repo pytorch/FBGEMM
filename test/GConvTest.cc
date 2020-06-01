@@ -319,9 +319,9 @@ void runRequantizeTest(matrix_op_t /* unused */,
     aligned_vector<int32_t> Bint8_zero_point(
         G * OC_per_G / ncols_per_quant_group);
     if (b_symmetric) {
-      randFill(Bint8_zero_point, -3, -1);
-    } else {
       randFill(Bint8_zero_point, 0, 0);
+    } else {
+      randFill(Bint8_zero_point, -3, -1);
     }
 
     // matrix dimensions after im2col for each GEMM.
