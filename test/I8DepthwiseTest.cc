@@ -104,7 +104,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(), // a_symmetric
         ::testing::Bool(), // b_symmetric
-        ::testing::Values(1, 2)));
+        ::testing::Values(1, 2))); // oc_per_g
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -118,7 +118,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(8, 16, 24, 32, 40, 64, 72),
         ::testing::Values(1, 2, 3, 4, 5, 9, 10, 11, 27)));
 
-TEST_P(FBGemmDepthWiseTest, Test3x3) {
+TEST_P(FBGemmDepthWiseTest, Test2D) {
   bool a_symmetric, b_symmetric;
   int oc_per_g;
   tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
@@ -406,7 +406,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
 
 TEST_P(
     FBGemmDepthWisePerChannelQuantizationTest,
-    Test3x3PerChannelQuantization) {
+    Test2DPerChannelQuantization) {
   int oc_per_g = GetParam();
 
   for (auto shape : shapes) {
