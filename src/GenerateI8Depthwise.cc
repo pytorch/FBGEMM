@@ -59,7 +59,8 @@ static void genMaddEpi16xNPacked(
     x86::Ymm one_epi8,
     x86::Ymm one_epi16,
     x86::Ymm zero) {
-  // Interleave inputs. Reuse a[1] and a[3] to save registers
+  // Interleave inputs corresponding to 4 filter positions.
+  // Reuse a[1] and a[3] to save registers
   x86::Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
   e->vpunpcklbw(a01_lo, a[0], n == 1 ? zero : a[1]);
   if (remainder >= 8) {
@@ -458,6 +459,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
               if (K - i / 4 * 4 >= 3 && K - i / 4 * 4 <= 6) {
                 for (int r = 0; r < (main_loop ? 4 : remainder / 8); ++r) {
+                  // fix? output layout (see genMaddEpi16xNPacked for details)
                   e->vperm2f128(
                       a[r],
                       c[r % 2 * 2],
