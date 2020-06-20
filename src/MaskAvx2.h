@@ -27,7 +27,6 @@ alignas(64) static const int avx2_ps_or_epi32_masks[9][8] = {
   { -1, -1, -1, -1, -1, -1, -1,  0,  },
   { -1, -1, -1, -1, -1, -1, -1, -1,  },
 };
-// clang-format on
 
 // mask can be accessed by avx2_ps_or_epi32_combined_mask[(8 - remainder) % 8]
 static const int avx2_ps_or_epi32_combined_mask[16] = {
@@ -36,7 +35,6 @@ static const int avx2_ps_or_epi32_combined_mask[16] = {
 
 // A constant array to initialize an SSE register to be used as a 8-bit
 // granularity mask.
-// clang-format off
 alignas(64) static const std::int8_t sse_epi8_masks[17][16] = {
   {  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, },
   { -1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, },
