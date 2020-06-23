@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "Types.h"
