@@ -7,6 +7,7 @@
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
 
 #include <string>
+#include <stdexcept>
 #include <tuple> // for tie
 
 #include "FbgemmI8DepthwiseAvx2-inl.h"
