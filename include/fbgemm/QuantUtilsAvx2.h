@@ -47,6 +47,13 @@ void QuantizeAvx2(
     int len,
     const TensorQuantizationParams& qparams);
 
+template <typename T = std::uint8_t>
+void FusedQuantizeDequantizeAvx2(
+    const float* src,
+    float* dst,
+    int len,
+    const TensorQuantizationParams& qparams);
+
 /**
  * @brief Find the min and max value in a float matrix.
  */

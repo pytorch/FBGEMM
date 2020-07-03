@@ -24,6 +24,7 @@ class QuantizeGroupwiseTest
     : public testing::TestWithParam<tuple<int, int, int, int, layout_t>> {};
 
 class QuantizeTest : public testing::TestWithParam<int> {};
+class FusedQuantizeDequantizeTest : public testing::TestWithParam<int> {};
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -116,6 +117,18 @@ template <typename T>
     return ::testing::AssertionSuccess();
   else
     return ::testing::AssertionFailure() << " Quantized results do not match";
+}
+
+bool floatEqualAll(vector<float>& a, vector<float>& b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (int i = 0; i < a.size(); i++) {
+    if (fabs(a[i] - b[i]) > std::numeric_limits<float>::epsilon()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -306,4 +319,124 @@ TEST(QuantizeTest, cornerCases) {
   Quantize<int16_t>(src2.data(), dst_int16.data(), dst_int16.size(), qparams);
   EXPECT_EQ(dst_int16[0], 32767);
   EXPECT_EQ(dst_int16[1], -32768);
+}
+
+template <typename T>
+void runFusedQuantizeDequantizeTests(
+    const vector<float>& src,
+    float scale,
+    int zero_point,
+    vector<float>& dst,
+    vector<float>& dst_ref) {
+  TensorQuantizationParams qparams;
+  qparams.scale = scale;
+  qparams.zero_point = zero_point;
+  qparams.precision = CHAR_BIT * sizeof(T);
+  // reference
+  for (int i = 0; i < src.size(); ++i) {
+    dst_ref[i] = FusedQuantizeDequantize<T>(src[i], qparams);
+  }
+  FusedQuantizeDequantize<T>(src.data(), dst.data(), src.size(), qparams);
+}
+
+TEST_P(FusedQuantizeDequantizeTest, fusedQuantizeDequantizeTest) {
+  int len;
+  len = GetParam();
+
+  random_device rd;
+  mt19937 gen(rd());
+
+  uniform_real_distribution<float> disFP(-1.0e6, 1.0e6);
+
+  vector<float> inp(len);
+  generate(inp.begin(), inp.end(), [&, disFP]() mutable { return disFP(gen); });
+
+  float scale = disFP(gen);
+
+  // Generate a number between [0, 255] both inclusive
+  uniform_int_distribution<> disUInt8(0, 255);
+  int zero_point_uint8 = disUInt8(gen);
+
+  uniform_int_distribution<> disInt8(-128, 127);
+  int zero_point_int8 = disInt8(gen);
+
+  vector<float> dstfloat(len);
+  vector<float> dstfloat_ref(len);
+
+  runFusedQuantizeDequantizeTests<uint8_t>(
+      inp, scale, zero_point_uint8, dstfloat, dstfloat_ref);
+  EXPECT_TRUE(floatEqualAll(dstfloat, dstfloat_ref));
+
+  runFusedQuantizeDequantizeTests<int8_t>(
+      inp, scale, zero_point_int8, dstfloat, dstfloat_ref);
+  EXPECT_TRUE(floatEqualAll(dstfloat, dstfloat_ref));
+}
+
+// vector and scalar code should have the same behavior
+TEST(FusedQuantizeDequantizeTestSingle, vectorScalar) {
+  // This length will exercise both the vector and scalar path
+  int len = 33;
+  vector<float> src(len);
+  vector<float> dst(len);
+
+  for (int i = 0; i < len; ++i) {
+    src[i] = -2.9483526e-05;
+  }
+  float scale = 2.3124334356729307e-07;
+  int zero_point = 128;
+
+  TensorQuantizationParams qparams;
+  qparams.scale = scale;
+  qparams.zero_point = zero_point;
+  qparams.precision = CHAR_BIT * sizeof(uint8_t);
+
+  FusedQuantizeDequantize<uint8_t>(src.data(), dst.data(), src.size(), qparams);
+  // Check if all elements are equal
+  EXPECT_TRUE(
+      adjacent_find(dst.begin(), dst.end(), not_equal_to<float>()) ==
+      dst.end());
+}
+
+TEST(FusedQuantizeDequantizeTest, cornerCases) {
+  TensorQuantizationParams qparams;
+  qparams.scale = 1.19209e-07;
+  qparams.zero_point = 0;
+  qparams.precision = 8;
+  vector<float> src1 = {3.40282e+38, -2.16845e+38};
+  vector<float> ref = {1.5139543e-05, -1.5258752e-05};
+
+  vector<float> dst_int8(src1.size());
+
+  FusedQuantizeDequantize<int8_t>(
+      src1.data(), dst_int8.data(), src1.size(), qparams);
+  EXPECT_TRUE(floatEqualAll(dst_int8, ref));
+
+
+  // Tests vectorized and remainder paths
+  vector<float> src2 = {3.40282e+38,
+                        -2.16845e+38,
+                        3.40282e+38,
+                        -2.16845e+38,
+                        3.40282e+38,
+                        -2.16845e+38,
+                        3.40282e+38,
+                        -2.16845e+38,
+                        3.40282e+38};
+
+  vector<float> ref2 = {3.0398295e-05,
+                        0,
+                        3.0398295e-05,
+                        0,
+                        3.0398295e-05,
+                        0,
+                        3.0398295e-05,
+                        0,
+                        3.0398295e-05};
+
+  std::vector<float> dst_uint8(src2.size(), 0);
+
+  FusedQuantizeDequantize<uint8_t>(
+      src2.data(), dst_uint8.data(), src2.size(), qparams);
+
+  EXPECT_TRUE(floatEqualAll(dst_uint8, ref2));
 }

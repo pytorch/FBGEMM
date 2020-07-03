@@ -214,6 +214,34 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, false)
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
 #undef FBGEMM_SPECIALIZED_QUANTIZE_AVX2
 
+#define FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(T)            \
+  template <>                                                           \
+  FBGEMM_API void FusedQuantizeDequantize<T>(                           \
+      const float* src,                                                 \
+      float* dst,                                                       \
+      int len,                                                          \
+      const TensorQuantizationParams& qparams,                          \
+      int thread_id,                                                    \
+      int num_threads) {                                                \
+    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support(); \
+    bool fma_support = cpuinfo_has_x86_fma3();                          \
+    int i_begin, i_end;                                                 \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);     \
+    if (avx2_support && fma_support && qparams.precision == 8) {        \
+      /* fast path  */                                                  \
+      FusedQuantizeDequantizeAvx2<T>(                                   \
+          &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
+    } else {                                                            \
+      for (std::size_t i = i_begin; i < i_end; ++i) {                   \
+        dst[i] = FusedQuantizeDequantize<T>(src[i], qparams);           \
+      }                                                                 \
+    }                                                                   \
+  }
+
+FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(int8_t)
+FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(uint8_t)
+#undef FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2
+
 #define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
   template <>                                                     \
   FBGEMM_API void QuantizeGroupwise<T, layout_t::KCX>(            \

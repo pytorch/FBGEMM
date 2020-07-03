@@ -134,6 +134,109 @@ SPECIALIZE_QUANTIZEAVX2(uint8_t, false)
 SPECIALIZE_QUANTIZEAVX2(int8_t, false)
 #undef SPECIALIZE_QUANTIZEAVX2
 
+template <typename T>
+void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
+    const float* src,
+    float* dst,
+    int len,
+    const TensorQuantizationParams& qparams) {
+  float inverse_scale = 1.f / qparams.scale;
+  constexpr int32_t min_val = std::numeric_limits<T>::min();
+  constexpr int32_t max_val = std::numeric_limits<T>::max();
+#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+
+  constexpr int VLEN = 8;
+  // This is the largest int32 value less than int32_max
+  // that is exactly representable in float
+  constexpr int32_t int32_float_max_val =
+      std::numeric_limits<int32_t>::max() - 127;
+  std::size_t i = 0;
+  __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
+  __m256 scale_v = _mm256_set1_ps(qparams.scale);
+  __m256 zp_v = _mm256_set1_ps(qparams.zero_point);
+
+  for (; i < len / VLEN * VLEN; i += VLEN) {
+    // prefetch src and dst
+    _mm_prefetch(reinterpret_cast<const char*>(src + i + VLEN), _MM_HINT_T0);
+    _mm_prefetch(reinterpret_cast<const char*>(dst + i + VLEN), _MM_HINT_T0);
+
+    __m256 src_v = _mm256_loadu_ps(src + i);
+    __m256 transformed_v;
+
+    transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    // If the floating point value is greater than int32_max,
+    // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
+    // to avoid this.
+    transformed_v =
+        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
+
+    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
+    rounded_v =
+        _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+    __m256i clipped_v = _mm256_min_epi32(
+        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
+        _mm256_set1_epi32(max_val));
+
+    // convert int32 to float32
+    __m256 fp32_clipped_v = _mm256_cvtepi32_ps(clipped_v);
+    // minus zero point, multiply by scale
+    __m256 fp32_dq_sub = _mm256_sub_ps(fp32_clipped_v, zp_v);
+    __m256 fp32_dq = _mm256_mul_ps(fp32_dq_sub, scale_v);
+
+    // save fusued quantize-dequantize fp32 values into dst
+    _mm256_storeu_ps(dst + i, fp32_dq);
+  }
+
+  // Handle remainder using mask instructions so that
+  // the main loop and remainder loop have the same behavior
+  int rem = len - i;
+  if (rem > 0) {
+    __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[rem]));
+
+    __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
+    __m256 transformed_v;
+
+    transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    // If the floating point value is greater than int32_max,
+    // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
+    // to avoid this.
+    transformed_v =
+        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
+
+    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
+    rounded_v =
+        _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+
+    __m256i clipped_v = _mm256_min_epi32(
+        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
+        _mm256_set1_epi32(max_val));
+
+    // convert int32 to float32
+    __m256 fp32_clipped_v = _mm256_cvtepi32_ps(clipped_v);
+    // minus zero point, multiply by scale
+    __m256 fp32_dq_sub =
+        _mm256_sub_ps(fp32_clipped_v, _mm256_set1_ps(qparams.zero_point));
+    __m256 fp32_dq = _mm256_mul_ps(fp32_dq_sub, _mm256_set1_ps(qparams.scale));
+
+    // store fp32 values with mask
+    _mm256_maskstore_ps(dst + i, mask_v, fp32_dq);
+  }
+#endif
+}
+
+// Instantiate QuantizeAvx2 for known datatypes
+#define SPECIALIZE_FUSEDDQAVX2(T)               \
+  template void FusedQuantizeDequantizeAvx2<T>( \
+      const float* src,                         \
+      float* dst,                               \
+      int len,                                  \
+      const TensorQuantizationParams& qparams);
+SPECIALIZE_FUSEDDQAVX2(uint8_t)
+SPECIALIZE_FUSEDDQAVX2(int8_t)
+
+#undef SPECIALIZE_FUSEDDQAVX2
+
 void FindMinMax(const float* a, float* min, float* max, int len) {
   if (len <= 0) {
     *min = 0.0f;

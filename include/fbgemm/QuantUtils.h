@@ -153,6 +153,26 @@ void Dequantize(
   }
 }
 
+template <typename T>
+T FusedQuantizeDequantize(float src, const TensorQuantizationParams& qparams) {
+  T q = Quantize<T, false>(src, qparams.zero_point, qparams.scale, qparams.precision);
+  return Dequantize<T>(q, qparams);
+}
+
+/*
+Fused integer quantization dequantization kernel to accelerate quantization-aware training.
+Quantize fp32 values in src to (u)int8 using the provided qparams, and dequantize quantized
+integer values back into fp32.
+*/
+template <typename T>
+FBGEMM_API void FusedQuantizeDequantize(
+    const float* src,
+    float* dst,
+    int len,
+    const TensorQuantizationParams& qparams,
+    int thread_id = 0,
+    int num_threads = 1);
+
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (pure fixed-point)
 
