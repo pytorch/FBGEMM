@@ -177,8 +177,8 @@ static ALWAYS_INLINE void depthwise_2d_(
     int h = 0;
     int w = 0;
 
-    for (h = h_begin; h < PAD_T; ++h) {
-      for (w = w_begin; w < PAD_L; ++w) {
+    for (h = h_begin; h < std::min(PAD_T, h_end); ++h) {
+      for (w = w_begin; w < std::min(PAD_L, w_end); ++w) {
         depthwise_2d_kernel_<
             S,
             FUSE_RELU,
@@ -285,7 +285,7 @@ static ALWAYS_INLINE void depthwise_2d_(
     // h_in + S - H <= PAD_B * (1 - stride_h) + 1 + (1 - stride_h) * stride_h
     //              <= -PAD_B + 1 - stride_h <= 0
     for (; h < std::min(H_OUT - PAD_B - stride_h + 1, h_end); ++h) {
-      for (w = w_begin; w < PAD_L; ++w) {
+      for (w = w_begin; w < std::min(PAD_L, w_end); ++w) {
         depthwise_2d_kernel_<
             S,
             FUSE_RELU,
@@ -399,7 +399,7 @@ static ALWAYS_INLINE void depthwise_2d_(
     }
 
     for (; h < h_end; ++h) {
-      for (w = w_begin; w < PAD_L; ++w) {
+      for (w = w_begin; w < std::min(PAD_L, w_end); ++w) {
         depthwise_2d_kernel_<
             S,
             FUSE_RELU,
