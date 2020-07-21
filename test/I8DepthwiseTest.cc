@@ -25,6 +25,7 @@ static vector<vector<int>> shapes = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
   // N, G, H_in, W_in, stride, kernel
+  {   1,  72,  47, 125, 1, 3 },
   {   1,  272,  47, 125, 1, 3 },
   {   1,  272,  47, 125, 1, 5 },
 //  {   1,  272,  64, 125, 1, 3 },
@@ -68,6 +69,10 @@ static vector<vector<int>> shapes = {
 //  { 100,  544,  14,  14, 2, 3 },
 
   {   1,    8,   4,   4, 1, 3 },
+  // Tests for the shapes when OH/OW is less than padding
+  {   1,  72,  1, 1, 2, 5 },
+  {   1,  72,  7, 1, 2, 5 },
+  {   1,  72,  1, 7, 2, 5 },
 };
 
 static vector<vector<int>> shapes_3d = {
