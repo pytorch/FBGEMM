@@ -68,6 +68,10 @@ static vector<vector<int>> shapes = {
 //  { 100,  544,  14,  14, 2, 3 },
 
   {   1,    8,   4,   4, 1, 3 },
+  // Tests for the shapes when OH/OW is less than padding
+  {   1,  72,  1, 1, 2, 5 },
+  {   1,  72,  7, 1, 2, 5 },
+  {   1,  72,  1, 7, 2, 5 },
 };
 
 static vector<vector<int>> shapes_3d = {
