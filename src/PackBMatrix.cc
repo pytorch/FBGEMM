@@ -189,32 +189,32 @@ PackBMatrix<T, accT>::PackBMatrix(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
-       !fbgemmHasAvx2Support())) {
-    assert(0 && "unknown architecure");
-  }
-
   if (params) {
     BaseType::brow_ = params->KCB;
     BaseType::bcol_ = params->NCB;
     row_interleave_ = params->ROW_INTERLEAVE;
   } else {
-    if (fbgemmHasAvx512VnniSupport()) {
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::KCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::NCB;
-      row_interleave_ =
-          PackingTraits<T, accT, inst_set_t::avx512_vnni>::ROW_INTERLEAVE;
-    } else if (fbgemmHasAvx512Support()) {
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::NCB;
-      row_interleave_ =
-          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-    } else {
-      // AVX2
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::NCB;
-      row_interleave_ =
-          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    const inst_set_t isa = fbgemmInstructionSet();
+    switch (isa) {
+      case inst_set_t::avx512_vnni:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
+            PackingTraits<T, accT, inst_set_t::avx512_vnni>::
+              getMatrixPackBParams();
+        break;
+
+      case inst_set_t::avx512:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
+            PackingTraits<T, accT, inst_set_t::avx512>::getMatrixPackBParams();
+        break;
+
+      case inst_set_t::avx2:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
+            PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackBParams();
+        break;
+
+      default:
+        assert(0 && "unknown architecure");
+        throw std::runtime_error("unknown architecure");
     }
   }
 
