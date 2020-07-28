@@ -47,8 +47,7 @@ ExecuteKernel<
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if (params) {
-    if (fbgemmHasAvx512VnniSupport() || fbgemmHasAvx512Support() ||
-        fbgemmHasAvx2Support()) {
+    if (fbgemmHasAvx2Support()) {
       mbSize_ = params->MCB;
       nbSize_ = params->NCB;
       nrMinSize_ = params->NR_MIN;
@@ -56,49 +55,35 @@ ExecuteKernel<
     } else {
       // TODO: Have default slower path
       assert(0 && "unsupported architecure");
+      throw std::runtime_error("unsupported architecure");
     }
   } else {
-    if (fbgemmHasAvx512VnniSupport()) {
-      mbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::MCB;
-      nbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::NCB;
-      nrMinSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::NR_MIN;
-    } else if (fbgemmHasAvx512Support()) {
-      mbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::MCB;
-      nbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::NCB;
-      nrMinSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::NR_MIN;
-    } else if (fbgemmHasAvx2Support()) {
-      mbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::MCB;
-      nbSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::NCB;
-      nrMinSize_ = PackingTraits<
-          int8_t,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::NR_MIN;
-    } else {
-      assert(0 && "unsupported architecure");
+    const inst_set_t isa = fbgemmInstructionSet();
+    switch (isa) {
+      case inst_set_t::avx512_vnni:
+        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512_vnni>::getKernelParams();
+        break;
+
+      case inst_set_t::avx512:
+        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512>::getKernelParams();
+        break;
+
+      case inst_set_t::avx2:
+        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx2>::getKernelParams();
+        break;
+
+      default:
+        assert(0 && "unknown architecure");
+        throw std::runtime_error("unknown architecure");
     }
   }
   C_tile_ = new int32_t[mbSize_ * nbSize_];
@@ -130,38 +115,46 @@ void ExecuteKernel<
 
   typename BaseType::jit_micro_kernel_fp fn;
 
-  if (fbgemmHasAvx512VnniSupport()) {
-    if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
-      // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
-      CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-      fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
+  const inst_set_t isa = fbgemmInstructionSet();
+  switch (isa) {
+    case inst_set_t::avx512_vnni:
+      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+        // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+        CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+        fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
+            accum,
+            packed_rows_A,
+            packedB_.blockColSize(),
+            packedA_.numPackedCols());
+      } else {
+        fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+            accum,
+            packed_rows_A,
+            packedB_.blockColSize(),
+            packedA_.numPackedCols());
+      }
+      break;
+
+    case inst_set_t::avx512:
+      fn = BaseType::template getOrCreate<inst_set_t::avx512>(
           accum,
           packed_rows_A,
           packedB_.blockColSize(),
           packedA_.numPackedCols());
-    } else {
-      fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+      break;
+
+    case inst_set_t::avx2:
+      fn = BaseType::template getOrCreate<inst_set_t::avx2>(
           accum,
           packed_rows_A,
           packedB_.blockColSize(),
           packedA_.numPackedCols());
-    }
-  } else if (fbgemmHasAvx512Support()) {
-    fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-        accum,
-        packed_rows_A,
-        packedB_.blockColSize(),
-        packedA_.numPackedCols());
-  } else if (fbgemmHasAvx2Support()) {
-    fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-        accum,
-        packed_rows_A,
-        packedB_.blockColSize(),
-        packedA_.numPackedCols());
-  } else {
-    // TODO: Have default slower path
-    assert(0 && "unsupported architecture");
-    return;
+      break;
+
+    default:
+      // TODO: Have default slower path
+      assert(0 && "unsupported architecture");
+      throw std::runtime_error("unsupported architecure");
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
@@ -181,27 +174,34 @@ void ExecuteKernel<
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
       if (nc != nbSize_) {
-        if (fbgemmHasAvx512VnniSupport()) {
-          if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
-                  value) {
-            // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
-            CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
-            fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
+        switch (isa) {
+          case inst_set_t::avx512_vnni:
+            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
+                    value) {
+              // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+              CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+              fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
+                  accum, packed_rows_A, nc, packedA_.numPackedCols());
+            } else {
+              fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+                  accum, packed_rows_A, nc, packedA_.numPackedCols());
+            }
+            break;
+
+          case inst_set_t::avx512:
+            fn = BaseType::template getOrCreate<inst_set_t::avx512>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
-          } else {
-            fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+            break;
+
+          case inst_set_t::avx2:
+            fn = BaseType::template getOrCreate<inst_set_t::avx2>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
-          }
-        } else if (fbgemmHasAvx512Support()) {
-          fn = BaseType::template getOrCreate<inst_set_t::avx512>(
-              accum, packed_rows_A, nc, packedA_.numPackedCols());
-        } else if (fbgemmHasAvx2Support()) {
-          fn = BaseType::template getOrCreate<inst_set_t::avx2>(
-              accum, packed_rows_A, nc, packedA_.numPackedCols());
-        } else {
-          // TODO: Have default slower path
-          assert(0 && "unsupported architecture");
-          return;
+            break;
+
+          default:
+            // TODO: Have default slower path
+            assert(0 && "unsupported architecture");
+            throw std::runtime_error("unsupported architecure");
         }
       }
     }
@@ -258,19 +258,9 @@ void ExecuteKernel<
           (C_buffer_start == C_tile_ ? (jb - jb_begin) * nbSize_
                                      : (jb_end - jb_begin) * nbSize_);
       if (nSize) {
-        if (fbgemmHasAvx512VnniSupport() || fbgemmHasAvx512Support()) {
+        if (fbgemmHasAvx2Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
-          outputProcess_.template f<inst_set_t::avx2>(
-              matC_,
-              C_buffer_row_start + jb_begin * nbSize_,
-              {row_start_A,
-               packed_rows_A,
-               NDim * group + jb_begin * nbSize_,
-               nSize},
-              ldc_,
-              ldc_);
-        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_buffer_row_start + jb_begin * nbSize_,
@@ -283,25 +273,16 @@ void ExecuteKernel<
         } else {
           // TODO: Have default slower path
           assert(0 && "unsupported architecure");
+          throw std::runtime_error("unsupported architecure");
         }
       }
 
       if (C_buffer_start == C_tile_) {
         // When C_tile_ scratchpad was used to avoid accessing memory past
         // C_buffer_ .
-        if (fbgemmHasAvx512VnniSupport() || fbgemmHasAvx512Support()) {
+        if (fbgemmHasAvx2Support()) {
           // TODO: avx512 path
           // Currently use avx2 code
-          outputProcess_.template f<inst_set_t::avx2>(
-              matC_,
-              C_tile_,
-              {row_start_A,
-               packed_rows_A,
-               NDim * group + jb * nbSize_,
-               packedB_.lastBcol()},
-              ldc_,
-              leadingDim);
-        } else if (fbgemmHasAvx2Support()) {
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
               C_tile_,
@@ -314,6 +295,7 @@ void ExecuteKernel<
         } else {
           // TODO: Have default slower path
           assert(0 && "unsupported architecure");
+          throw std::runtime_error("unsupported architecure");
         }
       }
     } // output processing

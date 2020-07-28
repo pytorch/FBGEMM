@@ -45,22 +45,27 @@ PackAMatrix<T, accT>::PackAMatrix(
     BaseType::bcol_ = params->KCB;
     row_interleave_B_ = params->ROW_INTERLEAVE;
   } else {
-    if (fbgemmHasAvx512VnniSupport()) {
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::MCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512_vnni>::KCB;
-      row_interleave_B_ =
-          PackingTraits<T, accT, inst_set_t::avx512_vnni>::ROW_INTERLEAVE;
-    } else if (fbgemmHasAvx512Support()) {
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx512>::KCB;
-      row_interleave_B_ =
-          PackingTraits<T, accT, inst_set_t::avx512>::ROW_INTERLEAVE;
-    } else {
-      // AVX2
-      BaseType::brow_ = PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-      BaseType::bcol_ = PackingTraits<T, accT, inst_set_t::avx2>::KCB;
-      row_interleave_B_ =
-          PackingTraits<T, accT, inst_set_t::avx2>::ROW_INTERLEAVE;
+    const inst_set_t isa = fbgemmInstructionSet();
+    switch (isa) {
+      case inst_set_t::avx512_vnni:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
+            PackingTraits<T, accT, inst_set_t::avx512_vnni>::
+              getMatrixPackAParams();
+        break;
+
+      case inst_set_t::avx512:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
+            PackingTraits<T, accT, inst_set_t::avx512>::getMatrixPackAParams();
+        break;
+
+      case inst_set_t::avx2:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
+            PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackAParams();
+        break;
+
+      default:
+        assert(0 && "unknown architecure");
+        throw std::runtime_error("unknown architecure");
     }
   }
 

@@ -53,6 +53,7 @@ void fbgemmPacked(
   if ((!fbgemmHasAvx512VnniSupport() && !fbgemmHasAvx512Support() &&
        !fbgemmHasAvx2Support())) {
     assert(0 && "unknown architecure");
+    throw std::runtime_error("unknown architecure");
   }
 
   int MCB;
@@ -63,47 +64,33 @@ void fbgemmPacked(
     MCB = blocking_params->MCB;
     KCB = blocking_params->KCB;
     MR = blocking_params->MR;
-
   } else {
-    if (fbgemmHasAvx512VnniSupport()) {
-      MCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::MCB;
-      KCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::KCB;
-      MR = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512_vnni>::MR;
-    } else if (fbgemmHasAvx512Support()) {
-      MCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::MCB;
-      KCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::KCB;
-      MR = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx512>::MR;
-    } else {
-      MCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::MCB;
-      KCB = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::KCB;
-      MR = PackingTraits<
-          typename packingAMatrix::inpType,
-          typename packingAMatrix::accType,
-          inst_set_t::avx2>::MR;
+    const inst_set_t isa = fbgemmInstructionSet();
+    switch (isa) {
+      case inst_set_t::avx512_vnni:
+        std::tie(MCB, KCB, MR) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512_vnni>::getCacheBlockParams();
+        break;
+
+      case inst_set_t::avx512:
+        std::tie(MCB, KCB, MR) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512>::getCacheBlockParams();
+        break;
+
+      case inst_set_t::avx2:
+        std::tie(MCB, KCB, MR) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx2>::getCacheBlockParams();
+        break;
+
+      default:
+        assert(0 && "unknown architecure");
+        throw std::runtime_error("unknown architecure");
     }
   }
 

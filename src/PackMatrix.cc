@@ -49,19 +49,29 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
     NCB = params->NCB;
     KCB = params->KCB;
   } else {
-    if (fbgemmHasAvx512VnniSupport()) {
-      MCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::MCB;
-      NCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::NCB;
-      KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::KCB;
-    } else if (fbgemmHasAvx512Support()) {
-      MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;
-      NCB = PackingTraits<inpType, accType, inst_set_t::avx512>::NCB;
-      KCB = PackingTraits<inpType, accType, inst_set_t::avx512>::KCB;
-    } else {
-      // AVX2
-      MCB = PackingTraits<inpType, accType, inst_set_t::avx2>::MCB;
-      NCB = PackingTraits<inpType, accType, inst_set_t::avx2>::NCB;
-      KCB = PackingTraits<inpType, accType, inst_set_t::avx2>::KCB;
+    const inst_set_t isa = fbgemmInstructionSet();
+    switch (isa) {
+      case inst_set_t::avx512_vnni:
+        MCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::MCB;
+        NCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::NCB;
+        KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::KCB;
+        break;
+
+      case inst_set_t::avx512:
+        MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;
+        NCB = PackingTraits<inpType, accType, inst_set_t::avx512>::NCB;
+        KCB = PackingTraits<inpType, accType, inst_set_t::avx512>::KCB;
+        break;
+
+      case inst_set_t::avx2:
+        MCB = PackingTraits<inpType, accType, inst_set_t::avx2>::MCB;
+        NCB = PackingTraits<inpType, accType, inst_set_t::avx2>::NCB;
+        KCB = PackingTraits<inpType, accType, inst_set_t::avx2>::KCB;
+        break;
+
+      default:
+        assert(0 && "unknown architecure");
+        throw std::runtime_error("unknown architecure");
     }
   }
 
