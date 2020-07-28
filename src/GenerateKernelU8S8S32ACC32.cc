@@ -12,34 +12,12 @@ namespace fbgemm {
 namespace x86 = asmjit::x86;
 
 /**
- * Generate AVX2 instructions for initializing the C registers to 0 in 32-bit
- * Accumulation kernel.
- */
-template <>
-template <>
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::initCRegs<
-    inst_set_t::avx2>(x86::Emitter* a, int rowRegs, int colRegs) {
-  using CRegs = x86::Xmm;
-  // Take advantage of implicit zeroing out
-  // i.e., zero out xmm and ymm will be zeroed out too
-  for (int i = 0; i < rowRegs; ++i) {
-    for (int j = 0; j < colRegs; ++j) {
-      a->vpxor(
-          CRegs(i * colRegs + j),
-          CRegs(i * colRegs + j),
-          CRegs(i * colRegs + j));
-    }
-  }
-}
-
-/**
  * Generate AVX2 instructions for computing block in the rank-k update of 32-bit
  * Accmulation kernel.
  */
 template <>
-template <>
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
-    inst_set_t::avx2>(
+template <inst_set_t instSet>
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
     x86::Emitter* a,
     x86::Gp buffer_A,
     x86::Gp buffer_B,
@@ -47,6 +25,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
     int rowRegs,
     int colRegs,
     int lda) {
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+
   // used for matrix A
   x86::Ymm AReg = x86::ymm12;
 
@@ -63,7 +43,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
 
   for (int j = 0; j < colRegs; ++j) {
     // load B
-    a->vmovdqa(BReg, x86::dword_ptr(buffer_B, j * VLEN_ * sizeof(int8_t)));
+    a->vmovdqa(BReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
       a->vpbroadcastd(
@@ -72,7 +52,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
       a->vpmaddwd(res1, oneReg, res1);
       a->vpaddd(CRegs(i * colRegs + j), res1, CRegs(i * colRegs + j));
     }
-    a->prefetcht0(x86::dword_ptr(B_pf, j * VLEN_ * sizeof(int8_t)));
+    a->prefetcht0(x86::dword_ptr(B_pf, j * vectorLen * sizeof(int8_t)));
   }
 }
 
@@ -81,16 +61,14 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock<
  * 32-bit Accumulation kernel.
  */
 template <>
-template <>
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
-    inst_set_t::avx2>(
+template <typename VecT, int VecLen>
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
     x86::Gp C_Offset,
     x86::Gp ldcReg,
     bool accum) {
-  using CRegs = x86::Ymm;
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
       a->add(C_Offset, ldcReg);
@@ -98,13 +76,13 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
     for (int j = 0; j < colRegs; ++j) {
       if (accum) {
         a->vpaddd(
-            CRegs(i * colRegs + j),
-            CRegs(i * colRegs + j),
-            x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)));
+            VecT(i * colRegs + j),
+            VecT(i * colRegs + j),
+            x86::dword_ptr(a->zcx(), C_Offset, 0, j * VecLen * sizeof(int8_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * VLEN_ * sizeof(int8_t)),
-          CRegs(i * colRegs + j));
+          x86::dword_ptr(a->zcx(), C_Offset, 0, j * VecLen * sizeof(int8_t)),
+          VecT(i * colRegs + j));
     }
   }
 }
@@ -125,6 +103,9 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
 #else
     int32_t /* unused */) {
 #endif
+  static constexpr int vectorWidth = simd_info<inst_set_t::avx2>::WIDTH_BITS;
+  static constexpr int vectorLen = vectorWidth / (8 * sizeof(uint8_t));
+
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
   int nBlock;
@@ -183,7 +164,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
     assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
     int maxMRegs = mRegBlockSize;
-    int maxNRegs = nRegBlockSize * row_interleave / VLEN_;
+    int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= 12 &&
         "MR*(NR*ROW_INTERLEAVE*8/256) \
@@ -246,13 +227,13 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
     a->xor_(C_Offset.r32(), C_Offset.r32());
 
-    int colRegs = nc * row_interleave / VLEN_;
+    int colRegs = nc * row_interleave / vectorLen;
 
     auto issueLoopOverK = [&](int rowRegs) {
       asmjit::Label LoopKLabel = a->newLabel();
 
       // Init C (result) vector registers
-      initCRegs<inst_set_t::avx2>(a, rowRegs, colRegs);
+      initCRegs(a, rowRegs, colRegs);
 
       // Loops over K
       a->xor_(kIdx.r32(), kIdx.r32());
@@ -280,7 +261,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
       a->jl(LoopKLabel);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx2>(
+      storeCRegs<x86::Ymm, 32>(
           a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     };
 
