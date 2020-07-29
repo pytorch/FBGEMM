@@ -6,6 +6,7 @@
  */
 #pragma once
 #include <asmjit/asmjit.h>
+#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
@@ -19,10 +20,54 @@ namespace x86 = asmjit::x86;
  *             dest[0:15] will have 0x0001, dest[16:31]
  *             will have 0x0001 and so on
  */
-template <typename T>
-void gen16BitVectorOne(x86::Emitter* a, T dest) {
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+void gen16BitVectorOne(x86::Emitter* a, T dest)
+{
   a->vpcmpeqw(dest, dest, dest);
   a->vpsrlw(dest, dest, 15);
+}
+
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_vnni,
+        int>::type = 0>
+void gen16BitVectorOne(x86::Emitter* a, T dest) {
+  a->vpternlogd(dest, dest, dest, 0xff);
+  a->vpsrlw(dest, dest, 15);
+}
+
+/**
+ * @brief Emit instruction do load 32-bit integer. AVX512 has
+ *        different instrunction to load registers with index >= 16
+ * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm
+ *
+ * @param dest Destination vector register
+ */
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+void emitLoadDWord(
+    x86::Emitter* a, T dest, const x86::Mem& ptr) {
+    a->vmovdqa(dest, ptr);
+}
+
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_vnni,
+        int>::type = 0>
+void emitLoadDWord(
+  x86::Emitter* a, T dest, const x86::Mem& ptr) {
+    a->vmovdqa32(dest, ptr);
 }
 
 /**
