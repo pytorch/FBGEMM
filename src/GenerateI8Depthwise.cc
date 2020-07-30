@@ -333,7 +333,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     x86::Ymm one_epi16(vreg_id);
     if (K > 2) {
       ++vreg_id;
-      gen16BitVectorOne(e, one_epi16);
+      gen16BitVectorOne<inst_set_t::avx2, x86::Ymm>(e, one_epi16);
     }
 
     bool has_pad = prev_skip || next_skip || top_skip || bottom_skip ||

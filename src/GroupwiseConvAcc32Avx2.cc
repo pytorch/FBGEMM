@@ -245,7 +245,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   // this in a register. It's generated again at
   // each use. Only used for the case of C_per_G == 2 or 4
   // gen8BitVectorOne(a, oneReg8Bit_V_);
-  gen16BitVectorOne(a, oneReg16Bit_V_);
+  gen16BitVectorOne<inst_set_t::avx2, x86::Ymm>(a, oneReg16Bit_V_);
 
   loopR1_ = a->gpz(14);
   loopR2_ = a->gpz(15);
