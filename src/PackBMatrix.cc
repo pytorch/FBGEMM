@@ -207,6 +207,12 @@ PackBMatrix<T, accT>::PackBMatrix(
             PackingTraits<T, accT, inst_set_t::avx512>::getMatrixPackBParams();
         break;
 
+      case inst_set_t::avx512_ymm:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
+            PackingTraits<T, accT, inst_set_t::avx512_ymm>::
+              getMatrixPackBParams();
+        break;
+
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackBParams();

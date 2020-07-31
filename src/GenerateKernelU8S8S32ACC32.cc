@@ -382,6 +382,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 getOrCreate<inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 /**
+ * Instatiate the AVX512_256 instructions for 32-bit Accumulation macro-kernel.
+ *
+ */
+template
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+getOrCreate<inst_set_t::avx512_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+
+/**
  * Instatiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
  *
  */
