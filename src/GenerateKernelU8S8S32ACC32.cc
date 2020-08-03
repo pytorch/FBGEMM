@@ -14,7 +14,7 @@ namespace x86 = asmjit::x86;
 
 /**
  * Generate AVX512 instructions for computing block in the rank-k update of
- * 32-bit Accmulation kernel.
+ * 32-bit Accumulation kernel.
  */
 template <>
 template <inst_set_t instSet>
@@ -373,7 +373,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
 }
 
 /**
- * Instatiate the AVX512 instructions for 32-bit Accumulation macro-kernel.
+ * Instantiate the AVX512 instructions for 32-bit Accumulation macro-kernel.
  *
  */
 template
@@ -382,12 +382,25 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 getOrCreate<inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 /**
- * Instatiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
+ * Instantiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
  *
  */
 template
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 getOrCreate<inst_set_t::avx2>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+
+/**
+ * Instantiate the ZMM instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<x86::Zmm, 64>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
 
 } // namespace fbgemm
