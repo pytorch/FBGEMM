@@ -81,6 +81,13 @@ void fbgemmPacked(
             inst_set_t::avx512>::getCacheBlockParams();
         break;
 
+      case inst_set_t::avx512_ymm:
+        std::tie(MCB, KCB, MR) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512_ymm>::getCacheBlockParams();
+        break;
+
       case inst_set_t::avx2:
         std::tie(MCB, KCB, MR) = PackingTraits<
             typename packingAMatrix::inpType,

@@ -48,7 +48,7 @@
  * integers.
  *
  * This is picked when T is of int8 type (signed or unsigned) and instruction
- * set is avx2.
+ * set is avx2
  */
 template <typename T>
 struct PackingTraits<
@@ -176,7 +176,7 @@ struct PackingTraits<float, float, inst_set_t::avx2> {
  * accumulation.
  *
  * This is picked when template parameter T is of float16 type and instruction
- * set is avx2.
+ * set is avx2
  */
 template <>
 struct PackingTraits<float16, float, inst_set_t::avx2> {
@@ -235,6 +235,53 @@ struct PackingTraits<
 };
 
 /**
+ * @brief Packing parameter specialization for accumulation into 32-bit
+ * integers.
+ *
+ * This is picked when T is of int8 type (signed or unsigned) and instruction
+ * set is avx512_ymm.
+ */
+template <typename T>
+struct PackingTraits<
+    T,
+    std::int32_t,
+    inst_set_t::avx512_ymm,
+    typename std::enable_if<is_8bit<T>::value>::type> {
+  static constexpr int MR{12}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{8}; ///< Minimum register block for N dimension.
+                                  ///< 8 because 8*ROW_INTERLEAVE int8 elements
+                                  ///< completely fill a 256-bit wide vector.
+  static constexpr int NR{8}; ///< Register block for N dimension.
+                              ///< NR = VLEN/8/ROW_INTERLEAVE = 256 / 8 / 4 = 8.
+                              ///< Total registers used for N dimension: NCB/NR.
+                              ///< Here we use 12 x 1 ymm register blocking for
+                              ///< the registers used for accumulation C.
+
+  static constexpr int ROW_INTERLEAVE{
+      4}; ///< 4 rows are interleaved to use vpmaddubsw instruction for packing
+          ///< B matrix.
+
+  static constexpr int MCB{
+      120}; ///< Cache block for M dimension (multiple of MR).
+  static constexpr int NCB{
+      8}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{512}; ///< Cache block for K dimension.
+
+  static std::tuple<int, int, int> getCacheBlockParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  }
+  static std::tuple<int, int, int> getKernelParams() {
+      return std::tuple<int, int, int>(int(MCB), int(NCB), int(NR_MIN));
+  }
+  static std::tuple<int, int, int> getMatrixPackAParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  }
+  static std::tuple<int, int, int> getMatrixPackBParams() {
+      return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  }
+};
+
+/**
  * @brief Packing parameter specialization for accumulation into 16-bit
  * integers.
  *
@@ -268,6 +315,56 @@ struct PackingTraits<
       60}; ///< Cache block for M dimension (multiple of MR).
   static constexpr int NCB{
       128}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{256}; ///< Cache block for K dimension.
+
+  static std::tuple<int, int, int> getCacheBlockParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  }
+  static std::tuple<int, int, int> getKernelParams() {
+      return std::tuple<int, int, int>(int(MCB), int(NCB), int(NR_MIN));
+  }
+  static std::tuple<int, int, int> getMatrixPackAParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  }
+  static std::tuple<int, int, int> getMatrixPackBParams() {
+      return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  }
+};
+
+/**
+ * @brief Packing parameter specialization for accumulation into 16-bit
+ * integers.
+ *
+ * This is picked when T is of int8 type (signed or unsigned) and instruction
+ * set is avx512_ymm.
+ */
+template <typename T>
+struct PackingTraits<
+    T,
+    std::int16_t,
+    inst_set_t::avx512_ymm,
+    typename std::enable_if<is_8bit<T>::value>::type> {
+  static constexpr int MR{6}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{
+      16}; ///< Minimum register block for N dimension.
+           ///< 16 because 16*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 256-bit wide vector.
+
+  static constexpr int NR{
+      16}; ///< Register block for N dimension;
+           ///< NR = VLEN/8/ROW_INTERLEAVE = 256 / 8 / 2 = 16.
+           ///< Total registers used for N dimension: NCB/NR.
+           ///< Here we use 3 x 4 ymm register blocking for the
+           ///< registers used for accumulation C.
+
+  static constexpr int ROW_INTERLEAVE{
+      2}; ///< 2 rows are interleaved to use vpmaddubsw instruction for packing
+          ///< B matrix.
+
+  static constexpr int MCB{
+      60}; ///< Cache block for M dimension (multiple of MR).
+  static constexpr int NCB{
+      64}; ///< Cache block for N dimension (multiple of NR).
   static constexpr int KCB{256}; ///< Cache block for K dimension.
 
   static std::tuple<int, int, int> getCacheBlockParams() {

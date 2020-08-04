@@ -120,6 +120,8 @@ class CodeGenBase {
       oss << "_avx512vnni";
     } else if (instSet == inst_set_t::avx512) {
       oss << "_avx512";
+    } else if (instSet == inst_set_t::avx512_ymm) {
+      oss << "_avx512_ymm";
     } else if (instSet == inst_set_t::avx2) {
       oss << "_avx2";
     }

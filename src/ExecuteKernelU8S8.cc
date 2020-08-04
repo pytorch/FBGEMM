@@ -74,6 +74,13 @@ ExecuteKernel<
             inst_set_t::avx512>::getKernelParams();
         break;
 
+      case inst_set_t::avx512_ymm:
+        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512_ymm>::getKernelParams();
+        break;
+
       case inst_set_t::avx2:
         std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
             typename packingAMatrix::inpType,
@@ -143,6 +150,14 @@ void ExecuteKernel<
           packedA_.numPackedCols());
       break;
 
+    case inst_set_t::avx512_ymm:
+      fn = BaseType::template getOrCreate<inst_set_t::avx512_ymm>(
+          accum,
+          packed_rows_A,
+          packedB_.blockColSize(),
+          packedA_.numPackedCols());
+      break;
+
     case inst_set_t::avx2:
       fn = BaseType::template getOrCreate<inst_set_t::avx2>(
           accum,
@@ -190,6 +205,11 @@ void ExecuteKernel<
 
           case inst_set_t::avx512:
             fn = BaseType::template getOrCreate<inst_set_t::avx512>(
+                accum, packed_rows_A, nc, packedA_.numPackedCols());
+            break;
+
+          case inst_set_t::avx512_ymm:
+            fn = BaseType::template getOrCreate<inst_set_t::avx512_ymm>(
                 accum, packed_rows_A, nc, packedA_.numPackedCols());
             break;
 

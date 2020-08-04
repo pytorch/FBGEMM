@@ -71,6 +71,12 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
             PackingTraits<T, accT, inst_set_t::avx512>::getMatrixPackAParams();
         break;
 
+      case inst_set_t::avx512_ymm:
+        std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
+            PackingTraits<T, accT, inst_set_t::avx512_ymm>::
+              getMatrixPackAParams();
+        break;
+
       case inst_set_t::avx2:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx2>::getMatrixPackAParams();

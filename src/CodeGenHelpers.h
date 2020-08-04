@@ -35,6 +35,7 @@ template<
     typename T,
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
         instSet == inst_set_t::avx512_vnni,
         int>::type = 0>
 void gen16BitVectorOne(x86::Emitter* a, T dest) {
@@ -63,11 +64,47 @@ template<
     typename T,
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
         instSet == inst_set_t::avx512_vnni,
         int>::type = 0>
 void emitLoadDWord(
   x86::Emitter* a, T dest, const x86::Mem& ptr) {
     a->vmovdqa32(dest, ptr);
+}
+
+/**
+ * @brief Emit partial extract from Wide regiter to Half Register, eg.
+ *        Zmm -> Ymm or Ymm -> Xmm
+ * @tparam instSet instruction set to be used
+ *
+ * @param half Destination (half) vector register
+ * @param vec Source (full) vector register
+ * @param idx Index of of the half vector 0 or 1
+ */
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni,
+        int>::type = 0>
+void emitExtractHalfVector(
+    x86::Emitter* a, x86::Ymm half, const x86::Zmm vec, int idx) {
+  a->vextracti32x8(half, vec, idx);
+}
+
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni,
+        int>::type = 0>
+void emitExtractHalfVector(
+    x86::Emitter* a, x86::Xmm half, x86::Ymm vec, int idx) {
+  a->vextracti32x4(half, vec, idx);
 }
 
 /**
