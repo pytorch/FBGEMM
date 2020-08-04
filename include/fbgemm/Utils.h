@@ -98,6 +98,15 @@ template <>
 struct simd_info<inst_set_t::avx512_vnni>
     : public simd_info<inst_set_t::avx512> {};
 
+template <>
+struct simd_info<inst_set_t::avx512_ymm> {
+  static constexpr int WIDTH_BITS = 256;
+  static constexpr int WIDTH_BYTES = 32;
+  static constexpr int WIDTH_32BIT_ELEMS = 8;
+  static constexpr int NUM_VEC_REGS = 32;
+
+  using vec_reg_t = asmjit::x86::Ymm;
+};
 /**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
