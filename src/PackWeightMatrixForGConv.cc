@@ -150,7 +150,7 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::packed_index_(
  * For IC_per_G == 8, 16, 32 && OC_per_G == 8, 16, 32 there is no need to work
  * on 2 groups at a time and full SIMD width can be efficiently utilized even
  * while working on 1 group at a time.
- * In this case, the layout is G (C/4) R S K 4
+ * In this case, the layout is G R S K_per_G paddedICPerG
  */
 
 template <typename T, typename accT, int SPATIAL_DIM>
