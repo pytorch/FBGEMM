@@ -6,11 +6,11 @@
  */
 #pragma once
 
-#include "fbgemm/Utils.h"
-#include "fbgemm/UtilsAvx2.h"
 #include "./FbgemmI8DepthwiseAvx2-inl.h"
 #include "./GenerateI8Depthwise.h"
 #include "./MaskAvx2.h"
+#include "fbgemm/Utils.h"
+#include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
 
@@ -58,7 +58,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
       ? *pregenerated_kernel
       : GenI8Depthwise().getOrCreate(
             /*D=*/2,
-            S,
+            {1, S, S},
             OC / IC,
             /*compute_a_sum=*/!B_SYMMETRIC,
             remainder,
@@ -324,7 +324,7 @@ static ALWAYS_INLINE void depthwise_2d_(
           }
           middle_kernel = GenI8Depthwise().getOrCreate(
               /*D=*/2,
-              S,
+              {1, S, S},
               OC / IC,
               /*compute_a_sum=*/!B_SYMMETRIC,
               remainder,
