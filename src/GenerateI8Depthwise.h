@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace fbgemm {
@@ -25,7 +26,7 @@ class GenI8Depthwise {
 
   jit_kernel_signature getOrCreate(
       int D, // dimension
-      int F, // filter size per dimension
+      std::array<int, 3> F, // filter size (K_T, K_H, K_W)
       int oc_per_g, // the number of output channels per group
       bool compute_a_sum,
       int remainder, // the number of channels in the remainder loop

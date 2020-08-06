@@ -69,7 +69,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_kernel_(
       ? *pregenerated_kernel
       : GenI8Depthwise().getOrCreate(
             /*D=*/3,
-            /*S=*/3,
+            /*F=*/{3, 3, 3},
             OC / IC,
             /*compute_a_sum=*/!B_SYMMETRIC,
             remainder,
@@ -264,7 +264,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
             int t_in = -PAD_P + t * stride_t;
             kernel = GenI8Depthwise().getOrCreate(
                 /*D=*/3,
-                /*F=*/3,
+                /*F=*/{3, 3, 3},
                 OC / IC,
                 /*compute_a_sum=*/!B_SYMMETRIC,
                 remainder,
@@ -453,7 +453,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
             }
             middle_kernel = GenI8Depthwise().getOrCreate(
                 /*D=*/3,
-                /*F=*/3,
+                /*F=*/{3, 3, 3},
                 OC / IC,
                 /*compute_a_sum=*/!B_SYMMETRIC,
                 remainder,
@@ -644,7 +644,7 @@ static ALWAYS_INLINE void depthwise_3x3x3_pad_1_(
             int t_in = -PAD_P + t * stride_t;
             kernel = GenI8Depthwise().getOrCreate(
                 /*D=*/3,
-                /*F=*/3,
+                /*F=*/{3, 3, 3},
                 OC / IC,
                 /*compute_a_sum=*/!B_SYMMETRIC,
                 remainder,
