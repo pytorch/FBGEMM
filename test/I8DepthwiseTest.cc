@@ -77,11 +77,14 @@ static vector<vector<int>> shapes = {
 static vector<vector<int>> shapes_3d = {
   // NOTE: clang-format wants to use a different formatting but the current
   // formatting should be easier to read.
-  // N, K, T_in, H_in, W_in, stride
-  {   1,  32,   16,  28, 28, 1, },
-  {   1, 128,    8,  14, 14, 2, },
-  {   5,  16,   32,  56, 56, 1, },
-  {   1,   8,    4,   4,  4, 1, },
+  // N, K, T_in, H_in, W_in, stride_t, stride_h, stride_w, K_T, K_H, K_W
+  {   1,  32,   16,  28, 28, 1, 1, 1, 3, 3, 3, },
+  {   1, 128,    8,  14, 14, 2, 2, 2, 3, 3, 3, },
+  {   5,  16,   32,  56, 56, 1, 1, 1, 3, 3, 3, },
+  {   1,   8,    4,   4,  4, 1, 1, 1, 3, 3, 3, },
+  {   1,  32,   16,  28, 28, 1, 1, 1, 3, 5, 5, },
+  {   1,  32,   16,  28, 28, 1, 2, 2, 3, 5, 5, },
+  {   1,  32,   16,  28, 28, 1, 1, 1, 5, 5, 5, },
 };
 // clang-format on
 
@@ -259,27 +262,27 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
   } // for each shape
 } // Test3x3
 
-TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
+TEST_P(FBGemmDepthWiseTest, Test3D) {
   bool a_symmetric, b_symmetric;
   int oc_per_g;
   tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
 
-  // 3x3x3 tests take a long time so for a symmetric quantization, we only
+  // 3D tests take a long time so for a symmetric quantization, we only
   // test with 2 shapes.
-  for (auto shape : a_symmetric || b_symmetric
-           ? vector<vector<int>>(shapes_3d.cbegin(), shapes_3d.cbegin() + 2)
-           : shapes_3d) {
+  for (auto shape : shapes_3d) {
     int N = shape[0];
     int G = shape[1];
     int T = shape[2];
     int H = shape[3];
     int W = shape[4];
     int stride_t = shape[5];
-    int stride_h = stride_t;
-    int stride_w = stride_t;
-    constexpr int K_T = 3, K_H = 3, K_W = 3;
-    constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
-                  PAD_R = 1;
+    int stride_h = shape[6];
+    int stride_w = shape[7];
+    int K_T = shape[8];
+    int K_H = shape[9];
+    int K_W = shape[10];
+    int PAD_P = (K_T - 1) / 2, PAD_N = PAD_P, PAD_T = (K_H - 1) / 2,
+        PAD_B = PAD_T, PAD_L = (K_W - 1) / 2, PAD_R = PAD_L;
     int OC = G * oc_per_g;
 
     conv_param_t<3> conv_p(
@@ -361,18 +364,10 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
           OC);
     }
 
-    PackedDepthWiseConvMatrix Bp(OC, 3 * 3 * 3, B.data());
+    PackedDepthWiseConvMatrix Bp(OC, K_T * K_H * K_W, B.data());
 
-    depthwise_3x3x3_pad_1<QuantizationGranularity::TENSOR>(
-        N,
-        T,
-        H,
-        W,
-        G,
-        OC,
-        stride_t,
-        stride_h,
-        stride_w,
+    depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
+        conv_p,
         A_zero_point,
         A.data(),
         &B_zero_point,
@@ -398,7 +393,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
               int32_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               EXPECT_EQ(actual, expected)
-                  << "Depthwise 3x3 results differ at (" << n << ", " << t
+                  << "Depthwise 3D results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
             }
           } // w
@@ -406,7 +401,7 @@ TEST_P(FBGemmDepthWiseTest, Test3x3x3) {
       } // t
     } // n
   } // for each shape
-} // Test3x3x3
+} // Test3D
 
 TEST_P(
     FBGemmDepthWisePerChannelQuantizationTest,
@@ -551,7 +546,7 @@ TEST_P(
 
 TEST_P(
     FBGemmDepthWisePerChannelQuantizationTest,
-    Test3x3x3PerChannelQuantization) {
+    Test3DPerChannelQuantization) {
   int oc_per_g = GetParam();
 
   for (auto shape : shapes_3d) {
@@ -561,11 +556,13 @@ TEST_P(
     int H = shape[3];
     int W = shape[4];
     int stride_t = shape[5];
-    int stride_h = stride_t;
-    int stride_w = stride_t;
-    constexpr int K_T = 3, K_H = 3, K_W = 3;
-    constexpr int PAD_P = 1, PAD_N = 1, PAD_T = 1, PAD_B = 1, PAD_L = 1,
-                  PAD_R = 1;
+    int stride_h = shape[6];
+    int stride_w = shape[7];
+    int K_T = shape[8];
+    int K_H = shape[9];
+    int K_W = shape[10];
+    int PAD_P = (K_T - 1) / 2, PAD_N = PAD_P, PAD_T = (K_H - 1) / 2,
+        PAD_B = PAD_T, PAD_L = (K_W - 1) / 2, PAD_R = PAD_L;
     int OC = G * oc_per_g;
 
     conv_param_t<3> conv_p(
@@ -651,18 +648,10 @@ TEST_P(
           1);
     }
 
-    PackedDepthWiseConvMatrix Bp(OC, 3 * 3 * 3, B.data());
+    PackedDepthWiseConvMatrix Bp(OC, K_T * K_H * K_W, B.data());
 
-    depthwise_3x3x3_pad_1<QuantizationGranularity::OUT_CHANNEL>(
-        N,
-        T,
-        H,
-        W,
-        G,
-        OC,
-        stride_t,
-        stride_h,
-        stride_w,
+    depthwise_3d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
+        conv_p,
         A_zero_point,
         A.data(),
         B_zero_point.data(),
@@ -688,7 +677,7 @@ TEST_P(
               int32_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               ASSERT_EQ(actual, expected)
-                  << "Depthwise 3x3 results differ at (" << n << ", " << t
+                  << "Depthwise 3D results differ at (" << n << ", " << t
                   << ", " << h << ", " << w << ", " << k << ").";
             }
           } // w
@@ -696,7 +685,7 @@ TEST_P(
       } // t
     } // n
   } // for each shape
-} // Test3x3PerChannelQuantization
+} // Test3DPerChannelQuantization
 
 TEST_P(FBGemmDepthWisePackUnpackTest, TestPackUnpack) {
   int K, kernel_prod;

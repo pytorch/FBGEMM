@@ -18,25 +18,35 @@ template <int SPATIAL_DIM, typename ACC_T>
 bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   // Note: Depthwise convolutions (both 2D and 3D) are optimized for the most
   // common case.
-  return std::is_same<ACC_T, std::int32_t>::value && conv_p.G == conv_p.IC &&
+  // 3x3 or 5x5 2D
+  // (3 or 5)x(3x3 or 5x5) 3D
+  bool ret = std::is_same<ACC_T, std::int32_t>::value &&
+      conv_p.G == conv_p.IC &&
       (conv_p.G == conv_p.OC || conv_p.G * 2 == conv_p.OC) &&
       conv_p.G % 8 == 0 &&
       std::all_of(
-             conv_p.stride.begin(),
-             conv_p.stride.end(),
-             [](int i) { return i == 1 || i == 2; }) &&
+                 conv_p.stride.begin(),
+                 conv_p.stride.end(),
+                 [](int i) { return i == 1 || i == 2; }) &&
+      SPATIAL_DIM >= 2 &&
+      conv_p.K[SPATIAL_DIM - 2] == conv_p.K[SPATIAL_DIM - 1] &&
       std::all_of(
-             conv_p.K.begin(),
-             conv_p.K.end(),
-             [&conv_p](int i) { return i == conv_p.K[0]; }) &&
-      (conv_p.K[0] == 3 || (SPATIAL_DIM == 2 && conv_p.K[0] == 5)) &&
-      std::all_of(
-             conv_p.dilation.begin(),
-             conv_p.dilation.end(),
-             [](int i) { return i == 1; }) &&
-      std::all_of(conv_p.pad.begin(), conv_p.pad.end(), [&conv_p](int i) {
-           return i == (conv_p.K[0] - 1) / 2;
-         });
+                 conv_p.K.begin(),
+                 conv_p.K.end(),
+                 [](int i) { return i == 3 || i == 5; }) &&
+      std::all_of(conv_p.dilation.begin(), conv_p.dilation.end(), [](int i) {
+               return i == 1;
+             });
+
+  // Check pads result in same input and output spatial dim
+  for (int i = 0; i < SPATIAL_DIM; ++i) {
+    if (conv_p.pad[i] != (conv_p.K[i] - 1) / 2 ||
+        conv_p.pad[i] != conv_p.pad[SPATIAL_DIM + i]) {
+      ret = false;
+    }
+  }
+
+  return ret;
 }
 
 template <int SPATIAL_DIM>
@@ -105,16 +115,8 @@ int fbgemmConv(
             "For depthwise, only requantized output is supported");
 
         if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_3x3x3_pad_1<QuantizationGranularity::TENSOR>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // T
-              conv_p.IN_DIM[1], // H
-              conv_p.IN_DIM[2], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_t
-              conv_p.stride[1], // stride_h
-              conv_p.stride[2], // stride_w
+          depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
+              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
               activations,
               B_zero_point,
@@ -130,16 +132,8 @@ int fbgemmConv(
               num_threads);
         } else if (
             processOutputType::QGRANType == QuantizationGranularity::GROUP) {
-          depthwise_3x3x3_pad_1<QuantizationGranularity::GROUP>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // T
-              conv_p.IN_DIM[1], // H
-              conv_p.IN_DIM[2], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_t
-              conv_p.stride[1], // stride_h
-              conv_p.stride[2], // stride_w
+          depthwise_3d_same_pad<QuantizationGranularity::GROUP>(
+              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
               activations,
               B_zero_point,
@@ -156,16 +150,8 @@ int fbgemmConv(
         } else if (
             processOutputType::QGRANType ==
             QuantizationGranularity::OUT_CHANNEL) {
-          depthwise_3x3x3_pad_1<QuantizationGranularity::OUT_CHANNEL>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // T
-              conv_p.IN_DIM[1], // H
-              conv_p.IN_DIM[2], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_t
-              conv_p.stride[1], // stride_h
-              conv_p.stride[2], // stride_w
+          depthwise_3d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
+              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
               activations,
               B_zero_point,
