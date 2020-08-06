@@ -9,6 +9,7 @@
 #include <asmjit/asmjit.h>
 #include <cassert>
 #include <iostream>
+#include <numeric>
 
 #include "./CodeCache.h"
 #include "./CodeGenHelpers.h"
@@ -28,11 +29,12 @@ asmjit::JitRuntime& runtime() {
 // Controll access to runtime;
 std::mutex rtMutex_;
 
-// The hash depends on D, F, oc_per_g, compute_a_sum,
+// The hash depends on D, K_T, K_H, K_W, oc_per_g, compute_a_sum,
 // remainder, prev_skip, next_skip, top_skip, bottom_skip, left_skip, and
 // right_skip.
 CodeCache<
-    std::tuple<int, int, int, bool, int, int, int, int, int, int, int>,
+    std::
+        tuple<int, int, int, int, int, bool, int, int, int, int, int, int, int>,
     GenI8Depthwise::jit_kernel_signature>
     codeCache_;
 } // namespace
@@ -173,7 +175,7 @@ static void genMaddEpi16xNPacked(
 
 GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int D,
-    int S,
+    std::array<int, 3> F,
     int oc_per_g,
     bool compute_a_sum,
     int remainder,
@@ -183,10 +185,12 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     int bottom_skip,
     int left_skip,
     int right_skip) {
-  std::tuple<int, int, int, bool, int, int, int, int, int, int, int> kernelSig =
-      std::make_tuple(
+  std::tuple<int, int, int, int, int, bool, int, int, int, int, int, int, int>
+      kernelSig = std::make_tuple(
           D,
-          S,
+          F[0],
+          F[1],
+          F[2],
           oc_per_g,
           compute_a_sum,
           remainder,
@@ -203,8 +207,14 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     x86::Assembler assembler(&code);
     x86::Emitter* e = assembler.as<x86::Emitter>();
 #ifdef FBGEMM_LOG_CODE
-    std::string filename = "dwconv_" + std::to_string(D) + "d_S" +
-        std::to_string(S) + "_" + std::to_string(oc_per_g);
+    std::string filename = "dwconv_" + std::to_string(D) + "d_";
+    for (int i = 3 - D; i < 3; ++i) {
+      filename += std::to_string(K[i]);
+      if (i < 2) {
+        filename += "x"
+      }
+    }
+    filename += "_" + std::to_string(oc_per_g);
     if (compute_a_sum) {
       filename += "_asum";
     }
@@ -326,10 +336,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       gen8BitVectorOne(e, one_epi8);
     }
 
-    int K = 1;
-    for (int i = 0; i < D; ++i) {
-      K *= S;
-    }
+    int K = std::accumulate(F.begin(), F.end(), 1, std::multiplies<int>());
     x86::Ymm one_epi16(vreg_id);
     if (K > 2) {
       ++vreg_id;
@@ -360,12 +367,12 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
     e->imul(h, w);
     if (D >= 3) {
       e->mov(a_addr_save, w);
-      e->imul(a_addr_save, S);
-      e->sub(h, a_addr_save);
+      e->imul(a_addr_save, F[1]);
+      e->sub(h, a_addr_save); // h * w * ic - F[1] * w * ic
     }
     e->mov(a_addr_save, ic);
-    e->imul(a_addr_save, S);
-    e->sub(w, a_addr_save);
+    e->imul(a_addr_save, F[2]);
+    e->sub(w, a_addr_save); // w * ic - F[2] * ic
 
     e->mov(ic_loop_count, ic);
     e->add(ic_loop_count, asmjit::Imm(32 / oc_per_g - 1));
@@ -389,17 +396,17 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
       int i = 0;
       // Iterate across the reduction (filter) dimension
-      for (int f_t = 0; f_t < ((D == 2) ? 1 : S); ++f_t) {
-        for (int f_h = 0; f_h < S; ++f_h) {
-          for (int f_w = 0; f_w < S; ++f_w, ++i) {
+      for (int f_t = 0; f_t < ((D == 2) ? 1 : F[0]); ++f_t) {
+        for (int f_h = 0; f_h < F[1]; ++f_h) {
+          for (int f_w = 0; f_w < F[2]; ++f_w, ++i) {
             bool pad = false;
             if (D > 2) {
-              if (f_t < prev_skip || f_t >= S - next_skip) {
+              if (f_t < prev_skip || f_t >= F[0] - next_skip) {
                 pad = true;
               }
             }
-            if (f_h < top_skip || f_h >= S - bottom_skip || f_w < left_skip ||
-                f_w >= S - right_skip) {
+            if (f_h < top_skip || f_h >= F[1] - bottom_skip ||
+                f_w < left_skip || f_w >= F[2] - right_skip) {
               pad = true;
             }
 
@@ -472,15 +479,15 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
               }
             }
             if (i != K - 1) {
-              e->add(a_addr, ic);
+              e->add(a_addr, ic); // advance to next pixel
             }
           }
           if (i != K - 1) {
-            e->add(a_addr, w);
+            e->add(a_addr, w); // advance to next row
           }
         }
         if (D >= 3 && i != K - 1) {
-          e->add(a_addr, h);
+          e->add(a_addr, h); // advance to next frame
         }
       }
 
