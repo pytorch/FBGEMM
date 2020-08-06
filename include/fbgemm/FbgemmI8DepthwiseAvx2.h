@@ -6,7 +6,9 @@
  */
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
 
@@ -134,6 +136,28 @@ FBGEMM_API void depthwise_2d_per_channel_quantization_same_pad(
     int thread_id = 0,
     int num_threads = 1);
 
+/**
+ * @param col_offsets nullptr if col_offsets are folded into bias
+ */
+template <QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void depthwise_3d_same_pad(
+    const conv_param_t<3>& conv_p,
+    std::int32_t A_zero_point,
+    const std::uint8_t* A,
+    const std::int32_t* B_zero_point,
+    const PackedDepthWiseConvMatrix& Bp,
+    const float* C_multiplier,
+    std::int32_t C_zero_point,
+    std::uint8_t* C,
+    const std::int32_t* col_offsets,
+    const BIAS_TYPE* bias,
+    bool fuse_relu = false,
+    const float* act_times_w_scale = nullptr,
+    int thread_id = 0,
+    int num_threads = 1);
+
+// The following 3 functions are deprecated. Should use depthwise_3d_*
+// functions instead.
 /**
  * @param col_offsets nullptr if col_offsets are folded into bias
  */
