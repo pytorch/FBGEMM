@@ -24,6 +24,8 @@
 using namespace std;
 using namespace fbgemm;
 
+#define GTEST_COUT std::cerr << "[          ] [ INFO ]"
+
 vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::GROUP,
@@ -237,6 +239,9 @@ TEST_P(fbgemmIm2colTest, Acc32Test) {
   QuantizationGranularity q_granularity;
   bool b_symmetric;
   tie(q_granularity, b_symmetric) = GetParam();
+
+  testing::internal::CaptureStderr();
+
   if (q_granularity == QuantizationGranularity::TENSOR) {
     Im2colTest<int32_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
@@ -244,6 +249,9 @@ TEST_P(fbgemmIm2colTest, Acc32Test) {
   } else {
     Im2colTest<int32_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
+
+  std::string output = testing::internal::GetCapturedStderr();
+  std::cerr << output << std::endl;
 }
 
 TEST_P(fbgemmIm2colTest, Acc16Test) {
@@ -744,6 +752,10 @@ TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
   QuantizationGranularity q_granularity;
   bool b_symmetric;
   tie(q_granularity, b_symmetric) = GetParam();
+
+  GTEST_COUT << "Testing 3DAcc32 sym = " << b_symmetric << std::endl;
+  testing::internal::CaptureStderr();
+
   if (q_granularity == QuantizationGranularity::TENSOR) {
     Im2col3DTest<int32_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
@@ -751,12 +763,17 @@ TEST_P(fbgemmIm2colTest, 3DAcc32Test) {
   } else {
     Im2col3DTest<int32_t, QuantizationGranularity::OUT_CHANNEL>(b_symmetric);
   }
+  std::string output = testing::internal::GetCapturedStderr();
+  std::cerr << output << std::endl;
 }
 
 TEST_P(fbgemmIm2colTest, 3DAcc16Test) {
   QuantizationGranularity q_granularity;
   bool b_symmetric;
   tie(q_granularity, b_symmetric) = GetParam();
+
+  GTEST_COUT << "Testing 3DAcc16 sym = " << b_symmetric << std::endl;
+
   if (q_granularity == QuantizationGranularity::TENSOR) {
     Im2col3DTest<int16_t, QuantizationGranularity::TENSOR>(b_symmetric);
   } else if (q_granularity == QuantizationGranularity::GROUP) {
