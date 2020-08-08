@@ -173,26 +173,19 @@ int main() {
         [&]() {
           int num_threads = fbgemm_get_num_threads();
           int tid = fbgemm_get_thread_num();
-          depthwise_3x3x3_pad_1(
-              N,
-              T,
-              H,
-              W,
-              K,
-              stride_t,
-              stride_h,
-              stride_w,
+          depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
+              conv_p,
               A_zero_point,
               A.data(),
-              B_zero_point,
+              &B_zero_point,
               Bp,
-              C_multiplier[0],
+              C_multiplier.data(),
               C_zero_point,
               C_uint8.data(),
               col_offsets.data(),
               bias.data(),
               false, /* fuse_relu */
-              1.0f, /* act_scale * w_scale */
+              nullptr, /* act_scale * w_scale */
               tid,
               num_threads);
         },
@@ -216,7 +209,7 @@ int main() {
               uint8_t actual =
                   C_uint8[(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * K + g];
               if (expected != actual) {
-                cerr << "Depthwise 3x3 results differ at (" << n << ", " << t
+                cerr << "Depthwise 3x3x3 results differ at (" << n << ", " << t
                      << ", " << h << ", " << w << ", " << g << "). expected "
                      << (int)expected << " actual " << (int)actual << endl;
                 return -1;
