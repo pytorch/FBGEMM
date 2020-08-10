@@ -24,6 +24,16 @@ jobs:
         git submodule sync --recursive
         git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
 
+    - name: Get CPU info on Ubuntu
+      if: contains(runner.os, 'linux')
+      run: |
+        cat /proc/cpuinfo
+
+    - name: Get CPU info on macOS
+      if: contains(runner.os, 'macOs')
+      run: |
+        sysctl -a | grep machdep.cpu
+
     - name: Get env vars
       run: |
         echo GITHUB_WORKFLOW   = $GITHUB_WORKFLOW
@@ -82,6 +92,11 @@ jobs:
         auth_header="$(git config --local --get http.https://github.com/.extraheader)"
         git submodule sync --recursive
         git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+
+    - name: Get CPU info on Windows
+      shell: cmd
+      run: |
+        wmic cpu list full
 
     - name: Build static FBGEMM lib
       shell: cmd
