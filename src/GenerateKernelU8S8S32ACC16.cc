@@ -55,8 +55,8 @@ genComputeBlock<inst_set_t::avx2>(
  * 16-bit Accumulation kernel.
  */
 template <>
-template <typename VecT, int VecLen>
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
+template <>
+void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<x86::Ymm, 32>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
