@@ -160,6 +160,19 @@ if(NOT TARGET cpuinfo)
   endif(MSVC)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
+  
+  #cpuinfo doesn't correctly prefix its public header with ${CMAKE_CURRENT_LIST_DIR}, 
+  #which breaks installation targets including it as a submodule, so fix that
+  get_property(CPUINFO_PUBLIC_HEADER_PROP TARGET cpuinfo PROPERTY PUBLIC_HEADER)
+  list(APPEND CPUINFO_PUBLIC_HEADERS ${CPUINFO_PUBLIC_HEADER_PROP}) # Ensure it's a list
+  list(TRANSFORM CPUINFO_PUBLIC_HEADERS PREPEND "${CPUINFO_SOURCE_DIR}/" REGEX "include.*")
+  set_property(TARGET cpuinfo PROPERTY PUBLIC_HEADER ${CPUINFO_PUBLIC_HEADERS})
+  
+  #same for clog
+  get_property(CLOG_PUBLIC_HEADER_PROP TARGET clog PROPERTY PUBLIC_HEADER)
+  list(APPEND CLOG_PUBLIC_HEADERS ${CLOG_PUBLIC_HEADER_PROP}) # Ensure it's a list
+  list(TRANSFORM CLOG_PUBLIC_HEADERS PREPEND "${CPUINFO_SOURCE_DIR}/deps/clog/${CLOG_PUBLIC_HEADER}/" REGEX "include.*")
+  set_property(TARGET clog PROPERTY PUBLIC_HEADER ${CLOG_PUBLIC_HEADERS})
 endif()
 
 target_include_directories(fbgemm_generic BEFORE
