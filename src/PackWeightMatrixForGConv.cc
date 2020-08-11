@@ -21,6 +21,9 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
     const T* sdata,
     T* pdata)
     : trans_(trans), conv_param_(conv_param), sdata_(sdata) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   if (!pdata) {
     bufAllocatedHere_ = true;
     int kernel_prod = std::accumulate(
