@@ -6,6 +6,7 @@
  */
 #include <iostream>
 #include "./GenerateKernel.h"
+#include "./CodeGenHelpers.h"
 
 namespace fbgemm {
 
@@ -27,7 +28,7 @@ genComputeBlock<inst_set_t::avx2>(
     int colRegs,
     int lda) {
   using CRegs = x86::Ymm;
-  static constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
 
   // used for matrix A
   x86::Ymm AReg = x86::ymm13;
@@ -51,11 +52,11 @@ genComputeBlock<inst_set_t::avx2>(
 }
 
 /**
- * Generate AVX2 instructions for storing the C registers back to the memory in
- * 16-bit Accumulation kernel.
+ * Generate instructions for storing the C registers back to the memory
+ * in 16-bit Accumulation kernel.
  */
 template <>
-template <typename VecT, int VecLen>
+template <inst_set_t instSet>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
@@ -63,22 +64,25 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
     x86::Gp C_Offset,
     x86::Gp ldcReg,
     bool accum) {
-  x86::Xmm extractDest128 = x86::xmm15;
-  x86::Ymm extractDest256 = x86::ymm15;
+  using VecT = typename simd_info<instSet>::vec_reg_t;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
-  using CRegs = x86::Ymm;
+  VecT extractDestFull(simd_info<instSet>::NUM_VEC_REGS - 1);
+  auto extractDestHalf = extractDestFull.half();
+
   for (int i = 0; i < rowRegs; ++i) {
     a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
     for (int j = 0; j < colRegs; ++j) {
       for (int idx = 0; idx < 2; ++idx) {
-        a->vextracti128(extractDest128, CRegs(i * colRegs + j), idx);
-        a->vpmovsxwd(extractDest256, extractDest128);
+        emitExtractHalfVector<instSet, VecT>(
+            a, extractDestHalf, VecT(i * colRegs + j), idx);
+        a->vpmovsxwd(extractDestFull, extractDestHalf);
         x86::Mem destAddr = x86::dword_ptr(
-            a->zcx(), C_Offset, 0, (j * 2 + idx) * 8 * sizeof(int32_t));
+            a->zcx(), C_Offset, 0, (j * 2 + idx) * vectorLen);
         if (accum) {
-          a->vpaddd(extractDest256, extractDest256, destAddr);
+          a->vpaddd(extractDestFull, extractDestFull, destAddr);
         }
-        a->vmovups(destAddr, extractDest256);
+        a->vmovups(destAddr, extractDestFull);
       }
     }
   }
@@ -97,7 +101,7 @@ getOrCreate<inst_set_t::avx2>(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
-  constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BITS / 8;
+  constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
@@ -255,8 +259,7 @@ getOrCreate<inst_set_t::avx2>(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<x86::Ymm, 32>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // increment A for next block
       a->sub(buffer_A, kSize);
@@ -309,8 +312,7 @@ getOrCreate<inst_set_t::avx2>(
       a->jl(LoopkRem);
 
       // store C matrix
-      storeCRegs<x86::Ymm, 32>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     }
 
     a->emitEpilog(frame);
@@ -334,5 +336,47 @@ getOrCreate<inst_set_t::avx2>(
     return fn;
   });
 }
+
+/**
+ * Instantiate the inst_set_t::avx2 instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
+storeCRegs<inst_set_t::avx2>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx512 instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
+storeCRegs<inst_set_t::avx512>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx512_ymm instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
+storeCRegs<inst_set_t::avx512_ymm>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
 
 } // namespace fbgemm

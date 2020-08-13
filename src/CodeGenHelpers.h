@@ -107,6 +107,17 @@ void emitExtractHalfVector(
   a->vextracti32x4(half, vec, idx);
 }
 
+template<
+    inst_set_t instSet,
+    typename T,
+    typename std::enable_if<
+        instSet == inst_set_t::avx2,
+        int>::type = 0>
+void emitExtractHalfVector(
+    x86::Emitter* a, x86::Xmm half, x86::Ymm vec, int idx) {
+  a->vextracti128(half, vec, idx);
+}
+
 /**
  * @brief Create instruction sequence to generate 8-bit 1s
  * @tparam T Register type of destination, e.g., x86::Ymm or x86::Zmm

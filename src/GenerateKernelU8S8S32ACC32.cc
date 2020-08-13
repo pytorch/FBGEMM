@@ -26,7 +26,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
     int rowRegs,
     int colRegs,
     int lda) {
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
 
@@ -63,7 +63,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
  * in 32-bit Accumulation kernel.
  */
 template <>
-template <typename VecT, int VecLen>
+template <inst_set_t instSet>
 void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
@@ -71,6 +71,9 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
     x86::Gp C_Offset,
     x86::Gp ldcReg,
     bool accum) {
+  using VecT = typename simd_info<instSet>::vec_reg_t;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
       a->add(C_Offset, ldcReg);
@@ -82,10 +85,10 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
         a->vpaddd(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
-            x86::dword_ptr(a->zcx(), C_Offset, 0, j * VecLen * sizeof(int8_t)));
+            x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)));
       }
       a->vmovups(
-          x86::dword_ptr(a->zcx(), C_Offset, 0, j * VecLen * sizeof(int8_t)),
+          x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)),
           VecT(i * colRegs + j));
     }
   }
@@ -102,7 +105,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     bool accum, int32_t mc, int32_t nc, int32_t kc) {
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
@@ -267,8 +270,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->jl(LoopKLabel);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<instSet>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     };
 
     if (mRegBlocks > 0) {
@@ -400,11 +402,40 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 getOrCreate<inst_set_t::avx2>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 /**
- * Instantiate the ZMM instructions for store kernel.
+ * Instantiate the inst_set_t::avx512 instructions for store kernel.
  *
  */
 template
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<x86::Zmm, 64>(
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+storeCRegs<inst_set_t::avx512>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx512_ymm instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+storeCRegs<inst_set_t::avx512_ymm>(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_Offset,
+    x86::Gp ldcReg,
+    bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx2 instructions for store kernel.
+ *
+ */
+template
+void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+storeCRegs<inst_set_t::avx2>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
