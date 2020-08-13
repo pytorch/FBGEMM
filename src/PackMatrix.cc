@@ -57,6 +57,12 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
         KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni>::KCB;
         break;
 
+      case inst_set_t::avx512_vnni_ymm:
+        MCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni_ymm>::MCB;
+        NCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni_ymm>::NCB;
+        KCB = PackingTraits<inpType, accType, inst_set_t::avx512_vnni_ymm>::KCB;
+        break;
+
       case inst_set_t::avx512:
         MCB = PackingTraits<inpType, accType, inst_set_t::avx512>::MCB;
         NCB = PackingTraits<inpType, accType, inst_set_t::avx512>::NCB;

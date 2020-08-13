@@ -180,6 +180,7 @@ inst_set_t fbgemmEnvGetIsa() {
       {"AVX512", inst_set_t::avx512},
       {"AVX512_E1", inst_set_t::avx512_vnni},
       {"AVX512_256", inst_set_t::avx512_ymm},
+      {"AVX512_E1_256", inst_set_t::avx512_vnni_ymm},
   };
   const char* env = std::getenv(isa_env);
   if (env == nullptr) {
@@ -224,6 +225,13 @@ std::unordered_map<
          {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
         {inst_set_t::avx512_vnni,
          {inst_set_t::avx512_vnni,
+          inst_set_t::avx512_vnni_ymm,
+          inst_set_t::avx512,
+          inst_set_t::avx512_ymm,
+          inst_set_t::avx2}},
+        {inst_set_t::avx512_vnni_ymm,
+         {inst_set_t::avx512_vnni,
+          inst_set_t::avx512_vnni_ymm,
           inst_set_t::avx512,
           inst_set_t::avx512_ymm,
           inst_set_t::avx2}},
@@ -235,10 +243,11 @@ std::unordered_map<
  * @brief Force specific architecure to for GEMM kernel execution
  *        overides FBGEMM_ENABLE_AVX512_256 env. variable
  * @param isa the ISA to enforce, supported optionsi
- *          "AVX2",       inst_set_t::avx2
- *          "AVX512"      inst_set_t::avx512
- *          "AVX512_E1"   inst_set_t::avx512_vnni},
- *          "AVX512_256"  inst_set_t::avx512_ymm},
+ *     AVX2          inst_set_t::avx2
+ *     AVX512        inst_set_t::avx512
+ *     AVX512_E1     inst_set_t::avx512_vnni
+ *     AVX512_256    inst_set_t::avx512_ymm
+ *     AVX512_E1_256 inst_set_t::avx512_vnni_ymm
  */
 void fbgemmForceIsa(inst_set_t isa) {
   g_forced_isa = isa;
@@ -272,17 +281,19 @@ inst_set_t fbgemmInstructionSet() {
   inst_set_t detected_isa = inst_set_t::anyarch;
   // Check environment
   if (cpuinfo_initialize()) {
-    auto const isXeonD =
+    const bool isXeonD =
         fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
     if (fbgemmHasAvx512VnniSupport()) {
-      // TODO: Should VNNI also support YMM registers?
-      detected_isa = inst_set_t::avx512_vnni;
-    } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
-      if (hasAVX512 && !isXeonD) {
-        detected_isa = inst_set_t::avx512;
+      if (isXeonD) {
+        detected_isa = inst_set_t::avx512_vnni_ymm;
+      } else {
+        detected_isa = inst_set_t::avx512_vnni;
       }
-      if (hasAVX512 && isXeonD) {
+    } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
+      if (isXeonD) {
         detected_isa = inst_set_t::avx512_ymm;
+      } else {
+        detected_isa = inst_set_t::avx512;
       }
     } else if (fbgemmHasAvx2Support()) {
       detected_isa = inst_set_t::avx2;
@@ -307,7 +318,9 @@ bool isZmm(inst_set_t isa) {
 }
 
 bool isYmm(inst_set_t isa) {
-  return isa == inst_set_t::avx512_ymm || isa == inst_set_t::avx2;
+  return isa == inst_set_t::avx512_ymm ||
+      isa == inst_set_t::avx512_vnni_ymm ||
+      isa == inst_set_t::avx2;
 }
 
 bool fbgemmIsIntelXeonD() {
