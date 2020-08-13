@@ -27,7 +27,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
     int lda) {
   assert(colRegs * (rowRegs + 1) <= 31);
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   // used for matrix A
   VecRegT AReg(31);
@@ -54,8 +54,8 @@ template <inst_set_t instSet>
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     bool accum, int32_t mc, int32_t nc, int32_t kc) {
-  using VecRegT = typename simd_info<instSet>::vec_reg_t;
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+  static constexpr inst_set_t storeInstType = inst_set_t::avx512;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
@@ -227,8 +227,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<storeInstType>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // reset A
       a->sub(buffer_A, kSize);
@@ -326,8 +325,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       a->add(B_pf, C_Offset);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<storeInstType>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // increment C for next B block
       a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));

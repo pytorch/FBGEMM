@@ -27,7 +27,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock(
     int colRegs,
     int lda) {
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   // used for matrix A
   VecRegT AReg(29);
@@ -58,43 +58,6 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock(
 }
 
 /**
- * Generate AVX512 instructions for storing the C registers back to the memory
- * in 16-bit Accumulation kernel.
- */
-template <>
-template <typename VecT, int VecLen>
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
-    x86::Emitter* a,
-    int rowRegs,
-    int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
-
-    bool accum) {
-  VecT extractDestFull(31);
-  auto extractDestHalf = extractDestFull.half();
-
-  for (int i = 0; i < rowRegs; ++i) {
-    a->imul(C_Offset, ldcReg, static_cast<asmjit::Imm>(i * sizeof(int32_t)));
-    for (int j = 0; j < colRegs; ++j) {
-      for (int idx = 0; idx < 2; ++idx) {
-        // Use generilzed AVX512 instruction set, as this file currently
-        // handles only AVX512 cases
-        emitExtractHalfVector<inst_set_t::avx512, VecT>(
-            a, extractDestHalf, VecT(i * colRegs + j), idx);
-        a->vpmovsxwd(extractDestFull, extractDestHalf);
-        x86::Mem destAddr = x86::dword_ptr(
-            a->zcx(), C_Offset, 0, (j * 2 + idx) * 16 * sizeof(int32_t));
-        if (accum) {
-          a->vpaddd(extractDestFull, extractDestFull, destAddr);
-        }
-        a->vmovups(destAddr, extractDestFull);
-      }
-    }
-  }
-}
-
-/**
  * Get or Create the AVX512 instructions for 16-bit Accumulation macro-kernel.
  *
  */
@@ -106,8 +69,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
-  using VecRegT = typename simd_info<instSet>::vec_reg_t;
-  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 8;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
@@ -271,8 +233,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<instSet>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // reset A
       a->sub(buffer_A, kSize);
@@ -370,8 +331,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
       a->add(buffer_B, C_Offset);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<instSet>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // increment C for next block
       a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int32_t)));

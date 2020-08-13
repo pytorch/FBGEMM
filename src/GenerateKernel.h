@@ -80,7 +80,7 @@ class CodeGenBase {
    * @brief Generate instructions for storing the C registers back to the
    * memory.
    */
-  template <typename RT, int VecLen>
+  template <inst_set_t instSet>
   void storeCRegs(
       x86::Emitter* a,
       int rowRegs,

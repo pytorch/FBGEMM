@@ -69,7 +69,7 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::genComputeBlock(
  * 32-bit Accumulation kernel.
  */
 template <>
-template <typename VecT, int VecLen>
+template <inst_set_t instSet>
 void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
@@ -77,6 +77,9 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::storeCRegs(
     x86::Gp C_Offset,
     x86::Gp ldcReg,
     bool accum) {
+  using VecT = typename simd_info<instSet>::vec_reg_t;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 64;
+
   for (int i = 0; i < rowRegs; ++i) {
     if (i != 0) {
       a->add(C_Offset, ldcReg);
@@ -89,11 +92,11 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::storeCRegs(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
             x86::dword_ptr(
-                a->zcx(), C_Offset, 0, j * VecLen * sizeof(int64_t)));
+                a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int64_t)));
       }
       a->vmovups(
           x86::dword_ptr(
-              a->zcx(), C_Offset, 0, j * VecLen * sizeof(int64_t)),
+              a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int64_t)),
           VecT(i * colRegs + j));
     }
   }
@@ -110,7 +113,6 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
     int32_t mc,
     int32_t nc,
     int32_t /* unused */) {
-  using VecRegT = typename simd_info<instSet>::vec_reg_t;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 64;
 
   tuple<bool, int, int, int, int, int, int> kernelSig;
@@ -259,8 +261,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<instSet>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // reset A
       a->sub(buffer_A, kSize);
@@ -353,8 +354,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
       a->add(B_pf, C_Offset);
 
       // store C matrix
-      storeCRegs<VecRegT, vectorLen>(
-          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<instSet>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // increment C for next B block
       a->add(CBase, static_cast<asmjit::Imm>(nRegBlockSize * sizeof(int64_t)));
