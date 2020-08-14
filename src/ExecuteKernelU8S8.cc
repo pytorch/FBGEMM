@@ -67,6 +67,13 @@ ExecuteKernel<
             inst_set_t::avx512_vnni>::getKernelParams();
         break;
 
+      case inst_set_t::avx512_vnni_ymm:
+        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+            typename packingAMatrix::inpType,
+            typename packingAMatrix::accType,
+            inst_set_t::avx512_vnni_ymm>::getKernelParams();
+        break;
+
       case inst_set_t::avx512:
         std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
             typename packingAMatrix::inpType,
@@ -142,6 +149,24 @@ void ExecuteKernel<
       }
       break;
 
+    case inst_set_t::avx512_vnni_ymm:
+      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+        // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+        CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+        fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
+            accum,
+            packed_rows_A,
+            packedB_.blockColSize(),
+            packedA_.numPackedCols());
+      } else {
+        fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni_ymm>(
+            accum,
+            packed_rows_A,
+            packedB_.blockColSize(),
+            packedA_.numPackedCols());
+      }
+      break;
+
     case inst_set_t::avx512:
       fn = BaseType::template getOrCreate<inst_set_t::avx512>(
           accum,
@@ -199,6 +224,19 @@ void ExecuteKernel<
                   accum, packed_rows_A, nc, packedA_.numPackedCols());
             } else {
               fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni>(
+                  accum, packed_rows_A, nc, packedA_.numPackedCols());
+            }
+            break;
+
+          case inst_set_t::avx512_vnni_ymm:
+            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
+                    value) {
+              // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
+              CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
+              fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
+                  accum, packed_rows_A, nc, packedA_.numPackedCols());
+            } else {
+              fn = BaseType::template getOrCreate<inst_set_t::avx512_vnni_ymm>(
                   accum, packed_rows_A, nc, packedA_.numPackedCols());
             }
             break;

@@ -36,7 +36,8 @@ template<
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
         instSet == inst_set_t::avx512_ymm ||
-        instSet == inst_set_t::avx512_vnni,
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void gen16BitVectorOne(x86::Emitter* a, T dest) {
   a->vpternlogd(dest, dest, dest, 0xff);
@@ -65,7 +66,8 @@ template<
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
         instSet == inst_set_t::avx512_ymm ||
-        instSet == inst_set_t::avx512_vnni,
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void emitLoadDWord(
   x86::Emitter* a, T dest, const x86::Mem& ptr) {
@@ -87,7 +89,8 @@ template<
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
         instSet == inst_set_t::avx512_ymm ||
-        instSet == inst_set_t::avx512_vnni,
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void emitExtractHalfVector(
     x86::Emitter* a, x86::Ymm half, const x86::Zmm vec, int idx) {
@@ -100,7 +103,8 @@ template<
     typename std::enable_if<
         instSet == inst_set_t::avx512 ||
         instSet == inst_set_t::avx512_ymm ||
-        instSet == inst_set_t::avx512_vnni,
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void emitExtractHalfVector(
     x86::Emitter* a, x86::Xmm half, x86::Ymm vec, int idx) {
