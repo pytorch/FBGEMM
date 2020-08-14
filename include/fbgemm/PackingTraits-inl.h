@@ -445,6 +445,60 @@ struct PackingTraits<
 };
 
 /**
+ * @brief Packing parameter specialization for accumulation into 32-bit/16-bit
+ * integers.
+ *
+ * Since there is no int16_t accumulation for AVX512 VNNI, we redirect int16_t
+ * to int32_t accumulation and use the same blocking parameters as int32_t.
+ *
+ * This is picked when T is of int8 type (signed or unsigned) and instruction
+ * set is avx512_vnni_ymm.
+ */
+template <typename T, typename accT>
+struct PackingTraits<
+    T,
+    accT,
+    inst_set_t::avx512_vnni_ymm,
+    typename std::enable_if<
+        is_8bit<T>::value && is_16or32bit<accT>::value>::type> {
+  static constexpr int MR{12}; ///< Register block for M dimension.
+  static constexpr int NR_MIN{
+      8}; ///< Minimum register block for N dimension.
+           ///< 8 because 8*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 512-bit wide vector.
+  static constexpr int NR{
+      8}; ///< Register block for N dimension.
+           ///< Must be a multiple of 8 because 8*ROW_INTERLEAVE int8 elements
+           ///< completely fill a 256-bit wide vector. Total registers used for
+           ///< N dimension: NR*ROW_INTERLEAVE*8/VLEN. We use MR x
+           ///< NR*ROW_INTERLEAVE*8/VLEN ymm registers
+           ///< for C accumulations.
+
+  static constexpr int ROW_INTERLEAVE{
+      4}; ///< 4 rows are interleaved to use vpmaddubsw instruction for packing
+          ///< B matrix.
+
+  static constexpr int MCB{
+      120}; ///< Cache block for M dimension (multiple of MR).
+  static constexpr int NCB{
+      8}; ///< Cache block for N dimension (multiple of NR).
+  static constexpr int KCB{512}; ///< Cache block for K dimension.
+
+  static std::tuple<int, int, int> getCacheBlockParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(MR));
+  }
+  static std::tuple<int, int, int> getKernelParams() {
+      return std::tuple<int, int, int>(int(MCB), int(NCB), int(NR_MIN));
+  }
+  static std::tuple<int, int, int> getMatrixPackAParams() {
+      return std::tuple<int, int, int>(int(MCB), int(KCB), int(ROW_INTERLEAVE));
+  }
+  static std::tuple<int, int, int> getMatrixPackBParams() {
+      return std::tuple<int, int, int>(int(KCB), int(NCB), int(ROW_INTERLEAVE));
+  }
+};
+
+/**
  * @brief Packing parameter specialization for I64 GEMM
  * integers.
  *

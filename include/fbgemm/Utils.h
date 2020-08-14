@@ -41,7 +41,14 @@ enum class matrix_op_t { NoTranspose, Transpose };
 /**
  * @brief Typed enum for supported instruction sets.
  */
-enum class inst_set_t { anyarch, avx2, avx512, avx512_ymm, avx512_vnni };
+enum class inst_set_t {
+  anyarch,
+  avx2,
+  avx512,
+  avx512_ymm,
+  avx512_vnni,
+  avx512_vnni_ymm
+};
 
 /**
  * @brief Typed enum for optimized paths for convolutions
@@ -107,6 +114,11 @@ struct simd_info<inst_set_t::avx512_ymm> {
 
   using vec_reg_t = asmjit::x86::Ymm;
 };
+
+template <>
+struct simd_info<inst_set_t::avx512_vnni_ymm>
+    : public simd_info<inst_set_t::avx512_ymm> {};
+
 /**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
