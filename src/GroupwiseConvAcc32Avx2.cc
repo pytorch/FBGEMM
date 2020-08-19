@@ -161,13 +161,14 @@ jit_conv_kernel_fp getOrCreateConvKernel(
   return nullptr;
 }
 
-template <int SPATIAL_DIM>
-jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
+template <int SPATIAL_DIM, inst_set_t INST_SET>
+jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   asmjit::CodeHolder code;
   code.init(this->runtime().codeInfo());
   x86::Assembler assembler(&code);
   x86::Emitter* a = assembler.as<x86::Emitter>();
 
+  typedef typename simd_info<INST_SET>::vec_reg_t vec_reg_t;
 #if defined(FBGEMM_LOG_CODE)
   auto kernelSig = make_tuple(
       this->isAZeroPointZero_,
@@ -245,7 +246,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   // this in a register. It's generated again at
   // each use. Only used for the case of C_per_G == 2 or 4
   // gen8BitVectorOne(a, oneReg8Bit_V_);
-  gen16BitVectorOne<inst_set_t::avx2, x86::Ymm>(a, oneReg16Bit_V_);
+  gen16BitVectorOne<inst_set_t::avx2, vec_reg_t>(a, oneReg16Bit_V_);
 
   loopR1_ = a->gpz(14);
   loopR2_ = a->gpz(15);
@@ -304,9 +305,8 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::getOrCreate() {
   return fn;
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::initResultRegs(
-    x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::initResultRegs(x86::Emitter* a) {
   if (kLoopIters_ > 0) {
     // Take advantage of implicit zeroing out
     // i.e., zero out xmm and ymm will be zeroed out too
@@ -318,8 +318,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::initResultRegs(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genConstForPermutations(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genConstForPermutations(
     x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
     x86::Gp permute_const_reg = a->gpz(12);
@@ -347,9 +347,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genConstForPermutations(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForLoadingWeights(
-    x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForLoadingWeights(x86::Emitter* a) {
   using WRegs = x86::Ymm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
@@ -369,9 +368,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForLoadingWeights(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeResult(
-    x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeResult(x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
     a->vpermd(x86::Ymm(9), stPermReg_V_, x86::Ymm(9));
@@ -417,9 +415,8 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeResult(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeOffset(
-    x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeOffset(x86::Emitter* a) {
   switch (this->C_per_G_) {
     case 2:
       // store 128-bits containing rowoffset for four groups
@@ -460,95 +457,84 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::storeOffset(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForTopOrBottomEdge(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
     x86::Emitter* a,
-    bool isTopEdge,
-    bool isBottomEdge) {
-  // Output width was passed in as the 7th argument (i.e., using stack).
-  // Reload it from the same location.
-  a->movsxd(
-      loopR1_,
-      x86::dword_ptr(
-          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
-  asmjit::Label LoopWStart = a->newLabel();
-  asmjit::Label LoopWEnd = a->newLabel();
-  asmjit::Label skipRightEdge = a->newLabel();
-  asmjit::Label skipRightEdgeTemp = a->newLabel();
-  a->cmp(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
-  a->jle(skipRightEdgeTemp);
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg) {
+  using WRegs = x86::Ymm;
 
-  // left corner code
-  genForSingleOutput(
-      a,
-      true, // isLeft
-      false, // isRight
-      isTopEdge, // isTop
-      isBottomEdge // isBotom
-  );
-  a->jmp(LoopWStart);
-
-  a->bind(skipRightEdgeTemp);
-  // top-left corner code
-  genForSingleOutput(
-      a,
-      true, // isLeft
-      this->use_right_padding_, // isRight
-      isTopEdge, // isTop
-      isBottomEdge // isBotom
-  );
-  a->jmp(skipRightEdge);
-
-  // edge excluding corners
-  a->bind(LoopWStart);
-
-  a->cmp(loopR1_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
-  a->jle(LoopWEnd);
-
-  genForSingleOutput(
-      a,
-      false, // isLeft
-      false, // isRight
-      isTopEdge, // isTop
-      isBottomEdge // isBotom
-  );
-
-  a->dec(loopR1_);
-  a->jmp(LoopWStart);
-  a->bind(LoopWEnd);
-
-  // top-right corner code
-  genForSingleOutput(
-      a,
-      false, // isLeft
-      this->use_right_padding_, // isRight
-      isTopEdge, // isTop
-      isBottomEdge // isBottom
-  );
-
-  a->bind(skipRightEdge);
-
-  if (this->STRIDE_ > 1) {
-    // STRIDE_ == 2 and even widths,
-    // We increase it by C_;
-    // STRIDE_ == 2 and odd widths, nothing to do
-    // input ptr is already at the right position
-    if (!this->use_right_padding_) {
-      a->add(in_acts_R_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+  if (GTogether_ > 1) {
+    if (this->C_per_G_ == 2) {
+      if (use_zero_reg) {
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
+      } else {
+        a->vbroadcastsd(
+            actReg_V_,
+            x86::word_ptr(in_acts_R_, (act_s * this->C_) * sizeof(uint8_t)));
+      }
+      a->vpmovzxwd(actReg_V_, actReg_V_.half());
+    } else if (this->C_per_G_ == 4) {
+      if (use_zero_reg) {
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
+      } else {
+        a->vbroadcastsd(
+            actReg_V_,
+            x86::dword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
+      }
     }
+    // row offset
+    if (this->needRowOffset_) {
+      genU8Sum4(a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
+    }
+    genU8I8S32FMA(
+        a,
+        actReg_V_,
+        WRegs(r * this->S_ + s),
+        x86::Ymm(9),
+        oneReg16Bit_V_,
+        tmpReg1_V_);
   } else {
-    // reset input activation pointer by (W_R_ - W_PAD_) * C_
-    a->mov(scratchReg2_, W_R_);
-    a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
-    a->sub(
-        scratchReg2_,
-        static_cast<asmjit::Imm>(this->W_PAD_ * this->C_ * sizeof(uint8_t)));
-    a->sub(in_acts_R_, scratchReg2_);
+    if (this->C_per_G_ == 8) {
+      if (use_zero_reg) {
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
+      } else {
+        a->vbroadcastsd(
+            actReg_V_,
+            x86::qword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
+      }
+    } else {
+      // this->C_per_G_ == 16
+      if (use_zero_reg) {
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
+      } else {
+        a->vbroadcastf128(
+            actReg_V_,
+            x86::oword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
+      }
+    }
+    // row offset
+    if (this->needRowOffset_) {
+      genU8Sum8(a, actReg_V_, rowOffsetReg_V_, tmpReg1_V_);
+    }
+    int kLoopMultiplier = 32 / this->C_per_G_;
+    for (int k = 0; k < kLoopIters_; ++k) {
+      a->vmovups(
+          WRegs(0),
+          x86::dword_ptr(
+              wghts_R_,
+              (((r * this->S_ + s) * this->K_per_G_) + k * kLoopMultiplier) *
+                  this->C_per_G_ * sizeof(int8_t)));
+      genU8I8S32FMA(
+          a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
+    }
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForSingleOutput(
     x86::Emitter* a,
     bool isLeft,
     bool isRight,
@@ -637,85 +623,95 @@ void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleOutput(
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genForSingleFilterPoint(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForTopOrBottomEdge(
     x86::Emitter* a,
-    int r,
-    int s,
-    int act_s,
-    bool use_zero_reg) {
-  using WRegs = x86::Ymm;
+    bool isTopEdge,
+    bool isBottomEdge) {
+  // Output width was passed in as the 7th argument (i.e., using stack).
+  // Reload it from the same location.
+  a->movsxd(
+      loopR1_,
+      x86::dword_ptr(
+          x86::rsp, frame_.saOffsetFromSP() + func_.arg(6).stackOffset()));
+  asmjit::Label LoopWStart = a->newLabel();
+  asmjit::Label LoopWEnd = a->newLabel();
+  asmjit::Label skipRightEdge = a->newLabel();
+  asmjit::Label skipRightEdgeTemp = a->newLabel();
+  a->cmp(loopR1_, static_cast<asmjit::Imm>(this->W_PAD_));
+  a->jle(skipRightEdgeTemp);
 
-  if (GTogether_ > 1) {
-    if (this->C_per_G_ == 2) {
-      if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_);
-      } else {
-        a->vbroadcastsd(
-            actReg_V_,
-            x86::word_ptr(in_acts_R_, (act_s * this->C_) * sizeof(uint8_t)));
-      }
-      a->vpmovzxwd(actReg_V_, actReg_V_.half());
-    } else if (this->C_per_G_ == 4) {
-      if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_);
-      } else {
-        a->vbroadcastsd(
-            actReg_V_,
-            x86::dword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
-      }
+  // left corner code
+  genForSingleOutput(
+      a,
+      true, // isLeft
+      false, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+  a->jmp(LoopWStart);
+
+  a->bind(skipRightEdgeTemp);
+  // top-left corner code
+  genForSingleOutput(
+      a,
+      true, // isLeft
+      this->use_right_padding_, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+  a->jmp(skipRightEdge);
+
+  // edge excluding corners
+  a->bind(LoopWStart);
+
+  a->cmp(loopR1_, static_cast<asmjit::Imm>(2 * this->W_PAD_));
+  a->jle(LoopWEnd);
+
+  genForSingleOutput(
+      a,
+      false, // isLeft
+      false, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBotom
+  );
+
+  a->dec(loopR1_);
+  a->jmp(LoopWStart);
+  a->bind(LoopWEnd);
+
+  // top-right corner code
+  genForSingleOutput(
+      a,
+      false, // isLeft
+      this->use_right_padding_, // isRight
+      isTopEdge, // isTop
+      isBottomEdge // isBottom
+  );
+
+  a->bind(skipRightEdge);
+
+  if (this->STRIDE_ > 1) {
+    // STRIDE_ == 2 and even widths,
+    // We increase it by C_;
+    // STRIDE_ == 2 and odd widths, nothing to do
+    // input ptr is already at the right position
+    if (!this->use_right_padding_) {
+      a->add(in_acts_R_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
     }
-    // row offset
-    if (this->needRowOffset_) {
-      genU8Sum4(a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
-    }
-    genU8I8S32FMA(
-        a,
-        actReg_V_,
-        WRegs(r * this->S_ + s),
-        x86::Ymm(9),
-        oneReg16Bit_V_,
-        tmpReg1_V_);
   } else {
-    if (this->C_per_G_ == 8) {
-      if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_);
-      } else {
-        a->vbroadcastsd(
-            actReg_V_,
-            x86::qword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
-      }
-    } else {
-      // this->C_per_G_ == 16
-      if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_);
-      } else {
-        a->vbroadcastf128(
-            actReg_V_,
-            x86::oword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
-      }
-    }
-    // row offset
-    if (this->needRowOffset_) {
-      genU8Sum8(a, actReg_V_, rowOffsetReg_V_, tmpReg1_V_);
-    }
-    int kLoopMultiplier = 32 / this->C_per_G_;
-    for (int k = 0; k < kLoopIters_; ++k) {
-      a->vmovups(
-          WRegs(0),
-          x86::dword_ptr(
-              wghts_R_,
-              (((r * this->S_ + s) * this->K_per_G_) + k * kLoopMultiplier) *
-                  this->C_per_G_ * sizeof(int8_t)));
-      genU8I8S32FMA(
-          a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
-    }
+    // reset input activation pointer by (W_R_ - W_PAD_) * C_
+    a->mov(scratchReg2_, W_R_);
+    a->imul(scratchReg2_, static_cast<asmjit::Imm>(this->C_ * sizeof(uint8_t)));
+    a->sub(
+        scratchReg2_,
+        static_cast<asmjit::Imm>(this->W_PAD_ * this->C_ * sizeof(uint8_t)));
+    a->sub(in_acts_R_, scratchReg2_);
   }
 }
 
-template <int SPATIAL_DIM>
-void GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::genCoreInsts(
-    x86::Emitter* a) {
+template <int SPATIAL_DIM, inst_set_t INST_SET>
+void GenConvKernel<SPATIAL_DIM, INST_SET>::genCoreInsts(x86::Emitter* a) {
   // Top edge and bottom edge calculations are done separately
   // so start from next and leave out the last
   if (this->isTopEdgeIncluded_) {
@@ -1757,6 +1753,10 @@ template FBGEMM_API int rowOffsetBufferSizeGConv<2>(
     const conv_param_t<2>& conv_param);
 template FBGEMM_API int rowOffsetBufferSizeGConv<3>(
     const conv_param_t<3>& conv_param);
+
+template class GenConvKernel<1, inst_set_t::avx2>;
+template class GenConvKernel<2, inst_set_t::avx2>;
+template class GenConvKernel<3, inst_set_t::avx2>;
 
 #define INSTANTIATE_BASE(RELU, Q_GRAN, SPATIAL_DIM, BIAS_TYPE)                \
   template FBGEMM_API void fbgemmGroupwiseConv(                               \
