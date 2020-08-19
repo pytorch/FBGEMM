@@ -222,9 +222,9 @@ class FBGEMM_API GenConvKernel
 
   void genConstForPermutations(x86::Emitter* a) {}
 
-  void genForTopOrBottomEdge(x86::Emitter* a, bool isTop, bool isBottom) {}
+  void genForTopOrBottomEdge(x86::Emitter* a, bool isTop, bool isBottom);
 
-  void initResultRegs(x86::Emitter* a) {}
+  void initResultRegs(x86::Emitter* a);
 
   void genCoreInsts(x86::Emitter* a);
 
@@ -239,7 +239,7 @@ class FBGEMM_API GenConvKernel
       bool isLeft,
       bool isRight,
       bool isTop,
-      bool isBottom) {}
+      bool isBottom);
 
   void storeResult(x86::Emitter* a) {}
   void storeOffset(x86::Emitter* a) {}
@@ -286,5 +286,23 @@ std::mutex GenConvKernelBase<SPATIAL_DIM, INST_SET>::rtMutex_;
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 CodeCache<kernel_sig_t, jit_conv_kernel_fp>
     GenConvKernelBase<SPATIAL_DIM, INST_SET>::codeCache_;
+
+// forward declaration of specialized ISA specific functions
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genConstForPermutations(
+    x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForLoadingWeights(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeResult(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeOffset(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
+    x86::Emitter* a,
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg);
 
 } // namespace fbgemm
