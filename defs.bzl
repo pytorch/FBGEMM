@@ -29,6 +29,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",
         "src/GenerateKernelU8S8S32ACC32.cc",
         "src/GenerateKernelU8S8S32ACC32Avx512VNNI.cc",
+        "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",

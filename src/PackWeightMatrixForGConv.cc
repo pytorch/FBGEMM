@@ -49,9 +49,9 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
 template <typename T, typename accT, int SPATIAL_DIM>
 int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::numOfGroupsTogether(
     const conv_param_t<SPATIAL_DIM>& conv_param) {
+  int OC_per_G = conv_param.OC / conv_param.G;
+  int IC_per_G = conv_param.IC / conv_param.G;
   if (fbgemmHasAvx512Support()) {
-    int OC_per_G = conv_param.OC / conv_param.G;
-    int IC_per_G = conv_param.IC / conv_param.G;
     // TODO: change to avx512 when avx512 support is available
     return std::max(
         simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
@@ -60,8 +60,6 @@ int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::numOfGroupsTogether(
   } else {
     // avx2
     // e.g., IC_per_G == 4, we need to work on 2 groups at a time
-    int OC_per_G = conv_param.OC / conv_param.G;
-    int IC_per_G = conv_param.IC / conv_param.G;
     return std::max(
         simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
             std::max(IC_per_G, 4),
