@@ -54,7 +54,7 @@ int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::numOfGroupsTogether(
   if (fbgemmHasAvx512Support()) {
     // TODO: change to avx512 when avx512 support is available
     return std::max(
-        simd_info<inst_set_t::avx512>::WIDTH_BYTES / OC_per_G /
+        simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
             std::max(IC_per_G, 4),
         1);
   } else {
