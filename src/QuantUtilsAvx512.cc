@@ -9,8 +9,8 @@
 #include <immintrin.h>
 #include <algorithm> //for std::min/std::max
 #include <cmath> //for nearbyint
+#include <assert.h>
 #include <limits> //for numeric_limits
-#include "fbgemm/Fbgemm.h" //for ReQuantizeOutput
 
 namespace fbgemm {
 

@@ -8,7 +8,6 @@
 #include <asmjit/asmjit.h>
 #include "./CodeGenHelpers.h"
 #include "./GroupwiseConv.h"
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
