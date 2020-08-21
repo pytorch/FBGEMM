@@ -130,6 +130,32 @@ if (NOT MSVC)
     "-mavx512vl" "-masm=intel" "-mf16c")
 endif()
 
+function(fixup_target TARGET TARGET_SOURCE_DIR)
+  # ensure target correctly prefixes its public header with ${CMAKE_CURRENT_LIST_DIR},
+  # which otherwise breaks installation targets including it as a submodule, so fix that
+  get_property(TARGET_PUBLIC_HEADER_PROP TARGET ${TARGET} PROPERTY PUBLIC_HEADER)
+  list(APPEND TARGET_PUBLIC_HEADERS ${TARGET_PUBLIC_HEADER_PROP}) # Ensure it's a list
+  list(TRANSFORM TARGET_PUBLIC_HEADERS PREPEND "${TARGET_SOURCE_DIR}/")
+  set_property(TARGET ${TARGET} PROPERTY PUBLIC_HEADER ${TARGET_PUBLIC_HEADERS})
+
+  # ensure the target's interface include directories are only prefixed in the source directory
+  # for the build interface, otherwise the install interface should strip the source directory
+  get_property(TARGET_INCLUDE_DIRECTORIES_PROP TARGET ${TARGET} PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+  set(TARGET_INTERFACE_INCLUDE_DIRECTORIES "")
+  foreach(_DIR IN ITEMS ${TARGET_INCLUDE_DIRECTORIES_PROP})
+    # if the directory isn't in the source dir, we can just use it as-is
+    if(NOT "${_DIR}" MATCHES "${CMAKE_SOURCE_DIR}")
+	  list(APPEND TARGET_INTERFACE_INCLUDE_DIRECTORIES ${_DIR})
+	else()
+      string(REGEX REPLACE "${TARGET_SOURCE_DIR}/*" "" _INSTALL_DIR "${_DIR}")
+	  message(STATUS "Fixing ${TARGET} install interface directory: ${_DIR} -> ${_INSTALL_DIR}")
+	  list(APPEND TARGET_INTERFACE_INCLUDE_DIRECTORIES $<BUILD_INTERFACE:${_DIR}>)
+	  list(APPEND TARGET_INTERFACE_INCLUDE_DIRECTORIES $<INSTALL_INTERFACE:${_INSTALL_DIR}>)
+	endif()
+  endforeach()
+  set_property(TARGET ${TARGET} PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${TARGET_INTERFACE_INCLUDE_DIRECTORIES})
+endfunction()
+
 if(NOT TARGET asmjit)
   #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
@@ -141,6 +167,9 @@ if(NOT TARGET asmjit)
   set(ASMJIT_STATIC TRUE CACHE STRING "" FORCE)
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+  # fixup third party target file paths for install targets
+  fixup_target(asmjit "${ASMJIT_SRC_DIR}")
 endif()
 
 if(NOT TARGET cpuinfo)
@@ -160,19 +189,10 @@ if(NOT TARGET cpuinfo)
   endif(MSVC)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
-  
-  #cpuinfo doesn't correctly prefix its public header with ${CMAKE_CURRENT_LIST_DIR}, 
-  #which breaks installation targets including it as a submodule, so fix that
-  get_property(CPUINFO_PUBLIC_HEADER_PROP TARGET cpuinfo PROPERTY PUBLIC_HEADER)
-  list(APPEND CPUINFO_PUBLIC_HEADERS ${CPUINFO_PUBLIC_HEADER_PROP}) # Ensure it's a list
-  list(TRANSFORM CPUINFO_PUBLIC_HEADERS PREPEND "${CPUINFO_SOURCE_DIR}/" REGEX "include.*")
-  set_property(TARGET cpuinfo PROPERTY PUBLIC_HEADER ${CPUINFO_PUBLIC_HEADERS})
-  
-  #same for clog
-  get_property(CLOG_PUBLIC_HEADER_PROP TARGET clog PROPERTY PUBLIC_HEADER)
-  list(APPEND CLOG_PUBLIC_HEADERS ${CLOG_PUBLIC_HEADER_PROP}) # Ensure it's a list
-  list(TRANSFORM CLOG_PUBLIC_HEADERS PREPEND "${CPUINFO_SOURCE_DIR}/deps/clog/${CLOG_PUBLIC_HEADER}/" REGEX "include.*")
-  set_property(TARGET clog PROPERTY PUBLIC_HEADER ${CLOG_PUBLIC_HEADERS})
+
+  # fixup third party target file paths for install targets
+  fixup_target(cpuinfo "${CPUINFO_SOURCE_DIR}")
+  fixup_target(clog "${CPUINFO_SOURCE_DIR}/deps/clog")
 endif()
 
 target_include_directories(fbgemm_generic BEFORE
