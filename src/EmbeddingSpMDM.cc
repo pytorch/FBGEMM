@@ -834,9 +834,10 @@ GenerateEmbeddingSpMDM(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  const inst_set_t isa = fbgemmInstructionSet();
   if ((std::is_same<inType, float>::value ||
        std::is_same<inType, float16>::value) &&
-      block_size == 1 && fbgemmHasAvx2Support()) {
+      block_size == 1 && isYmm(isa)) {
     return
         [=](std::int64_t output_size,
             std::int64_t index_size,
@@ -859,7 +860,7 @@ GenerateEmbeddingSpMDM(
               is_weight_positional,
               use_offsets);
         };
-  } else if (fbgemmHasAvx512Support()) {
+  } else if (isZmm(isa)) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -892,7 +893,7 @@ GenerateEmbeddingSpMDM(
           out,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (fbgemmHasAvx2Support()) {
+  } else if (isYmm(isa)) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -968,7 +969,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-  if (fbgemmHasAvx512Support()) {
+  inst_set_t isa = fbgemmInstructionSet();
+  if (isZmm(isa)) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -1004,7 +1006,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
           compressed_indices_table,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (fbgemmHasAvx2Support()) {
+  } else if (isYmm(isa)) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
