@@ -10,8 +10,8 @@
 #include <algorithm> //for std::min/std::max
 #include <cmath> //for nearbyint
 #include <limits> //for numeric_limits
+#include <cassert> //for assert
 #include "./MaskAvx2.h"
-#include "fbgemm/Fbgemm.h" //for ReQuantizeOutput
 
 namespace fbgemm {
 
@@ -283,19 +283,25 @@ void RequantizeAvx2(
     uint8_t* dst,
     int len,
     const RequantizationParams& params) {
-  DoNothing<> doNothingObj{};
   int32_t Bq_zero_point[] = {0};
-  ReQuantizeOutput<false /* FUSE_RELU */> requantizeObj(
-      doNothingObj,
-      &params.real_multiplier,
-      params.target_qparams.zero_point,
-      0, // Aq_zero_point
-      Bq_zero_point, // Bq_zero_point
-      nullptr, // row_offsets
-      nullptr, // col_offsets
-      nullptr, // bias
-      len); // ncol
-  requantizeObj.f<inst_set_t::avx2>(dst, src, {0, 1, 0, len}, 0, 0);
+
+  requantizationParams_t<> reqObj = {0, // Aq_zero_point
+                                     Bq_zero_point,
+                                     params.target_qparams.zero_point,
+                                     &params.real_multiplier,
+                                     nullptr, // row_offsets
+                                     nullptr, // col_offsets
+                                     nullptr, // bias
+                                     static_cast<std::uint32_t>(len), // ncols
+                                     1, // groups
+                                     nullptr}; // act_times_w_scale
+  requantizeOutputProcessingAvx2<
+      true, // A_SYMMETRIC
+      true, // B_SYMMETRIC
+      QuantizationGranularity::TENSOR,
+      false, // HAS_BIAS
+      false // FUSE_RELU
+      >(dst, src, {0, 1, 0, len}, len, len, reqObj);
 }
 
 void RequantizeFixedPointAvx2(
