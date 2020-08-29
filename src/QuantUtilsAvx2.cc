@@ -11,6 +11,7 @@
 #include <cmath> //for nearbyint
 #include <limits> //for numeric_limits
 #include <cassert> //for assert
+#include <cstring> //for memcpy
 #include "./MaskAvx2.h"
 
 namespace fbgemm {
@@ -19,9 +20,8 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-// ASAN seems to have a false-positive for _mm_maskmoveu_si128
 template <typename T, bool LEGACY>
-void NO_SANITIZE("address") QuantizeAvx2(
+void QuantizeAvx2(
     const float* src,
     T* dst,
     int len,
@@ -87,8 +87,8 @@ void NO_SANITIZE("address") QuantizeAvx2(
   if (rem > 0) {
     __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
         internal::avx2_ps_or_epi32_masks[rem]));
-    __m128i store_mask_v = _mm_load_si128(
-        reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
+    // __m128i store_mask_v = _mm_load_si128(
+    // reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v;
     if (LEGACY) {
@@ -113,10 +113,14 @@ void NO_SANITIZE("address") QuantizeAvx2(
     // as "rem" number of 8-bit integers
     clipped_v = _mm256_shuffle_epi8(clipped_v, shuffle_mask_v);
     clipped_v = _mm256_permutevar8x32_epi32(clipped_v, permute_mask_v);
-    _mm_maskmoveu_si128(
-        _mm256_castsi256_si128(clipped_v),
-        store_mask_v,
-        reinterpret_cast<char*>(dst + i));
+    // do not use _mm_maskmoveu_si128 instead of memcpy.
+    // asan has false positives for _mm_maskmoveu_si128 and this instruction
+    // sometimes causes segfault (root cause is unknown).
+    memcpy(dst + i, reinterpret_cast<void*>(&clipped_v), rem * sizeof(T));
+    // _mm_maskmoveu_si128(
+    // _mm256_castsi256_si128(clipped_v),
+    // store_mask_v,
+    // reinterpret_cast<char*>(dst + i));
   }
 #endif
 }
