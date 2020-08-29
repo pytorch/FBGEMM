@@ -20,6 +20,7 @@
 #include "./FbgemmI8DepthwiseAvx2.h"
 #include "./FbgemmI8Spmdm.h"
 #include "./QuantUtilsAvx2.h"
+#include "./QuantUtilsAvx512.h"
 #include "./Types.h"
 #include "./Utils.h"
 
