@@ -305,4 +305,21 @@ void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
     int act_s,
     bool use_zero_reg);
 
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genConstForPermutations(
+    x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForLoadingWeights(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeResult(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeOffset(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForSingleFilterPoint(
+    x86::Emitter* a,
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg);
+
 } // namespace fbgemm
