@@ -9,10 +9,13 @@
 #include <climits>
 #include <limits>
 #include <random>
+#include <sstream>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
 #include "fbgemm/QuantUtils.h"
+#include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 
 using namespace std;
@@ -25,6 +28,11 @@ class QuantizeGroupwiseTest
 
 class QuantizeTest : public testing::TestWithParam<int> {};
 class FusedQuantizeDequantizeTest : public testing::TestWithParam<int> {};
+
+// Parameter are bit_rate (i.e., the number of bits in quantized values),
+// input rows, and input columns
+class EmbeddingQuantizeTest
+    : public testing::TestWithParam<tuple<int, int, int>> {};
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -40,6 +48,14 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     QuantizeTest,
     ::testing::Values(1, 2, 5, 8, 9, 16, 20, 28, 32, 33));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    EmbeddingQuantizeTest,
+    ::testing::Combine(
+        ::testing::ValuesIn({2, 4, 8}),
+        ::testing::ValuesIn({1, 2, 3}),
+        ::testing::ValuesIn({1, 2, 5, 8, 9, 16, 20, 28, 32, 33, 64, 65})));
 
 template <typename T, layout_t LT>
 void ref_impl(
@@ -129,6 +145,69 @@ bool floatEqualAll(vector<float>& a, vector<float>& b) {
     }
   }
   return true;
+}
+
+template <typename T>
+::testing::AssertionResult isQEmbeddingClose(
+    const vector<uint8_t>& res,
+    const vector<uint8_t>& res_ref,
+    int out_rows,
+    int out_emb_cols) {
+  bool match = true;
+  std::stringstream ss;
+  int ld = out_emb_cols + 2 * sizeof(T);
+  if (res.size() == res_ref.size()) {
+    for (int i = 0; i < out_rows; ++i) {
+      if (!match) {
+        break;
+      }
+      // compare embedding values
+      for (int j = 0; j < out_emb_cols; ++j) {
+        if (res[i * ld + j] != res_ref[i * ld + j]) {
+          match = false;
+          ss << " mismatch at (" << i << ", " << j << ") ";
+          ss << "ref: " << static_cast<uint32_t>(res_ref[i * ld + j])
+             << ", test: " << static_cast<uint32_t>(res[i * ld + j]) << "\n";
+          break;
+        }
+      }
+      // compare scale/bias
+      float scaleTest, scaleRef, biasTest, biasRef;
+      if (is_same<T, float16>::value) {
+        // half scale and bias
+        scaleTest = cpu_half2float(reinterpret_cast<const float16*>(
+            res.data() + i * ld + out_emb_cols)[0]);
+        biasTest = cpu_half2float(reinterpret_cast<const float16*>(
+            res.data() + i * ld + out_emb_cols)[1]);
+        scaleRef = cpu_half2float(reinterpret_cast<const float16*>(
+            res_ref.data() + i * ld + out_emb_cols)[0]);
+        biasRef = cpu_half2float(reinterpret_cast<const float16*>(
+            res_ref.data() + i * ld + out_emb_cols)[1]);
+      } else {
+        // float scale and bias
+        // TODO:
+      }
+      if (fabs(scaleTest - scaleRef) > std::numeric_limits<float>::epsilon()) {
+        ss << " scale mismatch for row:" << i;
+        ss << " ref: " << scaleRef << ", test: " << scaleTest << "\n";
+        match = false;
+      }
+      if (fabs(biasTest - biasRef) > std::numeric_limits<float>::epsilon()) {
+        ss << " bias mismatch for row:" << i;
+        ss << " ref: " << biasRef << ", test: " << biasTest << "\n";
+        match = false;
+      }
+    }
+  } else {
+    ss << " size mismatch ";
+    match = false;
+  }
+
+  if (match)
+    return ::testing::AssertionSuccess();
+  else
+    return ::testing::AssertionFailure()
+        << " Quantized Embeddings do not match." << ss.str();
 }
 
 /**
@@ -411,7 +490,6 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
       src1.data(), dst_int8.data(), src1.size(), qparams);
   EXPECT_TRUE(floatEqualAll(dst_int8, ref));
 
-
   // Tests vectorized and remainder paths
   vector<float> src2 = {3.40282e+38,
                         -2.16845e+38,
@@ -439,4 +517,34 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
       src2.data(), dst_uint8.data(), src2.size(), qparams);
 
   EXPECT_TRUE(floatEqualAll(dst_uint8, ref2));
+}
+
+TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
+  int bit_rate, rows, cols;
+  tie(bit_rate, rows, cols) = GetParam();
+
+  random_device rd;
+  mt19937 gen(rd());
+
+  uniform_real_distribution<float> disFP(-10.0f, 10.0f);
+
+  vector<float> inpVec(rows * cols);
+
+  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable { return disFP(gen); });
+
+  int elements_per_byte = 8 / bit_rate;
+
+  int out_emb_cols =
+      (cols + elements_per_byte - 1) / elements_per_byte;
+  int outVecSize = rows * (out_emb_cols + 2 * sizeof(float16));
+
+  vector<uint8_t> outVecRef(outVecSize);
+  vector<uint8_t> outVecTest(outVecSize);
+
+  FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+      bit_rate, inpVec.data(), rows, cols, outVecRef.data());
+  FloatToFusedNBitRowwiseQuantizedSBHalf(
+      bit_rate, inpVec.data(), rows, cols, outVecTest.data());
+
+  EXPECT_TRUE(isQEmbeddingClose<float16>(outVecTest, outVecRef, rows, out_emb_cols));
 }
