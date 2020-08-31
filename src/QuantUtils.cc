@@ -6,6 +6,8 @@
 
 #include "fbgemm/Fbgemm.h"
 
+#include "fbgemm/Types.h"
+
 namespace fbgemm {
 
 using namespace std;
@@ -461,6 +463,95 @@ FBGEMM_API void RequantizeFixedPoint<uint8_t>(
     for (int i = i_begin; i < i_end; ++i) {
       dst[i] = RequantizeFixedPoint<uint8_t>(src[i], params);
     }
+  }
+}
+
+void FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+    int bit_rate,
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  int num_elem_per_byte = 8 / bit_rate;
+  int output_columns =
+      (input_columns + num_elem_per_byte - 1) / num_elem_per_byte +
+      2 * sizeof(float16);
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const float* input_row = input + row * input_columns;
+    std::uint8_t* output_row = output + row * output_columns;
+    float16* output_row_scale_bias = reinterpret_cast<float16*>(
+        output_row +
+        (input_columns + num_elem_per_byte - 1) / num_elem_per_byte);
+
+    float minimum_element =
+        *std::min_element(input_row, input_row + input_columns);
+    float maximum_element =
+        *std::max_element(input_row, input_row + input_columns);
+
+    float16 minimum_element_fp16 = cpu_float2half_rn(minimum_element);
+    minimum_element = cpu_half2float(minimum_element_fp16);
+    const float range = maximum_element - minimum_element;
+
+    float scale = range == 0 ? 1.0f : range / ((1 << bit_rate) - 1);
+    float16 scale_fp16 = cpu_float2half_rn(scale);
+    scale = cpu_half2float(scale_fp16);
+    if (scale == 0) {
+      // Corner case handling when maximum_element == minimum_element
+      // Any scale would work because X - minimum_element will be 0 for all X
+      scale = 1.0f;
+    }
+    float inverse_scale = 1.0f / scale;
+    if (std::isinf(inverse_scale)) {
+      scale = 1.0f;
+      inverse_scale = 1.0f;
+    }
+
+    output_row_scale_bias[0] = cpu_float2half_rn(scale);
+    output_row_scale_bias[1] = minimum_element_fp16;
+    for (std::size_t col = 0; col < input_columns; ++col) {
+      float X = input_row[col];
+      std::uint8_t quantized = std::max(
+          0,
+          std::min<int>(
+              std::lrintf((X - minimum_element) * inverse_scale),
+              (1 << bit_rate) - 1));
+      if (col % num_elem_per_byte == 0) {
+        output_row[col / num_elem_per_byte] = quantized;
+      } else {
+        output_row[col / num_elem_per_byte] |=
+            (quantized << ((col % num_elem_per_byte) * bit_rate));
+      }
+    }
+  }
+}
+
+void FloatToFusedNBitRowwiseQuantizedSBHalf(
+    int bit_rate,
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+    switch (bit_rate) {
+      case 2:
+        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<2>(
+            input, input_rows, input_columns, output);
+        break;
+      case 4:
+        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<4>(
+            input, input_rows, input_columns, output);
+        break;
+      case 8:
+        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<8>(
+            input, input_rows, input_columns, output);
+        break;
+      default:
+        FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+            bit_rate, input, input_rows, input_columns, output);
+    }
+  } else {
+    FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+        bit_rate, input, input_rows, input_columns, output);
   }
 }
 

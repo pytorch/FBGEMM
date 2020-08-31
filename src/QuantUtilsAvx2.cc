@@ -11,6 +11,7 @@
 #include <cmath> //for nearbyint
 #include <limits> //for numeric_limits
 #include <cassert> //for assert
+#include <cfloat> // for FLT_MAX
 #include <cstring> //for memcpy
 #include "./MaskAvx2.h"
 
@@ -1429,5 +1430,196 @@ INSTANTIATE_BIAS(false)
 #undef INSTANTIATE_B_SYM
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BIAS
+
+static inline uint16_t floatToHalf(float val) {
+#ifdef _MSC_VER
+  // Use _mm256_cvtps_ph/_mm256_cvtph_ps because _cvtsh_ss/_cvtss_sh don't
+  // exist in MSVC.
+  __m256 val_v = _mm256_set1_ps(val);
+  __m128i val_half_v =
+      _mm256_cvtps_ph(val_v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+  return static_cast<std::uint16_t>(_mm_cvtsi128_si32(val_half_v));
+#else
+  return _cvtss_sh(val, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+#endif
+}
+static inline float halfToFloat(uint16_t val) {
+#ifdef _MSC_VER
+  return _mm256_cvtss_f32(_mm256_cvtph_ps(_mm_cvtsi32_si128(val)));
+#else
+  return _cvtsh_ss(val);
+#endif
+}
+
+template <int BIT_RATE>
+void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  __m256i permute_mask1_v =
+      _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
+
+  constexpr int VLEN = 8;
+  constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
+  int output_columns =
+      (input_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE +
+      2 * sizeof(std::uint16_t);
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const float* input_row = input + row * input_columns;
+    std::uint8_t* output_row = output + row * output_columns;
+    std::uint16_t* output_row_scale_bias = reinterpret_cast<std::uint16_t*>(
+        output_row +
+        (input_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE);
+
+    float minimum_element = FLT_MAX;
+    float maximum_element = -FLT_MAX;
+    __m256 min_v = _mm256_set1_ps(minimum_element);
+    __m256 max_v = _mm256_set1_ps(maximum_element);
+    std::size_t col;
+    for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
+      __m256 in_v = _mm256_loadu_ps(input_row + col);
+      min_v = _mm256_min_ps(min_v, in_v);
+      max_v = _mm256_max_ps(max_v, in_v);
+    }
+    alignas(64) float min_buf[VLEN], max_buf[VLEN];
+    _mm256_store_ps(min_buf, min_v);
+    _mm256_store_ps(max_buf, max_v);
+    for (int i = 0; i < VLEN; ++i) {
+      minimum_element = std::min(minimum_element, min_buf[i]);
+      maximum_element = std::max(maximum_element, max_buf[i]);
+    }
+    for (; col < input_columns; ++col) {
+      minimum_element = std::min(minimum_element, input_row[col]);
+      maximum_element = std::max(maximum_element, input_row[col]);
+    }
+
+    output_row_scale_bias[1] = floatToHalf(minimum_element);
+    minimum_element = halfToFloat(output_row_scale_bias[1]);
+    const float range = maximum_element - minimum_element;
+
+    float scale = range == 0 ? 1.0f : range / ((1 << BIT_RATE) - 1);
+    std::uint16_t scale_fp16 = floatToHalf(scale);
+    scale = halfToFloat(scale_fp16);
+    if (scale == 0) {
+      // Corner case handling when maximum_element == minimum_element
+      // Any scale would work because maximum_element - minimum_element will be
+      // 0 for all X
+      scale = 1.0f;
+    }
+    float inverse_scale = 1.0f / scale;
+    if (std::isinf(inverse_scale)) {
+      scale = 1.0f;
+      inverse_scale = 1.0f;
+    }
+
+    output_row_scale_bias[0] = floatToHalf(scale);
+
+    __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
+    min_v = _mm256_set1_ps(minimum_element);
+
+    col = 0;
+
+    if (BIT_RATE == 2 || BIT_RATE == 4) {
+      for (; col + 4 * VLEN <= input_columns; col += 4 * VLEN) {
+        __m256i x_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
+            _mm256_sub_ps(_mm256_loadu_ps(input_row + col), min_v),
+            inverse_scale_v));
+        __m256i y_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
+            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + VLEN), min_v),
+            inverse_scale_v));
+        __m256i z_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
+            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 2 * VLEN), min_v),
+            inverse_scale_v));
+        __m256i w_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
+            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 3 * VLEN), min_v),
+            inverse_scale_v));
+
+        // An instruction sequence to save 32 32-bit integers as 8-bit integers
+        __m256i xy_packed_v = _mm256_packs_epi32(x_rounded_v, y_rounded_v);
+        __m256i zw_packed_v = _mm256_packs_epi32(z_rounded_v, w_rounded_v);
+        __m256i xyzw_packed_v = _mm256_packus_epi16(xy_packed_v, zw_packed_v);
+        xyzw_packed_v =
+            _mm256_permutevar8x32_epi32(xyzw_packed_v, permute_mask1_v);
+
+        // saturate to BIT_RATE
+        xyzw_packed_v = _mm256_min_epu8(
+            xyzw_packed_v,
+            _mm256_set1_epi8(static_cast<char>((1 << BIT_RATE) - 1)));
+
+        if (BIT_RATE == 4) {
+          // pack into lower 8-bit of each 16-bit
+          xyzw_packed_v = _mm256_and_si256(
+              _mm256_or_si256(
+                  xyzw_packed_v, _mm256_srli_epi16(xyzw_packed_v, 4)),
+              _mm256_set1_epi16(0x00ff));
+        } else {
+          // pack into lower 8-bit of each 32-bit
+          xyzw_packed_v = _mm256_and_si256(
+              _mm256_or_si256(
+                  _mm256_or_si256(
+                      xyzw_packed_v, _mm256_srli_epi32(xyzw_packed_v, 6)),
+                  _mm256_or_si256(
+                      _mm256_srli_epi32(xyzw_packed_v, 8 + 4),
+                      _mm256_srli_epi32(xyzw_packed_v, 2 * 8 + 2))),
+              _mm256_set1_epi32(0x00ff));
+        }
+
+        __m128i out_v;
+        if (BIT_RATE == 4) {
+          // avx2 doesn't have _mm256_cvtepi16_epi8
+          out_v = _mm_packus_epi16(
+              _mm256_castsi256_si128(xyzw_packed_v),
+              _mm256_extractf128_si256(xyzw_packed_v, 1));
+          _mm_storeu_si128(
+              reinterpret_cast<__m128i*>(output_row + col / NUM_ELEM_PER_BYTE),
+              out_v);
+        } else {
+          // avx2 doesn't have _mm256_cvtepi32_epi8
+          out_v = _mm_packus_epi32(
+              _mm256_castsi256_si128(xyzw_packed_v),
+              _mm256_extractf128_si256(xyzw_packed_v, 1));
+          out_v = _mm_packus_epi16(out_v, out_v);
+          _mm_storel_epi64(
+              reinterpret_cast<__m128i*>(output_row + col / NUM_ELEM_PER_BYTE),
+              out_v);
+        }
+      }
+    }
+
+    for (; col < input_columns; ++col) {
+      float X = input_row[col];
+      std::uint8_t quantized = std::max(
+          0,
+          std::min<int>(
+              std::lrintf((X - minimum_element) * inverse_scale),
+              (1 << BIT_RATE) - 1));
+      if (col % NUM_ELEM_PER_BYTE == 0) {
+        output_row[col / NUM_ELEM_PER_BYTE] = quantized;
+      } else {
+        output_row[col / NUM_ELEM_PER_BYTE] |=
+            (quantized << ((col % NUM_ELEM_PER_BYTE) * BIT_RATE));
+      }
+    }
+  }
+}
+
+template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<2>(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output);
+
+template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<4>(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output);
+
+template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<8>(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output);
 
 } // namespace fbgemm
