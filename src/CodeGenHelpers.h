@@ -171,19 +171,6 @@ void genU8I8S32FMA(
   a->vpaddd(cReg, tmpReg, cReg);
 }
 
-template <
-    inst_set_t INST_SET,
-    typename std::enable_if<INST_SET == inst_set_t::avx512_vnni, int>::type = 0>
-void genU8I8S32FMA(
-    x86::Emitter* a,
-    typename simd_info<INST_SET>::vec_reg_t aReg,
-    typename simd_info<INST_SET>::vec_reg_t bReg,
-    typename simd_info<INST_SET>::vec_reg_t cReg,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
-    typename simd_info<INST_SET>::vec_reg_t tmpReg) {
-  a->vpdpbusd(cReg, aReg, bReg);
-}
-
 /**
  * @brief Add 4 consecutive numbers of type uint8
  *        and emit their sum as 32-bit numbers.
@@ -214,19 +201,6 @@ void genU8Sum4(
   /*a->vpermilps(tmpReg, tmpReg, static_cast<asmjit::Imm>(4));*/
   /*a->vpmovzxwd(tmpReg, tmpReg.half());*/
   /*a->vpaddd(dest, tmpReg, dest);*/
-}
-
-template <
-    inst_set_t INST_SET,
-    typename std::enable_if<INST_SET == inst_set_t::avx512_vnni, int>::type = 0>
-void genU8Sum4(
-    x86::Emitter* a,
-    typename simd_info<INST_SET>::vec_reg_t src,
-    typename simd_info<INST_SET>::vec_reg_t dest,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
-    typename simd_info<INST_SET>::vec_reg_t tmpReg) {
-  gen8BitVectorOne(a, tmpReg);
-  a->vpdpbusd(dest, src, tmpReg);
 }
 
 /**

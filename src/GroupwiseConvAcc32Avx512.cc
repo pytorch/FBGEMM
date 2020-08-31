@@ -15,8 +15,9 @@ using namespace std;
 
 namespace x86 = asmjit::x86;
 
-GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
-GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genConstForPermutations(
+    x86::Emitter* a) {
   x86::Gp permute_const_reg_upper_half = a->gpz(12);
   x86::Gp permute_const_reg_lower_half = a->gpz(13);
   x86::Xmm const_reg_xmm = x86::xmm11;
@@ -65,8 +66,9 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   a->vpmovzxbd(stPermReg_V_, const_reg_xmm);
 }
 
-GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
-GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForLoadingWeights(
+    x86::Emitter* a) {
   using WRegs = x86::Zmm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
@@ -89,8 +91,8 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
   }
 }
 
-GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
-GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeResult(x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
     a->vpermd(x86::Zmm(9), stPermReg_V_, x86::Zmm(9));
@@ -135,8 +137,8 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86::Emitter* a) {
   }
 }
 
-GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
-GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeOffset(x86::Emitter* a) {
   auto rowOffsetReg_V_Ymm = rowOffsetReg_V_.half();
   auto rowOffsetReg_V_Xmm = rowOffsetReg_V_Ymm.half();
   auto tmpReg1_V_Xmm = tmpReg1_V_.half().half();
@@ -184,8 +186,8 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86::Emitter* a) {
   }
 }
 
-GCONV_INST_DEF_AVX512_AND_VNNI_HEADER
-GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForSingleFilterPoint(
     x86::Emitter* a,
     int r,
     int s,
@@ -221,7 +223,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
   // row offset
   if (this->needRowOffset_) {
     if (this->C_per_G_ == 2 || this->C_per_G_ == 4) {
-      genU8Sum4<INST_SET>(
+      genU8Sum4<inst_set_t::avx512>(
           a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
     } else {
       // still use Ymm for Sum8
@@ -230,7 +232,7 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
   }
   // FMA
   if (this->C_per_G_ != 16) {
-    genU8I8S32FMA<INST_SET>(
+    genU8I8S32FMA<inst_set_t::avx512>(
         a,
         actReg_V_,
         WRegs(r * this->S_ + s),
@@ -251,32 +253,12 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
       // FMA result is not final reduction on C_per_G, producing 4 * 16 outputs
       // in which consectutive 4 elements if summed forms one final output over
       // K_Per_G dimension, we need 16 final 32bits outputs.
-      genU8I8S32FMA<INST_SET>(
+      genU8I8S32FMA<inst_set_t::avx512>(
           a, actReg_V_, WRegs(0), WRegs(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
 }
-#define GENCONVKERNEL_FUNCS(S, IN)                                           \
-  template void GenConvKernel<S, IN>::genForLoadingWeights<IN>(x86::Emitter* a); \
-  template void GenConvKernel<S, IN>::genConstForPermutations<IN>(               \
-      x86::Emitter* a);                                                      \
-  template void GenConvKernel<S, IN>::genForSingleFilterPoint<IN>(               \
-      x86::Emitter* a, int r, int s, int act_s, bool use_zero_reg);          \
-  template void GenConvKernel<S, IN>::storeResult<IN>(x86::Emitter* a);          \
-  template void GenConvKernel<S, IN>::storeOffset<IN>(x86::Emitter* a);
-GENCONVKERNEL_FUNCS(1, inst_set_t::avx512)
-GENCONVKERNEL_FUNCS(1, inst_set_t::avx512_vnni)
-GENCONVKERNEL_FUNCS(2, inst_set_t::avx512)
-GENCONVKERNEL_FUNCS(2, inst_set_t::avx512_vnni)
-GENCONVKERNEL_FUNCS(3, inst_set_t::avx512)
-GENCONVKERNEL_FUNCS(3, inst_set_t::avx512_vnni)
-#undef GENCONVKERNEL_FUNCS
 
-template class GenConvKernel<1, inst_set_t::avx512>;
-template class GenConvKernel<1, inst_set_t::avx512_vnni>;
 template class GenConvKernel<2, inst_set_t::avx512>;
-template class GenConvKernel<2, inst_set_t::avx512_vnni>;
-template class GenConvKernel<3, inst_set_t::avx512>;
-template class GenConvKernel<3, inst_set_t::avx512_vnni>;
 
 } // namespace fbgemm

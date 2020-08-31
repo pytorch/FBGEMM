@@ -21,28 +21,6 @@
 #include "fbgemm/Utils.h"
 /*#define FBGEMM_LOG_CODE 1*/
 
-#define GCONV_INST_AVX2_HEADER          \
-  template <inst_set_t ISET = INST_SET> \
-  typename std::enable_if<ISET == inst_set_t::avx2, void>::type
-
-#define GCONV_INST_AVX512_AND_VNNI_HEADER                            \
-  template <inst_set_t ISET = INST_SET>                              \
-  typename std::enable_if<                                           \
-      ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>::type
-
-#define GCONV_INST_DEF_AVX2_HEADER                \
-  template <int SPATIAL_DIM, inst_set_t INST_SET> \
-  template <inst_set_t ISET>                      \
-  typename std::enable_if<ISET == inst_set_t::avx2, void>::type
-
-#define GCONV_INST_DEF_AVX512_AND_VNNI_HEADER                        \
-  template <int SPATIAL_DIM, inst_set_t INST_SET>                    \
-  template <inst_set_t ISET>                                         \
-  typename std::enable_if<                                           \
-      ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>::type
-
 namespace fbgemm {
 
 namespace x86 = asmjit::x86;
@@ -240,35 +218,9 @@ class FBGEMM_API GenConvKernel
 
   jit_conv_kernel_fp getOrCreate();
 
-  GCONV_INST_AVX2_HEADER genForLoadingWeights(x86::Emitter* a);
+  void genForLoadingWeights(x86::Emitter* a) {}
 
-  GCONV_INST_AVX512_AND_VNNI_HEADER genForLoadingWeights(x86::Emitter* a);
-
-  GCONV_INST_AVX2_HEADER genConstForPermutations(x86::Emitter* a);
-
-  GCONV_INST_AVX512_AND_VNNI_HEADER genConstForPermutations(x86::Emitter* a);
-
-  GCONV_INST_AVX2_HEADER genForSingleFilterPoint(
-      x86::Emitter* a,
-      int r,
-      int s,
-      int act_s,
-      bool use_zero_reg);
-
-  GCONV_INST_AVX512_AND_VNNI_HEADER genForSingleFilterPoint(
-      x86::Emitter* a,
-      int r,
-      int s,
-      int act_s,
-      bool use_zero_reg);
-
-  GCONV_INST_AVX2_HEADER storeResult(x86::Emitter* a);
-
-  GCONV_INST_AVX512_AND_VNNI_HEADER storeResult(x86::Emitter* a);
-
-  GCONV_INST_AVX2_HEADER storeOffset(x86::Emitter* a);
-
-  GCONV_INST_AVX512_AND_VNNI_HEADER storeOffset(x86::Emitter* a);
+  void genConstForPermutations(x86::Emitter* a) {}
 
   void genForTopOrBottomEdge(x86::Emitter* a, bool isTop, bool isBottom);
 
@@ -276,12 +228,21 @@ class FBGEMM_API GenConvKernel
 
   void genCoreInsts(x86::Emitter* a);
 
+  void genForSingleFilterPoint(
+      x86::Emitter* a,
+      int r,
+      int s,
+      int act_s,
+      bool use_zero_reg) {}
   void genForSingleOutput(
       x86::Emitter* a,
       bool isLeft,
       bool isRight,
       bool isTop,
       bool isBottom);
+
+  void storeResult(x86::Emitter* a) {}
+  void storeOffset(x86::Emitter* a) {}
 
  private:
   int GTogether_;
@@ -325,5 +286,40 @@ std::mutex GenConvKernelBase<SPATIAL_DIM, INST_SET>::rtMutex_;
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 CodeCache<kernel_sig_t, jit_conv_kernel_fp>
     GenConvKernelBase<SPATIAL_DIM, INST_SET>::codeCache_;
+
+// forward declaration of specialized ISA specific functions
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genConstForPermutations(
+    x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForLoadingWeights(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeResult(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeOffset(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
+    x86::Emitter* a,
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg);
+
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genConstForPermutations(
+    x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForLoadingWeights(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeResult(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::storeOffset(x86::Emitter* a);
+template <>
+void GenConvKernel<2, inst_set_t::avx512>::genForSingleFilterPoint(
+    x86::Emitter* a,
+    int r,
+    int s,
+    int act_s,
+    bool use_zero_reg);
 
 } // namespace fbgemm

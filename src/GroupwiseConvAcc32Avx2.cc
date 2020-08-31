@@ -16,7 +16,8 @@ using namespace std;
 
 namespace x86 = asmjit::x86;
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genConstForPermutations(
     x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
     x86::Gp permute_const_reg = a->gpz(12);
@@ -44,8 +45,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPerm
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(
-    x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForLoadingWeights(x86::Emitter* a) {
   using WRegs = x86::Ymm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
@@ -65,7 +66,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWe
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeResult(x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
     a->vpermd(x86::Ymm(9), stPermReg_V_, x86::Ymm(9));
@@ -111,7 +113,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86::Emitter* a) {
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::storeOffset(x86::Emitter* a) {
   switch (this->C_per_G_) {
     case 2:
       // store 128-bits containing rowoffset for four groups
@@ -152,7 +155,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
+template <>
+void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
     x86::Emitter* a,
     int r,
     int s,
@@ -185,12 +189,12 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFil
     }
     // row offset
     if (this->needRowOffset_) {
-      genU8Sum4<INST_SET>(
+      genU8Sum4<inst_set_t::avx2>(
           a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
     }
     // 32 * int8 weight product 32 * uint8 activation -> 8
     // output(K_per_g * group_together)
-    genU8I8S32FMA<INST_SET>(
+    genU8I8S32FMA<inst_set_t::avx2>(
         a,
         actReg_V_,
         WRegs(r * this->S_ + s),
@@ -231,25 +235,11 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFil
       // FMA result is not final reduction on C_per_G, producing 8 output in
       // which consectutive 2 elements if summedforms one final output over
       // K_Per_G dimension
-      genU8I8S32FMA<INST_SET>(
+      genU8I8S32FMA<inst_set_t::avx2>(
           a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
 }
-
-#define GENCONVKERNEL_FUNCS(S, IN)                                       \
-  template void GenConvKernel<S, IN>::genForLoadingWeights<IN>(          \
-      x86::Emitter * a);                                                 \
-  template void GenConvKernel<S, IN>::genConstForPermutations<IN>(       \
-      x86::Emitter * a);                                                 \
-  template void GenConvKernel<S, IN>::genForSingleFilterPoint<IN>(       \
-      x86::Emitter * a, int r, int s, int act_s, bool use_zero_reg);     \
-  template void GenConvKernel<S, IN>::storeResult<IN>(x86::Emitter * a); \
-  template void GenConvKernel<S, IN>::storeOffset<IN>(x86::Emitter * a);
-GENCONVKERNEL_FUNCS(1, inst_set_t::avx2)
-GENCONVKERNEL_FUNCS(2, inst_set_t::avx2)
-GENCONVKERNEL_FUNCS(3, inst_set_t::avx2)
-#undef GENCONVKERNEL_FUNCS
 
 template class GenConvKernel<1, inst_set_t::avx2>;
 template class GenConvKernel<2, inst_set_t::avx2>;
