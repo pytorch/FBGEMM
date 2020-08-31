@@ -20,22 +20,24 @@ namespace x86 = asmjit::x86;
  *             dest[0:15] will have 0x0001, dest[16:31]
  *             will have 0x0001 and so on
  */
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
-void gen16BitVectorOne(x86::Emitter* a, T dest) {
+void gen16BitVectorOne(x86::Emitter* a, T dest)
+{
   a->vpcmpeqw(dest, dest, dest);
   a->vpsrlw(dest, dest, 15);
 }
 
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<
-        instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
-            instSet == inst_set_t::avx512_vnni ||
-            instSet == inst_set_t::avx512_vnni_ymm,
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void gen16BitVectorOne(x86::Emitter* a, T dest) {
   a->vpternlogd(dest, dest, dest, 0xff);
@@ -49,24 +51,27 @@ void gen16BitVectorOne(x86::Emitter* a, T dest) {
  *
  * @param dest Destination vector register
  */
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
-void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
-  a->vmovdqa(dest, ptr);
+void emitLoadDWord(
+    x86::Emitter* a, T dest, const x86::Mem& ptr) {
+    a->vmovdqa(dest, ptr);
 }
 
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<
-        instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
-            instSet == inst_set_t::avx512_vnni ||
-            instSet == inst_set_t::avx512_vnni_ymm,
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
-void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
-  a->vmovdqa32(dest, ptr);
+void emitLoadDWord(
+  x86::Emitter* a, T dest, const x86::Mem& ptr) {
+    a->vmovdqa32(dest, ptr);
 }
 
 /**
@@ -78,47 +83,42 @@ void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
  * @param vec Source (full) vector register
  * @param idx Index of of the half vector 0 or 1
  */
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<
-        instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
-            instSet == inst_set_t::avx512_vnni ||
-            instSet == inst_set_t::avx512_vnni_ymm,
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void emitExtractHalfVector(
-    x86::Emitter* a,
-    x86::Ymm half,
-    const x86::Zmm vec,
-    int idx) {
+    x86::Emitter* a, x86::Ymm half, const x86::Zmm vec, int idx) {
   a->vextracti32x8(half, vec, idx);
 }
 
-template <
+template<
     inst_set_t instSet,
     typename T,
     typename std::enable_if<
-        instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
-            instSet == inst_set_t::avx512_vnni ||
-            instSet == inst_set_t::avx512_vnni_ymm,
+        instSet == inst_set_t::avx512 ||
+        instSet == inst_set_t::avx512_ymm ||
+        instSet == inst_set_t::avx512_vnni ||
+        instSet == inst_set_t::avx512_vnni_ymm,
         int>::type = 0>
 void emitExtractHalfVector(
-    x86::Emitter* a,
-    x86::Xmm half,
-    x86::Ymm vec,
-    int idx) {
+    x86::Emitter* a, x86::Xmm half, x86::Ymm vec, int idx) {
   a->vextracti32x4(half, vec, idx);
 }
 
-template <
+template<
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+    typename std::enable_if<
+        instSet == inst_set_t::avx2,
+        int>::type = 0>
 void emitExtractHalfVector(
-    x86::Emitter* a,
-    x86::Xmm half,
-    x86::Ymm vec,
-    int idx) {
+    x86::Emitter* a, x86::Xmm half, x86::Ymm vec, int idx) {
   a->vextracti128(half, vec, idx);
 }
 
@@ -130,19 +130,9 @@ void emitExtractHalfVector(
  *             dest[0:7] will have 0x01, dest[8:15]
  *             will have 0x01 and so on
  */
-template <
-    typename T,
-    typename std::enable_if<std::is_same<T, x86::Ymm>::value, int>::type = 0>
+template <typename T>
 void gen8BitVectorOne(x86::Emitter* a, T dest) {
   a->vpcmpeqw(dest, dest, dest);
-  a->vpabsb(dest, dest);
-}
-
-template <
-    typename T,
-    typename std::enable_if<std::is_same<T, x86::Zmm>::value, int>::type = 0>
-void gen8BitVectorOne(x86::Emitter* a, T dest) {
-  a->vpternlogd(dest, dest, dest, 0xff);
   a->vpabsb(dest, dest);
 }
 
@@ -153,19 +143,14 @@ void gen8BitVectorOne(x86::Emitter* a, T dest) {
  * @param cReg contains result
  *
  */
-
-template <
-    inst_set_t INST_SET,
-    typename std::enable_if<
-        INST_SET == inst_set_t::avx2 || INST_SET == inst_set_t::avx512,
-        int>::type = 0>
+template <typename T>
 void genU8I8S32FMA(
     x86::Emitter* a,
-    typename simd_info<INST_SET>::vec_reg_t aReg,
-    typename simd_info<INST_SET>::vec_reg_t bReg,
-    typename simd_info<INST_SET>::vec_reg_t cReg,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
-    typename simd_info<INST_SET>::vec_reg_t tmpReg) {
+    T aReg,
+    T bReg,
+    T cReg,
+    T oneReg16Bit,
+    T tmpReg) {
   a->vpmaddubsw(tmpReg, aReg, bReg);
   a->vpmaddwd(tmpReg, oneReg16Bit, tmpReg);
   a->vpaddd(cReg, tmpReg, cReg);
@@ -181,17 +166,8 @@ void genU8I8S32FMA(
  * @param dest contains result
  *
  */
-template <
-    inst_set_t INST_SET,
-    typename std::enable_if<
-        INST_SET == inst_set_t::avx2 || INST_SET == inst_set_t::avx512,
-        int>::type = 0>
-void genU8Sum4(
-    x86::Emitter* a,
-    typename simd_info<INST_SET>::vec_reg_t src,
-    typename simd_info<INST_SET>::vec_reg_t dest,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
-    typename simd_info<INST_SET>::vec_reg_t tmpReg) {
+template <typename T>
+void genU8Sum4(x86::Emitter* a, T src, T dest, T oneReg16Bit, T tmpReg) {
   gen8BitVectorOne(a, tmpReg);
   a->vpmaddubsw(tmpReg, src, tmpReg);
   a->vpmaddwd(tmpReg, tmpReg, oneReg16Bit);
@@ -237,9 +213,8 @@ void genU8Sum8(x86::Emitter* a, T src, T dest, T tmpReg) {
 template <typename T>
 void broadcast8Bit(x86::Emitter* a, x86::Gp src, T dest) {
   // move src to dest
-  auto xmm = dest.xmm();
-  a->movq(xmm, src);
-  a->vpbroadcastb(dest, xmm);
+  a->movq(dest.half(), src);
+  a->vpbroadcastb(dest, dest.half());
 }
 
 } // namespace fbgemm
