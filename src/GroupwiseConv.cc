@@ -19,7 +19,6 @@
 #include "./RefImplementations.h"
 #include "./TransposeUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "fbgemm/QuantUtilsAvx512.h"
 
 namespace fbgemm {
 
@@ -123,20 +122,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
       accum);
 
   if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512VnniSupport()) {
-      return GenConvKernel<SPATIAL_DIM, inst_set_t::avx512_vnni>::codeCache_
-          .getOrCreate(kernelSig, [&]() {
-            auto genObj = GenConvKernel<SPATIAL_DIM, inst_set_t::avx512_vnni>(
-                conv_param,
-                a_zero_point,
-                needRowOffset,
-                isTopEdgeIncluded,
-                isBottomEdgeIncluded,
-                isTopBottomEdgeSame,
-                accum);
-            return genObj.getOrCreate();
-          });
-    } else if (fbgemmHasAvx512Support()) {
+    if (fbgemmHasAvx512Support()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx512>::codeCache_
           .getOrCreate(kernelSig, [&]() {
             auto genObj = GenConvKernel<SPATIAL_DIM, inst_set_t::avx512>(
@@ -905,7 +891,7 @@ void dispatchOutputProcessing(
       groups,
       outProcess.getActWScale()};
   if (cpuinfo_initialize()) {
-    if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
+    if (fbgemmHasAvx512Support()) {
       if (C_per_G == 2) {
         if (a_zero_point == 0) {
           if (b_symmetric) {
