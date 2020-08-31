@@ -165,22 +165,18 @@ void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
   using WRegs = x86::Ymm;
 
   if (GTogether_ > 1) {
-    if (this->C_per_G_ == 2) { // group together = 4
+    if (this->C_per_G_ == 2) {
       if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_); // 32 * 8 bit zero points
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
       } else {
-        a->vbroadcastsd( // 64 bits broadcast, 2(C_per_g) * 4 (g_together) and
-                         // broadcast them to align with weights layout
+        a->vbroadcastsd(
             actReg_V_,
             x86::word_ptr(in_acts_R_, (act_s * this->C_) * sizeof(uint8_t)));
       }
-      // 8 * 16 bit activation to 8 * 32 bit activation( C_per_G = 2)
-      // zero extend because vpmaddubsw and vpmaddwd together sum 4 consecutive
-      // elements
       a->vpmovzxwd(actReg_V_, actReg_V_.half());
-    } else if (this->C_per_G_ == 4) { // group together = 2
+    } else if (this->C_per_G_ == 4) {
       if (use_zero_reg) {
-        a->vmovapd(actReg_V_, zeroPTReg_V_); // 32 * 8 bit zero points
+        a->vmovapd(actReg_V_, zeroPTReg_V_);
       } else {
         a->vbroadcastsd(
             actReg_V_,
@@ -189,12 +185,9 @@ void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
     }
     // row offset
     if (this->needRowOffset_) {
-      genU8Sum4<inst_set_t::avx2>(
-          a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
+      genU8Sum4(a, actReg_V_, rowOffsetReg_V_, oneReg16Bit_V_, tmpReg1_V_);
     }
-    // 32 * int8 weight product 32 * uint8 activation -> 8
-    // output(K_per_g * group_together)
-    genU8I8S32FMA<inst_set_t::avx2>(
+    genU8I8S32FMA(
         a,
         actReg_V_,
         WRegs(r * this->S_ + s),
@@ -215,7 +208,7 @@ void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
       if (use_zero_reg) {
         a->vmovapd(actReg_V_, zeroPTReg_V_);
       } else {
-        a->vbroadcasti128(
+        a->vbroadcastf128(
             actReg_V_,
             x86::oword_ptr(in_acts_R_, act_s * this->C_ * sizeof(uint8_t)));
       }
@@ -226,16 +219,13 @@ void GenConvKernel<2, inst_set_t::avx2>::genForSingleFilterPoint(
     }
     int kLoopMultiplier = 32 / this->C_per_G_;
     for (int k = 0; k < kLoopIters_; ++k) {
-      a->vmovaps(
+      a->vmovups(
           WRegs(0),
           x86::dword_ptr(
               wghts_R_,
               (((r * this->S_ + s) * this->K_per_G_) + k * kLoopMultiplier) *
                   this->C_per_G_ * sizeof(int8_t)));
-      // FMA result is not final reduction on C_per_G, producing 8 output in
-      // which consectutive 2 elements if summedforms one final output over
-      // K_Per_G dimension
-      genU8I8S32FMA<inst_set_t::avx2>(
+      genU8I8S32FMA(
           a, actReg_V_, WRegs(0), x86::Ymm(9 - k), oneReg16Bit_V_, tmpReg1_V_);
     }
   }
