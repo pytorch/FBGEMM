@@ -34,6 +34,11 @@ class FusedQuantizeDequantizeTest : public testing::TestWithParam<int> {};
 class EmbeddingQuantizeTest
     : public testing::TestWithParam<tuple<int, int, int>> {};
 
+// Parameter are input rows and input columns
+// Scale and Bias are of type float (SBFloat)
+class EmbeddingQuantizeSBFloatTest
+    : public testing::TestWithParam<tuple<int, int>> {};
+
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     QuantizeGroupwiseTest,
@@ -54,6 +59,13 @@ INSTANTIATE_TEST_CASE_P(
     EmbeddingQuantizeTest,
     ::testing::Combine(
         ::testing::ValuesIn({2, 4, 8}),
+        ::testing::ValuesIn({1, 2, 3}),
+        ::testing::ValuesIn({1, 2, 5, 8, 9, 16, 20, 28, 32, 33, 64, 65})));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    EmbeddingQuantizeSBFloatTest,
+    ::testing::Combine(
         ::testing::ValuesIn({1, 2, 3}),
         ::testing::ValuesIn({1, 2, 5, 8, 9, 16, 20, 28, 32, 33, 64, 65})));
 
@@ -185,7 +197,14 @@ template <typename T>
             res_ref.data() + i * ld + out_emb_cols)[1]);
       } else {
         // float scale and bias
-        // TODO:
+        scaleTest = reinterpret_cast<const float*>(
+            res.data() + i * ld + out_emb_cols)[0];
+        biasTest = reinterpret_cast<const float*>(
+            res.data() + i * ld + out_emb_cols)[1];
+        scaleRef = reinterpret_cast<const float*>(
+            res_ref.data() + i * ld + out_emb_cols)[0];
+        biasRef = reinterpret_cast<const float*>(
+            res_ref.data() + i * ld + out_emb_cols)[1];
       }
       if (fabs(scaleTest - scaleRef) > std::numeric_limits<float>::epsilon()) {
         ss << " scale mismatch for row:" << i;
@@ -547,4 +566,33 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
       bit_rate, inpVec.data(), rows, cols, outVecTest.data());
 
   EXPECT_TRUE(isQEmbeddingClose<float16>(outVecTest, outVecRef, rows, out_emb_cols));
+}
+
+TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
+  int rows, cols;
+  tie(rows, cols) = GetParam();
+
+  random_device rd;
+  mt19937 gen(rd());
+
+  uniform_real_distribution<float> disFP(-10.0f, 10.0f);
+
+  vector<float> inpVec(rows * cols);
+
+  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+    return disFP(gen);
+  });
+
+  int outVecSize = rows * (cols + 2 * sizeof(float));
+
+  vector<uint8_t> outVecRef(outVecSize);
+  vector<uint8_t> outVecTest(outVecSize);
+
+  FloatToFused8BitRowwiseQuantizedSBFloatRef(
+      inpVec.data(), rows, cols, outVecRef.data());
+  FloatToFused8BitRowwiseQuantizedSBFloat(
+      inpVec.data(), rows, cols, outVecTest.data());
+
+  // The number of input columns is the same as the number of output columns
+  EXPECT_TRUE(isQEmbeddingClose<float>(outVecTest, outVecRef, rows, cols));
 }
