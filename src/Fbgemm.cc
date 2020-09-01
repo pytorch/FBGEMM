@@ -263,6 +263,7 @@ bool fbgemmSupportedCPU() {
 template class FBGEMM_API memCopy<std::int32_t, std::int32_t>;
 template class FBGEMM_API DoNothing<std::int32_t, std::int32_t>;
 template class FBGEMM_API DoNothing<float, float>;
+template class FBGEMM_API DoNothing<std::uint8_t, std::uint8_t>;
 template class FBGEMM_API
     ReQuantizeForFloat<false, QuantizationGranularity::TENSOR>;
 template class FBGEMM_API
