@@ -131,11 +131,24 @@ if (NOT MSVC)
 endif()
 
 function(fixup_target TARGET TARGET_SOURCE_DIR)
-  # ensure target correctly prefixes its public header with ${CMAKE_CURRENT_LIST_DIR},
+  # Ensure target correctly prefixes its public header with ${TARGET_SOURCE_DIR},
   # which otherwise breaks installation targets including it as a submodule, so fix that
+  
+  # We cannot use list(TRANSFORM...) since it wasn't added until 3.12 (and the PREPEND operation added in 3.15)
+  # and we need to maintain compatibility with 3.5.1, so implement it manually in a compatible way.
+  # We need to maintain 3.5.1 compatibility since it's what ships with Ubuntu 16.04 LTS
+  #list(TRANSFORM TARGET_PUBLIC_HEADERS PREPEND "${TARGET_SOURCE_DIR}/")
   get_property(TARGET_PUBLIC_HEADER_PROP TARGET ${TARGET} PROPERTY PUBLIC_HEADER)
-  list(APPEND TARGET_PUBLIC_HEADERS ${TARGET_PUBLIC_HEADER_PROP}) # Ensure it's a list
-  list(TRANSFORM TARGET_PUBLIC_HEADERS PREPEND "${TARGET_SOURCE_DIR}/")
+  set(TARGET_PUBLIC_HEADERS "")
+  foreach(_FILE IN ITEMS ${TARGET_PUBLIC_HEADER_PROP})
+    # if the file is already in the target source dir, we can just use it as-is
+    if("${_FILE}" MATCHES "${TARGET_SOURCE_DIR}.*")
+	  list(APPEND TARGET_PUBLIC_HEADERS ${_FILE})
+	else()
+	  message(STATUS "Fixing ${TARGET} public header file path: ${_FILE} -> ${TARGET_SOURCE_DIR}/${_FILE}")
+	  list(APPEND TARGET_PUBLIC_HEADERS "${TARGET_SOURCE_DIR}/${_FILE}")
+	endif()
+  endforeach()
   set_property(TARGET ${TARGET} PROPERTY PUBLIC_HEADER ${TARGET_PUBLIC_HEADERS})
 
   # ensure the target's interface include directories are only prefixed in the source directory
