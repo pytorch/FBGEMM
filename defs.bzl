@@ -31,6 +31,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GenerateKernelU8S8S32ACC32Avx512VNNI.cc",
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
+        "src/GroupwiseConvAcc32Avx512.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",
@@ -58,6 +59,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/PackingTraits-inl.h",
         "include/fbgemm/QuantUtils.h",
         "include/fbgemm/QuantUtilsAvx2.h",
+        "include/fbgemm/QuantUtilsAvx512.h",
         "include/fbgemm/Utils.h",
         "include/fbgemm/UtilsAvx2.h",
         "include/fbgemm/ConvUtils.h",
@@ -87,6 +89,7 @@ def get_fbgemm_avx512_srcs(msvc = False):
         #All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
         "src/FbgemmFloat16ConvertAvx512.cc",
+        "src/QuantUtilsAvx512.cc",
         "src/UtilsAvx512.cc",
         #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
         "src/FbgemmFP16UKernelsAvx512.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
