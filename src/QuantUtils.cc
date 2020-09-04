@@ -555,4 +555,48 @@ void FloatToFusedNBitRowwiseQuantizedSBHalf(
   }
 }
 
+void FloatToFused8BitRowwiseQuantizedSBFloatRef(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  constexpr float kEpsilon = 1e-8f;
+
+  int output_columns = input_columns + 2 * sizeof(float);
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const float* input_row = input + row * input_columns;
+    std::uint8_t* output_row = output + row * output_columns;
+    float* output_row_scale_bias =
+        reinterpret_cast<float*>(output_row + input_columns);
+
+    float minimum_element =
+        *std::min_element(input_row, input_row + input_columns);
+    float maximum_element =
+        *std::max_element(input_row, input_row + input_columns);
+    float range = maximum_element - minimum_element;
+
+    output_row_scale_bias[0] = range / 255.0f;
+    output_row_scale_bias[1] = minimum_element;
+    const auto inverse_scale = 255.0f / (range + kEpsilon);
+    for (std::size_t col = 0; col < input_columns; ++col) {
+      output_row[col] =
+          std::lrintf((input_row[col] - minimum_element) * inverse_scale);
+    }
+  }
+}
+
+void FloatToFused8BitRowwiseQuantizedSBFloat(
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+    FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
+        input, input_rows, input_columns, output);
+  } else {
+    FloatToFused8BitRowwiseQuantizedSBFloatRef(
+        input, input_rows, input_columns, output);
+  }
+}
+
 } // namespace fbgemm

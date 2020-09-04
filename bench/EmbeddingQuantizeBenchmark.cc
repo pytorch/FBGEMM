@@ -8,6 +8,7 @@
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
+#include <vector>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -20,24 +21,41 @@
 using namespace std;
 using namespace fbgemm;
 
+// T is the type of scale and bias
+template <typename T>
 void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
+  if (is_same<T, float16>::value) {
+    cout << "With scale and bias as float16" << endl;
+  } else {
+    cout << "With scale and bias as float" << endl;
+  }
   cout << setw(8) << "bit_rate"
        << ", " << setw(6) << "rows"
        << "," << setw(6) << "cols"
        << "," << setw(16) << "elems_per_usec"
        << "," << setw(10) << "GB/Sec" << endl;
-  for (int bit_rate : {2, 4, 8}) {
+  std::vector<int> bit_rates;
+  if (is_same<T, float16>::value) {
+    bit_rates = {2, 4, 8};
+  } else {
+    // float
+    bit_rates = {8};
+  }
+  for (int bit_rate : bit_rates) {
     for (int rowSize : {100, 120, 1000}) {
       for (int colSize : {16, 64, 128, 256, 512, 1024, 2048}) {
         aligned_vector<float> inpVec(rowSize * colSize);
         randFill<float>(inpVec, -10.0f, 10.0f);
 
-        int elements_per_byte = 8 / bit_rate;
-        int out_emb_cols =
-            (colSize + elements_per_byte - 1) / elements_per_byte;
+        int out_emb_cols = colSize;
+
+        if (is_same<T, float16>::value) {
+          int elements_per_byte = 8 / bit_rate;
+          out_emb_cols = (colSize + elements_per_byte - 1) / elements_per_byte;
+        }
         int outVecSize = rowSize * (out_emb_cols + 2 * sizeof(float16));
         aligned_vector<uint8_t> outVec(outVecSize);
 
@@ -45,8 +63,15 @@ void performance_test() {
 
         duration = measureWithWarmup(
             [&]() {
-              FloatToFusedNBitRowwiseQuantizedSBHalf(
-                  bit_rate, inpVec.data(), rowSize, colSize, outVec.data());
+              is_same<T, float16>::value
+                  ? FloatToFusedNBitRowwiseQuantizedSBHalf(
+                        bit_rate,
+                        inpVec.data(),
+                        rowSize,
+                        colSize,
+                        outVec.data())
+                  : FloatToFused8BitRowwiseQuantizedSBFloat(
+                        inpVec.data(), rowSize, colSize, outVec.data());
             },
             NWARMUP,
             NITER,
@@ -63,8 +88,10 @@ void performance_test() {
 
         cout << setw(8) << bit_rate << "," << setw(6) << rowSize << ", "
              << setw(6) << colSize << ",";
-        cout << setw(16) << std::fixed << std::setprecision(2) << elements_per_usec << ", ";
-        cout << setw(10) << std::fixed << std::setprecision(2) << gigabyes_per_sec << endl;
+        cout << setw(16) << std::fixed << std::setprecision(2)
+             << elements_per_usec << ", ";
+        cout << setw(10) << std::fixed << std::setprecision(2)
+             << gigabyes_per_sec << endl;
       } // for each cols
     } // for each rows
   } // for each bit_rate
@@ -78,6 +105,7 @@ int main() {
     omp_set_num_threads(1);
   }
 #endif
-  performance_test();
+  performance_test<float16>();
+  performance_test<float>();
   return 0;
 }
