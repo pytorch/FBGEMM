@@ -108,6 +108,11 @@ template class PackMatrix<
     int32_t>;
 
 template class PackMatrix<
+    PackEncodedAWithRowOffset<uint8_t, int32_t>,
+    uint8_t,
+    int32_t>;
+
+template class PackMatrix<
     PackAWithIm2Col<uint8_t, int32_t, 1>,
     uint8_t,
     int32_t>;
@@ -123,6 +128,7 @@ template class PackMatrix<
     int32_t>;
 
 template class PackMatrix<PackBMatrix<int8_t, int32_t>, int8_t, int32_t>;
+template class PackMatrix<PackEncodedBMatrix<int8_t, int32_t>, int8_t, int32_t>;
 
 // int16 accumulation
 template class PackMatrix<
@@ -140,7 +146,14 @@ template class PackMatrix<
     uint8_t,
     int16_t>;
 
+template class PackMatrix<
+    PackEncodedAWithRowOffset<uint8_t, int16_t>,
+    uint8_t,
+    int16_t>;
+
+
 template class PackMatrix<PackAMatrix<uint8_t, int16_t>, uint8_t, int16_t>;
 
 template class PackMatrix<PackBMatrix<int8_t, int16_t>, int8_t, int16_t>;
+template class PackMatrix<PackEncodedBMatrix<int8_t, int16_t>, int8_t, int16_t>;
 } // namespace fbgemm

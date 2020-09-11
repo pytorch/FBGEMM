@@ -17,6 +17,12 @@ namespace fbgemm {
 FBGEMM_API std::int32_t reduceAvx2(const std::uint8_t* A, int len);
 
 /**
+ * @brief Sum a given vector with colsum accumulation
+ */
+FBGEMM_API std::int32_t
+reduceWithColSumAvx2(const uint8_t* A, int len, int32_t* col_sum);
+
+/**
  * @brief Transpose 8 rows from source matrix.
  */
 void transpose_8rows(

@@ -11,6 +11,7 @@
  */
 #include <cassert>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <type_traits>
@@ -40,6 +41,13 @@ extern double run_time;
 #endif
 
 namespace fbgemm {
+
+#define MOD_Uint8 \
+  127 // modulus for ABFT operations. orginally 255 but use 7-bit to avoid
+      // saturation issue
+#define MOD_Int8 \
+  63 // modulus for ABFT operations. orginally 127 but use 7-bit to avoid
+     // saturation issue
 
 /**
  * @brief Templatized struct for packing parameters for A and B matrices.
@@ -156,6 +164,43 @@ class PackMatrix {
     static_cast<PT*>(this)->pack(block);
   }
 
+  /**
+   * @brief Encode A from PackAMatrix class
+   */
+  void encodeA(inpType* ColCksm, int32_t modulus) {
+    static_cast<PT*>(this)->encodeA(ColCksm, modulus);
+  }
+
+  /**
+   * @brief allocate memory for C's column sum
+   */
+  void allocForCColSum() {
+    static_cast<PT*>(this)->allocForCColSum();
+  }
+
+  /**
+   * @brief Verify C from PackAMatrix class
+   */
+  int32_t
+  verifyC(int32_t* matC, int32_t* ColCksm, int32_t modulus, int32_t ldc) {
+    return static_cast<PT*>(this)->verifyC(matC, ColCksm, modulus, ldc);
+  }
+
+  /**
+   * @brief check if two arrays are identical under modolo
+   * @return number of inequal elements
+   */
+  int32_t equalityCheckUnderMod(int32_t* cksmRes, int32_t mod) {
+    return static_cast<PT*>(this)->equalityCheckUnderMod(cksmRes, mod);
+  }
+
+  /**
+   * @return pointer to CColSum
+   */
+  int64_t* getCColSumBuf() {
+    return static_cast<PT*>(this)->getCColSumBuf();
+  }
+
   std::int32_t numRows() const {
     return nrows_;
   }
@@ -265,6 +310,34 @@ class PackMatrix {
     return last_bcol_ != blockColSize();
   }
 
+  /**
+   * @brief turn on int32 accumulation of C column sum for abft
+   */
+  void enableInt32AccForABFT() {
+    acc_cint32_abft = true;
+  }
+
+  /**
+   * @brief turn off int32 accumulation of C column sum for abft
+   */
+  void disableInt32AccForABFT() {
+    acc_cint32_abft = false;
+  }
+
+  /**
+   * @return true if accumulation of C column sum enabled; otherwise false
+   */
+  bool isInt32AccForABFTEnabled() {
+    return acc_cint32_abft;
+  }
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return static_cast<PT*>(this)->isPackingEncodedA();
+  }
+
   virtual ~PackMatrix() {
     if (bufAllocatedHere_) {
       fbgemmAlignedFree(buf_);
@@ -302,6 +375,8 @@ class PackMatrix {
   int G_;
   block_type_t packedBlock_; ///< The block in the source matrix just packed
   std::int32_t last_brow_, last_bcol_;
+  bool acc_cint32_abft{
+      false}; // indicate if accumulation of int32 for abft is needed or not
 };
 
 /**
@@ -368,6 +443,24 @@ class FBGEMM_API PackAMatrix final
    * @brief Print the packed block.
    */
   void printPackedMatrix(std::string name);
+
+  /**
+   * @brief Encode A's column sum into a given array
+   */
+  void encodeA(T* ColCksm, int32_t modulus);
+
+  /**
+   * @brief Verify C's column sum and return number of wrong columns
+   */
+  int32_t
+  verifyC(int32_t* matC, int32_t* CColCksm, int32_t modulus, int32_t ldc);
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return false;
+  }
 
  private:
   matrix_op_t trans_;
@@ -470,13 +563,209 @@ class FBGEMM_API PackBMatrix final
    */
   void unpack(T* origin_buf, const BlockingFactors* params = nullptr);
 
-  ~PackBMatrix() {}
+  /**
+   * @brief allocate memory for C's column sums, need to call manually
+   */
+  void allocForCColSum() {
+    // Assume C's number of columns equals B's multiply group nubmers to support
+    // more than 1 group must call with zero initilization; otherwise incorrect
+    // sometimes
+    CColSum = new int64_t[BaseType::numCols() * BaseType::numGroups()]();
+    CColSumAllocatedHere = true;
+  }
+
+  /**
+   * @brief check if two C's cksm and sum are identical under modolo
+   * @return number of inequal elements
+   */
+  int32_t equalityCheckUnderMod(int32_t* cksmRes, int32_t mod) {
+    int32_t errCnt = 0;
+    for (int32_t i = 0; i < BaseType::numCols(); i++) {
+      if ((CColSum[i] - cksmRes[i]) % mod != 0) {
+        errCnt++;
+      }
+    }
+    return errCnt;
+  }
+
+  /**
+   * @return pointer to CColSum
+   */
+  int64_t* getCColSumBuf() {
+    return CColSum;
+  }
+
+  ~PackBMatrix() {
+    // free the memory for C's column sum if allocated
+    if (CColSumAllocatedHere) {
+      delete[] CColSum;
+    }
+  }
 
  private:
   matrix_op_t trans_;
   const T* smat_;
   std::int32_t ld_;
   std::int32_t row_interleave_;
+  std::int64_t* CColSum; // array for C's column sum. put it here because C's
+                         // number of columns equals B's number of columns
+  bool CColSumAllocatedHere{
+      false}; // indicate if this array is allocated or not
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(
+      const block_type_t& block,
+      T* unpack_buf,
+      T* pack_buf,
+      bool ispack,
+      const BlockingFactors* params = nullptr);
+};
+
+/**
+ * @brief Matrix packed for the second input matrix with ABFT row sum encoded in
+ * GEMM (usually weight). The source matrix is already quantized. Default
+ * accumulation type is int32.
+ */
+template <typename T, typename accT = std::int32_t>
+class FBGEMM_API PackEncodedBMatrix final
+    : public PackMatrix<PackEncodedBMatrix<T, accT>, T, accT> {
+ public:
+  using This = PackEncodedBMatrix<T, accT>;
+  using BaseType = PackMatrix<This, T, accT>;
+  using inpType = T;
+  using accType = accT;
+
+  PackEncodedBMatrix() = delete; // no default constructor
+
+  /**
+   * @param groups if > 1 and trans == NoTranspose, smat is nRow x nCol with
+   *               groups are vertically concatenated: each group is
+   *               (nRow / groups) x nCol .
+   *               if > 1 and trans == Transpose, smat is (nCol * groups) x
+   *               (nRow / groups) with groups are horizontally concatenated:
+   *               each group is nCol x (nRow / groups) . Each group is
+   *               transposed and vertically concatenated to match with the
+   *               NoTranspose case.
+   */
+  PackEncodedBMatrix(
+      matrix_op_t trans,
+      std::int32_t nRow,
+      std::int32_t nCol,
+      const inpType* smat,
+      std::int32_t ld,
+      inpType* pmat = nullptr,
+      int groups = 1,
+      const BlockingFactors* params = nullptr);
+
+  /**
+   * Weight matrices are usually constant so worth pre-packing.
+   */
+  bool isPrePacked() const {
+    return true;
+  }
+
+  /**
+   * @return True if to be used as A matrix, False otherwise.
+   */
+  static constexpr bool isA() {
+    return false;
+  }
+
+  /**
+   * @brief When k loop is also tiled/blocked, this function is used to check if
+   * have executed computations for the last k block so that we can perform
+   *        post-GEMM operations.
+   */
+  bool isThisLastKBlock(int block_id) const {
+    return (BaseType::blockRows() - 1) == block_id;
+  }
+
+  /**
+   * @return Offset of the element in the packed matrix that was at (i, j) in
+   *         the source matrix.
+   */
+  std::int32_t addr(std::int32_t i, std::int32_t j) const;
+
+  /**
+   * @brief Packs a block of source matrix into pmat buffer. The blocking
+   *        parameters are needed to compute the buffer size of each group.
+   *        It will use default blocking parameters if params is not provided.
+   */
+  void pack(const block_type_t& block, const BlockingFactors* params = nullptr);
+
+  /**
+   * @brief Print the packed block.
+   */
+  void printPackedMatrix(
+      std::string name,
+      const BlockingFactors* params = nullptr);
+
+  /**
+   * @return true if meta information like matrix shape is the same.
+   */
+  bool metaEquals(const PackEncodedBMatrix<T, accT>& that) const;
+  /**
+   * @return true if matrices are the same.
+   */
+  bool equals(const PackEncodedBMatrix<T, accT>& that) const;
+
+  /**
+   * @brief Unpack pmat buffer to the origin_buf (Used for the serialization to
+   * recover weight matrix).
+   */
+  void unpack(T* origin_buf, const BlockingFactors* params = nullptr);
+
+  /**
+   * @brief allocate memory for C's column sums, need to call manually
+   */
+  void allocForCColSum() {
+    // Assume C's number of columns equals B's
+    // must call with zero initilization; otherwise incorrect sometimes
+    CColSum = new int64_t[BaseType::numCols()]();
+    CColSumAllocatedHere = true;
+  }
+
+  /**
+   * @brief check if two C's cksm and sum are identical under modolo
+   * @return number of inequal elements
+   */
+  int32_t equalityCheckUnderMod(int32_t* cksmRes, int32_t mod) {
+    int32_t errCnt = 0;
+    for (int32_t i = 0; i < BaseType::numCols(); i++) {
+      if ((CColSum[i] - cksmRes[i]) % mod != 0) {
+        errCnt++;
+      }
+    }
+    return errCnt;
+  }
+
+  /**
+   * @return pointer to CColSum
+   */
+  int64_t* getCColSumBuf() {
+    return CColSum;
+  }
+
+  ~PackEncodedBMatrix() {
+    // free the memory for C's column sum if allocated
+    if (CColSumAllocatedHere) {
+      delete[] CColSum;
+    }
+  }
+
+ private:
+  matrix_op_t trans_;
+  const T* smat_;
+  std::int32_t ld_;
+  std::int32_t row_interleave_;
+  std::int64_t* CColSum; // array for C's column sum. put it here because C's
+                         // number of columns equals B's number of columns
+  bool CColSumAllocatedHere{
+      false}; // indicate if this array is allocated or not
+  std::int32_t
+      actual_n_cols_; // actual number of cols of B (1 less than numCols())
 
   /**
    * @brief Internal function performing both pack & unpack
@@ -534,6 +823,13 @@ class FBGEMM_API PackWeightMatrixForGConv {
    */
   inpType* getBuf() {
     return pdata_;
+  }
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return false;
   }
 
   ~PackWeightMatrixForGConv() {
@@ -727,6 +1023,13 @@ class FBGEMM_API PackAWithIm2Col
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return false;
+  }
+
   ~PackAWithIm2Col() {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
@@ -813,9 +1116,21 @@ class FBGEMM_API PackAWithRowOffset final
   void printPackedMatrix(std::string name);
 
   /**
+   * @brief Encode A's column sum into a given array
+   */
+  void encodeA(inpType* ColCksm, int32_t modulus);
+
+  /**
    * @return size of row offset buffer in number of elements
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return false;
+  }
 
   ~PackAWithRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -830,6 +1145,120 @@ class FBGEMM_API PackAWithRowOffset final
   std::int32_t* row_offset_;
   bool rowOffsetAllocatedHere;
   std::int32_t row_interleave_B_;
+};
+
+/**
+ * @brief Matrix packed for the first input matrix in GEMM (usually activation).
+ *        Row offsets used for requantization is computed during packing.
+ *        Matrix A's column sum is computed and packed into A during packing.
+ *        The source matrix is already quantized.
+ * @note This class doesn't support multi-threading yet
+ */
+template <typename T, typename accT = std::int32_t>
+class FBGEMM_API PackEncodedAWithRowOffset final
+    : public PackMatrix<PackEncodedAWithRowOffset<T, accT>, T, accT> {
+ public:
+  using This = PackEncodedAWithRowOffset<T, accT>;
+  using BaseType = PackMatrix<This, T, accT>;
+  using inpType = T;
+  using accType = accT;
+
+  PackEncodedAWithRowOffset() = delete; // no default constructor
+  /**
+   * @param row_offset If nullptr, this constructor internally allocates a
+   *                   buffer and owns it. Otherwise, this class doesn't own
+   *                   the buffer. The buffer will be populated when pack
+   *                   function is called.
+   */
+  PackEncodedAWithRowOffset(
+      matrix_op_t trans,
+      std::uint32_t nRow,
+      std::uint32_t nCol,
+      const T* smat,
+      std::uint32_t ld,
+      inpType* pmat = nullptr,
+      int groups = 1,
+      std::int32_t* row_offset = nullptr,
+      const BlockingFactors* params = nullptr);
+
+  /**
+   * Activation matrices are not constant so cannot amortize the cost of
+   * pre-packing.
+   */
+  bool isPrePacked() const {
+    return false;
+  }
+
+  /**
+   * @return True if this is used as A matrix.
+   */
+  static constexpr bool isA() {
+    return true;
+  }
+
+  /**
+   * @return Offset of the element in the packed matrix that was at (i, j) in
+   *         the source matrix
+   */
+  std::int32_t addr(std::int32_t i, std::int32_t j) const;
+
+  /**
+   * @brief Packs a block of source matrix into pmat buffer.
+   */
+  void pack(const block_type_t& block);
+
+  /**
+   * @return A pointer to the row offset buffer.
+   */
+  std::int32_t* getRowOffsetBuffer() const {
+    return row_offset_;
+  }
+
+  /**
+   * @return A pointer to the col sum buffer.
+   */
+  std::int32_t* getColSumInt32Buffer() const {
+    return col_sum_int32_;
+  }
+
+  /**
+   * @brief Print the packed block.
+   */
+  void printPackedMatrix(std::string name);
+
+  /**
+   * @brief Encode A's column sum into a given array
+   */
+  void encodeA(inpType* ColCksm, int32_t modulus);
+
+  /**
+   * @return size of row offset buffer in number of elements
+   */
+  static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return true;
+  }
+
+  ~PackEncodedAWithRowOffset() {
+    if (rowOffsetAllocatedHere) {
+      fbgemmAlignedFree(row_offset_);
+    }
+    delete[] col_sum_int32_;
+  }
+
+ private:
+  matrix_op_t trans_;
+  const T* smat_;
+  std::uint32_t ld_;
+  std::int32_t* row_offset_;
+  bool rowOffsetAllocatedHere;
+  std::int32_t row_interleave_B_;
+  std::int32_t* col_sum_int32_;
+  std::int32_t actual_n_rows_;
 };
 
 /**
@@ -908,6 +1337,13 @@ class FBGEMM_API PackAWithQuantRowOffset final
    * @return Size of row offset buffer in number of elements
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
+
+  /**
+   * @return true if this is an object of PackEncodedA class
+   */
+  bool isPackingEncodedA() {
+    return false;
+  }
 
   ~PackAWithQuantRowOffset() {
     if (rowOffsetAllocatedHere) {
@@ -1334,6 +1770,7 @@ class FBGEMM_API ReQuantizeForFloat {
  *                        e.g.,  pre-multiply by alpha
  * @tparam cT data type of C matrix
  * @tparam processOutputType further processing of outputs, e.g., Relu
+ * @tparam abft_needed: true to enable abft. default is false
  */
 template <
     typename packingAMatrix,
@@ -1355,7 +1792,8 @@ FBGEMM_API void fbgemmPacked(
     const processOutputType& outProcess,
     int thread_id,
     int num_threads,
-    const BlockingFactors* blocking_params = nullptr);
+    const BlockingFactors* blocking_params = nullptr,
+    bool abft_needed = false);
 
 /**
  * @brief Perform small-channels-per-group groupwise convolution

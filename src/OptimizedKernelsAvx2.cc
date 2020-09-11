@@ -49,6 +49,71 @@ int32_t reduceAvx2(const uint8_t* A, int len) {
   return row_sum;
 }
 
+int32_t reduceWithColSumAvx2(const uint8_t* A, int len, int32_t* col_sum) {
+  int32_t row_sum = 0;
+#if defined(__AVX2__)
+  __m256i sum_v = _mm256_setzero_si256();
+  __m256i one_epi16_v = _mm256_set1_epi16(1);
+  __m256i one_epi8_v = _mm256_set1_epi8(1);
+
+  int i;
+  // vectorized
+  for (i = 0; i < len / 32 * 32; i += 32) {
+    __m256i src_v = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(A + i));
+
+    // sum for offset
+    sum_v = _mm256_add_epi32(
+        sum_v,
+        _mm256_madd_epi16(
+            _mm256_maddubs_epi16(src_v, one_epi8_v), one_epi16_v));
+
+    // sum for matrix A's column sum
+    __m128i u8_0 = _mm_loadl_epi64(reinterpret_cast<__m128i const*>(A + i));
+    __m128i u8_1 = _mm_loadl_epi64(reinterpret_cast<__m128i const*>(A + i + 8));
+    __m128i u8_2 =
+        _mm_loadl_epi64(reinterpret_cast<__m128i const*>(A + i + 16));
+    __m128i u8_3 =
+        _mm_loadl_epi64(reinterpret_cast<__m128i const*>(A + i + 24));
+    __m256i sum0 =
+        _mm256_loadu_si256(reinterpret_cast<__m256i const*>(col_sum + i));
+    __m256i sum1 =
+        _mm256_loadu_si256(reinterpret_cast<__m256i const*>(col_sum + i + 8));
+    __m256i sum2 =
+        _mm256_loadu_si256(reinterpret_cast<__m256i const*>(col_sum + i + 16));
+    __m256i sum3 =
+        _mm256_loadu_si256(reinterpret_cast<__m256i const*>(col_sum + i + 24));
+    sum0 = _mm256_add_epi32(sum0, _mm256_cvtepu8_epi32(u8_0));
+    sum1 = _mm256_add_epi32(sum1, _mm256_cvtepu8_epi32(u8_1));
+    sum2 = _mm256_add_epi32(sum2, _mm256_cvtepu8_epi32(u8_2));
+    sum3 = _mm256_add_epi32(sum3, _mm256_cvtepu8_epi32(u8_3));
+    // use storeu instead of store
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_sum + i), sum0);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_sum + i + 8), sum1);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_sum + i + 16), sum2);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_sum + i + 24), sum3);
+  }
+
+  alignas(64) int32_t temp[8];
+  _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
+  for (int k = 0; k < 8; ++k) {
+    row_sum += temp[k];
+  }
+
+  // scalar
+  for (; i < len; ++i) {
+    row_sum += A[i];
+    col_sum[i] += A[i];
+  }
+
+#else
+  for (int i = 0; i < len; ++i) {
+    row_sum += A[i];
+    col_sum[i] += A[i];
+  }
+#endif
+  return row_sum;
+}
+
 void transpose_8rows(
     int N,
     const uint8_t* src,

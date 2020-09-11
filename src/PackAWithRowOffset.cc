@@ -206,6 +206,20 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
   std::cout << std::endl;
 }
 
+
+template <typename T, typename accT>
+void PackAWithRowOffset<T, accT>::encodeA(T* ColCksm, int32_t mod) {
+  std::vector<int32_t> tmpSum(BaseType::numCols());
+  for (auto i = 0; i < BaseType::numRows(); i++) {
+    for (auto j = 0; j < BaseType::numCols(); j++) {
+      tmpSum[j] += smat_[i * BaseType::numCols() + j];
+    }
+  }
+  for (auto j = 0; j < BaseType::numCols(); j++) {
+    ColCksm[j] = static_cast<T>(tmpSum[j] % mod);
+  }
+}
+
 template <typename T, typename accT>
 int PackAWithRowOffset<T, accT>::rowOffsetBufferSize(
     const BlockingFactors* params) {
