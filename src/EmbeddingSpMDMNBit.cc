@@ -348,10 +348,9 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         --unroll_factor;
         vec_reg_t temp_vreg = vec_reg_t(unroll_factor);
         vec_reg_t temp2_vreg;
-        if (bit_rate == 2) {
-          --unroll_factor;
-          temp2_vreg = vec_reg_t(unroll_factor);
-        }
+
+        --unroll_factor;
+        temp2_vreg = vec_reg_t(unroll_factor);
 
         // Create a mask that extracts lower bit_rate bits from each 8-bit block
         --unroll_factor;
@@ -699,32 +698,38 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
               }
             }
 
+            // AVX2: For the following loop, operations on src_vreg impact the
+            // next iteration. For i = 0, we make a copy. i = 1 just right
+            // shifts and uses it. i = 2 we extract upper 128 bits from the copy
+            // to src_vreg and use it. i = 3 just right shifts it and uses it.
             for (int i = 0;
                  i < std::min(4, num_vec_regs_per_block - (vec_idx + v));
                  ++i) {
               vec_reg_t out_vreg = vec_reg_t(v + i);
               if (i == 0) {
                 a->vpmovsxbd(temp_vreg, src_vreg.xmm());
+                // this is only needed for avx2
+                if (instSet == inst_set_t::avx2) {
+                  a->vmovups(temp2_vreg, src_vreg);
+                }
               } else {
                 if (instSet == inst_set_t::avx512) {
                   // We could've used avx512_ymm for clock frequency advantage,
                   // if there's an instruction to extract a 64-bit portion from
                   // a YMM as an XMM register.
                   a->vextracti32x4(temp_vreg.xmm(), src_vreg, asmjit::Imm(i));
+                  a->vpmovsxbd(temp_vreg, temp_vreg.xmm());
                 } else {
                   if (i == 1) {
-                    a->pextrq(scratchReg3_, src_vreg.xmm(), asmjit::Imm(1));
-                    a->movq(temp_vreg.xmm(), scratchReg3_);
-                  } else {
+                    a->vpsrldq(src_vreg, src_vreg, asmjit::Imm(8));
+                  } else if (i == 2) {
                     a->vextractf128(
-                        temp_vreg.xmm(), src_vreg.ymm(), asmjit::Imm(i >> 1));
-                    if (i == 3) {
-                      a->pextrq(scratchReg3_, temp_vreg.xmm(), asmjit::Imm(1));
-                      a->movq(temp_vreg.xmm(), scratchReg3_);
-                    }
+                        src_vreg.xmm(), temp2_vreg.ymm(), asmjit::Imm(i >> 1));
+                  } else {
+                    a->vpsrldq(src_vreg, src_vreg, asmjit::Imm(8));
                   }
+                  a->vpmovsxbd(temp_vreg, src_vreg.xmm());
                 } // avx2
-                a->vpmovsxbd(temp_vreg, temp_vreg.xmm());
               } // i > 0
               a->vcvtdq2ps(temp_vreg, temp_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
