@@ -60,7 +60,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::ValuesIn({2, 4, 8}),
         ::testing::ValuesIn({1, 2, 3}),
-        ::testing::ValuesIn({1, 2, 5, 8, 9, 16, 20, 28, 32, 33, 64, 65})));
+        ::testing::ValuesIn({4, 8, 16, 20, 28, 32, 64, 84})));
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -147,22 +147,38 @@ template <typename T>
     return ::testing::AssertionFailure() << " Quantized results do not match";
 }
 
-bool floatEqualAll(vector<float>& a, vector<float>& b) {
+::testing::AssertionResult floatCloseAll(
+    vector<float>& a,
+    vector<float>& b,
+    float atol = std::numeric_limits<float>::epsilon()) {
+  std::stringstream ss;
+  bool match = true;
   if (a.size() != b.size()) {
-    return false;
+    ss << " size mismatch ";
+    match = false;
   }
-  for (int i = 0; i < a.size(); i++) {
-    if (fabs(a[i] - b[i]) > std::numeric_limits<float>::epsilon()) {
-      return false;
+  if (match) {
+    for (int i = 0; i < a.size(); i++) {
+      float absDiff = fabs(a[i] - b[i]);
+      if (absDiff > atol) {
+        ss << " mismatch at (" << i << ") " << endl;
+        ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
+        ss << "\t diff: " << absDiff << " > " << atol << endl;
+        match = false;
+      }
     }
   }
-  return true;
+  if (match)
+    return ::testing::AssertionSuccess();
+  else
+    return ::testing::AssertionFailure()
+        << " results do not match. " << ss.str();
 }
 
 template <typename T>
 ::testing::AssertionResult isQEmbeddingClose(
-    const vector<uint8_t>& res,
     const vector<uint8_t>& res_ref,
+    const vector<uint8_t>& res,
     int out_rows,
     int out_emb_cols) {
   bool match = true;
@@ -463,11 +479,11 @@ TEST_P(FusedQuantizeDequantizeTest, fusedQuantizeDequantizeTest) {
 
   runFusedQuantizeDequantizeTests<uint8_t>(
       inp, scale, zero_point_uint8, dstfloat, dstfloat_ref);
-  EXPECT_TRUE(floatEqualAll(dstfloat, dstfloat_ref));
+  EXPECT_TRUE(floatCloseAll(dstfloat, dstfloat_ref));
 
   runFusedQuantizeDequantizeTests<int8_t>(
       inp, scale, zero_point_int8, dstfloat, dstfloat_ref);
-  EXPECT_TRUE(floatEqualAll(dstfloat, dstfloat_ref));
+  EXPECT_TRUE(floatCloseAll(dstfloat, dstfloat_ref));
 }
 
 // vector and scalar code should have the same behavior
@@ -507,7 +523,7 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
 
   FusedQuantizeDequantize<int8_t>(
       src1.data(), dst_int8.data(), src1.size(), qparams);
-  EXPECT_TRUE(floatEqualAll(dst_int8, ref));
+  EXPECT_TRUE(floatCloseAll(dst_int8, ref));
 
   // Tests vectorized and remainder paths
   vector<float> src2 = {3.40282e+38,
@@ -535,9 +551,10 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
   FusedQuantizeDequantize<uint8_t>(
       src2.data(), dst_uint8.data(), src2.size(), qparams);
 
-  EXPECT_TRUE(floatEqualAll(dst_uint8, ref2));
+  EXPECT_TRUE(floatCloseAll(dst_uint8, ref2));
 }
 
+// Scale and bias are of type float16
 TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   int bit_rate, rows, cols;
   tie(bit_rate, rows, cols) = GetParam();
@@ -548,14 +565,18 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   uniform_real_distribution<float> disFP(-10.0f, 10.0f);
 
   vector<float> inpVec(rows * cols);
+  vector<float> dequantOutRef(rows * cols);
+  vector<float> dequantOutTest(rows * cols);
 
-  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable { return disFP(gen); });
+  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+    return disFP(gen);
+  });
 
   int elements_per_byte = 8 / bit_rate;
 
-  int out_emb_cols =
-      (cols + elements_per_byte - 1) / elements_per_byte;
-  int outVecSize = rows * (out_emb_cols + 2 * sizeof(float16));
+  int out_emb_cols = (cols + elements_per_byte - 1) / elements_per_byte;
+  int out_cols = out_emb_cols + 2 * sizeof(float16);
+  int outVecSize = rows * out_cols;
 
   vector<uint8_t> outVecRef(outVecSize);
   vector<uint8_t> outVecTest(outVecSize);
@@ -565,9 +586,17 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   FloatToFusedNBitRowwiseQuantizedSBHalf(
       bit_rate, inpVec.data(), rows, cols, outVecTest.data());
 
-  EXPECT_TRUE(isQEmbeddingClose<float16>(outVecTest, outVecRef, rows, out_emb_cols));
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(outVecRef, outVecTest, rows, out_emb_cols));
+
+  FusedNBitRowwiseQuantizedSBHalfToFloatRef(
+      bit_rate, outVecTest.data(), rows, out_cols, dequantOutRef.data());
+  FusedNBitRowwiseQuantizedSBHalfToFloat(
+      bit_rate, outVecTest.data(), rows, out_cols, dequantOutTest.data());
+  EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
 }
 
+// Scale and bias are of type float
 TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   int rows, cols;
   tie(rows, cols) = GetParam();
@@ -578,12 +607,15 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   uniform_real_distribution<float> disFP(-10.0f, 10.0f);
 
   vector<float> inpVec(rows * cols);
+  vector<float> dequantOutTest(rows * cols);
+  vector<float> dequantOutRef(rows * cols);
 
   generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
     return disFP(gen);
   });
 
-  int outVecSize = rows * (cols + 2 * sizeof(float));
+  int out_cols = cols + 2 * sizeof(float);
+  int outVecSize = rows * out_cols;
 
   vector<uint8_t> outVecRef(outVecSize);
   vector<uint8_t> outVecTest(outVecSize);
@@ -594,5 +626,11 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
       inpVec.data(), rows, cols, outVecTest.data());
 
   // The number of input columns is the same as the number of output columns
-  EXPECT_TRUE(isQEmbeddingClose<float>(outVecTest, outVecRef, rows, cols));
+  EXPECT_TRUE(isQEmbeddingClose<float>(outVecRef, outVecTest, rows, cols));
+
+  Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+      outVecTest.data(), rows, out_cols, dequantOutRef.data());
+  Fused8BitRowwiseQuantizedSBFloatToFloat(
+      outVecTest.data(), rows, out_cols, dequantOutTest.data());
+  EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
 }

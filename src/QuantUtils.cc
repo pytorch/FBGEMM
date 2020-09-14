@@ -531,6 +531,14 @@ void FloatToFusedNBitRowwiseQuantizedSBHalf(
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
+  // Currenlty we can only dequantize if the number of input columns
+  // is a multiple of number of elements_per_byte
+
+  int num_elem_per_byte = 8 / bit_rate;
+  if (input_columns % num_elem_per_byte != 0) {
+    throw std::runtime_error("Unsupported number of columns");
+  }
+
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
     switch (bit_rate) {
       case 2:
@@ -595,6 +603,98 @@ void FloatToFused8BitRowwiseQuantizedSBFloat(
         input, input_rows, input_columns, output);
   } else {
     FloatToFused8BitRowwiseQuantizedSBFloatRef(
+        input, input_rows, input_columns, output);
+  }
+}
+
+void FusedNBitRowwiseQuantizedSBHalfToFloatRef(
+    int bit_rate,
+    const uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  int num_elem_per_byte = 8 / bit_rate;
+  int output_columns =
+      (input_columns - 2 * sizeof(float16)) * num_elem_per_byte;
+
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const std::uint8_t* input_row = input + row * input_columns;
+    const float16* input_row_scale_bias = reinterpret_cast<const float16*>(
+        input_row +
+        (output_columns + num_elem_per_byte - 1) / num_elem_per_byte);
+    float scale = cpu_half2float(input_row_scale_bias[0]);
+    float bias = cpu_half2float(input_row_scale_bias[1]);
+    float* output_row = output + row * output_columns;
+
+    for (std::size_t col = 0; col < output_columns; ++col) {
+      std::uint8_t quantized = input_row[col / num_elem_per_byte];
+      quantized >>= (col % num_elem_per_byte) * bit_rate;
+      quantized &= (1 << bit_rate) - 1;
+      output_row[col] = scale * quantized + bias;
+    }
+  }
+}
+
+void FusedNBitRowwiseQuantizedSBHalfToFloat(
+    int bit_rate,
+    const uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+    switch (bit_rate) {
+      case 2:
+        FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<2>(
+            input, input_rows, input_columns, output);
+        break;
+      case 4:
+        FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<4>(
+            input, input_rows, input_columns, output);
+        break;
+      case 8:
+        FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<8>(
+            input, input_rows, input_columns, output);
+        break;
+      default:
+        FusedNBitRowwiseQuantizedSBHalfToFloatRef(
+            bit_rate, input, input_rows, input_columns, output);
+    }
+  } else {
+    FusedNBitRowwiseQuantizedSBHalfToFloatRef(
+        bit_rate, input, input_rows, input_columns, output);
+  }
+}
+
+void Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  int output_columns = input_columns - 2 * sizeof(float);
+
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const std::uint8_t* input_row = input + row * input_columns;
+    const float* input_row_scale_bias =
+        reinterpret_cast<const float*>(input_row + output_columns);
+    float* output_row = output + row * output_columns;
+
+    for (std::size_t col = 0; col < output_columns; ++col) {
+      output_row[col] =
+          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+    }
+  }
+}
+
+void Fused8BitRowwiseQuantizedSBFloatToFloat(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+    Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
+        input, input_rows, input_columns, output);
+  } else {
+    Fused8BitRowwiseQuantizedSBFloatToFloatRef(
         input, input_rows, input_columns, output);
   }
 }

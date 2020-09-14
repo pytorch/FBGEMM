@@ -1723,4 +1723,204 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
   }
 }
 
+template <int BIT_RATE>
+void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  constexpr int VLEN = 8;
+  constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
+  int output_columns =
+      (input_columns - 2 * sizeof(uint16_t)) * NUM_ELEM_PER_BYTE;
+
+  // Compute a remainder for vector load
+  // Since every row is followed by 2 fp16 (scale and bias), luckily
+  // we don't need mask at bit-rate granularity but just at 32-bit
+  // granularity.
+  constexpr int NUM_ELEM_PER_32BIT = 32 / BIT_RATE;
+  // multiply by 4 because we're handling 4 vlen per iteration
+  constexpr int NUM_OF_32BIT_PER_VLOAD = VLEN * 4 / NUM_ELEM_PER_32BIT;
+  int remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
+      NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
+  __m128i vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
+      internal::avx2_ps_or_epi32_combined_mask + NUM_OF_32BIT_PER_VLOAD +
+      (NUM_OF_32BIT_PER_VLOAD - remainder_32bit_granularity) %
+          NUM_OF_32BIT_PER_VLOAD));
+  int remainder = output_columns % (4 * VLEN);
+  __m256i vmask_store0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+      internal::avx2_ps_or_epi32_combined_mask +
+      (VLEN - std::min(output_columns % (4 * VLEN), VLEN) % (VLEN + 1))));
+  __m256i vmask_store1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+      internal::avx2_ps_or_epi32_combined_mask +
+      (VLEN -
+       std::max(0, std::min(output_columns % (4 * VLEN) - VLEN, VLEN)) %
+           (VLEN + 1))));
+  __m256i vmask_store2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+      internal::avx2_ps_or_epi32_combined_mask +
+      (VLEN -
+       std::max(0, std::min(output_columns % (4 * VLEN) - 2 * VLEN, VLEN)) %
+           (VLEN + 1))));
+  __m256i vmask_store3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+      internal::avx2_ps_or_epi32_combined_mask +
+      (VLEN -
+       std::max(0, std::min(output_columns % (4 * VLEN) - 3 * VLEN, VLEN)) %
+           (VLEN + 1))));
+
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const std::uint8_t* input_row = input + row * input_columns;
+    const uint16_t* input_row_scale_bias = reinterpret_cast<const uint16_t*>(
+        input_row +
+        (output_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE);
+    float scale = halfToFloat(input_row_scale_bias[0]);
+    float bias = halfToFloat(input_row_scale_bias[1]);
+    float* output_row = output + row * output_columns;
+
+    std::size_t col = 0;
+    if (BIT_RATE == 4 || BIT_RATE == 2) {
+      __m256 vscale = _mm256_set1_ps(scale);
+      __m256 vbias = _mm256_set1_ps(bias);
+      for (; col + 4 * VLEN <= output_columns; col += 4 * VLEN) {
+        __m256i vinq;
+        // unpack to 8-bit integers
+        if (BIT_RATE == 4) {
+          vinq = _mm256_cvtepu8_epi16(
+              _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+                  input_row + col / NUM_ELEM_PER_BYTE)));
+          vinq = _mm256_and_si256(
+              _mm256_or_si256(vinq, _mm256_slli_epi32(vinq, 4)),
+              _mm256_set1_epi16(0x0f0f));
+        } else {
+          vinq = _mm256_cvtepu8_epi32(
+              _mm_loadl_epi64(reinterpret_cast<const __m128i*>(
+                  input_row + col / NUM_ELEM_PER_BYTE)));
+          vinq = _mm256_and_si256(
+              _mm256_or_si256(
+                  _mm256_or_si256(
+                      _mm256_slli_epi32(vinq, 2 * 8 + 2),
+                      _mm256_slli_epi32(vinq, 8 + 4)),
+                  _mm256_or_si256(_mm256_slli_epi32(vinq, 6), vinq)),
+              _mm256_set1_epi32(0x03030303));
+        }
+        __m256 vinq0 = _mm256_cvtepi32_ps(
+            _mm256_cvtepi8_epi32(_mm256_castsi256_si128(vinq)));
+        __m256 vinq1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 1))));
+        __m256 vinq2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 2))));
+        __m256 vinq3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 3))));
+        vinq0 = _mm256_fmadd_ps(vscale, vinq0, vbias);
+        vinq1 = _mm256_fmadd_ps(vscale, vinq1, vbias);
+        vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
+        vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
+        _mm256_storeu_ps(output_row + col, vinq0);
+        _mm256_storeu_ps(output_row + col + VLEN, vinq1);
+        _mm256_storeu_ps(output_row + col + 2 * VLEN, vinq2);
+        _mm256_storeu_ps(output_row + col + 3 * VLEN, vinq3);
+      }
+
+      if (remainder) {
+        __m256i vinq;
+        if (BIT_RATE == 4) {
+          vinq = _mm256_cvtepu8_epi16(_mm_maskload_epi32(
+              reinterpret_cast<const int*>(input_row + col / NUM_ELEM_PER_BYTE),
+              vmask_load));
+          vinq = _mm256_and_si256(
+              _mm256_or_si256(vinq, _mm256_slli_epi32(vinq, 4)),
+              _mm256_set1_epi16(0x0f0f));
+        } else {
+          vinq = _mm256_cvtepu8_epi32(_mm_maskload_epi32(
+              reinterpret_cast<const int*>(input_row + col / NUM_ELEM_PER_BYTE),
+              vmask_load));
+          vinq = _mm256_and_si256(
+              _mm256_or_si256(
+                  _mm256_or_si256(
+                      _mm256_slli_epi32(vinq, 2 * 8 + 2),
+                      _mm256_slli_epi32(vinq, 8 + 4)),
+                  _mm256_or_si256(_mm256_slli_epi32(vinq, 6), vinq)),
+              _mm256_set1_epi32(0x03030303));
+        }
+
+        __m256 vinq0 = _mm256_cvtepi32_ps(
+            _mm256_cvtepi8_epi32(_mm256_castsi256_si128(vinq)));
+        __m256 vinq1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 1))));
+        __m256 vinq2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 2))));
+        __m256 vinq3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
+            _mm_set1_epi64x(_mm256_extract_epi64(vinq, 3))));
+
+        vinq0 = _mm256_fmadd_ps(vscale, vinq0, vbias);
+        vinq1 = _mm256_fmadd_ps(vscale, vinq1, vbias);
+        vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
+        vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
+
+        _mm256_maskstore_ps(output_row + col, vmask_store0, vinq0);
+        _mm256_maskstore_ps(output_row + col + VLEN, vmask_store1, vinq1);
+        _mm256_maskstore_ps(output_row + col + 2 * VLEN, vmask_store2, vinq2);
+        _mm256_maskstore_ps(output_row + col + 3 * VLEN, vmask_store3, vinq3);
+      }
+    } else {
+      for (; col < output_columns; ++col) {
+        std::uint8_t quantized = input_row[col / NUM_ELEM_PER_BYTE];
+        quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
+        quantized &= (1 << BIT_RATE) - 1;
+        output_row[col] = scale * quantized + bias;
+      }
+    }
+  }
+}
+
+template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<2>(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output);
+
+template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<4>(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output);
+
+template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<8>(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output);
+
+void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
+    const std::uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  constexpr int VLEN = 8;
+  int output_columns = input_columns - 2 * sizeof(float);
+
+  for (std::size_t row = 0; row < input_rows; ++row) {
+    const std::uint8_t* input_row = input + row * input_columns;
+    const float* input_row_scale_bias =
+        reinterpret_cast<const float*>(input_row + output_columns);
+    float* output_row = output + row * output_columns;
+
+    __m256 scale_v = _mm256_set1_ps(input_row_scale_bias[0]);
+    __m256 bias_v = _mm256_set1_ps(input_row_scale_bias[1]);
+
+    std::size_t col;
+    for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
+      __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
+          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
+      _mm256_storeu_ps(
+          output_row + col,
+          _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v));
+    }
+
+    for (; col < output_columns; ++col) {
+      output_row[col] =
+          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+    }
+  }
+}
+
 } // namespace fbgemm
