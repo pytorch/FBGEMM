@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include <cpuinfo.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -97,6 +98,12 @@ static vector<vector<int>> GetShapes_() {
  * accumulation. Output processing: requantization -> nothing
  */
 TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
+  cpuinfo_initialize();
+  if (fbgemmHasAvx512VnniSupport()) {
+    // No need to use acc16 if VNNI is available
+    return;
+  }
+
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
@@ -338,6 +345,12 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
  * accumulation. Output processing: spmdm -> requantization -> nothing
  */
 TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
+  cpuinfo_initialize();
+  if (fbgemmHasAvx512VnniSupport()) {
+    // No need to use acc16 if VNNI is available
+    return;
+  }
+
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
@@ -664,6 +677,12 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
  * accumulation. Output processing: nothing
  */
 TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
+  cpuinfo_initialize();
+  if (fbgemmHasAvx512VnniSupport()) {
+    // No need to use acc16 if VNNI is available
+    return;
+  }
+
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
   bool test_ld;
@@ -876,7 +895,7 @@ TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
         // Sanity check
         for (int i = 0; i < k; i++) {
           for (int j = 0; j < n_adjusted; j++) {
-            EXPECT_EQ(Bint8.data()[i * n + j], unpack_buf.data()[i * n + j])
+            EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
               << "Pack/Unpack results differ at index (" << i << ", " << j
               << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
               << ", Pack-Unpacked: "
