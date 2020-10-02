@@ -18,13 +18,9 @@ namespace fbgemm {
  * @param dst The memory buffer of the destination matrix B.
  * @param ld_dst The leading dimension of the destination matrix B.
  */
-FBGEMM_API void transpose_ref(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
+template <typename T>
+FBGEMM_API void
+transpose_ref(int M, int N, const T* src, int ld_src, T* dst, int ld_dst);
 
 namespace internal {
 
@@ -33,25 +29,21 @@ namespace internal {
  *
  * This is called if the code is running on a CPU with Intel AVX2 support.
  */
-void transpose_avx2(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
+template <typename T>
+void transpose_avx2(int M, int N, const T* src, int ld_src, T* dst, int ld_dst);
 
 /**
  * @brief Transpose a matrix using Intel AVX512.
  *
  * This is called if the code is running on a CPU with Intel AVX512 support.
  */
+template <typename T>
 void transpose_avx512(
     int M,
     int N,
-    const float* src,
+    const T* src,
     int ld_src,
-    float* dst,
+    T* dst,
     int ld_dst);
 
 } // namespace internal

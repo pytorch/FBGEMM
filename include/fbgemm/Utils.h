@@ -150,13 +150,9 @@ void printMatrix(
  * @param M the number of rows of input matrix
  * @param N the number of columns of input matrix
  */
-FBGEMM_API void transpose_simd(
-    int M,
-    int N,
-    const float* src,
-    int ld_src,
-    float* dst,
-    int ld_dst);
+template <typename T>
+FBGEMM_API void
+transpose_simd(int M, int N, const T* src, int ld_src, T* dst, int ld_dst);
 
 /**
  * @brief Explicitly set instruction set to be used
