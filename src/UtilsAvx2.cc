@@ -12,6 +12,7 @@ namespace fbgemm {
 
 namespace internal {
 
+template <>
 void transpose_avx2(
     int M,
     int N,
@@ -167,6 +168,21 @@ void transpose_avx2(
       }
       break;
   }
+}
+
+template <>
+void transpose_avx2(
+    int M,
+    int N,
+    const uint8_t* src,
+    int ld_src,
+    uint8_t* dst,
+    int ld_dst) {
+  for (int j = 0; j < N; j++) {
+    for (int i = 0; i < M; i++) {
+      dst[i + j * ld_dst] = src[i * ld_src + j];
+    }
+  } // for each output row
 }
 
 } // namespace internal
