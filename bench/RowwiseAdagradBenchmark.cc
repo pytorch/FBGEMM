@@ -73,7 +73,7 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   double data_moved = num_rows * (3 * sizeof(float) * block_size + 2 * 64);
 
-  auto fn = GenerateSparseAdaGrad<int64_t>(block_size, /*rowwise=*/true);
+  auto fn = GenerateSparseAdaGradNew<int64_t>(block_size, /*rowwise=*/true);
 
   double t = measureWithWarmup(
       [&]() {
@@ -84,7 +84,8 @@ void run_benchmark(
            h.data(), // input momentums
            indices.data(), // indices of each row
            epsilon,
-           lr);
+           lr,
+           0.0f); // weight_decay
       },
       NUM_WARMUP,
       NUM_ITER,
