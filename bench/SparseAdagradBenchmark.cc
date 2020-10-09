@@ -80,7 +80,7 @@ void run_benchmark(
 
   double t = 0.0;
   if (isIndex64b) {
-    auto fn_indices_64 = GenerateSparseAdaGradNew<int64_t>(block_size);
+    auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(block_size);
 
     t = measureWithWarmup(
         [&]() {
@@ -112,7 +112,7 @@ void run_benchmark(
           lr);
     }
   } else {
-    auto fn_indices_32 = GenerateSparseAdaGradNew<int32_t>(block_size);
+    auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(block_size);
 
     t = measureWithWarmup(
         [&]() {
