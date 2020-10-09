@@ -80,7 +80,7 @@ void run_benchmark(
 
   double t = 0.0;
   if (isIndex64b) {
-    auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(block_size);
+    auto fn_indices_64 = GenerateSparseAdaGradNew<int64_t>(block_size);
 
     t = measureWithWarmup(
         [&]() {
@@ -92,7 +92,8 @@ void run_benchmark(
               h.data(), // input momentums
               indices.data(), // indices of each row
               epsilon,
-              lr);
+              lr,
+              0.0f); // weight_decay
         },
         NUM_WARMUP,
         NUM_ITER,
@@ -111,7 +112,7 @@ void run_benchmark(
           lr);
     }
   } else {
-    auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(block_size);
+    auto fn_indices_32 = GenerateSparseAdaGradNew<int32_t>(block_size);
 
     t = measureWithWarmup(
         [&]() {
@@ -123,7 +124,8 @@ void run_benchmark(
               h.data(), // input momentums
               indices_32.data(), // indices of each row
               epsilon,
-              lr);
+              lr,
+              0.0f); // weight_decay
         },
         NUM_WARMUP,
         NUM_ITER,
