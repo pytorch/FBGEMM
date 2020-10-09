@@ -814,106 +814,6 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
     int block_size,
     bool rowwise,
     int prefetch,
-    float weight_decay) {
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-
-  if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
-    if (block_size == 1) {
-      return [=](int num_rows, // number of rows reading
-                 std::uint64_t param_size, // total number of parameters
-                 float* w, // input/output parameters
-                 const float* g, // input gradients
-                 float* h, // input/output momentums
-                 const IndexType* indices, // indices of each row
-                 float epsilon,
-                 float lr) {
-        return SparseAdaGradBlockSize1_(
-            num_rows,
-            param_size,
-            w,
-            g,
-            h,
-            indices,
-            epsilon,
-            lr,
-            rowwise,
-            weight_decay);
-      };
-    }
-    static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
-    constexpr int VLEN = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
-    const int* mask_avx2 = &internal::avx2_ps_or_epi32_combined_mask
-                               [(VLEN - (block_size % VLEN)) % VLEN];
-    const auto original_func = kernel_generator.getOrCreate(
-        block_size, prefetch, rowwise, weight_decay != 0.0f);
-    return [=](int num_rows, // number of rows reading
-               std::uint64_t param_size, // total number of parameters
-               float* w, // input/output parameters
-               const float* g, // input gradients
-               float* h, // input/output momentums
-               const IndexType* indices, // indices of each row
-               float epsilon,
-               float lr) {
-      return original_func(
-          num_rows, // number of rows reading
-          param_size, // total number of parameters
-          w, // input/output parameters
-          g, // input gradients
-          h, // input/output momentums
-          indices, // indices of each row
-          epsilon,
-          lr,
-          mask_avx2,
-          weight_decay);
-    };
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int num_rows, // number of rows reading
-               std::uint64_t param_size, // total number of parameters
-               float* w, // input/output parameters
-               const float* g, // input gradients
-               float* h, // input/output momentums
-               const IndexType* indices, // indices of each row
-               float epsilon,
-               float lr) {
-      return sparse_adagrad_ref(
-          num_rows, // number of rows reading
-          block_size, // number of parameters per rows
-          param_size, // total number of parameters
-          w, // input/output parameters
-          g, // input gradients
-          h, // input/output momentums
-          indices,
-          epsilon,
-          lr,
-          weight_decay);
-    };
-  }
-}
-
-template FBGEMM_API typename SparseAdaGradSignature<std::int64_t>::Type
-GenerateSparseAdaGrad<std::int64_t>(
-    int block_size, // number of parameters per rows
-    bool rowwise,
-    int prefetch,
-    float weight_decay);
-
-template FBGEMM_API typename SparseAdaGradSignature<std::int32_t>::Type
-GenerateSparseAdaGrad<std::int32_t>(
-    int block_size, // number of parameters per rows
-    bool rowwise,
-    int prefetch,
-    float weight_decay);
-
-template <typename IndexType>
-typename SparseAdaGradSignature<IndexType>::NewType GenerateSparseAdaGradNew(
-    int block_size,
-    bool rowwise,
-    int prefetch,
     bool use_weight_decay) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -996,6 +896,30 @@ typename SparseAdaGradSignature<IndexType>::NewType GenerateSparseAdaGradNew(
           weight_decay);
     };
   }
+}
+
+template FBGEMM_API typename SparseAdaGradSignature<std::int64_t>::Type
+GenerateSparseAdaGrad<std::int64_t>(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay);
+
+template FBGEMM_API typename SparseAdaGradSignature<std::int32_t>::Type
+GenerateSparseAdaGrad<std::int32_t>(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay);
+
+template <typename IndexType>
+typename SparseAdaGradSignature<IndexType>::NewType GenerateSparseAdaGradNew(
+    int block_size,
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay) {
+  return GenerateSparseAdaGrad<IndexType>(
+      block_size, rowwise, prefetch, use_weight_decay);
 }
 
 template FBGEMM_API typename SparseAdaGradSignature<std::int64_t>::NewType
