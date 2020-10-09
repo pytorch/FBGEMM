@@ -166,17 +166,9 @@ class SparseAdaGradSignature {
       float* h, // input/output momentums
       const IndexType* indices, // indices of each row
       float epsilon,
-      float lr)>;
-  using NewType = std::function<int(
-      int num_rows, // number of rows reading
-      std::uint64_t param_size, // total number of parameters
-      float* w, // input/output parameters
-      const float* g, // input gradients
-      float* h, // input/output momentums
-      const IndexType* indices, // indices of each row
-      float epsilon,
       float lr,
       float weight_decay)>;
+  using NewType = Type;
 };
 
 template <typename IndexType>
@@ -185,7 +177,7 @@ GenerateSparseAdaGrad(
     int block_size, // number of parameters per row
     bool rowwise = false,
     int prefetch = 16,
-    float weight_decay = 0.0f);
+    bool use_weight_decay = false);
 
 template <typename IndexType>
 FBGEMM_API typename SparseAdaGradSignature<IndexType>::NewType

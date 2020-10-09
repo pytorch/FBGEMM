@@ -123,7 +123,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           lr,
           weight_decay);
 
-      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int64_t>(
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
           block_size, false, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -149,7 +149,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           lr,
           weight_decay);
 
-      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int32_t>(
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
           block_size, false, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -239,7 +239,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           lr,
           weight_decay);
 
-      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int64_t>(
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
           block_size, true, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -265,7 +265,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           lr,
           weight_decay);
 
-      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int32_t>(
+      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
           block_size, true, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(

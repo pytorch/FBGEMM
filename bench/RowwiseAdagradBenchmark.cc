@@ -73,7 +73,7 @@ void run_benchmark(
   constexpr int NUM_ITER = 10;
   double data_moved = num_rows * (3 * sizeof(float) * block_size + 2 * 64);
 
-  auto fn = GenerateSparseAdaGradNew<int64_t>(block_size, /*rowwise=*/true);
+  auto fn = GenerateSparseAdaGrad<int64_t>(block_size, /*rowwise=*/true);
 
   double t = measureWithWarmup(
       [&]() {
