@@ -179,14 +179,6 @@ GenerateSparseAdaGrad(
     int prefetch = 16,
     bool use_weight_decay = false);
 
-template <typename IndexType>
-FBGEMM_API typename SparseAdaGradSignature<IndexType>::NewType
-GenerateSparseAdaGradNew(
-    int block_size, // number of parameters per row
-    bool rowwise = false,
-    int prefetch = 16,
-    bool use_weight_decay = false);
-
 // RowWiseSparseAdaGrad fused with SLS gradient
 // Weights can be either float or float16
 template <
