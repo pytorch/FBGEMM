@@ -168,7 +168,6 @@ class SparseAdaGradSignature {
       float epsilon,
       float lr,
       float weight_decay)>;
-  using NewType = Type;
 };
 
 template <typename IndexType>
