@@ -61,35 +61,35 @@ ExecuteKernel<
     const inst_set_t isa = fbgemmInstructionSet();
     switch (isa) {
       case inst_set_t::avx512_vnni:
-        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+        std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
             typename packingAMatrix::accType,
             inst_set_t::avx512_vnni>::getKernelParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
-        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+        std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
             typename packingAMatrix::accType,
             inst_set_t::avx512_vnni_ymm>::getKernelParams();
         break;
 
       case inst_set_t::avx512:
-        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+        std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
             typename packingAMatrix::accType,
             inst_set_t::avx512>::getKernelParams();
         break;
 
       case inst_set_t::avx512_ymm:
-        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+        std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
             typename packingAMatrix::accType,
             inst_set_t::avx512_ymm>::getKernelParams();
         break;
 
       case inst_set_t::avx2:
-        std::tie(mbSize_, nbSize_, nrMinSize_) = PackingTraits<
+        std::tie(mbSize_, nbSize_, nrMinSize_, nrSize_) = PackingTraits<
             typename packingAMatrix::inpType,
             typename packingAMatrix::accType,
             inst_set_t::avx2>::getKernelParams();
