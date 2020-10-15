@@ -235,7 +235,7 @@ int main(int argc, const char* argv[]) {
       hdrfile << "#include <cstdint>\n";
       hdrfile << "#include \"fbgemm/Types.h\"\n\n";
       hdrfile << "#include \"fbgemm/FbgemmBuild.h\"\n\n";
-      hdrfile << "#include \"./Fbgemm" + d_type.second + "Common.h\"\n\n";
+      hdrfile << "#include \"./FbgemmFPCommon.h\"\n\n";
       hdrfile << "namespace fbgemm {\n\n";
 
       unsigned labelId = 0;

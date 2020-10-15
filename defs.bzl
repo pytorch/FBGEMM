@@ -19,6 +19,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/Fbgemm.cc",
         "src/FbgemmBfloat16Convert.cc",
         "src/FbgemmConv.cc",
+        "src/FbgemmFPCommon.cc",
         "src/FbgemmFP16.cc",
         "src/FbgemmFloat16Convert.cc",
         "src/FbgemmI64.cc",
