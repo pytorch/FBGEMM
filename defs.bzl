@@ -48,6 +48,7 @@ def get_fbgemm_generic_srcs(with_base = False):
 
 def get_fbgemm_public_headers():
     return [
+        "include/fbgemm/ConvUtils.h",
         "include/fbgemm/Fbgemm.h",
         "include/fbgemm/FbgemmBuild.h",
         "include/fbgemm/FbgemmFP16.h",
@@ -55,6 +56,8 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmI64.h",
         "include/fbgemm/FbgemmI8DepthwiseAvx2.h",
+        "include/fbgemm/FbgemmI8Spmdm.h",
+        "include/fbgemm/FbgemmPackMatrixB.h",
         "include/fbgemm/OutputProcessing-inl.h",
         "include/fbgemm/PackingTraits-inl.h",
         "include/fbgemm/QuantUtils.h",
@@ -62,9 +65,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/QuantUtilsAvx512.h",
         "include/fbgemm/Utils.h",
         "include/fbgemm/UtilsAvx2.h",
-        "include/fbgemm/ConvUtils.h",
         "include/fbgemm/Types.h",
-        "include/fbgemm/FbgemmI8Spmdm.h",
     ]
 
 def get_fbgemm_avx2_srcs(msvc = False):
