@@ -10,7 +10,7 @@
 
 #include "fbgemm/FbgemmBuild.h"
 
-#include "./FbgemmFP16Common.h"
+#include "./FbgemmFPCommon.h"
 
 namespace fbgemm {
 

@@ -23,17 +23,26 @@
 namespace fbgemm {
 
 using PackedGemmMatrixFP16 = PackedGemmMatrixB<float16>;
-/**
- * restrictions: transa == CblasNoTrans
- */
+
+template<typename T>
 FBGEMM_API void cblas_gemm_compute(
+    const matrix_op_t transa,
+    const int m,
+    const float* A,
+    const PackedGemmMatrixB<T>& Bp,
+    const float beta,
+    float* C,
+    int thread_id = 0,
+    int num_threads = 1);
+
+extern template void cblas_gemm_compute<float16>(
     const matrix_op_t transa,
     const int m,
     const float* A,
     const PackedGemmMatrixFP16& Bp,
     const float beta,
     float* C,
-    int thread_id = 0,
-    int num_threads = 1);
+    int thread_id,
+    int num_threads);
 
 }; // namespace fbgemm
