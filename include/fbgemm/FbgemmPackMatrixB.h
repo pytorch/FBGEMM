@@ -6,6 +6,7 @@
 #include <typeinfo>
 #include <vector>
 #include <cpuinfo.h>
+#include <stdexcept>
 
 #include "Types.h"
 #include "Utils.h"
