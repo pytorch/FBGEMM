@@ -63,13 +63,13 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
       case inst_set_t::avx512_vnni:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512:
@@ -80,7 +80,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
       case inst_set_t::avx512_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx2:
@@ -218,12 +218,11 @@ void pack_a_with_im2col_opt(
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
-  block_type_t block_p = {
-      block.row_start,
-      block.row_size,
-      block.col_start,
-      (block.col_size + row_interleave_B_ - 1) / row_interleave_B_ *
-          row_interleave_B_};
+  block_type_t block_p = {block.row_start,
+                          block.row_size,
+                          block.col_start,
+                          (block.col_size + row_interleave_B_ - 1) /
+                              row_interleave_B_ * row_interleave_B_};
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
   // accumulate into row offset?
@@ -288,8 +287,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
   int ic_per_group = conv_p_.IC / conv_p_.G;
 
-  if (SPATIAL_DIM == 2 && conv_p_.IC == 3 && conv_p_.G == 1 &&
-      conv_p_.stride[0] == 2 && conv_p_.stride[1] == 2 &&
+  if (!conv_p_.transposed && SPATIAL_DIM == 2 && conv_p_.IC == 3 &&
+      conv_p_.G == 1 && conv_p_.stride[0] == 2 && conv_p_.stride[1] == 2 &&
       block.col_start == 0 && conv_p_.pad[0] == ((conv_p_.K[0] - 1) / 2) &&
       conv_p_.pad[1] == ((conv_p_.K[1] - 1) / 2) &&
       block_p.col_size <= BaseType::blockColSize() &&
@@ -321,176 +320,354 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       return;
     }
   }
+  if (conv_p_.transposed) {
+    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      if (SPATIAL_DIM == 1) { // static if
+        int n = i / (conv_p_.OUT_DIM[0]);
+        int ow = i % (conv_p_.OUT_DIM[0]);
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
 
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    if (SPATIAL_DIM == 1) { // static if
-      int n = i / (conv_p_.OUT_DIM[0]);
-      int w = i % (conv_p_.OUT_DIM[0]);
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size + ic_per_group - 1;
-           j += ic_per_group) {
-        int j_blk_id = j / ic_per_group;
-        // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
-        int j_blk_end = std::min(
-            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
-        if (j_blk_start >= j_blk_end) {
-          break;
+          int grs = j / ic_per_group;
+          int s = grs % conv_p_.K[0];
+          int g = grs / conv_p_.K[0];
+
+          int w = ow + conv_p_.pad[0] - s * conv_p_.dilation[0];
+          int w_in = w / conv_p_.stride[0];
+          if (w_in * conv_p_.stride[0] == w && w_in >=0 && w_in < conv_p_.IN_DIM[0]) {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ + (n * conv_p_.IN_DIM[0] + w_in) * conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    (j_blk_start - block.col_start),
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
         }
 
-        int grs = j / ic_per_group;
-        int s = grs % conv_p_.K[0];
-        int g = grs / conv_p_.K[0];
+      } else if (SPATIAL_DIM == 2) { // static if
+        int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+        int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+        int ow = hw % conv_p_.OUT_DIM[1];
+        int oh = hw / conv_p_.OUT_DIM[1];
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
 
-        int w_in =
-            -conv_p_.pad[0] + w * conv_p_.stride[0] + s * conv_p_.dilation[0];
-        if (w_in < 0 || w_in >= conv_p_.IN_DIM[0]) {
-          // Please note that padding for convolution should be filled with
-          // zero_pt
-          std::memset(
-              out + (i - block.row_start) * BaseType::blockColSize() +
-                  (j_blk_start - block.col_start),
-              a_zero_pt_,
-              sizeof(T) * (j_blk_end - j_blk_start));
-        } else {
-          std::memcpy(
-              out + (i - block.row_start) * BaseType::blockColSize() +
-                  j_blk_start - block.col_start,
-              sdata_ + (n * conv_p_.IN_DIM[0] + w_in) * conv_p_.IC +
-                  g * ic_per_group + (j_blk_start % ic_per_group),
-              sizeof(T) * (j_blk_end - j_blk_start));
+          int grs = j / ic_per_group;
+          int s = grs % conv_p_.K[1];
+          int r = grs / conv_p_.K[1] % conv_p_.K[0];
+          int g = grs / conv_p_.K[1] / conv_p_.K[0];
+
+          int h = oh + conv_p_.pad[0] - r * conv_p_.dilation[0];
+          int w = ow + conv_p_.pad[1] - s * conv_p_.dilation[1];
+
+          int h_in = h / conv_p_.stride[0];
+          int w_in = w / conv_p_.stride[1];
+
+          if (h_in * conv_p_.stride[0] == h && h_in >=0 && h_in < conv_p_.IN_DIM[0] &&
+              w_in * conv_p_.stride[1] == w && w_in >=0 && w_in < conv_p_.IN_DIM[1]) {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ +
+                    ((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] +
+                     w_in) *
+                        conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    (j_blk_start - block.col_start),
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
+        }
+      } else if (SPATIAL_DIM == 3) { // static if
+        int n =
+            i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
+        int thw =
+            i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
+        int ow = thw % conv_p_.OUT_DIM[2];
+        int oh = thw / conv_p_.OUT_DIM[2] % conv_p_.OUT_DIM[1];
+        int ot = thw / conv_p_.OUT_DIM[2] / conv_p_.OUT_DIM[1];
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
+
+          int gqrs = j / ic_per_group;
+          int s = gqrs % conv_p_.K[2];
+          int r = gqrs / conv_p_.K[2] % conv_p_.K[1];
+          int q = gqrs / conv_p_.K[2] / conv_p_.K[1] % conv_p_.K[0];
+          int g = gqrs / conv_p_.K[2] / conv_p_.K[1] / conv_p_.K[0];
+
+          int t = ot + conv_p_.pad[0] - q * conv_p_.dilation[0];
+          int h = oh + conv_p_.pad[1] - r * conv_p_.dilation[1];
+          int w = ow + conv_p_.pad[2] - s * conv_p_.dilation[2];
+          int t_in = t / conv_p_.stride[0];
+          int h_in = h / conv_p_.stride[1];
+          int w_in = w / conv_p_.stride[2];
+
+          if (t_in * conv_p_.stride[0] == t && t_in >= 0 &&
+              t_in < conv_p_.IN_DIM[0] && h_in * conv_p_.stride[1] == h &&
+              h_in >= 0 && h_in < conv_p_.IN_DIM[1] &&
+              w_in * conv_p_.stride[2] == w && w_in >= 0 &&
+              w_in < conv_p_.IN_DIM[2]) {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ +
+                    (((n * conv_p_.IN_DIM[0] + t_in) * conv_p_.IN_DIM[1] +
+                      h_in) *
+                         conv_p_.IN_DIM[2] +
+                     w_in) *
+                        conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                &out
+                    [(i - block.row_start) * BaseType::blockColSize() +
+                     (j_blk_start - block.col_start)],
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
         }
       }
 
-    } else if (SPATIAL_DIM == 2) { // static if
-      int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
-      int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
-      int w = hw % conv_p_.OUT_DIM[1];
-      int h = hw / conv_p_.OUT_DIM[1];
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size + ic_per_group - 1;
-           j += ic_per_group) {
-        int j_blk_id = j / ic_per_group;
-        // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
-        int j_blk_end = std::min(
-            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
-        if (j_blk_start >= j_blk_end) {
-          break;
+      // zero fill
+      // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
+      if ((block_p.col_start + block_p.col_size) -
+              (block.col_start + block.col_size) >
+          0) {
+        std::memset(
+            &out
+                [(i - block.row_start) * BaseType::blockColSize() +
+                 (block.col_size)],
+            0,
+            sizeof(T) *
+                ((block_p.col_start + block_p.col_size) -
+                 (block.col_start + block.col_size)));
+      }
+
+      if (row_offset_buf) {
+        int32_t row_sum =
+            row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+        row_sum += reduceAvx2(
+            out + (i - block.row_start) * this->blockColSize(), block.col_size);
+        row_offset_buf[i - block.row_start] = row_sum;
+      }
+    } // for each i
+  } else {
+    for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+      if (SPATIAL_DIM == 1) { // static if
+        int n = i / (conv_p_.OUT_DIM[0]);
+        int w = i % (conv_p_.OUT_DIM[0]);
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
+
+          int grs = j / ic_per_group;
+          int s = grs % conv_p_.K[0];
+          int g = grs / conv_p_.K[0];
+
+          int w_in =
+              -conv_p_.pad[0] + w * conv_p_.stride[0] + s * conv_p_.dilation[0];
+          if (w_in < 0 || w_in >= conv_p_.IN_DIM[0]) {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    (j_blk_start - block.col_start),
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ + (n * conv_p_.IN_DIM[0] + w_in) * conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
         }
 
-        int grs = j / ic_per_group;
-        int s = grs % conv_p_.K[1];
-        int r = grs / conv_p_.K[1] % conv_p_.K[0];
-        int g = grs / conv_p_.K[1] / conv_p_.K[0];
+      } else if (SPATIAL_DIM == 2) { // static if
+        int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+        int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
+        int w = hw % conv_p_.OUT_DIM[1];
+        int h = hw / conv_p_.OUT_DIM[1];
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
 
-        int h_in =
-            -conv_p_.pad[0] + h * conv_p_.stride[0] + r * conv_p_.dilation[0];
-        int w_in =
-            -conv_p_.pad[1] + w * conv_p_.stride[1] + s * conv_p_.dilation[1];
+          int grs = j / ic_per_group;
+          int s = grs % conv_p_.K[1];
+          int r = grs / conv_p_.K[1] % conv_p_.K[0];
+          int g = grs / conv_p_.K[1] / conv_p_.K[0];
 
-        if (h_in < 0 || h_in >= conv_p_.IN_DIM[0] || w_in < 0 ||
-            w_in >= conv_p_.IN_DIM[1]) {
-          // Please note that padding for convolution should be filled with
-          // zero_pt
-          std::memset(
-              out + (i - block.row_start) * BaseType::blockColSize() +
-                  (j_blk_start - block.col_start),
-              a_zero_pt_,
-              sizeof(T) * (j_blk_end - j_blk_start));
-        } else {
-          std::memcpy(
-              out + (i - block.row_start) * BaseType::blockColSize() +
-                  j_blk_start - block.col_start,
-              sdata_ +
-                  ((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
-                      conv_p_.IC +
-                  g * ic_per_group + (j_blk_start % ic_per_group),
-              sizeof(T) * (j_blk_end - j_blk_start));
+          int h_in =
+              -conv_p_.pad[0] + h * conv_p_.stride[0] + r * conv_p_.dilation[0];
+          int w_in =
+              -conv_p_.pad[1] + w * conv_p_.stride[1] + s * conv_p_.dilation[1];
+
+          if (h_in < 0 || h_in >= conv_p_.IN_DIM[0] || w_in < 0 ||
+              w_in >= conv_p_.IN_DIM[1]) {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    (j_blk_start - block.col_start),
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ +
+                    ((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] +
+                     w_in) *
+                        conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
+        }
+      } else if (SPATIAL_DIM == 3) { // static if
+        int n =
+            i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
+        int thw =
+            i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
+        int w = thw % conv_p_.OUT_DIM[2];
+        int h = thw / conv_p_.OUT_DIM[2] % conv_p_.OUT_DIM[1];
+        int t = thw / conv_p_.OUT_DIM[2] / conv_p_.OUT_DIM[1];
+        for (int j = block.col_start;
+             j < block.col_start + block.col_size + ic_per_group - 1;
+             j += ic_per_group) {
+          int j_blk_id = j / ic_per_group;
+          // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
+          int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
+          int j_blk_end = std::min(
+              (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
+          if (j_blk_start >= j_blk_end) {
+            break;
+          }
+
+          int gqrs = j / ic_per_group;
+          int s = gqrs % conv_p_.K[2];
+          int r = gqrs / conv_p_.K[2] % conv_p_.K[1];
+          int q = gqrs / conv_p_.K[2] / conv_p_.K[1] % conv_p_.K[0];
+          int g = gqrs / conv_p_.K[2] / conv_p_.K[1] / conv_p_.K[0];
+
+          int t_in =
+              -conv_p_.pad[0] + t * conv_p_.stride[0] + q * conv_p_.dilation[0];
+          int h_in =
+              -conv_p_.pad[1] + h * conv_p_.stride[1] + r * conv_p_.dilation[1];
+          int w_in =
+              -conv_p_.pad[2] + w * conv_p_.stride[2] + s * conv_p_.dilation[2];
+
+          if (t_in < 0 || t_in >= conv_p_.IN_DIM[0] || h_in < 0 ||
+              h_in >= conv_p_.IN_DIM[1] || w_in < 0 ||
+              w_in >= conv_p_.IN_DIM[2]) {
+            // Please note that padding for convolution should be filled with
+            // zero_pt
+            std::memset(
+                &out
+                    [(i - block.row_start) * BaseType::blockColSize() +
+                     (j_blk_start - block.col_start)],
+                a_zero_pt_,
+                sizeof(T) * (j_blk_end - j_blk_start));
+          } else {
+            std::memcpy(
+                out + (i - block.row_start) * BaseType::blockColSize() +
+                    j_blk_start - block.col_start,
+                sdata_ +
+                    (((n * conv_p_.IN_DIM[0] + t_in) * conv_p_.IN_DIM[1] +
+                      h_in) *
+                         conv_p_.IN_DIM[2] +
+                     w_in) *
+                        conv_p_.IC +
+                    g * ic_per_group + (j_blk_start % ic_per_group),
+                sizeof(T) * (j_blk_end - j_blk_start));
+          }
         }
       }
-    } else if (SPATIAL_DIM == 3) { // static if
-      int n =
-          i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
-      int thw =
-          i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
-      int w = thw % conv_p_.OUT_DIM[2];
-      int h = thw / conv_p_.OUT_DIM[2] % conv_p_.OUT_DIM[1];
-      int t = thw / conv_p_.OUT_DIM[2] / conv_p_.OUT_DIM[1];
-      for (int j = block.col_start;
-           j < block.col_start + block.col_size + ic_per_group - 1;
-           j += ic_per_group) {
-        int j_blk_id = j / ic_per_group;
-        // max( j_blk_id * IC, START)  -> min( END, (j_blk_id + 1) * IC )
-        int j_blk_start = std::max(j_blk_id * ic_per_group, block.col_start);
-        int j_blk_end = std::min(
-            (j_blk_id + 1) * ic_per_group, block.col_start + block.col_size);
-        if (j_blk_start >= j_blk_end) {
-          break;
-        }
 
-        int gqrs = j / ic_per_group;
-        int s = gqrs % conv_p_.K[2];
-        int r = gqrs / conv_p_.K[2] % conv_p_.K[1];
-        int q = gqrs / conv_p_.K[2] / conv_p_.K[1] % conv_p_.K[0];
-        int g = gqrs / conv_p_.K[2] / conv_p_.K[1] / conv_p_.K[0];
-
-        int t_in =
-            -conv_p_.pad[0] + t * conv_p_.stride[0] + q * conv_p_.dilation[0];
-        int h_in =
-            -conv_p_.pad[1] + h * conv_p_.stride[1] + r * conv_p_.dilation[1];
-        int w_in =
-            -conv_p_.pad[2] + w * conv_p_.stride[2] + s * conv_p_.dilation[2];
-
-        if (t_in < 0 || t_in >= conv_p_.IN_DIM[0] || h_in < 0 ||
-            h_in >= conv_p_.IN_DIM[1] || w_in < 0 ||
-            w_in >= conv_p_.IN_DIM[2]) {
-          // Please note that padding for convolution should be filled with
-          // zero_pt
-          std::memset(
-              &out
-                  [(i - block.row_start) * BaseType::blockColSize() +
-                   (j_blk_start - block.col_start)],
-              a_zero_pt_,
-              sizeof(T) * (j_blk_end - j_blk_start));
-        } else {
-          std::memcpy(
-              out + (i - block.row_start) * BaseType::blockColSize() +
-                  j_blk_start - block.col_start,
-              sdata_ +
-                  (((n * conv_p_.IN_DIM[0] + t_in) * conv_p_.IN_DIM[1] + h_in) *
-                       conv_p_.IN_DIM[2] +
-                   w_in) *
-                      conv_p_.IC +
-                  g * ic_per_group + (j_blk_start % ic_per_group),
-              sizeof(T) * (j_blk_end - j_blk_start));
-        }
+      // zero fill
+      // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
+      if ((block_p.col_start + block_p.col_size) -
+              (block.col_start + block.col_size) >
+          0) {
+        std::memset(
+            &out
+                [(i - block.row_start) * BaseType::blockColSize() +
+                 (block.col_size)],
+            0,
+            sizeof(T) *
+                ((block_p.col_start + block_p.col_size) -
+                 (block.col_start + block.col_size)));
       }
-    }
 
-    // zero fill
-    // Please see the comment in PackAMatrix.cc for zero vs zero_pt fill.
-    if ((block_p.col_start + block_p.col_size) -
-            (block.col_start + block.col_size) >
-        0) {
-      std::memset(
-          &out
-              [(i - block.row_start) * BaseType::blockColSize() +
-               (block.col_size)],
-          0,
-          sizeof(T) *
-              ((block_p.col_start + block_p.col_size) -
-               (block.col_start + block.col_size)));
-    }
-
-    if (row_offset_buf) {
-      int32_t row_sum =
-          row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
-      row_sum += reduceAvx2(
-          out + (i - block.row_start) * this->blockColSize(), block.col_size);
-      row_offset_buf[i - block.row_start] = row_sum;
-    }
-  } // for each i
+      if (row_offset_buf) {
+        int32_t row_sum =
+            row_offset_acc ? row_offset_buf[i - block.row_start] : 0;
+        row_sum += reduceAvx2(
+            out + (i - block.row_start) * this->blockColSize(), block.col_size);
+        row_offset_buf[i - block.row_start] = row_sum;
+      }
+    } // for each i
+  }
 }
 
 template <typename T, typename accT, int SPATIAL_DIM>

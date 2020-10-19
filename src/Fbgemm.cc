@@ -207,8 +207,8 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
-
-  if (SPATIAL_DIM == 1) return false;
+  if (SPATIAL_DIM == 1)
+    return false;
 
   int C_per_G = conv_p.IC / conv_p.G;
   int K_per_G = conv_p.OC / conv_p.G;
@@ -247,7 +247,8 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
        std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 2)));
+           std::bind(areEqual, std::placeholders::_1, 2))) &&
+      !conv_p.transposed;
 }
 
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<1>& conv_p);

@@ -410,7 +410,7 @@ int32_t clip_16bit(int32_t x) {
  * from caffe2/utils/math_cpu.cc
  * NWC StorageOrder/Layout
  * A:  NWC: NW_0 x C_0
- * Ao: NWC: NW_1 x G RS C_0/G
+ * Ao: NWC: NW_1 x G KW C_0/G
  */
 template <>
 FBGEMM_API void im2col_ref(
@@ -425,29 +425,55 @@ FBGEMM_API void im2col_ref(
   array<int, 1> OUT_DIM = conv_p.OUT_DIM;
   array<int, 1> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int w = 0; w < OUT_DIM[0]; ++w) {
-      for (int s = 0; s < K[0]; ++s) {
-        int w_in =
-            -conv_p.pad[0] + w * conv_p.stride[0] + s * conv_p.dilation[0];
-        if (w_in < 0 || w_in >= IN_DIM[0]) {
-          for (int g = 0; g < G; ++g) {
-            memset(
-                Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
-                A_zero_point,
-                sizeof(uint8_t) * (IC / G));
+  if (conv_p.transposed) {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int ow = 0; ow < OUT_DIM[0]; ++ow) {
+        for (int s = 0; s < K[0]; ++s) {
+          int w = ow + conv_p.pad[0] - s * conv_p.dilation[0];
+          int w_in = w / conv_p.stride[0];
+          if (w_in * conv_p.stride[0] == w && w_in >= 0 && w_in < IN_DIM[0]) {
+            for (int g = 0; g < G; ++g) {
+              memcpy(
+                  Ao + (((n * OUT_DIM[0] + ow) * G + g) * K[0] + s) * (IC / G),
+                  A + (n * IN_DIM[0] + w_in) * IC + g * (IC / G),
+                  sizeof(uint8_t) * (IC / G));
+            }
+          } else {
+            for (int g = 0; g < G; ++g) {
+              memset(
+                  Ao + (((n * OUT_DIM[0] + ow) * G + g) * K[0] + s) * (IC / G),
+                  A_zero_point,
+                  sizeof(uint8_t) * (IC / G));
+            }
           }
-        } else {
-          for (int g = 0; g < G; ++g) {
-            memcpy(
-                Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
-                A + (n * IN_DIM[0] + w_in) * IC + g * (IC / G),
-                sizeof(uint8_t) * (IC / G));
+        } // for each s
+      } // for each ow
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int w = 0; w < OUT_DIM[0]; ++w) {
+        for (int s = 0; s < K[0]; ++s) {
+          int w_in =
+              -conv_p.pad[0] + w * conv_p.stride[0] + s * conv_p.dilation[0];
+          if (w_in < 0 || w_in >= IN_DIM[0]) {
+            for (int g = 0; g < G; ++g) {
+              memset(
+                  Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
+                  A_zero_point,
+                  sizeof(uint8_t) * (IC / G));
+            }
+          } else {
+            for (int g = 0; g < G; ++g) {
+              memcpy(
+                  Ao + (((n * OUT_DIM[0] + w) * G + g) * K[0] + s) * (IC / G),
+                  A + (n * IN_DIM[0] + w_in) * IC + g * (IC / G),
+                  sizeof(uint8_t) * (IC / G));
+            }
           }
-        }
-      } // for each s
-    } // for each w
-  } // for each n
+        } // for each s
+      } // for each w
+    } // for each n
+  }
 }
 
 /* Imitate the Im2Col<float, CPUContext, StorageOrder::NHWC> function
@@ -469,49 +495,98 @@ FBGEMM_API void im2col_ref(
   array<int, 2> OUT_DIM = conv_p.OUT_DIM;
   array<int, 2> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int h = 0; h < OUT_DIM[0]; ++h) {
-      for (int w = 0; w < OUT_DIM[1]; ++w) {
-        for (int r = 0; r < K[0]; ++r) {
-          int h_in =
-              -conv_p.pad[0] + h * conv_p.stride[0] + r * conv_p.dilation[0];
-          for (int s = 0; s < K[1]; ++s) {
-            int w_in =
-                -conv_p.pad[1] + w * conv_p.stride[1] + s * conv_p.dilation[1];
-            if (h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
-                w_in >= IN_DIM[1]) {
-              for (int g = 0; g < G; ++g) {
-                memset(
-                    Ao +
-                        (((((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * G + g) *
-                              K[0] +
-                          r) *
-                             K[1] +
-                         s) *
-                            (IC / G),
-                    A_zero_point,
-                    sizeof(uint8_t) * (IC / G));
+  if (conv_p.transposed) {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int oh = 0; oh < OUT_DIM[0]; ++oh) {
+        for (int ow = 0; ow < OUT_DIM[1]; ++ow) {
+          for (int r = 0; r < K[0]; ++r) {
+            for (int s = 0; s < K[1]; ++s) {
+              int h = oh + conv_p.pad[0] - r * conv_p.dilation[0];
+              int w = ow + conv_p.pad[1] - s * conv_p.dilation[1];
+              int h_in = h / conv_p.stride[0];
+              int w_in = w / conv_p.stride[1];
+              if (h_in * conv_p.stride[0] == h && h_in >= 0 &&
+                  h_in < IN_DIM[0] && w_in * conv_p.stride[1] == w &&
+                  w_in >= 0 && w_in < IN_DIM[1]) {
+                for (int g = 0; g < G; ++g) {
+                  memcpy(
+                      Ao +
+                          (((((n * OUT_DIM[0] + oh) * OUT_DIM[1] + ow) * G +
+                             g) *
+                                K[0] +
+                            r) *
+                               K[1] +
+                           s) *
+                              (IC / G),
+                      A + ((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
+                          g * (IC / G),
+                      sizeof(uint8_t) * (IC / G));
+                }
+              } else {
+                for (int g = 0; g < G; ++g) {
+                  memset(
+                      Ao +
+                          (((((n * OUT_DIM[0] + oh) * OUT_DIM[1] + ow) * G +
+                             g) *
+                                K[0] +
+                            r) *
+                               K[1] +
+                           s) *
+                              (IC / G),
+                      A_zero_point,
+                      sizeof(uint8_t) * (IC / G));
+                }
               }
-            } else {
-              for (int g = 0; g < G; ++g) {
-                memcpy(
-                    Ao +
-                        (((((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * G + g) *
-                              K[0] +
-                          r) *
-                             K[1] +
-                         s) *
-                            (IC / G),
-                    A + ((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
-                        g * (IC / G),
-                    sizeof(uint8_t) * (IC / G));
+            } // for each s
+          } // for each r
+        } // for each ow
+      } // for each oh
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int h = 0; h < OUT_DIM[0]; ++h) {
+        for (int w = 0; w < OUT_DIM[1]; ++w) {
+          for (int r = 0; r < K[0]; ++r) {
+            int h_in =
+                -conv_p.pad[0] + h * conv_p.stride[0] + r * conv_p.dilation[0];
+            for (int s = 0; s < K[1]; ++s) {
+              int w_in = -conv_p.pad[1] + w * conv_p.stride[1] +
+                  s * conv_p.dilation[1];
+              if (h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
+                  w_in >= IN_DIM[1]) {
+                for (int g = 0; g < G; ++g) {
+                  memset(
+                      Ao +
+                          (((((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * G + g) *
+                                K[0] +
+                            r) *
+                               K[1] +
+                           s) *
+                              (IC / G),
+                      A_zero_point,
+                      sizeof(uint8_t) * (IC / G));
+                }
+              } else {
+                for (int g = 0; g < G; ++g) {
+                  memcpy(
+                      Ao +
+                          (((((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * G + g) *
+                                K[0] +
+                            r) *
+                               K[1] +
+                           s) *
+                              (IC / G),
+                      A + ((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
+                          g * (IC / G),
+                      sizeof(uint8_t) * (IC / G));
+                }
               }
-            }
-          } // for each s
-        } // for each r
-      } // for each w
-    } // for each h
-  } // for each n
+            } // for each s
+          } // for each r
+        } // for each w
+      } // for each h
+    } // for each n
+  }
 }
 
 /* Imitate the Im2Col<float, CPUContext, StorageOrder::NHWC> function
@@ -533,71 +608,142 @@ FBGEMM_API void im2col_ref(
   array<int, 3> OUT_DIM = conv_p.OUT_DIM;
   array<int, 3> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int t = 0; t < OUT_DIM[0]; ++t) {
-      for (int h = 0; h < OUT_DIM[1]; ++h) {
-        for (int w = 0; w < OUT_DIM[2]; ++w) {
-          for (int q = 0; q < K[0]; ++q) {
-            int t_in =
-                -conv_p.pad[0] + t * conv_p.stride[0] + q * conv_p.dilation[0];
-            for (int r = 0; r < K[1]; ++r) {
-              int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
-                  r * conv_p.dilation[1];
-              for (int s = 0; s < K[2]; ++s) {
-                int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
-                    s * conv_p.dilation[2];
-                if (t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
-                    h_in >= IN_DIM[1] || w_in < 0 || w_in >= IN_DIM[2]) {
-                  for (int g = 0; g < G; ++g) {
-                    memset(
-                        Ao +
-                            (((((((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) *
-                                     OUT_DIM[2] +
-                                 w) *
-                                    G +
-                                g) *
-                                   K[0] +
-                               q) *
-                                  K[1] +
-                              r) *
-                                 K[2] +
-                             s) *
-                                (IC / G),
-                        A_zero_point,
-                        sizeof(uint8_t) * (IC / G));
+  if (conv_p.transposed) {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int ot = 0; ot < OUT_DIM[0]; ++ot) {
+        for (int oh = 0; oh < OUT_DIM[1]; ++oh) {
+          for (int ow = 0; ow < OUT_DIM[2]; ++ow) {
+            for (int q = 0; q < K[0]; ++q) {
+              for (int r = 0; r < K[1]; ++r) {
+                for (int s = 0; s < K[2]; ++s) {
+                  int t = ot + conv_p.pad[0] - q * conv_p.dilation[0];
+                  int h = oh + conv_p.pad[1] - r * conv_p.dilation[1];
+                  int w = ow + conv_p.pad[2] - s * conv_p.dilation[2];
+                  int t_in = t / conv_p.stride[0];
+                  int h_in = h / conv_p.stride[1];
+                  int w_in = w / conv_p.stride[2];
+                  if (t_in * conv_p.stride[0] == t && t_in >= 0 &&
+                      t_in < IN_DIM[0] && h_in * conv_p.stride[1] == h &&
+                      h_in >= 0 && h_in < IN_DIM[1] &&
+                      w_in * conv_p.stride[2] == w && w_in >= 0 &&
+                      w_in < IN_DIM[2]) {
+                    for (int g = 0; g < G; ++g) {
+                      memcpy(
+                          Ao +
+                              (((((((n * OUT_DIM[0] + ot) * OUT_DIM[1] + oh) *
+                                       OUT_DIM[2] +
+                                   ow) *
+                                      G +
+                                  g) *
+                                     K[0] +
+                                 q) *
+                                    K[1] +
+                                r) *
+                                   K[2] +
+                               s) *
+                                  (IC / G),
+                          A +
+                              (((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
+                                   IN_DIM[2] +
+                               w_in) *
+                                  IC +
+                              g * (IC / G),
+                          sizeof(uint8_t) * (IC / G));
+                    }
+                  } else {
+                    for (int g = 0; g < G; ++g) {
+                      memset(
+                          Ao +
+                              (((((((n * OUT_DIM[0] + ot) * OUT_DIM[1] + oh) *
+                                       OUT_DIM[2] +
+                                   ow) *
+                                      G +
+                                  g) *
+                                     K[0] +
+                                 q) *
+                                    K[1] +
+                                r) *
+                                   K[2] +
+                               s) *
+                                  (IC / G),
+                          A_zero_point,
+                          sizeof(uint8_t) * (IC / G));
+                    }
                   }
-                } else {
-                  for (int g = 0; g < G; ++g) {
-                    memcpy(
-                        Ao +
-                            (((((((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) *
-                                     OUT_DIM[2] +
-                                 w) *
-                                    G +
-                                g) *
-                                   K[0] +
-                               q) *
-                                  K[1] +
-                              r) *
-                                 K[2] +
-                             s) *
-                                (IC / G),
-                        A +
-                            (((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
-                                 IN_DIM[2] +
-                             w_in) *
-                                IC +
-                            g * (IC / G),
-                        sizeof(uint8_t) * (IC / G));
+                } // for each s
+              } // for each r
+            } // for each q
+          } // for each ow
+        } // for each oh
+      } // for each ot
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int t = 0; t < OUT_DIM[0]; ++t) {
+        for (int h = 0; h < OUT_DIM[1]; ++h) {
+          for (int w = 0; w < OUT_DIM[2]; ++w) {
+            for (int q = 0; q < K[0]; ++q) {
+              int t_in = -conv_p.pad[0] + t * conv_p.stride[0] +
+                  q * conv_p.dilation[0];
+              for (int r = 0; r < K[1]; ++r) {
+                int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
+                    r * conv_p.dilation[1];
+                for (int s = 0; s < K[2]; ++s) {
+                  int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
+                      s * conv_p.dilation[2];
+                  if (t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
+                      h_in >= IN_DIM[1] || w_in < 0 || w_in >= IN_DIM[2]) {
+                    for (int g = 0; g < G; ++g) {
+                      memset(
+                          Ao +
+                              (((((((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) *
+                                       OUT_DIM[2] +
+                                   w) *
+                                      G +
+                                  g) *
+                                     K[0] +
+                                 q) *
+                                    K[1] +
+                                r) *
+                                   K[2] +
+                               s) *
+                                  (IC / G),
+                          A_zero_point,
+                          sizeof(uint8_t) * (IC / G));
+                    }
+                  } else {
+                    for (int g = 0; g < G; ++g) {
+                      memcpy(
+                          Ao +
+                              (((((((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) *
+                                       OUT_DIM[2] +
+                                   w) *
+                                      G +
+                                  g) *
+                                     K[0] +
+                                 q) *
+                                    K[1] +
+                                r) *
+                                   K[2] +
+                               s) *
+                                  (IC / G),
+                          A +
+                              (((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
+                                   IN_DIM[2] +
+                               w_in) *
+                                  IC +
+                              g * (IC / G),
+                          sizeof(uint8_t) * (IC / G));
+                    }
                   }
-                }
-              } // for each s
-            } // for each r
-          } // for each q
-        } // for each w
-      } // for each h
-    } // for each t
-  } // for each n
+                } // for each s
+              } // for each r
+            } // for each q
+          } // for each w
+        } // for each h
+      } // for each t
+    } // for each n
+  }
 }
 
 // 1D Conv
