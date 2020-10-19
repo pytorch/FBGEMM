@@ -620,29 +620,63 @@ FBGEMM_API void conv_ref(
   array<int, 1> OUT_DIM = conv_p.OUT_DIM;
   array<int, 1> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int w = 0; w < OUT_DIM[0]; ++w) {
-      for (int g = 0; g < G; ++g) {
-        for (int m = 0; m < OC / G; ++m) {
-          int sum = 0;
-          for (int r = 0; r < K[0]; ++r) {
-            int w_in =
-                -conv_p.pad[0] + w * conv_p.stride[0] + r * conv_p.dilation[0];
-            for (int c = 0; c < IC / G; ++c) {
-              int a = w_in < 0 || w_in >= IN_DIM[0]
-                  ? A_zero_point
-                  : A[(n * IN_DIM[0] + w_in) * IC + g * (IC / G) + c];
-              int b =
-                  B[((g * K[0] + r) * (IC / G) + c) * (OC / G) +
-                    m]; // G K (Cin / G) (Cout / G)  after  transpose
-              sum += a * b;
-            } // for each c
-          } // for each r
-          C[(n * OUT_DIM[0] + w) * OC + g * (OC / G) + m] = sum;
-        } // for each w
-      } // for each m
-    } // for each group
-  } // for each n
+  if (conv_p.transposed) {
+    // for ref implementation, there is no padding on the input buffer,
+    // padding specifies how much we remove from the output buffers
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int ow = 0; ow < OUT_DIM[0]; ++ow) {
+        // stride on output is fractional stride on input
+        // conv index is
+        // int w_in = -conv_p.pad[0] + w* conv_p.stride[0] + r*
+        // conv_p.dilation[0];
+        // so we reverse it
+        for (int g = 0; g < G; ++g) {
+          for (int oc = 0; oc < OC / G; ++oc) {
+            int sum = 0;
+            for (int r = 0; r < K[0]; ++r) {
+              int w = ow + conv_p.pad[0] - r * conv_p.dilation[0];
+              int w_in = w / conv_p.stride[0];
+              for (int ic = 0; ic < IC / G; ++ic) {
+                int a = (w_in * conv_p.stride[0] == w && w_in >= 0 &&
+                         w_in < IN_DIM[0])
+                    ? A[(n * IN_DIM[0] + w_in) * IC + g * (IC / G) + ic]
+                    : A_zero_point;
+                int b =
+                    B[((g * K[0] + r) * IC / G + ic) * (OC / G) +
+                      oc]; // G K IC/G OC/G after  transpose
+                sum += a * b;
+              } // for each ic
+            } // for each r
+            C[(n * OUT_DIM[0] + ow) * OC + g * (OC / G) + oc] = sum;
+          } // for each oc
+        } // for each g
+      } // for each w
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int w = 0; w < OUT_DIM[0]; ++w) {
+        for (int g = 0; g < G; ++g) {
+          for (int m = 0; m < OC / G; ++m) {
+            int sum = 0;
+            for (int r = 0; r < K[0]; ++r) {
+              int w_in = -conv_p.pad[0] + w * conv_p.stride[0] +
+                  r * conv_p.dilation[0];
+              for (int c = 0; c < IC / G; ++c) {
+                int a = w_in < 0 || w_in >= IN_DIM[0]
+                    ? A_zero_point
+                    : A[(n * IN_DIM[0] + w_in) * IC + g * (IC / G) + c];
+                int b =
+                    B[((g * K[0] + r) * (IC / G) + c) * (OC / G) +
+                      m]; // G K IC/G OC/G  after  transpose
+                sum += a * b;
+              } // for each c
+            } // for each r
+            C[(n * OUT_DIM[0] + w) * OC + g * (OC / G) + m] = sum;
+          } // for each w
+        } // for each m
+      } // for each group
+    } // for each n
+  }
 }
 
 // 2D Conv
@@ -663,39 +697,85 @@ FBGEMM_API void conv_ref(
   array<int, 2> OUT_DIM = conv_p.OUT_DIM;
   array<int, 2> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int h = 0; h < OUT_DIM[0]; ++h) {
-      for (int w = 0; w < OUT_DIM[1]; ++w) {
-        for (int g = 0; g < G; ++g) {
-          for (int m = 0; m < OC / G; ++m) {
-            int sum = 0;
-            for (int r = 0; r < K[0]; ++r) {
-              int h_in = -conv_p.pad[0] + h * conv_p.stride[0] +
-                  r * conv_p.dilation[0];
-              for (int s = 0; s < K[1]; ++s) {
-                int w_in = -conv_p.pad[1] + w * conv_p.stride[1] +
-                    s * conv_p.dilation[1];
-                for (int c = 0; c < IC / G; ++c) {
-                  int a = h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
-                          w_in >= IN_DIM[1]
-                      ? A_zero_point
-                      : A[((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
-                          g * (IC / G) + c];
-                  int b =
-                      B[(((g * K[0] + r) * K[1] + s) * (IC / G) + c) *
-                            (OC / G) +
-                        m];
-                  sum += a * b;
-                } // for each c
-              } // for each s
-            } // for each r
-            C[((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * OC + g * (OC / G) + m] =
-                sum;
-          } // for each m
-        } // for each group
-      } // for each w
-    } // for each h
-  } // for each n
+  if (conv_p.transposed) {
+    // for ref implementation, there is no padding on the input buffer,
+    // padding specifies how much we remove from the output buffers
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int oh = 0; oh < OUT_DIM[0]; ++oh) {
+        for (int ow = 0; ow < OUT_DIM[1]; ++ow) {
+          // stride on output is fractional stride on input
+          // conv index is
+          // int h_in =
+          //     -conv_p.pad[0] + h * conv_p.stride[0] + r * conv_p.dilation[0];
+          // int w_in =
+          //     -conv_p.pad[1] + w * conv_p.stride[1] + s * conv_p.dilation[1];
+          // so we reverse it
+          for (int g = 0; g < G; ++g) {
+            for (int oc = 0; oc < OC / G; ++oc) {
+              int sum = 0;
+              for (int r = 0; r < K[0]; ++r) {
+                for (int s = 0; s < K[1]; ++s) {
+                  int h = oh + conv_p.pad[0] - r * conv_p.dilation[0];
+                  int w = ow + conv_p.pad[1] - s * conv_p.dilation[1];
+                  int h_in = h / conv_p.stride[0];
+                  int w_in = w / conv_p.stride[1];
+                  for (int ic = 0; ic < IC / G; ++ic) {
+                    int a = (h_in * conv_p.stride[0] == h && h_in >= 0 &&
+                             h_in < IN_DIM[0] && w_in * conv_p.stride[1] == w &&
+                             w_in >= 0 && w_in < IN_DIM[1])
+                        ? A[((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
+                            g * (IC / G) + ic]
+                        : A_zero_point;
+                    int b =
+                        B[((((g * K[0] + r) * K[1] + s) * (IC / G) + ic) * OC /
+                           G) +
+                          oc]; // G R S IC OC after  transpose
+                    sum += a * b;
+                  } // for each ic
+                } // for each s
+              } // for each r
+              C[((n * OUT_DIM[0] + oh) * OUT_DIM[1] + ow) * OC + g * (OC / G) +
+                oc] = sum;
+            } // for each oc
+          } // for each g
+        } // for each w
+      } // for each h
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int h = 0; h < OUT_DIM[0]; ++h) {
+        for (int w = 0; w < OUT_DIM[1]; ++w) {
+          for (int g = 0; g < G; ++g) {
+            for (int m = 0; m < OC / G; ++m) {
+              int sum = 0;
+              for (int r = 0; r < K[0]; ++r) {
+                int h_in = -conv_p.pad[0] + h * conv_p.stride[0] +
+                    r * conv_p.dilation[0];
+                for (int s = 0; s < K[1]; ++s) {
+                  int w_in = -conv_p.pad[1] + w * conv_p.stride[1] +
+                      s * conv_p.dilation[1];
+                  for (int c = 0; c < IC / G; ++c) {
+                    int a = h_in < 0 || h_in >= IN_DIM[0] || w_in < 0 ||
+                            w_in >= IN_DIM[1]
+                        ? A_zero_point
+                        : A[((n * IN_DIM[0] + h_in) * IN_DIM[1] + w_in) * IC +
+                            g * (IC / G) + c];
+                    int b =
+                        B[(((g * K[0] + r) * K[1] + s) * (IC / G) + c) *
+                              (OC / G) +
+                          m];
+                    sum += a * b;
+                  } // for each c
+                } // for each s
+              } // for each r
+              C[((n * OUT_DIM[0] + h) * OUT_DIM[1] + w) * OC + g * (OC / G) +
+                m] = sum;
+            } // for each m
+          } // for each group
+        } // for each w
+      } // for each h
+    } // for each n
+  }
 }
 
 // 3D Conv
@@ -716,51 +796,119 @@ FBGEMM_API void conv_ref(
   array<int, 3> OUT_DIM = conv_p.OUT_DIM;
   array<int, 3> K = conv_p.K;
 
-  for (int n = 0; n < conv_p.MB; ++n) {
-    for (int t = 0; t < OUT_DIM[0]; ++t) {
-      for (int h = 0; h < OUT_DIM[1]; ++h) {
-        for (int w = 0; w < OUT_DIM[2]; ++w) {
-          for (int g = 0; g < G; ++g) {
-            for (int m = 0; m < OC / G; ++m) {
-              int sum = 0;
-              for (int q = 0; q < K[0]; ++q) {
-                int t_in = -conv_p.pad[0] + t * conv_p.stride[0] +
-                    q * conv_p.dilation[0];
-                for (int r = 0; r < K[1]; ++r) {
-                  int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
-                      r * conv_p.dilation[1];
-                  for (int s = 0; s < K[2]; ++s) {
-                    int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
-                        s * conv_p.dilation[2];
-                    for (int c = 0; c < IC / G; ++c) {
-                      int a = t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
-                              h_in >= IN_DIM[1] || w_in < 0 || w_in >= IN_DIM[2]
-                          ? A_zero_point
-                          : A[(((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
-                                   IN_DIM[2] +
-                               w_in) *
-                                  IC +
-                              g * (IC / G) + c];
-                      int b =
-                          B[((((g * K[0] + q) * K[1] + r) * K[2] + s) *
-                                 (IC / G) +
-                             c) *
-                                (OC / G) +
-                            m];
-                      sum += a * b;
-                    } // for each c
-                  } // for each s
-                } // for each r
-              } // for each q
-              C[(((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) * OUT_DIM[2] + w) *
-                    OC +
-                g * (OC / G) + m] = sum;
-            } // for each m
-          } // for each group
-        } // for each w
-      } // for each h
-    } // for each t
-  } // for each n
+  if (conv_p.transposed) {
+    // for ref implementation, there is no padding on the input buffer,
+    // padding specifies how much we remove from the output buffers
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int ot = 0; ot < OUT_DIM[0]; ++ot) {
+        for (int oh = 0; oh < OUT_DIM[1]; ++oh) {
+          for (int ow = 0; ow < OUT_DIM[2]; ++ow) {
+            // stride on output is fractional stride on input
+            // conv index is
+            // int t_in =
+            //     -conv_p.pad[0] + t * conv_p.stride[0] + q *
+            //     conv_p.dilation[0];
+            // int h_in =
+            //     -conv_p.pad[1] + h * conv_p.stride[1] + r *
+            //     conv_p.dilation[1];
+            // int w_in =
+            //     -conv_p.pad[2] + w * conv_p.stride[2] + s *
+            //     conv_p.dilation[2];
+            // so we reverse it
+            for (int g = 0; g < G; ++g) {
+              for (int oc = 0; oc < OC / G; ++oc) {
+                int sum = 0;
+                for (int q = 0; q < K[0]; ++q) {
+                  for (int r = 0; r < K[1]; ++r) {
+                    for (int s = 0; s < K[2]; ++s) {
+                      int t = ot + conv_p.pad[0] - q * conv_p.dilation[0];
+                      int h = oh + conv_p.pad[1] - r * conv_p.dilation[1];
+                      int w = ow + conv_p.pad[2] - s * conv_p.dilation[2];
+                      int t_in = t / conv_p.stride[0];
+                      int h_in = h / conv_p.stride[1];
+                      int w_in = w / conv_p.stride[2];
+                      for (int ic = 0; ic < IC / G; ++ic) {
+                        int a =
+                            (t_in * conv_p.stride[0] == t && t_in >= 0 &&
+                             t_in < IN_DIM[0] && h_in * conv_p.stride[1] == h &&
+                             h_in >= 0 && h_in < IN_DIM[1] &&
+                             w_in * conv_p.stride[2] == w && w_in >= 0 &&
+                             w_in < IN_DIM[2])
+                            ? A[((((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
+                                  IN_DIM[2]) +
+                                 w_in) *
+                                    IC +
+                                g * (IC / G) + ic]
+                            : A_zero_point;
+                        int b =
+                            B[((((((g * K[0] + q)) * K[1] + r) * K[2] + s) *
+                                    (IC / G) +
+                                ic) *
+                               (OC / G)) +
+                              oc]; // G Q R S Cin/G Cout/G after transpose
+                        sum += a * b;
+                      } // for each ic
+                    } // for each s
+                  } // for each r
+                } // for each q
+                C[(((n * OUT_DIM[0] + ot) * OUT_DIM[1] + oh) * OUT_DIM[2] +
+                   ow) *
+                      OC +
+                  g * (OC / G) + oc] = sum;
+              } // for each oc
+            } // for each g
+          } // for each ow
+        } // for each oh
+      } // for each ot
+    } // for each n
+  } else {
+    for (int n = 0; n < conv_p.MB; ++n) {
+      for (int t = 0; t < OUT_DIM[0]; ++t) {
+        for (int h = 0; h < OUT_DIM[1]; ++h) {
+          for (int w = 0; w < OUT_DIM[2]; ++w) {
+            for (int g = 0; g < G; ++g) {
+              for (int m = 0; m < OC / G; ++m) {
+                int sum = 0;
+                for (int q = 0; q < K[0]; ++q) {
+                  int t_in = -conv_p.pad[0] + t * conv_p.stride[0] +
+                      q * conv_p.dilation[0];
+                  for (int r = 0; r < K[1]; ++r) {
+                    int h_in = -conv_p.pad[1] + h * conv_p.stride[1] +
+                        r * conv_p.dilation[1];
+                    for (int s = 0; s < K[2]; ++s) {
+                      int w_in = -conv_p.pad[2] + w * conv_p.stride[2] +
+                          s * conv_p.dilation[2];
+                      for (int c = 0; c < IC / G; ++c) {
+                        int a = t_in < 0 || t_in >= IN_DIM[0] || h_in < 0 ||
+                                h_in >= IN_DIM[1] || w_in < 0 ||
+                                w_in >= IN_DIM[2]
+                            ? A_zero_point
+                            : A[(((n * IN_DIM[0] + t_in) * IN_DIM[1] + h_in) *
+                                     IN_DIM[2] +
+                                 w_in) *
+                                    IC +
+                                g * (IC / G) + c];
+                        int b =
+                            B[((((g * K[0] + q) * K[1] + r) * K[2] + s) *
+                                   (IC / G) +
+                               c) *
+                                  (OC / G) +
+                              m];
+                        sum += a * b;
+                      } // for each c
+                    } // for each s
+                  } // for each r
+                } // for each q
+                C[(((n * OUT_DIM[0] + t) * OUT_DIM[1] + h) * OUT_DIM[2] + w) *
+                      OC +
+                  g * (OC / G) + m] = sum;
+              } // for each m
+            } // for each group
+          } // for each w
+        } // for each h
+      } // for each t
+    } // for each n
+  }
 }
 
 template <int SPATIAL_DIM>
