@@ -27,6 +27,20 @@ constexpr
   return array_of_ones<N, Vals..., 1>();
 }
 
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
+    array_of_zeroes() {
+  return std::array<int, N>{{Vals...}};
+}
+
+template <int N, int... Vals>
+constexpr
+    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
+    array_of_zeroes() {
+  return array_of_zeroes<N, Vals..., 0>();
+}
+
 /**
  * @brief A struct to conveniently store all convolution parameters.
  */
@@ -48,6 +62,11 @@ struct conv_param_t {
   std::array<int, SPATIAL_DIM> OUT_DIM; //< Output Image Dimension
   std::array<int, SPATIAL_DIM> IN_DIMP; //< Input Image Dimension Padded
 
+  // The following is for tranposed convolution
+  std::array<int, SPATIAL_DIM>
+      output_pad; //< Padding (next/bottom/right padding in output buffer)
+  bool transposed;
+
   /**
    * @brief Constructor for initializing the convolution parameters.
    */
@@ -60,7 +79,9 @@ struct conv_param_t {
       std::array<int, SPATIAL_DIM> k,
       std::array<int, SPATIAL_DIM> strd,
       std::array<int, SPATIAL_DIM * 2> pd,
-      std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>())
+      std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>(),
+      std::array<int, SPATIAL_DIM> otpt_pd = array_of_zeroes<SPATIAL_DIM>(),
+      bool transposed = false)
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -69,7 +90,9 @@ struct conv_param_t {
         K(k),
         stride(strd),
         pad(pd),
-        dilation(dilations) {
+        dilation(dilations),
+        output_pad(otpt_pd),
+        transposed(transposed) {
     if (ic % g != 0) {
       throw std::runtime_error(
           "groups = " + std::to_string(g) +
@@ -82,8 +105,19 @@ struct conv_param_t {
     }
 
     for (int d = 0; d < SPATIAL_DIM; ++d) {
-      IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
-      OUT_DIM[d] = (IN_DIMP[d] - dilation[d] * (K[d] - 1) - 1) / stride[d] + 1;
+      if (transposed) {
+        this->IN_DIMP[d] = this->IN_DIM[d] +
+            (this->dilation[d] * (this->K[d] - 1) - this->pad[d]) +
+            (this->dilation[d] * (this->K[d] - 1) -
+             this->pad[SPATIAL_DIM + d]);
+        this->OUT_DIM[d] = (this->IN_DIM[d] - 1) * this->stride[d] -
+            this->pad[d] - this->pad[SPATIAL_DIM + d] +
+            this->dilation[d] * (this->K[d] - 1) + output_pad[d] + 1;
+      } else {
+        IN_DIMP[d] = IN_DIM[d] + pad[d] + pad[SPATIAL_DIM + d];
+        OUT_DIM[d] =
+            (IN_DIMP[d] - dilation[d] * (K[d] - 1) - 1) / stride[d] + 1;
+      }
     }
   }
 
@@ -146,9 +180,15 @@ struct conv_param_t {
         out += "dilation_" + std::to_string(d) + ":" +
             std::to_string(dilation[d]) + ", ";
       }
+
+    }
+    if (transposed) {
+      for (int d = 0; d < SPATIAL_DIM; ++d) {
+        out += "output_padding_" + std::to_string(d) + ":" +
+            std::to_string(output_pad[d]) + ", ";
+      }
     }
     return out;
   }
 };
-
 } // namespace fbgemm
