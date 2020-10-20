@@ -27,29 +27,49 @@ using namespace fbgemm;
 // clang-format off
 // 1D conv shapes
 vector<conv_param_t<1>> shapes_1d = {
-  // MB, IC, OC, IW, G, KW, stride_w, pad_w_left, pad_w_right
+  // MB, IC, OC, IW, G, KW, stride_w, pad_w_left, pad_w_right,
+  // (dilation, output_padding_w, tranpose)
   // regular
   conv_param_t<1>(1, 600, 100, {1}, 1, {3}, {1}, {2, 2}),
   conv_param_t<1>(1, 600, 100, {2}, 1, {3}, {1}, {2, 2}),
   conv_param_t<1>(1, 600, 100, {3}, 1, {3}, {1}, {2, 2}),
   conv_param_t<1>(1, 200, 162, {1}, 1, {3}, {1}, {2, 2}),
-  conv_param_t<1>(1, 600, 100, {4}, 1, {3}, {1}, {2, 2})
+  conv_param_t<1>(1, 600, 100, {4}, 1, {3}, {1}, {2, 2}),
+
+  // deconv
+  conv_param_t<1>(1, 384, 192, {74}, 1, {16}, {8}, {4, 4}, {1}, {0}, true),
+  conv_param_t<1>(1, 192, 96, {74}, 1, {8}, {4}, {2, 2}, {1}, {0}, true),
+  conv_param_t<1>(1, 96, 48, {74}, 1, {4}, {2}, {1, 1}, {1}, {0}, true),
+  conv_param_t<1>(1, 96, 48, {74}, 1, {4}, {2}, {1, 1}, {1}, {1}, true),
 };
 
 // 2D conv shapes
 vector<conv_param_t<2>> shapes_2d = {
   // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
-  // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
+  // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right,
+  // (dilation_h, dilation_w, output_padding_h, output_padding_w, tranpose)
   // 2D convolutions
   // regular
   conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
       {1, 1}, {1, 1, 1, 1}),
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}, {1, 1}, {0}, true),
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}, {1, 1}, {1}, true),
   // regular with dilation
   conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
       {1, 1}, {1, 1, 1, 1}, {2, 2}),
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}, {2, 2}, {0}, true),
+  conv_param_t<>(1, 128, 128, {56, 56}, 1, {3, 3},
+      {1, 1}, {1, 1, 1, 1}, {2, 2}, {1}, true),
   // groupwise
   conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3},
       {1, 1}, {1, 1, 1, 1}),
+  conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3},
+      {1, 1}, {1, 1, 1, 1},  {1, 1}, {0}, true),
+  conv_param_t<>(1, 128, 128, {56, 56}, 32, {3, 3},
+      {1, 1}, {1, 1, 1, 1},  {1, 1}, {0}, true),
   // DW
   conv_param_t<>(1, 272, 272, {47, 125}, 272, {3, 3},
       {1, 1}, {1, 1, 1, 1}),
@@ -64,14 +84,23 @@ vector<conv_param_t<2>> shapes_2d = {
 vector<conv_param_t<3>> shapes_3d = {
   // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
   // stride_w},
-  // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right}
+  // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right},
+  // ({dilation_t, dilation_h, dilation_w},
+  // {output_padding_t, output_padding_h, output_padding_w}, tranpose)
   // Regular
   conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
       {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
-
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {1, 1, 1}, {0, 0, 0}, true),
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {1, 1, 1}, {1, 1, 1}, true),
   //With dilations
   conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
       {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {2, 2, 2}),
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {2, 2, 2}, {0, 0, 0}, true),
+  conv_param_t<3>(1, 64, 64, {8, 14, 14}, 1, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {2, 2, 2}, {1, 1, 1}, true),
 
   // Groupwise
   conv_param_t<3>(32, 192, 192, {2, 28, 28}, 96, {3, 3, 3},
@@ -103,6 +132,12 @@ vector<conv_param_t<3>> shapes_3d = {
       {1, 2, 2}, {1, 1, 1, 1, 1, 1}),
   conv_param_t<3>(32, 256, 256, {1, 7, 7}, 64, {3, 3, 3},
       {1, 1, 1}, {1, 1, 1, 1, 1, 1}),
+  conv_param_t<3>(32, 128, 128, {2, 28, 28}, 32, {3, 3, 3},
+      {2, 2, 2}, {1, 1, 1, 1, 1, 1}, {1, 1, 1}, {0, 0, 0}, true),
+  conv_param_t<3>(32, 128, 128, {1, 14, 14}, 32, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {1, 1, 1}, {0, 0, 0}, true),
+  conv_param_t<3>(32, 128, 128, {1, 14, 14}, 32, {3, 3, 3},
+      {1, 1, 1}, {1, 1, 1, 1, 1, 1}, {1, 1, 1}, {1, 1, 1}, true),
 
   // Depthwise
   conv_param_t<3>(1, 64, 64, {8, 14, 14}, 64, {3, 3, 3},
@@ -166,6 +201,14 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
     header += "dilation_h, ";
   }
   header += "dilation_w, ";
+  if (SPATIAL_DIM == 3) {
+    header += "output_padding_t, ";
+  }
+  if (SPATIAL_DIM > 1) {
+    header += "output_padding_h, ";
+  }
+  header += "output_padding_w, ";
+  header += "transposed, ";
 
   header += "Type, M, N, K, ";
 
@@ -373,6 +416,10 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
     for (int i = 0; i < SPATIAL_DIM; ++i) {
       cout << conv_p.dilation[i] << ", ";
     }
+    for (int i = 0; i < SPATIAL_DIM; ++i) {
+      cout << conv_p.output_pad[i] << ", ";
+    }
+    cout << conv_p.transposed;
     cout << setw(13) << runType << ", " << setw(5) << fixed << setw(5)
          << setw(6) << MDim << ", " << setw(6) << NDim << ", " << setw(6)
          << KDim << ", ";
