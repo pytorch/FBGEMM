@@ -34,9 +34,11 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
                  conv_p.K.begin(),
                  conv_p.K.end(),
                  [](int i) { return i == 3 || i == 5; }) &&
-      std::all_of(conv_p.dilation.begin(), conv_p.dilation.end(), [](int i) {
-               return i == 1;
-             });
+      std::all_of(
+                 conv_p.dilation.begin(),
+                 conv_p.dilation.end(),
+                 [](int i) { return i == 1; }) &&
+      !conv_p.transposed;
 
   // Check pads result in same input and output spatial dim
   for (int i = 0; i < SPATIAL_DIM; ++i) {
@@ -56,12 +58,13 @@ bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       SPATIAL_DIM &&
       std::accumulate(conv_p.dilation.begin(), conv_p.dilation.end(), 0) ==
       SPATIAL_DIM &&
-      std::accumulate(conv_p.pad.begin(), conv_p.pad.end(), 0) == 0;
+      std::accumulate(conv_p.pad.begin(), conv_p.pad.end(), 0) == 0 &&
+      !conv_p.transposed;
 }
 
 template <int SPATIAL_DIM>
 bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
-  return false;
+  return false && !conv_p.transposed;
 }
 
 template <int SPATIAL_DIM, typename ACC_T>
