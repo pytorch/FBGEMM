@@ -6,7 +6,7 @@
  */
 
 #include "fbgemm/Fbgemm.h"
-#include "./FbgemmFPCommon.h"
+#include "fbgemm/FbgemmFPCommon.h"
 
 #include <cpuinfo.h>
 #include <array>
