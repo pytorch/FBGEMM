@@ -9,7 +9,8 @@ load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_b
 
 cc_library(
     name = "fbgemm_base",
-    srcs = get_fbgemm_base_srcs()  + glob(["src/*.h"]),
+    srcs = get_fbgemm_base_srcs(),
+    hdrs = glob(["src/*.h"]),
     includes = [
         "src",
     ],
@@ -24,7 +25,8 @@ cc_library(
 cc_library(
     name = "fbgemm",
     visibility = ["//visibility:public"],
-    srcs = get_fbgemm_generic_srcs() + glob(["src/*.h"]),
+    srcs = get_fbgemm_generic_srcs(),
+    hdrs = glob(["src/*.h"]),
     includes = [
         "src",
     ],
@@ -32,13 +34,15 @@ cc_library(
         ":fbgemm_avx2",
         ":fbgemm_avx512",
         ":fbgemm_base",
+        ":fbgemm_headers",
     ],
     linkstatic = 1,
 )
 
 cc_library(
     name = "fbgemm_avx2",
-    srcs = get_fbgemm_avx2_srcs() + glob(["src/*.h"]),
+    srcs = get_fbgemm_avx2_srcs(),
+    hdrs = glob(["src/*.h"]),
     copts = [
         "-m64",
         "-mavx2",
@@ -48,13 +52,15 @@ cc_library(
     ],
     deps = [
         ":fbgemm_base",
+        ":fbgemm_headers",
     ],
     linkstatic = 1,
 )
 
 cc_library(
     name = "fbgemm_avx512",
-    srcs = get_fbgemm_avx512_srcs() + glob(["src/*.h"]),
+    srcs = get_fbgemm_avx512_srcs(),
+    hdrs = glob(["src/*.h"]),
     copts = [
         "-m64",
         "-mfma",
@@ -66,6 +72,7 @@ cc_library(
     ],
     deps = [
         ":fbgemm_base",
+        ":fbgemm_headers",
     ],
     linkstatic = 1,
 )
@@ -92,7 +99,7 @@ cc_library(
 
 cc_library(
     name = "test_utils",
-    hdrs = glob(["test/*.h", "bench/*.h"]),
+    hdrs = get_fbgemm_public_headers() + glob(["test/*.h", "bench/*.h"]),
     srcs = [
         "bench/BenchUtils.cc",
         "test/EmbeddingSpMDMTestUtils.cc",

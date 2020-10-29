@@ -10,11 +10,11 @@
 #include <cmath>
 #include <utility>
 
-#include "./FbgemmFPCommon.h"
 #include "./FbgemmFP16UKernelsAvx2.h"
 #include "./FbgemmFP16UKernelsAvx512.h"
 #include "./FbgemmFP16UKernelsAvx512_256.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/FbgemmFPCommon.h"
 
 namespace fbgemm {
 
