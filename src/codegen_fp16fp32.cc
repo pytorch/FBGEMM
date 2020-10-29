@@ -21,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <vector>
 #include <unordered_set>
 
 using namespace std;
@@ -213,6 +214,7 @@ int main(int argc, const char* argv[]) {
           return "fp32";
         if (d_type.first == DataType::Float16)
           return "fp16";
+        throw std::runtime_error("Unknow DataType");
       }();
 
       string isa_file_name = "Fbgemm" + d_type.second + "UKernels" + s.name;
@@ -233,10 +235,16 @@ int main(int argc, const char* argv[]) {
 
       hdrfile << "#pragma once\n";
       hdrfile << "#include <cstdint>\n";
-      hdrfile << "#include \"fbgemm/Types.h\"\n\n";
-      hdrfile << "#include \"fbgemm/FbgemmBuild.h\"\n\n";
-      hdrfile << "#include \"./FbgemmFPCommon.h\"\n\n";
+      hdrfile << "#include \"fbgemm/Types.h\"\n";
+      hdrfile << "#include \"fbgemm/FbgemmBuild.h\"\n";
+      hdrfile << "#include \"fbgemm/FbgemmFPCommon.h\"\n\n";
       hdrfile << "namespace fbgemm {\n\n";
+      hdrfile
+          << "using GemmParams"
+          << d_type.second
+          << " = GemmParams<float"
+          << (isFp16 ? "16" : "")
+          << ">;\n\n";
 
       unsigned labelId = 0;
 

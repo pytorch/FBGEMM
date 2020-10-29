@@ -29,8 +29,6 @@ struct GemmParams {
   uint64_t b_block_size;
 };
 
-using GemmParamsFP16 = GemmParams<float16>;
-
 template <typename T>
 using funcptr_t = void (*)(GemmParams<T>*);
 template<typename T>

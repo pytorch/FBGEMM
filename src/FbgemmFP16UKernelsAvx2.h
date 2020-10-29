@@ -7,12 +7,12 @@
 #pragma once
 #include <cstdint>
 #include "fbgemm/Types.h"
-
 #include "fbgemm/FbgemmBuild.h"
-
-#include "./FbgemmFPCommon.h"
+#include "fbgemm/FbgemmFPCommon.h"
 
 namespace fbgemm {
+
+using GemmParamsFP16 = GemmParams<float16>;
 
 void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
 void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp);
