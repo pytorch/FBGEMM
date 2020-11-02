@@ -30,7 +30,8 @@ void transpose_simd(
     int ld_dst) {
   if ((M == 1 && ld_dst == 1) || (N == 1 && ld_src == 1)) {
     if (dst != src) {
-      memcpy(dst, src, M * N * sizeof(T));
+      // sizeof must be first operand force dims promotion to OS-bitness type
+      memcpy(dst, src, sizeof(T) * M * N);
     }
     return;
   }
