@@ -16,9 +16,9 @@ namespace {
 // 16 * 6 = 96 instructions
 inline void transpose_kernel_16x16_avx512(
     const float* src,
-    int ld_src,
+    unsigned ld_src,
     float* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
   // load from src to registers
   // a: a0  a1  a2  a3  a4  a5  a6  a7  a8  a9  a10 a11 a12 a13 a14 a15
   // b: b0  b1  b2  b3  b4  b5  b6  b7  b8  b9  b10 b11 b12 b13 b14 b15
@@ -307,13 +307,13 @@ namespace internal {
 
 template <>
 void transpose_avx512(
-    int M,
-    int N,
+    unsigned M,
+    unsigned N,
     const float* src,
-    int ld_src,
+    unsigned ld_src,
     float* dst,
-    int ld_dst) {
-  int ib = 0, jb = 0;
+    unsigned ld_dst) {
+  unsigned ib = 0, jb = 0;
   if (N % 16 > 0 && N % 16 < 4) {
     // If the remainder has n < 4 columns, we use the SSE kernel for the
     // remainder because it requires 4 * (2 * 4 + 2 * N) = 32 + 8N instructions
@@ -324,7 +324,7 @@ void transpose_avx512(
         transpose_kernel_16x16_avx512(
             &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
-      for (int i = ib; i < ib + 16; i += 4) {
+      for (unsigned i = ib; i < ib + 16; i += 4) {
         transpose_kernel_mxn_sse<4>(
             N - jb,
             &src[i * ld_src + jb],
@@ -342,7 +342,7 @@ void transpose_avx512(
         transpose_kernel_16x16_avx512(
             &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
-      for (int i = ib; i < ib + 16; i += 4) {
+      for (unsigned i = ib; i < ib + 16; i += 4) {
         transpose_kernel_4x4_sse(
             &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
       }
@@ -356,7 +356,7 @@ void transpose_avx512(
         transpose_kernel_16x16_avx512(
             &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
       }
-      for (int i = ib; i < ib + 16; i += 8) {
+      for (unsigned i = ib; i < ib + 16; i += 8) {
         transpose_kernel_8x8_avx2(
             &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
       }
@@ -386,7 +386,7 @@ void transpose_avx512(
   // on m.
   switch (M - ib) {
     case 1:
-      for (int j = 0; j < N; ++j) {
+      for (unsigned j = 0; j < N; ++j) {
         dst[ib + j * ld_dst] = src[ib * ld_src + j];
       }
       break;
@@ -1040,12 +1040,12 @@ void transpose_16x32_block(
 
 template <>
 void transpose_avx512(
-    int M,
-    int N,
+    unsigned M,
+    unsigned N,
     const uint8_t* src,
-    int ld_src,
+    unsigned ld_src,
     uint8_t* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
   int i = 0;
   for (; i < M / 16 * 16; i += 16) {
     int j = 0;

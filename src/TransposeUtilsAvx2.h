@@ -19,7 +19,7 @@ namespace internal {
 
 // 4 * 4 = 16 instructions
 static inline void
-transpose_kernel_4x4_sse(const float* src, int ld_src, float* dst, int ld_dst) {
+transpose_kernel_4x4_sse(const float* src, unsigned ld_src, float* dst, unsigned ld_dst) {
   // load from src to registers
   // a : a0 a1 a2 a3
   // b : b0 b1 b2 b3
@@ -46,13 +46,13 @@ transpose_kernel_4x4_sse(const float* src, int ld_src, float* dst, int ld_dst) {
 
 // kernel for transpose mxn where m, n <= 4
 // M + (M + 1) / 2 * 2 + 2 * N instructions
-template <int M>
+template <unsigned M>
 static void transpose_kernel_mxn_sse(
-    int N,
+    unsigned N,
     const float* src,
-    int ld_src,
+    unsigned ld_src,
     float* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
   // clang-format off
   alignas(64) static const int masks[5][4] = {
     {  0,  0,  0,  0, },
@@ -66,7 +66,7 @@ static void transpose_kernel_mxn_sse(
   // load from src to registers
   __m128i mask_v = _mm_load_si128(reinterpret_cast<const __m128i*>(masks[N]));
   __m128 input[4];
-  int i;
+  unsigned i;
   for (i = 0; i < M; ++i) {
     input[i] = _mm_maskload_ps(&src[i * ld_src], mask_v);
   }
@@ -100,9 +100,9 @@ static void transpose_kernel_mxn_sse(
 // 8 * 5 = 40 instructions
 static inline void transpose_kernel_8x8_avx2(
     const float* src,
-    int ld_src,
+    unsigned ld_src,
     float* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
   // load from src to registers
   // a : a0 a1 a2 a3 a4 a5 a6 a7
   // b : b0 b1 b2 b3 b4 b5 b6 b7
@@ -190,18 +190,18 @@ static inline void transpose_kernel_8x8_avx2(
 
 // kernel for transposing mxn where m, n <= 8
 // M + (M + 1) / 2 * 2 + (M + 3) / 4 * 4 + 2 * N instructions
-template <int M>
+template <unsigned M>
 static void transpose_kernel_mxn_avx2(
-    int N,
+    unsigned N,
     const float* src,
-    int ld_src,
+    unsigned ld_src,
     float* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
   // load from src to registers
   __m256i mask_v = _mm256_load_si256(
       reinterpret_cast<const __m256i*>(internal::avx2_ps_or_epi32_masks[N]));
   __m256 input[8];
-  int i;
+  unsigned i;
   for (i = 0; i < M; ++i) {
     input[i] = _mm256_maskload_ps(&src[i * ld_src], mask_v);
   }

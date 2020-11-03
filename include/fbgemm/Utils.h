@@ -152,7 +152,7 @@ void printMatrix(
  */
 template <typename T>
 FBGEMM_API void
-transpose_simd(int M, int N, const T* src, int ld_src, T* dst, int ld_dst);
+transpose_simd(unsigned M, unsigned N, const T* src, unsigned ld_src, T* dst, unsigned ld_dst);
 
 /**
  * @brief Explicitly set instruction set to be used
