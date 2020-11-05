@@ -261,9 +261,9 @@ void performance_test(
     aligned_vector<float> B(Bint.begin(), Bint.end());
     std::vector<std::unique_ptr<PackedGemmMatrixB<btype>>> Bp;
     for(int i = 0; i < num_instances; ++i) {
-      Bp.push_back(
-        std::make_unique<PackedGemmMatrixB<btype>>(
-            btran, k, n, alpha, B.data()));
+      Bp.emplace_back(
+        std::unique_ptr<PackedGemmMatrixB<btype>>(
+            new PackedGemmMatrixB<btype>(btran, k, n, alpha, B.data())));
     }
     auto kAligned = ((k * sizeof(float) + 64) & ~63) / sizeof(float);
     auto nAligned = ((n * sizeof(float) + 64) & ~63) / sizeof(float);
