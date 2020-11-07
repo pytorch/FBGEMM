@@ -123,3 +123,68 @@ TEST_P(FBGemmFloat16Test, Conversion_simd2) {
     }
   }
 }
+
+TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
+  bool do_clip = GetParam();
+  constexpr float FP16_MAX = 65504.f;
+  union epsilon_t {
+    float f;
+    uint32_t i;
+  };
+  union epsilon_t epsilon;
+  epsilon.i = 0x38800000u; // 1 / 16384
+  float FP16_MIN = epsilon.f;
+
+  vector<vector<int>> shapes;
+  random_device r;
+  default_random_engine generator(r());
+  uniform_int_distribution<int> dm(2, 1024*256);
+
+  for (int i = 0; i < 10; i++) {
+    int m = dm(generator);
+    shapes.push_back({m});
+  }
+
+  for (auto s : shapes) {
+    int m = s[0];
+
+    cerr << "m = " << m << endl;
+    aligned_vector<float> A_fp32_ref(m); // fp32 type
+    aligned_vector<float16> A_float16(m); // float16 type
+    aligned_vector<float> A_fp32_final(m); // fp32 type
+    // randFill(A_fp32_ref, 0.0f, 4.0f);
+    for (int i = 0; i < m; ++i) {
+      A_fp32_ref[i] = (i % 10000) + 1.25;
+    }
+    if (do_clip) {
+      A_fp32_ref[0] += 1024 * FP16_MAX;
+      A_fp32_ref[1] = 1e-10;
+    }
+
+    RoundToFloat16(
+        A_fp32_ref.data(), A_fp32_final.data(), m, do_clip, do_clip);
+
+    for (int i = 0; i < m; ++i) {
+      // The relative error should be less than 1/(2^10) since float16
+      // has 10 bits mantissa.
+      // printf(
+      //     "A_fp32_final[%d]: %f; A_fp32_ref[%d]: %f\n",
+      //     i,
+      //     A_fp32_final[i],
+      //     i,
+      //     A_fp32_ref[i]);
+      float expected = A_fp32_ref[i];
+      if (do_clip) {
+        expected = std::max(-FP16_MAX, std::min(expected, FP16_MAX));
+        if (std::abs(expected) < FP16_MIN) {
+          expected = 0.0;
+        }
+      }
+      constexpr float kEpsilon = 1e-8f; // To handle the case where expected == 0.0;
+      EXPECT_LE(fabs(expected - A_fp32_final[i]) / (expected + kEpsilon), 1.0 / 1024);
+    }
+    if (do_clip) {
+      EXPECT_EQ(A_fp32_final[1], 0.0);
+    }
+  }
+}
