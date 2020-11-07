@@ -75,31 +75,8 @@ void RoundToFloat16(
     bool clamp,
     bool clamp_denorms) {
   std::vector<fbgemm::float16> data_fp16(size);
-  FloatToFloat16_simd(input, &(data_fp16[0]), size);
+  FloatToFloat16_simd(input, &(data_fp16[0]), size, /*do_clip=*/true);
   Float16ToFloat_simd(&(data_fp16[0]), output, size);
-
-  if (clamp) {
-    // TODO: Use intrinsics to optimize clamping performance.
-    for (size_t i = 0; i < size; ++i) {
-      output[i] = std::max(std::min(output[i], 65504.0f), -65504.0f);
-    }
-  }
-
-  if (clamp_denorms) {
-    union epsilon_t {
-      float f;
-      uint32_t i;
-    };
-
-    union epsilon_t epsilon;
-    epsilon.i = 0x38800000u; // 1 / 16384
-
-    for (size_t i = 0; i < size; ++i) {
-      if (std::abs(output[i]) < epsilon.f) {
-        output[i] = 0.0;
-      }
-    }
-  }
 }
 
 } // namespace fbgemm
