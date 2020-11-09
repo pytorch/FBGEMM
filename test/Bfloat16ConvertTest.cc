@@ -10,7 +10,6 @@
 
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmConvert.h"
-#include "src/RefImplementations.h"
 
 using namespace std;
 using namespace fbgemm;
