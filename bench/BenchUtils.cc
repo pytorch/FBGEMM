@@ -114,4 +114,14 @@ bool parseArgumentBool(
   }
   return def_val;
 }
+
+#if defined(USE_MKL)
+void test_xerbla(char* srname, const int* info, int) {
+  // srname - name of the function that called xerbla
+  // info - position of the invalid parameter in the parameter list
+  // len - length of the name in bytes
+  printf("\nXERBLA(MKL Error) is called :%s: %d\n", srname, *info);
+}
+#endif
+
 } // namespace fbgemm
