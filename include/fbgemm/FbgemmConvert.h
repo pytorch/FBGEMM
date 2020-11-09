@@ -144,7 +144,6 @@ FBGEMM_API void RoundToFloat16(
     const float* input,
     float* output,
     size_t size,
-    bool clamp = false,
-    bool clamp_denorms = false);
+    bool clamp = false);
 
 }; // namespace fbgemm
