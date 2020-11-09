@@ -17,10 +17,6 @@
 #include <omp.h>
 #endif
 
-#ifdef USE_MKL
-#include <mkl.h>
-#endif
-
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
@@ -63,11 +59,9 @@ void performance_test(
 
   aligned_vector<uint8_t> Aint8(m * k);
   aligned_vector<int8_t> Bint8(k * n);
-  aligned_vector<float> Cfp32_mkl(m * n);
-  aligned_vector<int32_t> Cint32_mkl(Cfp32_mkl.size());
-  aligned_vector<int32_t> Cint32_ref(Cfp32_mkl.size());
-  aligned_vector<int32_t> Cint32_fb_acc32(Cfp32_mkl.size());
-  aligned_vector<int32_t> Cint32_fb_acc16(Cfp32_mkl.size());
+  aligned_vector<int32_t> Cint32_ref(m * n);
+  aligned_vector<int32_t> Cint32_fb_acc32(Cint32_ref.size());
+  aligned_vector<int32_t> Cint32_fb_acc16(Cint32_ref.size());
 
   // A matrix
   randFill<uint8_t>(Aint8, 0, 5);
