@@ -20,7 +20,6 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 
 using namespace std;
