@@ -9,6 +9,9 @@
 
 #include "./RefImplementations.h"
 
+#include "xmmintrin.h"
+#include "pmmintrin.h"
+
 #ifdef USE_MKL
 #include <mkl.h>
 #endif
@@ -75,10 +78,31 @@ void RoundToFloat16(
     bool clamp,
     bool clamp_denorms) {
   std::vector<fbgemm::float16> data_fp16(size);
+  auto flush_mode = _MM_GET_DENORMALS_ZERO_MODE();
+  auto denormal_mode = _MM_GET_DENORMALS_ZERO_MODE();
+  if (clamp_denorms) {
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+  }
   // clamp_denorms is always true, since we use FloatToFloat16_simd function
   // with _mm256_cvtps_ph.
   FloatToFloat16_simd(input, &(data_fp16[0]), size, /*do_clip=*/clamp);
   Float16ToFloat_simd(&(data_fp16[0]), output, size);
+  if (clamp_denorms) {
+    _MM_SET_FLUSH_ZERO_MODE(flush_mode);
+    _MM_SET_DENORMALS_ZERO_MODE(denormal_mode);
+    union epsilon_t {
+      float f;
+      uint32_t i;
+    };
+    union epsilon_t epsilon;
+    epsilon.i = 0x38800000u; // 1 / 16384
+    for (size_t i = 0; i < size; ++i) {
+      if (std::abs(output[i]) < epsilon.f) {
+        output[i] = 0.0;
+      }
+    }
+  }
 }
 
 } // namespace fbgemm
