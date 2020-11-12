@@ -19,10 +19,16 @@
 
 namespace fbgemm {
 
+template<typename T>
+struct TypeConverter {
+  template<typename F>
+  T operator()(F) const;
+};
+
 /// class that performs packing of matrix in
 /// row-major format into
 /// internal packed blocked-row major format
-template<typename T>
+template<typename T, typename C = TypeConverter<T>>
 class PackedGemmMatrixB {
  public:
   using value_type = T;
@@ -118,9 +124,7 @@ class PackedGemmMatrixB {
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
     pmat_ = static_cast<T*>(
         fbgemmAlignedAlloc(64, matSize() * sizeof(T) + padding));
-    for (auto i = 0; i < matSize(); i++) {
-      pmat_[i] = cpu_float2half_rn(0.0f);
-    }
+    memset(pmat_, 0, matSize() * sizeof(T));
   }
 
   ~PackedGemmMatrixB() {
@@ -176,11 +180,9 @@ class PackedGemmMatrixB {
     // pack
     for (int i = 0; i < numRows(); i++) {
       for (int j = 0; j < numCols(); j++) {
-        constexpr float FP16_MAX = 65504.f;
         float src = alpha *
             ((tr == false) ? smat[i * numCols() + j] : smat[i + numRows() * j]);
-        src = std::max(-FP16_MAX, std::min(src, FP16_MAX));
-        pmat_[addr(i, j)] = cpu_float2half_rn(src);
+        pmat_[addr(i, j)] = C()(src);
       }
     }
     packed_ = true;
