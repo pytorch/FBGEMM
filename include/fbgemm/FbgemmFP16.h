@@ -22,6 +22,15 @@
 
 namespace fbgemm {
 
+template<>
+struct TypeConverter<float16> {
+  float16 operator()(float src) const {
+    constexpr float FP16_MAX = 65504.f;
+    const float fp16 = std::max(-FP16_MAX, std::min(src, FP16_MAX));
+    return cpu_float2half_rn(fp16);
+  }
+};
+
 using PackedGemmMatrixFP16 = PackedGemmMatrixB<float16>;
 
 template<typename T>
