@@ -35,7 +35,10 @@ template <typename T>
     for (int j = 0; j < n; ++j) {
       int exp = expected[i * ld_src + j];
       int act = acutal[i + j * ld_dst];
-      ss << "(" << i << ", " << j << "). ref " << exp << " actual " << act;
+      if (exp != act) {
+        ss << "(" << i << ", " << j << "). ref " << exp << " actual " << act;
+        match = false;
+      }
     }
   }
   if (match)
