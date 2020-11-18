@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <random>
-#include <vector>
 #include <type_traits>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -53,8 +53,9 @@ TEST(TransposeTest, TransposeTest) {
   uniform_int_distribution<int> dist(0, 32);
   default_random_engine generator;
   for (int i = 0; i < 1024; ++i) {
-    int m = dist(generator);
-    int n = dist(generator);
+    int m = dist(generator); //% 8;
+    int n = dist(generator); //% 32;
+    // int m = 7, n = dist(generator) % 32;
     int ld_src = n + dist(generator);
     int ld_dst = m + dist(generator);
     shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
