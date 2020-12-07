@@ -87,10 +87,10 @@ void cblas_gemm_compute(
   static thread_local std::unique_ptr<std::array<float, 256 * 1024>>
       scratchpad(new std::array<float, 256 * 1024>());
 
-  auto isaHandlers = getIsaHandlers<T>(iset, T());
+  const auto& isaHandlers = getIsaHandlers<T>(iset, T());
 
-  auto kernels = std::get<0>(isaHandlers);
-  auto partition = std::get<1>(isaHandlers);
+  const auto& kernels = std::get<0>(isaHandlers);
+  const auto& partition = std::get<1>(isaHandlers);
 
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
