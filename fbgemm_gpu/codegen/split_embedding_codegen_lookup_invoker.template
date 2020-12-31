@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+
+import torch
+from .lookup_args import *
+
+
+{% if is_fbcode %}
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
+torch.ops.load_library(
+    "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
+)
+{% else %}
+torch.ops.load_library("fbgemm_gpu.cpython-37m-x86_64-linux-gnu.so")
+{% endif %}
+
+
+def invoke(
+    commom_args: CommonArgs,
+    optimizer_args: OptimizerArgs,
+    {% if "momentum1_dev" in args.split_function_arg_names %}
+    momentum1: Momentum,
+    {% endif %}
+    {% if "momentum2_dev" in args.split_function_arg_names %}
+    momentum2: Momentum,
+    {% endif %}
+    {% if "iter" in args.split_function_arg_names %}
+    iter: int,
+    {% endif %}
+) -> torch.Tensor:
+    if (commom_args.host_weights.numel() > 0):
+        return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
+            # commom_args
+            host_weights=commom_args.host_weights,
+            weights_placements=commom_args.weights_placements,
+            weights_offsets=commom_args.weights_offsets,
+            D_offsets=commom_args.D_offsets,
+            total_D=commom_args.total_D,
+            max_D=commom_args.max_D,
+            hash_size_cumsum=commom_args.hash_size_cumsum,
+            total_hash_size_bits=commom_args.total_hash_size_bits,
+            indices=commom_args.indices,
+            offsets=commom_args.offsets,
+            pooling_mode=commom_args.pooling_mode,
+            indice_weights=commom_args.indice_weights,
+            feature_requires_grad=commom_args.feature_requires_grad,
+            # optimizer_args
+            gradient_clipping = optimizer_args.gradient_clipping,
+            max_gradient=optimizer_args.max_gradient,
+            stochastic_rounding=optimizer_args.stochastic_rounding,
+            {% if "learning_rate" in args.split_function_arg_names %}
+            learning_rate=optimizer_args.learning_rate,
+            {% endif %}
+            {% if "eps" in args.split_function_arg_names %}
+            eps=optimizer_args.eps,
+            {% endif %}
+            {% if "beta1" in args.split_function_arg_names %}
+            beta1=optimizer_args.beta1,
+            {% endif %}
+            {% if "beta2" in args.split_function_arg_names %}
+            beta2=optimizer_args.beta2,
+            {% endif %}
+            {% if "weight_decay" in args.split_function_arg_names %}
+            weight_decay=optimizer_args.weight_decay,
+            {% endif %}
+            {% if "eta" in args.split_function_arg_names %}
+            eta=optimizer_args.eta,
+            {% endif %}
+            {% if "momentum" in args.split_function_arg_names %}
+            momentum=optimizer_args.momentum,
+            {% endif %}
+            # momentum1
+            {% if "momentum1_dev" in args.split_function_arg_names %}
+            momentum1_host=momentum1.host,
+            momentum1_offsets=momentum1.offsets,
+            momentum1_placements=momentum1.placements,
+            {% endif %}
+            # momentum2
+            {% if "momentum2_dev" in args.split_function_arg_names %}
+            momentum2_host=momentum2.host,
+            momentum2_offsets=momentum2.offsets,
+            momentum2_placements=momentum2.placements,
+            {% endif %}
+            # iter
+            {% if "iter" in args.split_function_arg_names %}
+            iter=iter,
+            {% endif %}
+        )
+    else:
+        return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function(
+            # commom_args
+            dev_weights=commom_args.dev_weights,
+            uvm_weights=commom_args.uvm_weights,
+            lxu_cache_weights=commom_args.lxu_cache_weights,
+            weights_placements=commom_args.weights_placements,
+            weights_offsets=commom_args.weights_offsets,
+            D_offsets=commom_args.D_offsets,
+            total_D=commom_args.total_D,
+            max_D=commom_args.max_D,
+            hash_size_cumsum=commom_args.hash_size_cumsum,
+            total_hash_size_bits=commom_args.total_hash_size_bits,
+            indices=commom_args.indices,
+            offsets=commom_args.offsets,
+            pooling_mode=commom_args.pooling_mode,
+            indice_weights=commom_args.indice_weights,
+            feature_requires_grad=commom_args.feature_requires_grad,
+            lxu_cache_locations=commom_args.lxu_cache_locations,
+            # optimizer_args
+            gradient_clipping = optimizer_args.gradient_clipping,
+            max_gradient=optimizer_args.max_gradient,
+            stochastic_rounding=optimizer_args.stochastic_rounding,
+            {% if "learning_rate" in args.split_function_arg_names %}
+            learning_rate=optimizer_args.learning_rate,
+            {% endif %}
+            {% if "eps" in args.split_function_arg_names %}
+            eps=optimizer_args.eps,
+            {% endif %}
+            {% if "beta1" in args.split_function_arg_names %}
+            beta1=optimizer_args.beta1,
+            {% endif %}
+            {% if "beta2" in args.split_function_arg_names %}
+            beta2=optimizer_args.beta2,
+            {% endif %}
+            {% if "weight_decay" in args.split_function_arg_names %}
+            weight_decay=optimizer_args.weight_decay,
+            {% endif %}
+            {% if "eta" in args.split_function_arg_names %}
+            eta=optimizer_args.eta,
+            {% endif %}
+            {% if "momentum" in args.split_function_arg_names %}
+            momentum=optimizer_args.momentum,
+            {% endif %}
+            # momentum1
+            {% if "momentum1_dev" in args.split_function_arg_names %}
+            momentum1_dev=momentum1.dev,
+            momentum1_uvm=momentum1.uvm,
+            momentum1_offsets=momentum1.offsets,
+            momentum1_placements=momentum1.placements,
+            {% endif %}
+            # momentum2
+            {% if "momentum2_dev" in args.split_function_arg_names %}
+            momentum2_dev=momentum2.dev,
+            momentum2_uvm=momentum2.uvm,
+            momentum2_offsets=momentum2.offsets,
+            momentum2_placements=momentum2.placements,
+            {% endif %}
+            # iter
+            {% if "iter" in args.split_function_arg_names %}
+            iter=iter,
+            {% endif %}
+        )
