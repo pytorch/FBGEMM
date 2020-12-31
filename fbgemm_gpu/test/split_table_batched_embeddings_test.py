@@ -251,7 +251,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         E = int(10 ** log_E)
         if use_cpu:
-            D = ((D + 3) // 4) * 4
+            D = (D + 15) // 16 * 4
         else:
             D = D * 4
         if not mixed:
@@ -402,7 +402,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         E = int(10 ** log_E)
         if use_cpu:
-            D = ((D + 3) // 4) * 4
+            D = (D + 15) // 16 * 4
         else:
             D = D * 4
         if not mixed:
@@ -572,7 +572,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not exact or not use_cache)
         E = int(10 ** log_E)
         if use_cpu:
-            D = ((D + 3) // 4) * 4
+            D = (D + 15) // 16 * 4
         else:
             D = D * 4
         if not mixed:
@@ -767,7 +767,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         E = int(10 ** log_E)
         if use_cpu:
-            D = ((D + 3) // 4) * 4
+            D = (D + 15) // 16 * 4
         else:
             D = D * 4
         if not mixed:
@@ -911,7 +911,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=5.0e-3 if fp16 else 1.0e-4,
                 rtol=5.0e-3 if fp16 else 1.0e-4,
             )
-        D_gradcheck = D_gradcheck * 4
+        if use_cpu:
+            D_gradcheck = (D_gradcheck + 15) // 16 * 4
+        else:
+            D_gradcheck = D_gradcheck * 4
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)],
             feature_table_map=feature_table_map,
@@ -1114,7 +1117,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         E = int(10 ** log_E)
         if use_cpu:
-            D = ((D + 3) // 4) * 4
+            D = (D + 15) // 16 * 4
         else:
             D = D * 4
         if not mixed:
