@@ -35,8 +35,8 @@ vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::OUT_CHANNEL};
 
 namespace {
-class fbgemmGConvAcc32Test
-    : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
+// class fbgemmGConvAcc32Test
+//     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t>> {};
 class fbgemmGConvAcc32WithQuantGranularityTest
     : public testing::TestWithParam<tuple<
           matrix_op_t,
@@ -47,12 +47,12 @@ class fbgemmGConvAcc32WithQuantGranularityTest
 class fbgemmGConvPackTest : public testing::TestWithParam<matrix_op_t> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
-    InstantiationName,
-    fbgemmGConvAcc32Test,
-    ::testing::Combine(
-        ::testing::Values(matrix_op_t::NoTranspose),
-        ::testing::ValuesIn(transposeVals)));
+// INSTANTIATE_TEST_CASE_P(
+//     InstantiationName,
+//     fbgemmGConvAcc32Test,
+//     ::testing::Combine(
+//         ::testing::Values(matrix_op_t::NoTranspose),
+//         ::testing::ValuesIn(transposeVals)));
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
