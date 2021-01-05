@@ -59,36 +59,6 @@ def get_table_batched_offsets_from_dense(
     )
 
 
-def table_batched_embeddings_indices_and_offsets(
-    indices_per_table: List[torch.Tensor],
-    offsets_per_table: List[torch.Tensor],
-    pinned_total_indices_per_table_buffer: Optional[List[torch.Tensor]] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    torch.ops.load_library("//hpc/ops:sparse_ops")
-
-    if pinned_total_indices_per_table_buffer is None:
-        pinned_total_indices_per_table_buffer = torch.tensor(
-            [indices.numel() for indices in indices_per_table]
-        )
-        pinned_total_indices_per_table_buffer = (
-            pinned_total_indices_per_table_buffer.pin_memory()
-        )
-    else:
-        pinned_total_indices_per_table_buffer[:] = torch.tensor(
-            [indices.numel() for indices in indices_per_table]
-        )
-    return (
-        torch.cat(indices_per_table, dim=0),
-        torch.cumsum(
-            torch.ops.fb.construct_offsets(
-                torch.stack(offsets_per_table),
-                pinned_total_indices_per_table_buffer.cuda(non_blocking=True),
-            ),
-            dim=0,
-        ),
-    )
-
-
 def generate_requests(
     iters: int,
     B: int,
@@ -143,63 +113,6 @@ def generate_requests(
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
-    @given(
-        T=st.integers(min_value=1, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        L=st.integers(min_value=2, max_value=128),
-        pinned=st.booleans(),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_construct_offsets(self, T, B, L, pinned):
-        Ls_per_table = [
-            np.random.randint(low=0, high=int(L), size=(B,)).tolist() for _ in range(T)
-        ]
-
-        indices_per_table = [
-            torch.randint(low=0, high=int(1e4), size=(sum(Ls_per_table[t]),))
-            .cuda()
-            for t in range(T)
-        ]
-
-        offsets_per_table = [
-            torch.cumsum(
-                torch.tensor([0] + Ls_per_table[t][:-1]).cuda(), dim=0
-            )
-            for t in range(T)
-        ]
-
-        pinned_total_indices_per_table_buffer = (
-            torch.tensor([0 for _ in range(T)]).pin_memory()
-        )
-        (fused_indices, fused_offsets) = table_batched_embeddings_indices_and_offsets(
-            indices_per_table,
-            offsets_per_table,
-            pinned_total_indices_per_table_buffer if pinned else None,
-        )
-        fused_offsets = fused_offsets.cpu()
-        fused_indices = fused_indices.cpu()
-        offsets_per_table = [t.cpu() for t in offsets_per_table]
-        indices_per_table = [t.cpu() for t in indices_per_table]
-
-        # Verification
-        for t in range(T):
-            for b in range(B):
-                idx_start = fused_offsets[t * B + b]
-                idx_end = fused_offsets[t * B + b + 1]
-                L_bt = idx_end - idx_start
-                if b != B - 1:
-                    assert L_bt == offsets_per_table[t][b + 1] - offsets_per_table[t][b]
-                else:
-                    assert (
-                        L_bt == indices_per_table[t].numel() - offsets_per_table[t][b]
-                    )
-                torch.testing.assert_allclose(
-                    fused_indices[idx_start : idx_start + L_bt],
-                    indices_per_table[t][
-                        offsets_per_table[t][b] : offsets_per_table[t][b] + L_bt
-                    ],
-                )
-
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
