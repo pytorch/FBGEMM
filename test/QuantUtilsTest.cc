@@ -56,6 +56,11 @@ INSTANTIATE_TEST_CASE_P(
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
+    FusedQuantizeDequantizeTest,
+    ::testing::Values(1, 2, 5, 8, 9, 16, 20, 28, 32, 33));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
     EmbeddingQuantizeTest,
     ::testing::Combine(
         ::testing::ValuesIn({2, 4, 8}),
