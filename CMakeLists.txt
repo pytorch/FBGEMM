@@ -24,6 +24,7 @@ set(FBGEMM_LIBRARY_TYPE "default" CACHE STRING
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
+option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -267,4 +268,8 @@ endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
   add_subdirectory(bench)
+endif()
+
+if(FBGEMM_BUILD_DOCS)
+  add_subdirectory(docs)
 endif()
