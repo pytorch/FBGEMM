@@ -466,7 +466,7 @@ thread_type_t fbgemmGetThreadPartition(
     // only one thread will get 2 groups.
     th_info.g_num_threads = num_threads;
   } else {
-    if (num_threads % g == 0) {
+    if (g != 0 && num_threads % g == 0) {
       th_info.g_num_threads = g;
     } else {
       th_info.g_num_threads = 1;
