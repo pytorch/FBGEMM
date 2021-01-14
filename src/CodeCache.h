@@ -45,55 +45,42 @@ class CodeCache {
   CodeCache(){};
 
   VALUE getOrCreate(const KEY& key, std::function<VALUE()> generatorFunction) {
-    std::shared_future<VALUE> returnFuture;
-    // In the (hopefully) common case where this cache is warm, we
-    // don't need returnPromise. When we are filling the cache, a
-    // single heap allocation probably isn't much compared to the cost
-    // of generating a kernel.
-    std::unique_ptr<std::promise<VALUE>> returnPromise;
-
-    // Check for existance of the key
+    // Check for existence of the key
     {
 #ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
-      mutex_.lock_shared();
+      std::shared_lock<std::shared_timed_mutex> sharedLock(mutex_);
 #else
-      std::unique_lock<std::mutex> lock(mutex_);
+      std::unique_lock<std::mutex> uniqueLock(mutex_);
 #endif
 
       auto it = values_.find(key);
       if (it != values_.end()) {
-        returnFuture = it->second;
-#ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
-        mutex_.unlock_shared();
-#endif
+        return it->second.get();
       } else {
 #ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
-        mutex_.unlock_shared();
+        sharedLock.unlock();
+        std::unique_lock<std::shared_timed_mutex> uniqueLock(mutex_);
 
-        mutex_.lock();
         // Need to look up again because there could be race condition from
         // the time gap between mutex_.unlock_shared() and mutex_.lock()
         it = values_.find(key);
         if (it == values_.end()) {
 #endif
-          returnPromise.reset(new std::promise<VALUE>());
-          values_[key] = returnFuture = returnPromise->get_future().share();
+          std::promise<VALUE> returnPromise;
+          values_[key] = returnPromise.get_future().share();
+
+          uniqueLock.unlock();
+          // The value (code) generation is not happening under a lock
+          VALUE val = generatorFunction();
+          returnPromise.set_value(val);
+          return val;
 #ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
         } else {
-          returnFuture = it->second;
+          return it->second.get();
         }
-        mutex_.unlock();
 #endif
       }
     }
-
-    // The value (code) generation is not happening under a lock
-    if (returnPromise) {
-      returnPromise->set_value(generatorFunction());
-    }
-
-    // Wait for the future and return the value
-    return returnFuture.get();
   }
 };
 
