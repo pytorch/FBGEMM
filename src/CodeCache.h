@@ -46,8 +46,11 @@ class CodeCache {
 
   VALUE getOrCreate(const KEY& key, std::function<VALUE()> generatorFunction) {
     std::shared_future<VALUE> returnFuture;
-    std::promise<VALUE> returnPromise;
-    bool needsToGenerate = false;
+    // In the (hopefully) common case where this cache is warm, we
+    // don't need returnPromise. When we are filling the cache, a
+    // single heap allocation probably isn't much compared to the cost
+    // of generating a kernel.
+    std::unique_ptr<std::promise<VALUE>> returnPromise;
 
     // Check for existance of the key
     {
@@ -73,8 +76,8 @@ class CodeCache {
         it = values_.find(key);
         if (it == values_.end()) {
 #endif
-          values_[key] = returnFuture = returnPromise.get_future().share();
-          needsToGenerate = true;
+          returnPromise.reset(new std::promise<VALUE>());
+          values_[key] = returnFuture = returnPromise->get_future().share();
 #ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
         } else {
           returnFuture = it->second;
@@ -85,8 +88,8 @@ class CodeCache {
     }
 
     // The value (code) generation is not happening under a lock
-    if (needsToGenerate) {
-      returnPromise.set_value(generatorFunction());
+    if (returnPromise) {
+      returnPromise->set_value(generatorFunction());
     }
 
     // Wait for the future and return the value
