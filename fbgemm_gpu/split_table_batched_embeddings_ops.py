@@ -558,9 +558,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         TODO: populate the supported list of optimizers
         """
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            step = self.get_optimizer_buffer("iter")
             list_of_state_dict = [
-                {"step": step, "sum": _sum[0]} for _sum in self.split_optimizer_states()
+                {"sum": _sum[0]} for _sum in self.split_optimizer_states()
             ]
         else:
             raise NotImplementedError(
