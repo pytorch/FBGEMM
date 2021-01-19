@@ -170,7 +170,7 @@ int main(int argc, char* argv[]) {
 
   std::cout << "Start stochastic algorithm tests with test_size = " << test_size
             << std::endl;
-  int cache_size = 6 * 1024 * 1024; // V100 6MB L2 cache
+  int cache_size = 40 * 1024 * 1024; // A100 40MB L2 cache
 
   f32_array.reserve(test_size);
   f16_direct_array.reserve(test_size);
