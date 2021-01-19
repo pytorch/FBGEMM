@@ -17,8 +17,8 @@ __global__ void flush_gpu(char* d_flush, char* d_flush2) {
   d_flush2[idx] = d_flush[idx];
 }
 
-void flush_cache() {
-  const int cache_size = 6 * 1024 * 1024; // V100 6MB L2 cache
+void flush_cache(int cache_size_mb=40) {
+  const int cache_size = cache_size_mb * 1024 * 1024; // A100 40MB L2 cache
   std::vector<char> flush(cache_size, (char)255);
   char* d_flush;
   char* d_flush2;
@@ -50,7 +50,7 @@ float benchmark_function(int iters, Lambda&& f) {
   CUDA_CHECK(cudaEventCreate(&stop));
   for (int i = 0; i < iters; i++) {
     float local_elapsed = 0;
-    flush_cache();
+    flush_cache(40); // A100 40MB L2 cache
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaEventRecord(start, 0));
 
