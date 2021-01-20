@@ -31,16 +31,23 @@ tar xzf 1.10.0.tar.gz
 export CUB_DIR=$PWD/cub-1.10.0
 ```
 
-+ ###### Jinjia
-third-party library [Jinja][1]. **Jinja is required** to
-build FBGEMM_GPU.
-
 + ###### googletest
-googletest is required to build and run FBGEMM_GPU's tests. **googletest is not
+[googletest][1] is required to build and run FBGEMM_GPU's tests. **googletest is not
 required** if you don't want to run FBGEMM_GPU tests. By default, building of tests
 is **on**. Turn it off by setting FBGEMMGPU\_BUILD\_TESTS to off.
 
-You can download [Jinja][1], [googletest][2] and set
+
++ ###### PyTorch, Jinjia
+[PyTorch][2] and [Jinjia][3] are **required** to build and run the table
+batched embedding bag operator. One thing to note is that the implementation
+of this op relies on the latest version of PyTorch (1.8+), so it requires the
+installation with PyTorch Nightly:
+```
+conda uninstall pytorch
+conda install pytorch cudatoolkit=9.2 -c pytorch-nightly
+```
+
+You can download [googletest][1] and set
 GOOGLETEST\_SOURCE\_DIR respectively for
 cmake to find these libraries. If any of these variables is not set, cmake will
 build the git submodules found in the third\_party directory.
@@ -75,7 +82,7 @@ python setup.py install
 
 ## How FBGEMM_GPU works
 For a high-level overview, design philosophy and brief descriptions of various
-parts of FBGEMM_GPU please see our Wiki.
+parts of FBGEMM_GPU please see our Wiki (work in progress).
 
 ## Full documentation
 We have extensively used comments in our source files. The best and up-do-date
@@ -88,5 +95,6 @@ See the [`CONTRIBUTING`](../CONTRIBUTING.md) file for how to help out.
 FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 
 
-[1]:https://jinja.palletsprojects.com/en/2.11.x/
-[2]:https://github.com/google/googletest
+[1]:https://github.com/google/googletest
+[2]:https://github.com/pytorch/pytorch
+[3]:https://jinja.palletsprojects.com/en/2.11.x/
