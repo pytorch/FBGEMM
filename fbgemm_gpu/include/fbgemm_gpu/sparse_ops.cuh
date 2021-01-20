@@ -21,57 +21,10 @@ __global__ void _index_hash_cuda_kernel(
   if (idx < N) {
     int8_t* bytes = (int8_t*)&(indices[idx]);
     scalar_t hashed = seed * 0xDEADBEEF;
+    // The compiler can unroll the loop
     for (int i = 0; i < sizeof(scalar_t) / sizeof(int8_t); i++) {
       hashed = hashed * 65537 + bytes[i];
     }
-    // We want the result of the modulo to be positive. This works under the
-    // assumption that modulo_ > 0 which is enforced in the constructor.
-    hashed_indices[idx] = (hashed % modulo + modulo) % modulo;
-  }
-}
-
-// Kernel for index hashing (int32_t)
-template <>
-__global__ void _index_hash_cuda_kernel<int32_t>(
-    int64_t N,
-    const int32_t* __restrict__ indices,
-    int64_t seed,
-    int64_t modulo,
-    int32_t* __restrict__ hashed_indices) {
-  int64_t idx = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < N) {
-    int8_t* bytes = (int8_t*)&(indices[idx]);
-    int32_t hashed = seed * 0xDEADBEEF;
-    hashed = hashed * 65537 + bytes[0];
-    hashed = hashed * 65537 + bytes[1];
-    hashed = hashed * 65537 + bytes[2];
-    hashed = hashed * 65537 + bytes[3];
-    // We want the result of the modulo to be positive. This works under the
-    // assumption that modulo_ > 0 which is enforced in the constructor.
-    hashed_indices[idx] = (hashed % modulo + modulo) % modulo;
-  }
-}
-
-// Kernel for index hashing (int64_t)
-template <>
-__global__ void _index_hash_cuda_kernel<int64_t>(
-    int64_t N,
-    const int64_t* __restrict__ indices,
-    int64_t seed,
-    int64_t modulo,
-    int64_t* __restrict__ hashed_indices) {
-  int64_t idx = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < N) {
-    int8_t* bytes = (int8_t*)&(indices[idx]);
-    int64_t hashed = seed * 0xDEADBEEF;
-    hashed = hashed * 65537 + bytes[0];
-    hashed = hashed * 65537 + bytes[1];
-    hashed = hashed * 65537 + bytes[2];
-    hashed = hashed * 65537 + bytes[3];
-    hashed = hashed * 65537 + bytes[4];
-    hashed = hashed * 65537 + bytes[5];
-    hashed = hashed * 65537 + bytes[6];
-    hashed = hashed * 65537 + bytes[7];
     // We want the result of the modulo to be positive. This works under the
     // assumption that modulo_ > 0 which is enforced in the constructor.
     hashed_indices[idx] = (hashed % modulo + modulo) % modulo;
