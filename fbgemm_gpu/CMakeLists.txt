@@ -5,7 +5,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 set (CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_70,code=sm_70")
 
 set (CUB_INCLUDE
-  "$ENV{CUB_DIR}/include")
+  "$ENV{CUB_DIR}")
 
 #install libraries into correct locations on all platforms
 include(GNUInstallDirs)
