@@ -622,4 +622,11 @@ struct SharedMemory<Vec4T<at::acc_type<double, true>>> {
   }
 };
 
+// Return if the address is aligned to the type (mainly for Vec4T).
+template <class T>
+DEVICE_INLINE bool is_aligned(const void* ptr) {
+  auto iptr = reinterpret_cast<std::uintptr_t>(ptr);
+  return !(iptr % alignof(T));
+}
+
 } // namespace fbgemm_gpu
