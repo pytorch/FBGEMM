@@ -6,7 +6,7 @@ from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 cur_dir = os.path.dirname(os.path.realpath(__file__))
-cub_include_path = os.getenv("CUB_DIR") + "/include"
+cub_include_path = os.getenv("CUB_DIR")
 build_codegen_path = "build/codegen"
 py_path = "python"
 
