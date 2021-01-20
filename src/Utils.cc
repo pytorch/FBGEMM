@@ -278,27 +278,30 @@ inst_set_t fbgemmInstructionSet() {
 
   inst_set_t forced_isa =
       g_forced_isa != inst_set_t::anyarch ? g_forced_isa : env_forced_isa;
-  inst_set_t detected_isa = inst_set_t::anyarch;
-  // Check environment
-  if (cpuinfo_initialize()) {
-    const bool isXeonD =
+  static const inst_set_t detected_isa = ([]() {
+    inst_set_t detected_isa = inst_set_t::anyarch;
+    // Check environment
+    if (cpuinfo_initialize()) {
+      const bool isXeonD =
         fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
-    if (fbgemmHasAvx512VnniSupport()) {
-      if (isXeonD) {
-        detected_isa = inst_set_t::avx512_vnni_ymm;
-      } else {
-        detected_isa = inst_set_t::avx512_vnni;
+      if (fbgemmHasAvx512VnniSupport()) {
+        if (isXeonD) {
+          detected_isa = inst_set_t::avx512_vnni_ymm;
+        } else {
+          detected_isa = inst_set_t::avx512_vnni;
+        }
+      } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
+        if (isXeonD) {
+          detected_isa = inst_set_t::avx512_ymm;
+        } else {
+          detected_isa = inst_set_t::avx512;
+        }
+      } else if (fbgemmHasAvx2Support()) {
+        detected_isa = inst_set_t::avx2;
       }
-    } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
-      if (isXeonD) {
-        detected_isa = inst_set_t::avx512_ymm;
-      } else {
-        detected_isa = inst_set_t::avx512;
-      }
-    } else if (fbgemmHasAvx2Support()) {
-      detected_isa = inst_set_t::avx2;
     }
-  }
+    return detected_isa;
+  })();
 
   if (forced_isa == inst_set_t::anyarch) {
     return detected_isa;
