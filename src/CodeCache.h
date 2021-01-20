@@ -44,7 +44,8 @@ class CodeCache {
 
   CodeCache(){};
 
-  VALUE getOrCreate(const KEY& key, std::function<VALUE()> generatorFunction) {
+  template<typename GENFUNC>
+  VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {
     // Check for existence of the key
     {
 #ifdef FBGEMM_USE_SHARED_TIMED_MUTEX
