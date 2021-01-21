@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <gtest/gtest.h>
+#include "fbgemm_gpu/batched_unary_embedding_wrappers.cuh"
 #include "fbgemm_gpu/cuda_utils.cuh"
-#include "fbgemm_gpu/embedding_wrappers.cuh"
 
 class FBGEMMGPUBatchUnaryEmbeddingTest : public ::testing::Test {
  protected:

@@ -12,12 +12,15 @@
 #include <vector>
 #include "./cuda_utils.cuh"
 
-__global__ void flush_gpu(char* d_flush, char* d_flush2) {
+__global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  d_flush2[idx] = d_flush[idx];
+  char val = d_flush[idx];
+  if (do_write * val) {
+    d_flush2[idx] = val;
+  }
 }
 
-void flush_cache(int cache_size_mb=40) {
+void flush_cache(int cache_size_mb=40, bool do_write=false) {
   const int cache_size = cache_size_mb * 1024 * 1024; // A100 40MB L2 cache
   std::vector<char> flush(cache_size, (char)255);
   char* d_flush;
@@ -26,7 +29,7 @@ void flush_cache(int cache_size_mb=40) {
   CUDA_CHECK(cudaMalloc(&d_flush2, cache_size));
   CUDA_CHECK(
       cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice));
-  flush_gpu<<<cache_size / 512, 512>>>(d_flush, d_flush2);
+  flush_gpu<<<cache_size / 512, 512>>>(d_flush, d_flush2, do_write);
   cudaFree(d_flush);
   cudaFree(d_flush2);
   CUDA_CHECK(cudaDeviceSynchronize());

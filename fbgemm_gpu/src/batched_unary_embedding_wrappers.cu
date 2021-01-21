@@ -8,9 +8,9 @@
 #include <cuda.h>
 #include <algorithm>
 #include <cassert>
-#include "fbgemm_gpu/batched_unary_embeddings.cuh"
+#include "fbgemm_gpu/batched_unary_embedding_ops.cuh"
+#include "fbgemm_gpu/batched_unary_embedding_wrappers.cuh"
 #include "fbgemm_gpu/cuda_utils.cuh"
-#include "fbgemm_gpu/embedding_wrappers.cuh"
 
 void fbgemm_gpu_test::batched_unary_embeddings_forward(
     const int32_t N,
