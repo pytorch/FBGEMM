@@ -121,19 +121,23 @@ void gen_8bit_random(uint8_t* d_random_number, int test_size) {
   cudaFree(d_random_number_f32);
 }
 
-__global__ void flush_gpu(char* d_flush, char* d_flush2) {
+__global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  d_flush2[idx] = d_flush[idx];
+  char val = d_flush[idx];
+  if (do_write * val) {
+    d_flush2[idx] = val;
+  }
 }
 
 void flush_cache(
     std::vector<char> flush,
     char* d_flush,
     char* d_flush2,
-    int cache_size) {
+    int cache_size,
+    bool do_write=false) {
   cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice);
   unsigned num_blocks = cache_size / 512;
-  flush_gpu<<<num_blocks, 512>>>(d_flush, d_flush2);
+  flush_gpu<<<num_blocks, 512>>>(d_flush, d_flush2, do_write);
   cudaDeviceSynchronize();
 }
 
