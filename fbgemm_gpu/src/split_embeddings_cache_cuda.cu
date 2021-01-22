@@ -149,7 +149,7 @@ void lxu_cache_flush_cuda(
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
-                                  ->philox_engine_inputs(1);
+                                  ->philox_engine_inputs(4);
         }
         auto stochastic_rounding_seed =
             splitmix64_stateless(rng_engine_inputs.first) ^
@@ -617,7 +617,7 @@ void lru_cache_insert_cuda(
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
-                                  ->philox_engine_inputs(1);
+                                  ->philox_engine_inputs(4);
         }
         auto stochastic_rounding_seed =
             splitmix64_stateless(rng_engine_inputs.first) ^
@@ -1042,7 +1042,7 @@ void lfu_cache_insert_cuda(
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
-                                  ->philox_engine_inputs(1);
+                                  ->philox_engine_inputs(4);
         }
         auto stochastic_rounding_seed =
             splitmix64_stateless(rng_engine_inputs.first) ^

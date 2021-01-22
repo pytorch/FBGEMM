@@ -806,7 +806,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                 std::lock_guard<std::mutex> lock(gen.mutex());
                 rng_engine_inputs =
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
-                        ->philox_engine_inputs(1);
+                        ->philox_engine_inputs(4);
             }
             auto stochastic_rounding_seed = splitmix64_stateless(rng_engine_inputs.first) ^ splitmix64_stateless(rng_engine_inputs.second);
             {% endif %}
