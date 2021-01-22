@@ -374,13 +374,17 @@ def lamb():
     split_precomputation = """
   acc_type<cache_t, true> weight_sum_sq = 0.0;
   acc_type<cache_t, true> rtw_sum_sq = 0.0;
-  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, nullptr);
+  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  float2 qparams;
+  if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    qparams = weight_row.load_qparams();
+  }
 #pragma unroll 1
   for (int32_t i = 0;
       i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-    Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d);
+    Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
     Vec4T<acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
 
     m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
@@ -487,7 +491,11 @@ def partial_rowwise_lamb():
 
     acc_type<cache_t, true> weight_sum_sq = 0.0;
     acc_type<cache_t, true> rtw_sum_sq = 0.0;
-    auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, nullptr);
+    auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+    float2 qparams;
+    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+        qparams = weight_row.load_qparams();
+    }
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -502,7 +510,7 @@ def partial_rowwise_lamb():
         m1.store(&momentum1[idx * D + d]);
 
         // now, we are finished with grad_sum. We can *reuse* grad_sum to store r_t + weight_decay * weight;
-        Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d);
+        Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
         grad_sum[i].acc.x = (m1.acc.x / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.x;
         grad_sum[i].acc.y = (m1.acc.y / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.y;
         grad_sum[i].acc.z = (m1.acc.z / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.z;
@@ -721,13 +729,17 @@ def lars_sgd():
   acc_type<cache_t, true> weight_sum_sq = 0.0;
   acc_type<cache_t, true> grad_sum_sq = 0.0;
 
-  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, nullptr);
+  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  float2 qparams;
+  if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+      qparams = weight_row.load_qparams();
+  }
 #pragma unroll kMaxVecsPerThread
   for (int32_t i = 0;
       i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-    Vec4T<acc_type<cache_t,true>> weight = weight_row.load(d);
+    Vec4T<acc_type<cache_t,true>> weight = weight_row.load(d, qparams);
     weight_sum_sq += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
     grad_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
