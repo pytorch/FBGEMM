@@ -12,6 +12,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#include <thrust/device_ptr.h>
+#include <thrust/extrema.h>
 
 namespace fbgemm_gpu {
 
@@ -21,6 +23,13 @@ namespace fbgemm_gpu {
 static constexpr int32_t kWarpSize = 32;
 // Max thread num in one thread block
 static constexpr int32_t kMaxThreads = 1024;
+static constexpr float kQParamEps = 1e-8f;
+
+/* For rowwise int8 quantization, two quantization parameters (qparams)
+will be stored at the end of each row in FP32 formats, appending a total of
+8 bytes to each row.
+*/
+static constexpr float kINT8QparamsBytes = 8;
 
 // Pooling Mode: currently SUM and MEAN pooling are supported
 enum PoolingMode { SUM, MEAN };
@@ -407,7 +416,8 @@ template <typename dst_t, typename src_t>
 DEVICE_INLINE void stochastic_rounding_vector(
     dst_t* output,
     Vec4T<src_t> value,
-    StochasticRoundingRNGState& state) {
+    StochasticRoundingRNGState& state,
+    float2 /* not used */) {
   value.store(output);
 }
 
@@ -415,7 +425,8 @@ template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
     Vec4T<at::Half> value,
-    StochasticRoundingRNGState& state) {
+    StochasticRoundingRNGState& state,
+    float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
   v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
@@ -429,7 +440,8 @@ template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
     Vec4T<float> value,
-    StochasticRoundingRNGState& state) {
+    StochasticRoundingRNGState& state,
+    float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
   v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
@@ -442,16 +454,9 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
-    Vec4T<double> value,
-    StochasticRoundingRNGState& state) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
-}
-
-template <>
-DEVICE_INLINE void stochastic_rounding_vector(
-    uint8_t* output,
     Vec4T<float> value,
-    StochasticRoundingRNGState& state) {
+    StochasticRoundingRNGState& state,
+    float2 qparams) {
   CUDA_KERNEL_ASSERT(false); // not yet implemented
 }
 
@@ -459,70 +464,107 @@ template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
     Vec4T<at::Half> value,
-    StochasticRoundingRNGState& state) {
+    StochasticRoundingRNGState& state,
+    float2 qparams) {
   CUDA_KERNEL_ASSERT(false); // not yet implemented
 }
 
 // begin nearest rounding and store implementations
 template <typename dst_t, typename src_t>
-DEVICE_INLINE void nearest_rounding_vector(dst_t* output, Vec4T<src_t> value) {
+DEVICE_INLINE void nearest_rounding_vector(
+    dst_t* output,
+    Vec4T<src_t> value,
+    float2 /* not used */) {
   value.store(output);
 }
 
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    Vec4T<double> value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
+    Vec4T<float> value,
+    float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = std::lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
+  output[2] = std::lrintf((value.acc.z - qparams.y) * inv_scale);
+  output[3] = std::lrintf((value.acc.w - qparams.y) * inv_scale);
 }
 
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    Vec4T<float> value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
-}
-
-template <>
-DEVICE_INLINE void nearest_rounding_vector(
-    uint8_t* output,
-    Vec4T<at::Half> value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
+    Vec4T<at::Half> value,
+    float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = std::lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
+  output[2] = std::lrintf((value.acc.z - qparams.y) * inv_scale);
+  output[3] = std::lrintf((value.acc.w - qparams.y) * inv_scale);
 }
 
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
     Vec4T<src_t> value,
-    StochasticRoundingRNGState* state) {
+    StochasticRoundingRNGState* state,
+    float2 qparams) {
   if (!state) {
-    nearest_rounding_vector(output, value);
+    nearest_rounding_vector(output, value, qparams);
   } else {
-    stochastic_rounding_vector(output, value, *state);
+    stochastic_rounding_vector(output, value, *state, qparams);
   }
 }
 
 template <typename dst_t, typename src_t>
-DEVICE_INLINE Vec4T<dst_t> dequantize_load(src_t* value) {
+DEVICE_INLINE Vec4T<dst_t> dequantize_load(
+    src_t* value,
+    float2 /* unused */) {
   return Vec4T<dst_t>(value);
 }
 
 template <>
-DEVICE_INLINE Vec4T<double> dequantize_load(uint8_t* value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
-  return Vec4T<double>();
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    uint8_t* value,
+    float2 qparams) {
+  Vec4T<float> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+  out.acc.z = value[2] * qparams.x + qparams.y;
+  out.acc.w = value[3] * qparams.x + qparams.y;
+  return out;
 }
 
 template <>
-DEVICE_INLINE Vec4T<float> dequantize_load(uint8_t* value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
-  return Vec4T<float>();
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    uint8_t* value,
+    float2 qparams) {
+  Vec4T<at::Half> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+  out.acc.z = value[2] * qparams.x + qparams.y;
+  out.acc.w = value[3] * qparams.x + qparams.y;
+  return out;
+}
+
+template <typename emb_t>
+DEVICE_INLINE float2 load_qparams_from_row(emb_t* qparam_ptr) {
+  float2 qparams;
+  float* qparams_fp_ptr = reinterpret_cast<float*>(qparam_ptr);
+  qparams.x = qparams_fp_ptr[0];
+  qparams.y = qparams_fp_ptr[1];
+  return qparams;
+}
+
+template <typename emb_t>
+DEVICE_INLINE void store_qparams_to_row(emb_t* ptr, float2 qparams) {
+  CUDA_KERNEL_ASSERT(false); // Only int8 embeddding should call this
 }
 
 template <>
-DEVICE_INLINE Vec4T<at::Half> dequantize_load(uint8_t* value) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
-  return Vec4T<at::Half>();
+DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
+  float* qparam_ptr = reinterpret_cast<float*>(ptr);
+  qparam_ptr[0] = qparams.x;
+  qparam_ptr[1] = qparams.y;
 }
 
 template <typename emb_t, typename cache_t, typename dst_t>
@@ -532,36 +574,51 @@ struct WeightRow {
   DEVICE_INLINE WeightRow(
       emb_t* row,
       cache_t* cache_row,
+      int dim,
       StochasticRoundingRNGState* stoc_rounding_state)
       : row_(row),
         cache_row_(cache_row),
+        dim_(dim),
         stoc_rounding_state_(stoc_rounding_state) {}
   emb_t* row_;
   cache_t* cache_row_;
+  int dim_;
   StochasticRoundingRNGState* stoc_rounding_state_;
 
+  DEVICE_INLINE void set_stoc_state(StochasticRoundingRNGState* stoc_rounding_state) {
+    stoc_rounding_state_ = stoc_rounding_state;
+  }
+
   // load from cache if resident; else load from embedding
-  DEVICE_INLINE Vec4T<dst_t> load(int32_t d) {
+  DEVICE_INLINE Vec4T<dst_t> load(int32_t d, float2 qparams) {
     if (cache_row_) {
-      return dequantize_load<dst_t, cache_t>(cache_row_ + d);
+      return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
     } else {
-      return dequantize_load<dst_t, emb_t>(row_ + d);
+      return dequantize_load<dst_t, emb_t>(row_ + d, qparams);
     }
   }
 
-  // write back weight (high precision) to cache if resident; else write to
-  // embedding assume dst_t is higher precision than cache_t and emb_t
-  DEVICE_INLINE void store(Vec4T<dst_t> v, int32_t d) {
+  // write back weight (high precision) to cache if resident; else write to embedding
+  // assume dst_t is higher precision than cache_t and emb_t
+  DEVICE_INLINE void store(Vec4T<dst_t> v, int32_t d, float2 qparams) {
     if (cache_row_) {
-      quantize_store(cache_row_ + d, v, stoc_rounding_state_);
+      quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
     } else {
-      quantize_store(row_ + d, v, stoc_rounding_state_);
+      quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
     }
   }
 
   // evict cached row into embedding row (high prec -> low prec)
-  DEVICE_INLINE void evict(Vec4T<dst_t> v, int32_t d) {
-    quantize_store(row_ + d, v, stoc_rounding_state_);
+  DEVICE_INLINE void evict(Vec4T<dst_t> v, int32_t d, float2 qparams) {
+    quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
+  }
+
+  DEVICE_INLINE void store_qparams(float2 qparams) {
+    store_qparams_to_row(row_ + dim_, qparams);
+  }
+
+  DEVICE_INLINE float2 load_qparams() {
+    return load_qparams_from_row<emb_t>(row_ + dim_);
   }
 };
 
@@ -628,5 +685,56 @@ DEVICE_INLINE bool is_aligned(const void* ptr) {
   auto iptr = reinterpret_cast<std::uintptr_t>(ptr);
   return !(iptr % alignof(T));
 }
+
+template <typename scalar_t>
+__device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
+float2 qparams;
+  float minimum_element =
+        *thrust::min_element(thrust::device, input_row, input_row + D);
+  float maximum_element =
+  *thrust::max_element(thrust::device, input_row, input_row + D);
+  float range = maximum_element - minimum_element;
+  qparams.x = range / 255.0f;
+  qparams.y = minimum_element;
+  return qparams;
+}
+
+template <typename scalar_t>
+__device__ float2 thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
+/** TODO: this kernel is sequential. We can optimize with WarpReduceAllMin/Max to paralellize
+* in cases where invoked with blockDim.x = warp size (32).
+*/
+float2 qparams;
+float min_val = vec4_min(input_row[0]);
+float max_val = vec4_max(input_row[0]);
+for (int i = 0; i < D / 4; ++i) {
+  min_val = min(min_val, vec4_min(input_row[i]));
+  max_val = max(max_val, vec4_max(input_row[i]));
+}
+qparams.x = (max_val - min_val) / 255.0f;
+qparams.y = min_val;
+return qparams;
+}
+
+template <typename scalar_t>
+DEVICE_INLINE scalar_t vec4_min(
+    fbgemm_gpu::Vec4T<scalar_t> vec4) {
+  scalar_t min_val = vec4.acc.x;
+  min_val = min(vec4.acc.y, min_val);
+  min_val = min(vec4.acc.z, min_val);
+  min_val = min(vec4.acc.w, min_val);
+  return min_val;
+}
+
+template <typename scalar_t>
+DEVICE_INLINE scalar_t vec4_max(
+    fbgemm_gpu::Vec4T<scalar_t> vec4) {
+  scalar_t max_val = vec4.acc.x;
+  max_val = max(vec4.acc.y, max_val);
+  max_val = max(vec4.acc.z, max_val);
+  max_val = max(vec4.acc.w, max_val);
+  return max_val;
+}
+
 
 } // namespace fbgemm_gpu

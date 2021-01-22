@@ -52,7 +52,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
     PackedTensorAccessor32<acc_type<cache_t, true>, 2, RestrictPtrTraits>
         output // [B][total_D],
     ) {
-
     int32_t B = output.size(0);
     int32_t T = D_offsets.size(0) - 1;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -103,10 +102,28 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
             acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
             {% endif %}
 
+            int32_t D_emb = D;
+            if (std::is_same<emb_t, uint8_t>::value) {
+                D_emb += kINT8QparamsBytes;
+            }
             {% if not dense %}
-            auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(const_cast<emb_t*>(&weights[idx_j * D]), const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]), nullptr);
+            auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
+                const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
+                D,
+                nullptr);
+            float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+
             {% endif %}
-            auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(const_cast<emb_t*>(&weights[idx_j * D]), nullptr, nullptr);
+            auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
+                const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                nullptr,
+                D,
+                nullptr);
+            float2 qparams_emb;
+            if (std::is_same<emb_t, uint8_t>::value) {
+                qparams_emb = weight_row_emb.load_qparams();
+            }
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -114,7 +131,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
                 int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                 {% if not dense %}
                 if (placement == MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                    Vec4T<cache_t> weight = weight_row_cache.load(d);
+                    Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
@@ -124,7 +141,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
                     accumulators[i].acc.w += weight.acc.w;
                     {% endif %}
                 } else {
-                    Vec4T<cache_t> weight = weight_row_emb.load(d);
+                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
@@ -135,7 +152,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
                     {% endif %}
                 }
                 {% else %}
-                    Vec4T<cache_t> weight = weight_row_emb.load(d);
+                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
@@ -198,10 +215,10 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     TORCH_CHECK(total_D % 4 == 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
     at::Tensor output;
-    if (dev_weights.type().scalarType() == at::kHalf) {
-    output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
+    if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
+        output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else {
-    output = empty({B, total_D}, dev_weights.options());
+        output = empty({B, total_D}, dev_weights.options());
     }
 
     {% if not dense %}

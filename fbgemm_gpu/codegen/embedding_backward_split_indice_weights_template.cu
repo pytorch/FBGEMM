@@ -125,23 +125,41 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                         weight.acc.y * grad_out[i].acc.y +
                         weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
                 } else {
+                    int32_t D_emb = D;
+                    if (std::is_same<emb_t, uint8_t>::value) {
+                        D_emb += kINT8QparamsBytes;
+                    }
                     auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(
-                        const_cast<emb_t*>(&weights[idx_j * D]),
+                        const_cast<emb_t*>(&weights[idx_j * D_emb]),
                         nullptr,
+                        D,
                         nullptr);
+                    float2 qparams;
+                    if (std::is_same<emb_t, uint8_t>::value) {
+                        qparams = weight_row.load_qparams();
+                    }
                     Vec4T<acc_type<cache_t, true>> weight =
-                    weight_row.load(d);
+                    weight_row.load(d, qparams);
                     grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                         weight.acc.y * grad_out[i].acc.y +
                         weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
                 }
                 {% else %}
+                int32_t D_emb = D;
+                if (std::is_same<emb_t, uint8_t>::value) {
+                    D_emb += kINT8QparamsBytes;
+                }
                 auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(
-                    const_cast<emb_t*>(&weights[idx_j * D]),
+                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
                     nullptr,
+                    D,
                     nullptr);
+                float2 qparams;
+                if (std::is_same<emb_t, uint8_t>::value) {
+                    qparams = weight_row.load_qparams();
+                }
                 Vec4T<acc_type<cache_t, true>> weight =
-                weight_row.load(d);
+                weight_row.load(d, qparams);
                 grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                     weight.acc.y * grad_out[i].acc.y +
                     weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
