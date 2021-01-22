@@ -17,7 +17,7 @@ torch.ops.load_library(
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
 )
 {% else %}
-torch.ops.load_library("fbgemm_gpu.cpython-37m-x86_64-linux-gnu.so")
+torch.ops.load_library("fbgemm_gpu.so")
 {% endif %}
 
 

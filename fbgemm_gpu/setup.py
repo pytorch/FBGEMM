@@ -83,7 +83,7 @@ def generate_jinja_files():
     shutil.copy2(os.path.join(cur_dir, "codegen", "lookup_args.py"), dst_python_path)
 
 
-class FBGEMM_GPU_BuildExtension(BuildExtension):
+class FBGEMM_GPU_BuildExtension(BuildExtension.with_options(no_python_abi_suffix=True)):
     def build_extension(self, ext):
         generate_jinja_files()
         super().build_extension(ext)

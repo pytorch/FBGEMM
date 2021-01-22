@@ -3,8 +3,8 @@
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
 high-performance CUDA GPU operator library for GPU training.
 
-The library provides efficient embedding table lookup, data layout transformation,
-and quantization supports.
+The library provides efficient table batched embedding bag,
+data layout transformation, and quantization supports.
 
 
 ## Examples
@@ -13,13 +13,15 @@ The tests (in test folder) and benchmarks (in bench folder) are some great
 examples of using FBGEMM_GPU.
 
 ## Build Notes
-FBGEMM_GPU uses the standard CMAKE-based build flow.
+FBGEMM_GPU uses the standard CMAKE-based build flow
+and [PyTorch TorchScript extension with custom C++ operator][0] build flow.
 
 ### Dependencies
 FBGEMM_GPU requires nvcc and a Nvidia GPU with
 compute capability of 3.5+.
 
-For the CUB build time dependency, if you are using conda, you can continue with
++ ###### CUB
+For the [CUB][1] build time dependency, if you are using conda, you can continue with
 ```
 conda install -c bottler nvidiacub
 ```
@@ -32,22 +34,24 @@ export CUB_DIR=$PWD/cub-1.10.0
 ```
 
 + ###### googletest
-[googletest][1] is required to build and run FBGEMM_GPU's tests. **googletest is not
+[googletest][2] is required to build and run FBGEMM_GPU's tests. **googletest is not
 required** if you don't want to run FBGEMM_GPU tests. By default, building of tests
 is **on**. Turn it off by setting FBGEMMGPU\_BUILD\_TESTS to off.
 
 
-+ ###### PyTorch, Jinjia
-[PyTorch][2] and [Jinjia][3] are **required** to build and run the table
++ ###### PyTorch, Jinja2
+[PyTorch][3] and [Jinja2][4] are **required** to build and run the table
 batched embedding bag operator. One thing to note is that the implementation
 of this op relies on the latest version of PyTorch (1.8+), so it requires the
 installation with PyTorch Nightly:
 ```
 conda uninstall pytorch
+# update with the corresponding CUDA version
 conda install pytorch cudatoolkit=9.2 -c pytorch-nightly
+conda install jinja2
 ```
 
-You can download [googletest][1] and set
+You can download [googletest][2] and set
 GOOGLETEST\_SOURCE\_DIR respectively for
 cmake to find these libraries. If any of these variables is not set, cmake will
 build the git submodules found in the third\_party directory.
@@ -60,24 +64,30 @@ cd FBGEMM/fbgemm_gpu
 # if you are updating an existing checkout
 git submodule sync
 git submodule update --init --recursive
-cd fbgemm_gpu
+# configure the NVCC and CUB path
 export CUDACXX=/usr/local/cuda/bin/nvcc
 export CUB_DIR=${CUB_DIR}
+# in fbgemm_gpu folder
+# build the data layout transform op, quantized ops, etc.
 mkdir build && cd build
 cmake ..
 make
+# build the table batched embedding bag op
+cd ..
+python setup.py build develop
 ```
 
-To run the tests after building FBGEMM_GPU (if tests are built), use the following
-command:
-```
-make test
-```
+## Running  FBGEMM_GPU
 
-## Installing  FBGEMM_GPU
+To run the tests or benchmarks after building FBGEMM_GPU (if tests or benchmarks
+are built), use the following command:
 ```
-make install
-python setup.py install
+# run the tests for the data layout transform op, quantized ops, etc.
+cd build && make test
+# run the tests and benchmarks of table batched embedding bag op
+cd ..
+python test/split_table_batched_embeddings_test.py
+python bench/split_table_batched_embeddings_benchmark.py
 ```
 
 ## How FBGEMM_GPU works
@@ -94,7 +104,8 @@ See the [`CONTRIBUTING`](../CONTRIBUTING.md) file for how to help out.
 ## License
 FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 
-
-[1]:https://github.com/google/googletest
-[2]:https://github.com/pytorch/pytorch
-[3]:https://jinja.palletsprojects.com/en/2.11.x/
+[0]:https://pytorch.org/tutorials/advanced/torch_script_custom_ops.html
+[1]:https://github.com/NVIDIA/cub
+[2]:https://github.com/google/googletest
+[3]:https://github.com/pytorch/pytorch
+[4]:https://jinja.palletsprojects.com/en/2.11.x/
