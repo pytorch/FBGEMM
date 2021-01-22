@@ -91,6 +91,15 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     int32_t D_end_current = D_offsets[t_current + 1];
     int32_t D_current = D_end_current - D_start_current;
 
+    int32_t D_emb = D_current;
+    if (std::is_same<emb_t, uint8_t>::value) {
+      D_emb += kINT8QparamsBytes;
+    }
+    auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(
+        &weights[weights_offset_current + idx_current * D_emb + 0],
+        &lxu_cache_weights[b][0],
+        D_current,
+        nullptr);
     if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
       StochasticRoundingRNGState state;
       // different for every *run* and every *thread*.
@@ -99,23 +108,18 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
           blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
               threadIdx.x,
           &state);
-      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-          &weights[weights_offset_current + idx_current * D_current + 0],
-          &lxu_cache_weights[b][0],
-          &state);
-      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-        weight_row.evict(cache_weights_vec, d * 4); // FP32 -> FP16/FP32
-      }
-    } else {
-      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-          &weights[weights_offset_current + idx_current * D_current + 0],
-          &lxu_cache_weights[b][0],
-          nullptr);
-      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-        weight_row.evict(cache_weights_vec, d * 4); // FP32 -> FP16/FP32
-      }
+      weight_row.set_stoc_state(&state);
+    }
+
+
+    float2 qparams;
+    if (std::is_same<emb_t, uint8_t>::value) {
+      qparams = thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
+      weight_row.store_qparams(qparams);
+    }
+    for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+      Vec4T<acc_type<cache_t, true>> cache_weights_vec = weight_row.load(d * 4, qparams);
+      weight_row.evict(cache_weights_vec, d * 4, qparams);
     }
   }
 }
@@ -534,7 +538,15 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
       int32_t D_start_current = D_offsets[t_current];
       int32_t D_end_current = D_offsets[t_current + 1];
       int32_t D_current = D_end_current - D_start_current;
-
+      int32_t D_emb = D_current;
+      if (std::is_same<emb_t, uint8_t>::value) {
+        D_emb += kINT8QparamsBytes;
+      }
+      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_current + idx_current * D_emb + 0],
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+          D_current,
+          nullptr);
       if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
         StochasticRoundingRNGState state;
         // different for every *run* and every *thread*.
@@ -545,41 +557,42 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
                     kWarpSize +
                 l,
             &state);
-        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-            &weights[weights_offset_current + idx_current * D_current + 0],
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            &state);
-
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-          weight_row.evict(cache_weights_vec, d * 4); // FP32 -> FP16/FP32
-        }
-      } else {
-        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-            &weights[weights_offset_current + idx_current * D_current + 0],
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            nullptr);
-
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-          weight_row.evict(cache_weights_vec, d * 4); // FP32 -> FP16/FP32
-        }
+        weight_row.set_stoc_state(&state);
       }
+      float2 qparams;
+      if (std::is_same<emb_t, uint8_t>::value) {
+        qparams = thrust_find_qparams<cache_t>(&lxu_cache_weights[cache_set * kWarpSize + insert_slot][0], D_current);
+        weight_row.store_qparams(qparams);
+      }
+      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
+        weight_row.evict(cache_weights_vec, d * 4, qparams); // FP32 -> FP16/FP32
+      }
+    }
+    int32_t D_emb = D_insert;
+    if (std::is_same<emb_t, uint8_t>::value) {
+        D_emb += kINT8QparamsBytes;
     }
     // insert into cache
     auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_insert + 0],
+        &weights[weights_offset_insert + idx_insert * D_emb + 0],
         &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+        D_insert,
         nullptr);
 
     auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_insert + 0],
+        &weights[weights_offset_insert + idx_insert * D_emb + 0],
         nullptr,
+        D_insert,
         nullptr);
 
+    float2 qparams;
+    if (std::is_same<emb_t, uint8_t>::value) {
+        qparams = weight_row_emb.load_qparams();
+    }
     for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
-      auto row = weight_row_emb.load(d * 4);
-      weight_row_cache.store(row, d * 4);
+      auto row = weight_row_emb.load(d * 4, qparams);
+      weight_row_cache.store(row, d * 4, qparams);
     }
     if (threadIdx.x == 0) {
       lxu_cache_state[cache_set][insert_slot] = insert_idx;
@@ -958,6 +971,15 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       int32_t D_end_current = D_offsets[t_current + 1];
       int32_t D_current = D_end_current - D_start_current;
 
+      int32_t D_emb = D_current;
+      if (std::is_same<emb_t, uint8_t>::value) {
+            D_emb += kINT8QparamsBytes;
+      }
+      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_current + idx_current * D_emb + 0],
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+          D_current,
+          nullptr);
       if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
         StochasticRoundingRNGState state;
         // different for every *run* and every *thread*.
@@ -968,45 +990,45 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
                     kWarpSize +
                 l,
             &state);
-        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-            &weights[weights_offset_current + idx_current * D_current + 0],
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            &state);
+        weight_row.set_stoc_state(&state);
+      }
 
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-          weight_row.evict(
-              cache_weights_vec,
-              d * 4); // FP32 -> INT8/FP16/FP32 stochastic rounding
-        }
-      } else {
-        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-            &weights[weights_offset_current + idx_current * D_current + 0],
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            nullptr);
-
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4);
-          weight_row.evict(
-              cache_weights_vec,
-              d * 4); // FP32 -> INT8/FP16/FP32 nearest rounding
-        }
+      float2 qparams;
+      if (std::is_same<emb_t, uint8_t>::value) {
+        qparams = thrust_find_qparams<cache_t>(&lxu_cache_weights[cache_set * kWarpSize + insert_slot][0], D_current);
+        weight_row.store_qparams(qparams);
+      }
+      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
+        weight_row.evict(
+            cache_weights_vec,
+            d * 4, qparams);
       }
     }
     // insert into cache
+    int32_t D_emb = D_insert;
+    if (std::is_same<emb_t, uint8_t>::value) {
+          D_emb += kINT8QparamsBytes;
+    }
     auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_insert + 0],
+        &weights[weights_offset_insert + idx_insert * D_emb + 0],
         &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+        D_insert,
         nullptr);
 
     auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_insert + 0],
+        &weights[weights_offset_insert + idx_insert * D_emb + 0],
         nullptr,
+        D_insert,
         nullptr);
 
+    float2 qparams;
+    if (std::is_same<emb_t, uint8_t>::value) {
+      qparams = weight_row_emb.load_qparams();
+    }
     for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
-      auto row = weight_row_emb.load(d * 4);
-      weight_row_cache.store(row, d * 4);
+      auto row = weight_row_emb.load(d * 4, qparams);
+      weight_row_cache.store(row, d * 4, qparams);
     }
     if (threadIdx.x == 0) {
       lxu_cache_state[cache_set][insert_slot] = insert_idx;
