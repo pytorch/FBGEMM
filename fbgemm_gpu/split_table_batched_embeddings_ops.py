@@ -13,30 +13,12 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import split_embedding_codegen_lookup_invokers as invokers
+from split_embedding_configs import EmbOptimType as OptimType
 import torch
 from torch import Tensor, nn
 
 
 ASSOC = 32
-
-
-@enum.unique
-class OptimType(enum.Enum):
-    EXACT_SGD = (
-        "exact_sgd"  # uses deterministic updates (via sorting + segment reduction)
-    )
-    LAMB = "lamb"
-    ADAM = "adam"
-    # exact/dedup: gradients to the same row are applied with coalesce then apply
-    # together, instead of applied in sequence (approx).
-    EXACT_ADAGRAD = "exact_adagrad"
-    EXACT_ROWWISE_ADAGRAD = "exact_row_wise_adagrad"
-    LARS_SGD = "lars_sgd"
-    PARTIAL_ROWWISE_ADAM = "partial_row_wise_adam"
-    PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
-
-    def __str__(self):
-        return self.value
 
 
 class EmbeddingLocation(enum.IntEnum):
