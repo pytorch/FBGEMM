@@ -153,6 +153,7 @@ def cli():
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
 @click.option("--fp16", is_flag=True, default=False)
+@click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--managed", default="device")
 @click.option("--mixed", is_flag=True, default=False)
@@ -168,6 +169,7 @@ def device(  # noqa C901
     batch_size: int,
     embedding_dim: int,
     fp16: bool,
+    stoc: bool,
     iters: int,
     managed: str,
     mixed: bool,
@@ -217,8 +219,8 @@ def device(  # noqa C901
         optimizer=optimizer,
         learning_rate=0.1,
         eps=0.1,
-        stochastic_rounding=False,
         fp16=fp16,
+        stochastic_rounding=stoc,
     ).cuda()
 
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
@@ -275,6 +277,7 @@ def device(  # noqa C901
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
 @click.option("--fp16", is_flag=True, default=False)
+@click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
@@ -289,6 +292,7 @@ def uvm(
     batch_size: int,
     embedding_dim: int,
     fp16: bool,
+    stoc: bool,
     iters: int,
     mixed: bool,
     num_embeddings: int,
@@ -329,6 +333,7 @@ def uvm(
             for d in Ds[:T_uvm]
         ],
         fp16=fp16,
+        stochastic_rounding=stoc,
     ).cuda()
     emb_gpu = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [
@@ -341,6 +346,7 @@ def uvm(
             for d in Ds[T_uvm:]
         ],
         fp16=fp16,
+        stochastic_rounding=stoc,
     ).cuda()
     emb_mixed = (
         split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
@@ -360,6 +366,7 @@ def uvm(
                 )
             ],
             fp16=fp16,
+            stochastic_rounding=stoc,
         ).cuda()
     )
     requests_uvm = generate_requests(
@@ -440,6 +447,7 @@ def uvm(
 @click.option("--cache-sets", default=1024)
 @click.option("--embedding-dim", default=128)
 @click.option("--fp16", is_flag=True, default=False)
+@click.option("--stoc", is_flag=True, default=False)
 @click.option("--long-index", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--mixed", is_flag=True, default=False)
@@ -455,6 +463,7 @@ def cache(  # noqa C901
     cache_sets: int,
     embedding_dim: int,
     fp16: bool,
+    stoc: bool,
     iters: int,
     long_index: bool,
     mixed: bool,
@@ -497,6 +506,7 @@ def cache(  # noqa C901
         ],
         optimizer=optimizer,
         fp16=fp16,
+        stochastic_rounding=stoc,
     ).cuda()
     emb = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [
@@ -510,6 +520,7 @@ def cache(  # noqa C901
         ],
         optimizer=optimizer,
         fp16=fp16,
+        stochastic_rounding=stoc,
         cache_sets=cache_sets,
         cache_algorithm=cache_alg,
     ).cuda()
