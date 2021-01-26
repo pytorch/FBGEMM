@@ -294,5 +294,104 @@ __global__ void _bfloat16_to_float_cuda_kernel(
   }
 }
 
+/** Hybrid FP8 format with configurable #bits for exponents and mantissa, and configurable bias for exponents. Format is encoded as 1 sign bit followed by exponents then mantissa. Common formats are 1-4-3 for weights/activations and 1-5-2 for gradients.
+
+Current implementation rounds down to avoid large rounding error due to very few mantissa bits. e.g. 0.979680 will round to 0.5.
+
+e.g. Dynamic range for:
+1-4-3 with bias=4: (+/-0.000488, +/15)
+1-4-3 with bias=5: (+/-0.000244, +/7.5)
+1-4-3 with bias=6: (+/-0.000122, +/3.75)
+1-4-3 with bias=7 is (+/-0.000061, +/-1.875)
+*/
+__device__ uint8_t float_to_hfp8(float val_fp, int ebits, int mbits, int bias, float min_pos, float max_pos) {
+    if (val_fp > max_pos || val_fp < -max_pos) {
+      //printf("FP8-{1}-{%d}-{%d} overflow: max_pos:{%f} vs. value:{%f}\n", ebits, mbits, max_pos, val_fp);
+      val_fp = val_fp > 0 ? max_pos : -max_pos;
+    }
+
+    if ((val_fp >= 0 && val_fp < min_pos) || (val_fp <= 0 && val_fp > -min_pos) ) {
+        //printf("FP8-{1}-{%d}-{%d} underflow: min_pos:{%f} vs. value:{%f}. Will return 0.f.\n", ebits, mbits, min_pos, val_fp);
+        uint8_t bfp8_expo_sign = 1 << 6;
+        return bfp8_expo_sign;
+    }
+    // conversion starts here
+    uint32_t* val_fp_int32 = reinterpret_cast<uint32_t*>(&val_fp);
+    int8_t sign = uint8_t((*val_fp_int32) >> 31) << 7;
+
+    // uncomment for nearest rounding
+    // uint8_t hfp8_mantissa = uint32_t((*val_fp_int32 + (1 << (22 - mbits)) ) << 9) >> (32 - mbits);
+    uint8_t hfp8_mantissa = uint32_t((*val_fp_int32) << 9) >> (32-mbits);
+
+    int fp32_expo = ((*val_fp_int32) << 1) >> 24;
+
+    int8_t bfp8_expo = fp32_expo - 127 + bias;
+    uint8_t bfp8_expo_sign = bfp8_expo < 0 ? 1 << 6 : 0;
+
+    bfp8_expo = abs(bfp8_expo);
+    uint8_t bfp8_expo_shifted = bfp8_expo << (9 - ebits) >> 2;
+
+    uint8_t bfp8_val = sign | bfp8_expo_sign | bfp8_expo_shifted | hfp8_mantissa;
+
+    return bfp8_val;
+}
+
+__device__ float hfp8_to_float(uint8_t hfp8_val, int ebits, int mbits, int bias) {
+    uint8_t hfp8_expo = hfp8_val << 1 >> (8 - ebits);
+    if (hfp8_expo == (1 << (ebits-1))) {
+        // underflow special encoding
+        return 0;
+    }
+    uint32_t sign = (hfp8_val >> 7) << 31;
+
+    uint32_t hfp8_mantissa_left_align = ((int32_t)hfp8_val) << (32 - mbits);
+    uint32_t fp32_mantissa = (hfp8_mantissa_left_align >> 9);
+
+    uint8_t hfp8_expo_sign = uint8_t(hfp8_val << 1) >> 7;
+
+    uint8_t hfp8_expo_unsigned = uint8_t(hfp8_val << 2) >> (9-ebits);
+    int32_t hfp8_expo_signed = hfp8_expo_sign == 1 ? -1 * hfp8_expo_unsigned : hfp8_expo_unsigned;
+
+    int32_t fp32_expo = ((hfp8_expo_signed - bias) + 127);
+
+    fp32_expo = fp32_expo << 23;
+    int32_t fp32_val = sign | fp32_expo | fp32_mantissa;
+    float* fp32_val_float = reinterpret_cast<float*>(&fp32_val);
+    return *fp32_val_float;
+}
+
+__global__ void _float_to_hfp8_cuda_kernel(
+    const float* __restrict__ input,
+    const int nrows,
+    const int ncols,
+    uint8_t* __restrict__ output,
+    int ebits,
+    int mbits,
+    int bias,
+    float min_pos,
+    float max_pos) {
+  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  if (row < nrows && col < ncols) {
+    output[row * ncols + col] = float_to_hfp8(input[row * ncols + col], ebits, mbits, bias, min_pos, max_pos);
+  }
+}
+
+__global__ void _hfp8_to_float_cuda_kernel(
+    const uint8_t* __restrict__ input,
+    const int nrows,
+    const int ncols,
+    float* __restrict__ output,
+    int ebits,
+    int mbits,
+    int bias) {
+  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  if (row < nrows && col < ncols) {
+    output[row * ncols + col] = hfp8_to_float(input[row * ncols + col], ebits, mbits, bias);
+  }
+}
+
+
 #undef QUANTIZE_OPS_MAX
 #undef QUANTIZE_OPS_MIN
