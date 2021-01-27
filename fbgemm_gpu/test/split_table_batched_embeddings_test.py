@@ -951,7 +951,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, managed, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for (E, D) in zip(Es, Ds)],
+            [(E, D, M, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
         )
         for t in range(T):
