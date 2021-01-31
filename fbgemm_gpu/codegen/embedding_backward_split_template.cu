@@ -868,7 +868,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
-                <<<div_round_up(linear_indices.numel(), 32 * kWarpSize),
+                <<<div_round_up(sorted_linear_indices_cumulative_run_lengths.numel(), 32 * kWarpSize),
                     dim3(kWarpSize, BT_block_size),
                     BT_block_size * sizeof(acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
                         {{ kMaxVecsPerThread }},
@@ -919,7 +919,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
-                <<<div_round_up(linear_indices.numel(), kBackwardMaxThreads / kWarpSize),
+                <<<div_round_up(sorted_linear_indices_cumulative_run_lengths.numel(), kBackwardMaxThreads / kWarpSize),
                     dim3(kWarpSize, kBackwardMaxThreads / kWarpSize),
                     BT_block_size * sizeof(
                     acc_type<
