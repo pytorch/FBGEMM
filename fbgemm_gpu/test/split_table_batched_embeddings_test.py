@@ -441,7 +441,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L=st.integers(min_value=0, max_value=20),
         fp16=st.booleans(),
         weighted=st.booleans(),
-        exact=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
@@ -463,7 +462,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L,
         fp16,
         weighted,
-        exact,
         mixed,
         use_cache,
         cache_algorithm,
@@ -486,8 +484,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else "mean"
         )
 
-        # only non-exact supports caching
-        assume(not exact or not use_cache)
         E = int(10 ** log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
@@ -626,7 +622,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         stochastic_rounding=st.booleans(),
         weighted=st.booleans(),
         row_wise=st.booleans(),
-        exact=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
@@ -650,7 +645,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         stochastic_rounding,
         weighted,
         row_wise,
-        exact,
         mixed,
         use_cache,
         cache_algorithm,
@@ -659,6 +653,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     ):
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
+        exact = True # Only exact sparse optimizers are supported
 
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -676,8 +671,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # stochastic rounding only implemented for rowwise
         assume(not stochastic_rounding or row_wise)
-        # exact only implemented for rowwise non-weighted
-        assume(not exact or (row_wise and not weighted))
         # need unique indices for non-exact tests
         assume(exact or int(10 ** log_E) > int(2.1 * B * L))
         # only row-wise supports caching
