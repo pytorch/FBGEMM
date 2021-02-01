@@ -113,6 +113,9 @@ Tensor new_host_mapped_tensor(Tensor self, std::vector<std::int64_t> sizes) {
 
 // Check if a tensor is allocated with UVM or host-mapped memory
 bool is_uvm_tensor(Tensor t) {
+  if (t.device().is_cpu()) {
+    return false;
+  }
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t.get_device());
 

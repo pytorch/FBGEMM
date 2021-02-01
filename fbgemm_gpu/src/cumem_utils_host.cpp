@@ -25,7 +25,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def("is_uvm_tensor(Tensor t) -> bool");
   m.impl(
       "is_uvm_tensor",
-      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(is_uvm_tensor)));
+      torch::dispatch(c10::DispatchKey::Math, TORCH_FN(is_uvm_tensor)));
   m.def("uvm_to_cpu(Tensor t) -> Tensor");
   m.impl(
       "uvm_to_cpu",
