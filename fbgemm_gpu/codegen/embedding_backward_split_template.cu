@@ -60,7 +60,7 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
     int32_t max_segment_length_per_warp,
     {% if not dense %}
     bool stochastic_rounding,
-    uint64_t stochastic_rounding_seed,
+    PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
     PackedTensorAccessor64<cache_t, 1, RestrictPtrTraits> grad_dev_weights,
     {% endif %}
@@ -294,7 +294,13 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
             if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
                 StochasticRoundingRNGState state;
                 // different for every *run* and every *thread*.
-                stochastic_rounding_init(stochastic_rounding_seed, threadIdx.x + current_run_id * blockDim.x, &state);
+                auto stochastic_rounding_seeds =
+                    at::cuda::philox::unpack(stochastic_rounding_philox_args);
+                stochastic_rounding_init(
+                    std::get<0>(stochastic_rounding_seeds) ^
+                        std::get<1>(stochastic_rounding_seeds),
+                    threadIdx.x + current_run_id * blockDim.x,
+                    &state);
                 weight_row_template.set_stoc_state(&state);
             }
 
@@ -386,7 +392,7 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row
     int32_t max_segment_length_per_warp,
     {% if not dense %}
     bool stochastic_rounding,
-    uint64_t stochastic_rounding_seed,
+    PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
     PackedTensorAccessor64<cache_t, 1, RestrictPtrTraits> grad_dev_weights,
     {% endif %}
@@ -501,7 +507,13 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row
     if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
         StochasticRoundingRNGState state;
         // different for every *run* and every *thread*.
-        stochastic_rounding_init(stochastic_rounding_seed, threadIdx.x + run_id * blockDim.x, &state);
+        auto stochastic_rounding_seeds =
+            at::cuda::philox::unpack(stochastic_rounding_philox_args);
+        stochastic_rounding_init(
+            std::get<0>(stochastic_rounding_seeds) ^
+                std::get<1>(stochastic_rounding_seeds),
+            threadIdx.x + run_id * blockDim.x,
+            &state);
         weight_row_template.set_stoc_state(&state);
     }
     float2 qparams_template;
@@ -838,15 +850,14 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             }
 
             {% if not dense %}
-            std::pair<uint64_t, uint64_t> rng_engine_inputs = {0, 0};
+            PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
                 auto gen = at::cuda::detail::getDefaultCUDAGenerator();
                 std::lock_guard<std::mutex> lock(gen.mutex());
                 rng_engine_inputs =
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
-                        ->philox_engine_inputs(4);
+                        ->philox_cuda_state(4);
             }
-            auto stochastic_rounding_seed = splitmix64_stateless(rng_engine_inputs.first) ^ splitmix64_stateless(rng_engine_inputs.second);
             {% endif %}
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
             if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
@@ -903,7 +914,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                     max_segment_length_per_warp,
                     {% if not dense %}
                     stochastic_rounding,
-                    stochastic_rounding_seed,
+                    rng_engine_inputs,
                     {% else %}
                     grad_dev_weights.packed_accessor64<scalar_t, 1, RestrictPtrTraits>(),
                     {% endif %}
@@ -961,7 +972,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                     max_segment_length_per_warp,
                     {% if not dense %}
                     stochastic_rounding,
-                    stochastic_rounding_seed,
+                    rng_engine_inputs,
                     {% else %}
                     grad_dev_weights.packed_accessor64<scalar_t, 1, RestrictPtrTraits>(),
                     {% endif %}

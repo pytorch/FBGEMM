@@ -11,6 +11,7 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <THC/THCAtomics.cuh>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
@@ -21,8 +22,8 @@
 #include <curand_kernel.h>
 #include <mutex>
 
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
 template <typename scalar_t>
 DEVICE_INLINE fbgemm_gpu::Vec4T<scalar_t> vec4_acc(
@@ -58,7 +59,8 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
+      {static_cast<int64_t>(temp_storage_bytes)},
+      t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
@@ -79,7 +81,8 @@ __global__ void linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> infos,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> linear_indices) {
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        linear_indices) {
   int32_t T = hash_size_cumsum.size(0);
   int32_t B = (offsets.size(0) - 1) / T;
   int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
