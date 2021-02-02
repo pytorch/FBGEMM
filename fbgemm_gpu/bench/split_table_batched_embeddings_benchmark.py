@@ -554,19 +554,20 @@ def cache(  # noqa C901
 
     # warm up
     for indices, offsets, _ in warmup_requests:
-        emb.prefetch(indices.long(), offsets.long())
+        emb.forward(indices.long(), offsets.long())
     # get cache miss rate (forward and backward) and exchanged cache lines (prefetch)
     cache_misses = []
     exchanged_cache_lines = []
-    NOT_FOUND = np.iinfo(np.int32).max
+    NOT_FOUND = -1
     for indices, offsets, _ in requests:
         # pyre-fixme[16]
         old_lxu_cache_state = emb.lxu_cache_state.clone()
-        emb.forward(indices.long(), offsets.long())
+        emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
             (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
         )
-        cache_misses.append((emb.lxu_cache_locations == NOT_FOUND).sum().item())
+        cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
+        emb.forward(indices.long(), offsets.long(), prefetch=False)
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -579,7 +580,7 @@ def cache(  # noqa C901
     # benchmark prefetch
     emb.reset_cache_states()
     for indices, offsets, _ in warmup_requests:
-        emb.prefetch(indices, offsets)
+        emb.forward(indices, offsets)
     prefetch_time, forward_backward_time = benchmark_pipelined_requests(
         requests,
         lambda indices, offsets, indices_weights: emb.prefetch(indices, offsets),

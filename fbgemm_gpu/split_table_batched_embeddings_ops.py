@@ -13,12 +13,15 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import split_embedding_codegen_lookup_invokers as invokers
-from split_embedding_configs import EmbOptimType as OptimType
 import torch
+from split_embedding_configs import EmbOptimType as OptimType
 from torch import Tensor, nn
 
 
 ASSOC = 32
+# Maximum number of times prefetch() can be called without
+# a corresponding forward() call
+MAX_PREFETCH_DEPTH = 100
 
 
 class EmbeddingLocation(enum.IntEnum):
@@ -140,6 +143,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]
     optimizer_args: invokers.lookup_args.OptimizerArgs
+    lxu_cache_locations_list: List[Tensor]
+    lxu_cache_locations_empty: Tensor
 
     def __init__(  # noqa C901
         self,
@@ -358,14 +363,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         (indices, offsets) = indices.long(), offsets.long()
         self.step += 1
         if prefetch:
-            linear_cache_indices = self.prefetch(indices, offsets)
-            if linear_cache_indices is not None:
-                self.lxu_cache_locations = torch.ops.fb.lxu_cache_lookup(
-                    linear_cache_indices,
-                    # pyre-fixme[16]
-                    self.lxu_cache_state,
-                )
+            self.prefetch(indices, offsets)
 
+        lxu_cache_locations = (
+            self.lxu_cache_locations_empty
+            if len(self.lxu_cache_locations_list) == 0
+            else self.lxu_cache_locations_list.pop(0)
+        )
         commom_args = invokers.lookup_args.CommonArgs(
             # pyre-fixme[16]
             dev_weights=self.weights_dev,
@@ -391,7 +395,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
-            lxu_cache_locations=self.lxu_cache_locations,
+            lxu_cache_locations=lxu_cache_locations,
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
@@ -449,10 +453,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
-    def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
+    def prefetch(self, indices: Tensor, offsets: Tensor):
         # pyre-fixme[16]
         if not self.lxu_cache_weights.numel():
-            return None
+            return
 
         (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fb.linearize_cache_indices(
@@ -498,7 +502,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.lxu_state,
                 self.stochastic_rounding,
             )
-        return linear_cache_indices
+
+        assert (
+            len(self.lxu_cache_locations_list) < self.max_prefetch_depth
+        ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
+        self.lxu_cache_locations_list.append(
+            torch.ops.fb.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+            )
+        )
 
     @torch.jit.export
     def split_embedding_weights(self):
@@ -740,11 +753,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.cache_algorithm = cache_algorithm
         self.timestep = 1
 
+        self.max_prefetch_depth = MAX_PREFETCH_DEPTH
+        self.lxu_cache_locations_list = []
+        self.lxu_cache_locations_empty = torch.empty(
+            0, device=self.current_device, dtype=torch.int32
+        ).fill_(-1)
+
         # NOTE: no cache for CPU mode!
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
-            self.lxu_cache_locations = torch.empty(
-                0, device=self.current_device, dtype=torch.int32
-            ).fill_(-1)
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.zeros(0, 0, device=self.current_device, dtype=dtype),
@@ -838,10 +854,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"cache_algorithm must be {CacheAlgorithm.LRU} "
                 f"or {CacheAlgorithm.LFU}"
             )
-
-        self.lxu_cache_locations = torch.empty(
-            0, device=self.current_device, dtype=torch.int32
-        ).fill_(-1)
 
     def reset_cache_states(self) -> None:
         # pyre-fixme[16]
