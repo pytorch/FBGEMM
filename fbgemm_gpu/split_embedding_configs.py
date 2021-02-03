@@ -29,3 +29,13 @@ class EmbOptimType(enum.Enum):
 
     def __str__(self):
         return self.value
+
+
+@enum.unique
+class SpaseType(enum.Enum):
+    FP32 = "fp32"
+    FP16 = "fp16"
+    INT8 = "int8"
+
+    def __str__(self):
+        return self.value

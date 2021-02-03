@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 import split_embedding_codegen_lookup_invokers as invokers
 import torch
 from split_embedding_configs import EmbOptimType as OptimType
+from split_embedding_configs import SparseType
 from torch import Tensor, nn
 
 ASSOC = 32
@@ -164,6 +165,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
+        cache_precision: SparseType = SparseType.FP32,
         fp16: bool = False,
         optimizer: OptimType = OptimType.EXACT_SGD,
         # General Optimizer args
@@ -321,6 +323,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         cache_state = construct_cache_state(embedding_specs, self.feature_table_map)
         cache_embedding_dtype = torch.float32
+        if cache_precision == SparseType.FP32:
+            cache_embedding_dtype = torch.float32
+        elif cache_precision == SparseType.FP16:
+            cache_embedding_dtype = torch.float16
+        else:
+            raise AssertionError("cache_embedding_dtype not supported!")
+
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
