@@ -9,14 +9,13 @@ import enum
 import logging
 from dataclasses import dataclass
 from math import log2
+from numbers import Number
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import split_embedding_codegen_lookup_invokers as invokers
 import torch
 from split_embedding_configs import EmbOptimType as OptimType
 from torch import Tensor, nn
-
 
 ASSOC = 32
 # Maximum number of times prefetch() can be called without
@@ -53,6 +52,15 @@ class SplitState:
     uvm_size: int
     placements: List[EmbeddingLocation]
     offsets: List[int]
+
+
+def _cumsum(arr: List[Number]):
+    ret: List[Number] = []
+    curr = 0
+    for el in arr:
+        curr += el
+        ret.append(curr)
+    return ret
 
 
 def construct_split_state(
@@ -205,7 +213,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert all(table_has_feature), "Each table must have at least one feature!"
 
         D_offsets = [dims[t] for t in self.feature_table_map]
-        D_offsets = [0] + np.cumsum(D_offsets).tolist()
+        D_offsets = [0] + _cumsum(D_offsets)
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
 
@@ -214,7 +222,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
 
-        hash_size_cumsum = [0] + np.cumsum(rows).tolist()
+        hash_size_cumsum = [0] + _cumsum(rows)
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
         hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map]
         self.register_buffer(
@@ -907,7 +915,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         T = len(feature_table_map)
         assert T_ <= T
         D_offsets = [dims[t] for t in feature_table_map]
-        D_offsets = [0] + np.cumsum(D_offsets).tolist()
+        D_offsets = [0] + _cumsum(D_offsets)
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
         self.register_buffer(
@@ -916,7 +924,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert self.D_offsets.numel() == T + 1
 
-        hash_size_cumsum = [0] + np.cumsum(rows).tolist()
+        hash_size_cumsum = [0] + _cumsum(rows)
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
         hash_size_cumsum = [hash_size_cumsum[t] for t in feature_table_map]
         self.register_buffer(
@@ -925,9 +933,9 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
-        weights_offsets = [0] + np.cumsum(
+        weights_offsets = [0] + _cumsum(
             [row * dim for (row, dim) in embedding_specs]
-        ).tolist()
+        )
         self.weights = nn.Parameter(
             torch.randn(
                 weights_offsets[-1],
