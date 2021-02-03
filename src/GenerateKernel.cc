@@ -14,8 +14,7 @@ namespace x86 = asmjit::x86;
  * Generate instructions for initializing the C registers to 0 in 32-bit
  * Accumulation kernel.
  */
-void initCRegs(
-  x86::Emitter* a, int rowRegs, int colRegs) {
+void initCRegs(x86::Emitter* a, int rowRegs, int colRegs) {
   using CRegs = x86::Xmm;
   // Take advantage of implicit zeroing out
   // i.e., zero out xmm and ymm will be zeroed out too
@@ -29,4 +28,4 @@ void initCRegs(
   }
 }
 
-}
+} // namespace fbgemm

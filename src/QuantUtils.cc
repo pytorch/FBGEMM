@@ -12,8 +12,9 @@ namespace fbgemm {
 
 using namespace std;
 
-// Use fp16_min as the small scale cutoff because we don't want to use scales in fp16 subnormal range.
-// This is to be consistent with Glow and FakeLowP implementation for NNPI.
+// Use fp16_min as the small scale cutoff because we don't want to use scales in
+// fp16 subnormal range. This is to be consistent with Glow and FakeLowP
+// implementation for NNPI.
 constexpr float SMALL_SCALE_THRESHOLD = 6.1e-5f;
 
 float TensorQuantizationParams::Min() const {

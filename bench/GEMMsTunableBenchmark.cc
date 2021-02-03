@@ -167,12 +167,13 @@ void performance_test(
 #endif
 
   if (compare_buffers(Cint32_ref.data(), Cint32_fb_acc32.data(), m, n, n, 5)) {
-    vector<int> config = {tuning_params->MCB,
-                          tuning_params->NCB,
-                          tuning_params->KCB,
-                          tuning_params->MR,
-                          tuning_params->NR,
-                          tuning_params->ROW_INTERLEAVE};
+    vector<int> config = {
+        tuning_params->MCB,
+        tuning_params->NCB,
+        tuning_params->KCB,
+        tuning_params->MR,
+        tuning_params->NR,
+        tuning_params->ROW_INTERLEAVE};
     incorrect_configs.insert(config);
   } else {
     cout << setw(5) << "MCB, " << setw(5) << "NCB, " << setw(5) << "KCB, "
@@ -191,12 +192,13 @@ void performance_test(
          << nops / ttot << endl;
     if ((nops / ttot) > giga_ops) {
       giga_ops = nops / ttot;
-      best_config = {tuning_params->MCB,
-                     tuning_params->NCB,
-                     tuning_params->KCB,
-                     tuning_params->MR,
-                     tuning_params->NR,
-                     tuning_params->ROW_INTERLEAVE};
+      best_config = {
+          tuning_params->MCB,
+          tuning_params->NCB,
+          tuning_params->KCB,
+          tuning_params->MR,
+          tuning_params->NR,
+          tuning_params->ROW_INTERLEAVE};
     }
   }
 }

@@ -8,11 +8,11 @@
 #include "fbgemm/QuantUtilsAvx2.h"
 #include <immintrin.h>
 #include <algorithm> //for std::min/std::max
-#include <cmath> //for nearbyint
-#include <limits> //for numeric_limits
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
+#include <cmath> //for nearbyint
 #include <cstring> //for memcpy
+#include <limits> //for numeric_limits
 #include "./MaskAvx2.h"
 
 namespace fbgemm {
@@ -290,16 +290,17 @@ void RequantizeAvx2(
     const RequantizationParams& params) {
   int32_t Bq_zero_point[] = {0};
 
-  requantizationParams_t<> reqObj = {0, // Aq_zero_point
-                                     Bq_zero_point,
-                                     params.target_qparams.zero_point,
-                                     &params.real_multiplier,
-                                     nullptr, // row_offsets
-                                     nullptr, // col_offsets
-                                     nullptr, // bias
-                                     static_cast<std::uint32_t>(len), // ncols
-                                     1, // groups
-                                     nullptr}; // act_times_w_scale
+  requantizationParams_t<> reqObj = {
+      0, // Aq_zero_point
+      Bq_zero_point,
+      params.target_qparams.zero_point,
+      &params.real_multiplier,
+      nullptr, // row_offsets
+      nullptr, // col_offsets
+      nullptr, // bias
+      static_cast<std::uint32_t>(len), // ncols
+      1, // groups
+      nullptr}; // act_times_w_scale
   requantizeOutputProcessingAvx2<
       true, // A_SYMMETRIC
       true, // B_SYMMETRIC

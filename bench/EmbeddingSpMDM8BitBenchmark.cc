@@ -279,7 +279,8 @@ int run_benchmark(
         }
 
         double max_time = *std::max_element(
-            benchmarkTimes.begin(), benchmarkTimes.begin() + fbgemm_get_num_threads());
+            benchmarkTimes.begin(),
+            benchmarkTimes.begin() + fbgemm_get_num_threads());
         double avg_time = std::accumulate(
                               benchmarkTimes.begin(),
                               benchmarkTimes.begin() + fbgemm_get_num_threads(),

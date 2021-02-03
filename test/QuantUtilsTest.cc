@@ -418,15 +418,16 @@ TEST(QuantizeTest, cornerCases) {
   EXPECT_EQ(dst_int8[1], -128);
 
   // Tests vectorized and remainder paths
-  std::vector<float> src2 = {3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38};
+  std::vector<float> src2 = {
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38};
   std::vector<uint8_t> dst_uint8(src2.size());
   Quantize<uint8_t>(src2.data(), dst_uint8.data(), dst_uint8.size(), qparams);
   EXPECT_EQ(dst_uint8[0], 255);
@@ -531,25 +532,27 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
   EXPECT_TRUE(floatCloseAll(dst_int8, ref));
 
   // Tests vectorized and remainder paths
-  vector<float> src2 = {3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38};
+  vector<float> src2 = {
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38};
 
-  vector<float> ref2 = {3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05};
+  vector<float> ref2 = {
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05};
 
   std::vector<float> dst_uint8(src2.size(), 0);
 

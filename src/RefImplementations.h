@@ -9,9 +9,9 @@
 #include <algorithm>
 #include <cstdint>
 
-#include "fbgemm/Types.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 

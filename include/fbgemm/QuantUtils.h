@@ -154,7 +154,9 @@ void Dequantize(
 }
 
 template <typename T>
-float FusedQuantizeDequantize(float src, const TensorQuantizationParams& qparams) {
+float FusedQuantizeDequantize(
+    float src,
+    const TensorQuantizationParams& qparams) {
   T q = Quantize<T, false>(
       src, qparams.zero_point, qparams.scale, qparams.precision);
   return Dequantize<T>(q, qparams);

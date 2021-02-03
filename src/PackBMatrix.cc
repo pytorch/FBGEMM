@@ -199,13 +199,13 @@ PackBMatrix<T, accT>::PackBMatrix(
       case inst_set_t::avx512_vnni:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx512:
@@ -216,7 +216,7 @@ PackBMatrix<T, accT>::PackBMatrix(
       case inst_set_t::avx512_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_ymm>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx2:

@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
-#include <random>
 #include <gtest/gtest.h>
+#include <random>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -26,9 +26,9 @@ namespace fbgemm {
  * @brief Abstract of the GEMM FP test
  * The template parameter is transpose of A and B
  */
-template<typename T>
-class FBGemmFPTest
-    : public testing::TestWithParam<std::pair<fbgemm::matrix_op_t, fbgemm::matrix_op_t>> {
+template <typename T>
+class FBGemmFPTest : public testing::TestWithParam<
+                         std::pair<fbgemm::matrix_op_t, fbgemm::matrix_op_t>> {
  protected:
   std::vector<std::vector<int>> GenShapes() const {
     std::vector<std::vector<int>> shapes;
@@ -179,9 +179,8 @@ class FBGemmFPTest
       for (int i = 0; i < k; ++i) {
         for (int j = 0; j < n; ++j) {
           EXPECT_EQ(
-              sizeof(T) == sizeof(float16)
-                  ? cpu_half2float(tmp[i * n + j])
-                  : tmp[i * n + j],
+              sizeof(T) == sizeof(float16) ? cpu_half2float(tmp[i * n + j])
+                                           : tmp[i * n + j],
               B[i * n + j]);
         }
       }
@@ -190,9 +189,9 @@ class FBGemmFPTest
       Bp.packFromSrc(btrans, tmp.data());
       EXPECT_TRUE(Bp.packed());
 
-  #ifdef _OPENMP
-  #pragma omp parallel
-  #endif
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
       {
         int num_threads = fbgemm_get_num_threads();
         int tid = fbgemm_get_thread_num();

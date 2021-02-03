@@ -108,8 +108,7 @@ struct conv_param_t {
       if (transposed) {
         this->IN_DIMP[d] = this->IN_DIM[d] +
             (this->dilation[d] * (this->K[d] - 1) - this->pad[d]) +
-            (this->dilation[d] * (this->K[d] - 1) -
-             this->pad[SPATIAL_DIM + d]);
+            (this->dilation[d] * (this->K[d] - 1) - this->pad[SPATIAL_DIM + d]);
         this->OUT_DIM[d] = (this->IN_DIM[d] - 1) * this->stride[d] -
             this->pad[d] - this->pad[SPATIAL_DIM + d] +
             this->dilation[d] * (this->K[d] - 1) + output_pad[d] + 1;
@@ -180,7 +179,6 @@ struct conv_param_t {
         out += "dilation_" + std::to_string(d) + ":" +
             std::to_string(dilation[d]) + ", ";
       }
-
     }
     if (transposed) {
       for (int d = 0; d < SPATIAL_DIM; ++d) {

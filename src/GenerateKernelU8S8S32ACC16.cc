@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <iostream>
-#include "./GenerateKernel.h"
 #include "./CodeGenHelpers.h"
+#include "./GenerateKernel.h"
 
 namespace fbgemm {
 
@@ -18,8 +18,8 @@ namespace x86 = asmjit::x86;
  */
 template <>
 template <>
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-genComputeBlock<inst_set_t::avx2>(
+void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
+    inst_set_t::avx2>(
     x86::Emitter* a,
     x86::Gp buffer_A,
     x86::Gp buffer_B,
@@ -39,7 +39,9 @@ genComputeBlock<inst_set_t::avx2>(
         AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
     for (int j = 0; j < colRegs; ++j) {
       a->vpmaddubsw(
-          tmpReg, AReg, x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
+          tmpReg,
+          AReg,
+          x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
       a->vpaddsw(CRegs(i * colRegs + j), tmpReg, CRegs(i * colRegs + j));
       // Prefetching is hurting performance in some cases
       // because prefetch instructions itself consumes a slot
@@ -77,8 +79,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
         emitExtractHalfVector<instSet, VecT>(
             a, extractDestHalf, VecT(i * colRegs + j), idx);
         a->vpmovsxwd(extractDestFull, extractDestHalf);
-        x86::Mem destAddr = x86::dword_ptr(
-            a->zcx(), C_Offset, 0, (j * 2 + idx) * vectorLen);
+        x86::Mem destAddr =
+            x86::dword_ptr(a->zcx(), C_Offset, 0, (j * 2 + idx) * vectorLen);
         if (accum) {
           a->vpaddd(extractDestFull, extractDestFull, destAddr);
         }
@@ -95,8 +97,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
 template <>
 template <>
 CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-getOrCreate<inst_set_t::avx2>(
+CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     bool accum,
     int32_t mc,
     int32_t nc,
@@ -142,13 +143,7 @@ getOrCreate<inst_set_t::avx2>(
     // generated code logging
     FILE* codeLogfile = fopen(
         getCodeLoggingFile<inst_set_t::avx2>(
-            accum,
-            mc,
-            nc,
-            nBlock,
-            kBlock,
-            mRegBlockSize,
-            nRegBlockSize)
+            accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
@@ -259,7 +254,8 @@ getOrCreate<inst_set_t::avx2>(
       a->jl(Loopk);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<inst_set_t::avx2>(
+          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
 
       // increment A for next block
       a->sub(buffer_A, kSize);
@@ -312,7 +308,8 @@ getOrCreate<inst_set_t::avx2>(
       a->jl(LoopkRem);
 
       // store C matrix
-      storeCRegs<inst_set_t::avx2>(a, rowRegs, colRegs, C_Offset, ldcReg, accum);
+      storeCRegs<inst_set_t::avx2>(
+          a, rowRegs, colRegs, C_Offset, ldcReg, accum);
     }
 
     a->emitEpilog(frame);
@@ -341,9 +338,8 @@ getOrCreate<inst_set_t::avx2>(
  * Instantiate the inst_set_t::avx2 instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-storeCRegs<inst_set_t::avx2>(
+template void
+CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<inst_set_t::avx2>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -355,9 +351,8 @@ storeCRegs<inst_set_t::avx2>(
  * Instantiate the inst_set_t::avx512 instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-storeCRegs<inst_set_t::avx512>(
+template void
+CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<inst_set_t::avx512>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -369,9 +364,8 @@ storeCRegs<inst_set_t::avx512>(
  * Instantiate the inst_set_t::avx512_ymm instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-storeCRegs<inst_set_t::avx512_ymm>(
+template void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
+    inst_set_t::avx512_ymm>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,

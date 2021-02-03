@@ -151,8 +151,13 @@ void printMatrix(
  * @param N the number of columns of input matrix
  */
 template <typename T>
-FBGEMM_API void
-transpose_simd(unsigned M, unsigned N, const T* src, unsigned ld_src, T* dst, unsigned ld_dst);
+FBGEMM_API void transpose_simd(
+    unsigned M,
+    unsigned N,
+    const T* src,
+    unsigned ld_src,
+    T* dst,
+    unsigned ld_dst);
 
 /**
  * @brief Explicitly set instruction set to be used

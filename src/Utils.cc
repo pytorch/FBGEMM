@@ -282,8 +282,8 @@ inst_set_t fbgemmInstructionSet() {
     inst_set_t detected_isa = inst_set_t::anyarch;
     // Check environment
     if (cpuinfo_initialize()) {
-      const bool isXeonD =
-        fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
+      const bool isXeonD = fbgemmIsIntelXeonD() &&
+          (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
       if (fbgemmHasAvx512VnniSupport()) {
         if (isXeonD) {
           detected_isa = inst_set_t::avx512_vnni_ymm;
@@ -321,8 +321,7 @@ bool isZmm(inst_set_t isa) {
 }
 
 bool isYmm(inst_set_t isa) {
-  return isa == inst_set_t::avx512_ymm ||
-      isa == inst_set_t::avx512_vnni_ymm ||
+  return isa == inst_set_t::avx512_ymm || isa == inst_set_t::avx512_vnni_ymm ||
       isa == inst_set_t::avx2;
 }
 

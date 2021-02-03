@@ -67,13 +67,13 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
       case inst_set_t::avx512_vnni:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512:
@@ -84,7 +84,7 @@ PackAWithQuantRowOffset<T, accT>::PackAWithQuantRowOffset(
       case inst_set_t::avx512_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx2:
@@ -125,11 +125,12 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
   assert(block.row_size <= BaseType::blockRowSize());
   assert(block.col_size <= BaseType::blockColSize());
 
-  block_type_t block_p = {block.row_start,
-                          block.row_size,
-                          block.col_start,
-                          (block.col_size + row_interleave_B_ - 1) /
-                              row_interleave_B_ * row_interleave_B_};
+  block_type_t block_p = {
+      block.row_start,
+      block.row_size,
+      block.col_start,
+      (block.col_size + row_interleave_B_ - 1) / row_interleave_B_ *
+          row_interleave_B_};
   assert(block_p.col_size <= BaseType::blockColSize());
   BaseType::packedBlock(block_p);
 
@@ -142,8 +143,8 @@ void PackAWithQuantRowOffset<T, accT>::pack(const block_type_t& block) {
 
   float* smat_transposed = nullptr;
   if (tr) {
-    smat_transposed = static_cast<float*>(
-        fbgemmAlignedAlloc(64, block.row_size * block.col_size * sizeof(float)));
+    smat_transposed = static_cast<float*>(fbgemmAlignedAlloc(
+        64, block.row_size * block.col_size * sizeof(float)));
     transpose_simd(
         block.col_size,
         block.row_size,
