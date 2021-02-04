@@ -22,7 +22,7 @@ torch.ops.load_library("fbgemm_gpu.so")
 
 
 def invoke(
-    commom_args: CommonArgs,
+    common_args: CommonArgs,
     optimizer_args: OptimizerArgs,
     {% if "momentum1_dev" in args.split_function_arg_names %}
     momentum1: Momentum,
@@ -34,22 +34,22 @@ def invoke(
     iter: int,
     {% endif %}
 ) -> torch.Tensor:
-    if (commom_args.host_weights.numel() > 0):
+    if (common_args.host_weights.numel() > 0):
         return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
-            # commom_args
-            host_weights=commom_args.host_weights,
-            weights_placements=commom_args.weights_placements,
-            weights_offsets=commom_args.weights_offsets,
-            D_offsets=commom_args.D_offsets,
-            total_D=commom_args.total_D,
-            max_D=commom_args.max_D,
-            hash_size_cumsum=commom_args.hash_size_cumsum,
-            total_hash_size_bits=commom_args.total_hash_size_bits,
-            indices=commom_args.indices,
-            offsets=commom_args.offsets,
-            pooling_mode=commom_args.pooling_mode,
-            indice_weights=commom_args.indice_weights,
-            feature_requires_grad=commom_args.feature_requires_grad,
+            # common_args
+            host_weights=common_args.host_weights,
+            weights_placements=common_args.weights_placements,
+            weights_offsets=common_args.weights_offsets,
+            D_offsets=common_args.D_offsets,
+            total_D=common_args.total_D,
+            max_D=common_args.max_D,
+            hash_size_cumsum=common_args.hash_size_cumsum,
+            total_hash_size_bits=common_args.total_hash_size_bits,
+            indices=common_args.indices,
+            offsets=common_args.offsets,
+            pooling_mode=common_args.pooling_mode,
+            indice_weights=common_args.indice_weights,
+            feature_requires_grad=common_args.feature_requires_grad,
             # optimizer_args
             gradient_clipping = optimizer_args.gradient_clipping,
             max_gradient=optimizer_args.max_gradient,
@@ -94,23 +94,23 @@ def invoke(
         )
     else:
         return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function(
-            # commom_args
-            dev_weights=commom_args.dev_weights,
-            uvm_weights=commom_args.uvm_weights,
-            lxu_cache_weights=commom_args.lxu_cache_weights,
-            weights_placements=commom_args.weights_placements,
-            weights_offsets=commom_args.weights_offsets,
-            D_offsets=commom_args.D_offsets,
-            total_D=commom_args.total_D,
-            max_D=commom_args.max_D,
-            hash_size_cumsum=commom_args.hash_size_cumsum,
-            total_hash_size_bits=commom_args.total_hash_size_bits,
-            indices=commom_args.indices,
-            offsets=commom_args.offsets,
-            pooling_mode=commom_args.pooling_mode,
-            indice_weights=commom_args.indice_weights,
-            feature_requires_grad=commom_args.feature_requires_grad,
-            lxu_cache_locations=commom_args.lxu_cache_locations,
+            # common_args
+            dev_weights=common_args.dev_weights,
+            uvm_weights=common_args.uvm_weights,
+            lxu_cache_weights=common_args.lxu_cache_weights,
+            weights_placements=common_args.weights_placements,
+            weights_offsets=common_args.weights_offsets,
+            D_offsets=common_args.D_offsets,
+            total_D=common_args.total_D,
+            max_D=common_args.max_D,
+            hash_size_cumsum=common_args.hash_size_cumsum,
+            total_hash_size_bits=common_args.total_hash_size_bits,
+            indices=common_args.indices,
+            offsets=common_args.offsets,
+            pooling_mode=common_args.pooling_mode,
+            indice_weights=common_args.indice_weights,
+            feature_requires_grad=common_args.feature_requires_grad,
+            lxu_cache_locations=common_args.lxu_cache_locations,
             # optimizer_args
             gradient_clipping = optimizer_args.gradient_clipping,
             max_gradient=optimizer_args.max_gradient,

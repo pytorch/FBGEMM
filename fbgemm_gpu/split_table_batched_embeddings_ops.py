@@ -378,7 +378,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if len(self.lxu_cache_locations_list) == 0
             else self.lxu_cache_locations_list.pop(0)
         )
-        commom_args = invokers.lookup_args.CommonArgs(
+        common_args = invokers.lookup_args.CommonArgs(
             # pyre-fixme[16]
             dev_weights=self.weights_dev,
             # pyre-fixme[16]
@@ -407,7 +407,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
-            return invokers.lookup_sgd.invoke(commom_args, self.optimizer_args)
+            return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
             dev=self.momentum1_dev,
@@ -419,15 +419,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.LARS_SGD:
             return invokers.lookup_lars_sgd.invoke(
-                commom_args, self.optimizer_args, momentum1
+                common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.EXACT_ADAGRAD:
             return invokers.lookup_adagrad.invoke(
-                commom_args, self.optimizer_args, momentum1
+                common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             return invokers.lookup_rowwise_adagrad.invoke(
-                commom_args, self.optimizer_args, momentum1
+                common_args, self.optimizer_args, momentum1
             )
 
         momentum2 = invokers.lookup_args.Momentum(
@@ -444,19 +444,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.ADAM:
             return invokers.lookup_adam.invoke(
-                commom_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
             return invokers.lookup_partial_rowwise_adam.invoke(
-                commom_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.LAMB:
             return invokers.lookup_lamb.invoke(
-                commom_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
             return invokers.lookup_partial_rowwise_lamb.invoke(
-                commom_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
