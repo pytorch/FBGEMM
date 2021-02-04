@@ -419,13 +419,21 @@ int fbgemmGet2DPartition(
   // bm: number of rows assigned per thread block (bm = ceil(m/mb)).
   // bn: number of cols assigned per thread block (bn = ceil(n/nb)).
   // find mb and nb such that bm / bn is as close as possible to aspect_ratio.
+
+  // for large thread numbers, we would like to reduce the aspect_ratio ---
+  // if the matrix is short-and-fat
+  // this allows us to assign more parallelism to i-dimension
+  if (nthreads > 16 && m/n < 0.2) {
+    aspect_ratio = 0.2;
+  }
   int mb = 1;
   int nb = nthreads / mb;
   int bm = (m + mb - 1) / mb;
   int bn = ((n + n_align - 1) / n_align + nb - 1) / nb * n_align;
   double best_delta = std::abs(static_cast<double>(bm) / bn - aspect_ratio);
   for (int mb_candidate = 2; mb_candidate <= nthreads; mb_candidate++) {
-    if (nthreads % mb_candidate != 0) {
+    // so mb does not need to divide nthreads
+    if (nthreads % mb_candidate != 0 && nthreads <= 16) {
       continue;
     }
     int nb_candidate = nthreads / mb_candidate;
