@@ -52,7 +52,13 @@ void FusedQuantizeDequantizeAvx2(
     const float* src,
     float* dst,
     int len,
-    const TensorQuantizationParams& qparams);
+    const TensorQuantizationParams& qparams,
+    float noise_ratio=0.0f);
+
+/*
+ * Random number generator in [0, 9]: https://www.jstatsoft.org/v08/i14/paper
+ */
+uint32_t FBGEMM_API Xor128(void);
 
 /**
  * @brief Find the min and max value in a float matrix.

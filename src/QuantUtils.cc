@@ -244,7 +244,8 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
       int len,                                                          \
       const TensorQuantizationParams& qparams,                          \
       int thread_id,                                                    \
-      int num_threads) {                                                \
+      int num_threads,                                                  \
+      float noise_ratio) {                                              \
     bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support(); \
     bool fma_support = cpuinfo_has_x86_fma3();                          \
     int i_begin, i_end;                                                 \
@@ -253,10 +254,12 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
       /* fast path  */                                                  \
       FusedQuantizeDequantizeAvx2<T>(                                   \
           &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
-    } else {                                                            \
+    } else if (noise_ratio <= 0.0f) {                                      \
       for (std::size_t i = i_begin; i < i_end; ++i) {                   \
         dst[i] = FusedQuantizeDequantize<T>(src[i], qparams);           \
       }                                                                 \
+    } else {                                                            \
+      throw std::runtime_error("Failed to initialize cpuinfo!");        \
     }                                                                   \
   }
 

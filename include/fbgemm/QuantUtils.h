@@ -172,7 +172,8 @@ FBGEMM_API void FusedQuantizeDequantize(
     int len,
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
-    int num_threads = 1);
+    int num_threads = 1,
+    float noise_ratio = 0.0f);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Requantization (pure fixed-point)
