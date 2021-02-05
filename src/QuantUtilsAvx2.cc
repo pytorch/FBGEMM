@@ -126,6 +126,19 @@ void QuantizeAvx2(
 #endif
 }
 
+uint32_t Xor128(void) {
+  /* library-local */ static uint32_t x = 123456789;
+  /* library-local */ static uint32_t y = 362436069;
+  /* library-local */ static uint32_t z = 521288629;
+  /* library-local */ static uint32_t w = 88675123;
+  uint32_t t;
+  t = x ^ (x << 11);
+  x = y;
+  y = z;
+  z = w;
+  return w = w ^ (w >> 19) ^ (t ^ (t >> 8));
+}
+
 // Instantiate QuantizeAvx2 for known datatypes
 #define SPECIALIZE_QUANTIZEAVX2(T, LEGACY) \
   template void QuantizeAvx2<T, LEGACY>(   \
@@ -144,7 +157,8 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
     const float* src,
     float* dst,
     int len,
-    const TensorQuantizationParams& qparams) {
+    const TensorQuantizationParams& qparams,
+    float noise_ratio) {
   float inverse_scale = 1.f / qparams.scale;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
@@ -156,6 +170,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   constexpr int32_t int32_float_max_val =
       std::numeric_limits<int32_t>::max() - 127;
   std::size_t i = 0;
+  uint32_t rand;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   __m256 scale_v = _mm256_set1_ps(qparams.scale);
   __m256 zp_v = _mm256_set1_ps(qparams.zero_point);
@@ -167,6 +182,14 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
 
     __m256 src_v = _mm256_loadu_ps(src + i);
     __m256 transformed_v;
+    if (noise_ratio > 0) {
+      rand = Xor128() % 10;
+      if (rand < noise_ratio*10){
+        _mm256_storeu_ps(dst + i, src_v);
+        continue;
+      }
+    }
+
 
     transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     // If the floating point value is greater than int32_max,
@@ -202,6 +225,14 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v;
 
+    if (noise_ratio > 0){
+      rand = Xor128() % 10;
+      if (rand < noise_ratio*10){
+        _mm256_storeu_ps(dst + i, src_v);
+        return;
+      }
+    }
+
     transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     // If the floating point value is greater than int32_max,
     // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
@@ -236,7 +267,8 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
       const float* src,                         \
       float* dst,                               \
       int len,                                  \
-      const TensorQuantizationParams& qparams);
+      const TensorQuantizationParams& qparams, \
+      float noise_ratio);
 SPECIALIZE_FUSEDDQAVX2(uint8_t)
 SPECIALIZE_FUSEDDQAVX2(int8_t)
 
