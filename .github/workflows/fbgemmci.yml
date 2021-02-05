@@ -13,7 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-20.04, macos-latest]
 
     steps:
     - uses: actions/checkout@v2
@@ -54,7 +54,42 @@ jobs:
         mkdir build_static
         cd build_static
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=static ..
-        make -j
+        make -j2
+
+    - name: Download SDE
+      if: contains(runner.os, 'linux')   
+      run: |
+        set -e
+        cd build_static
+        git clone https://github.com/marehr/intel-sde-downloader.git
+        pip install -r intel-sde-downloader/requirements.txt
+        python intel-sde-downloader/intel-sde-downloader.py sde-external-8.50.0-2020-03-26-lin.tar.bz2
+        tar -xf sde-external-8.50.0-2020-03-26-lin.tar.bz2
+
+    - name: Test SDE
+      if: contains(runner.os, 'linux')  
+      run: |
+        set +e
+        cd build_static
+        timeout -k 20s  10s  sde-external-8.50.0-2020-03-26-lin/sde64 -icx -- test/Bfloat16ConvertTest
+        timeout -k 200s 180s sde-external-8.50.0-2020-03-26-lin/sde64 -icx -- test/EmbeddingSpMDM8BitTest
+        if [[ $? -eq 124 ]] || [[ $? -eq 137 ]]
+        then
+          echo "SDE EmbeddingSpMDM8BitTest Killed with return status: $?"
+        fi
+
+        timeout -k 140s 120s sde-external-8.50.0-2020-03-26-lin/sde64 -icx -- test/RequantizeOnlyTest
+        if [[ $? -eq 124 ]] || [[ $? -eq 137 ]]
+        then
+          echo "SDE RequantizeOnlyTest Killed with return status: $?"
+        fi
+
+        timeout -k 140s 120s sde-external-8.50.0-2020-03-26-lin/sde64 -icx -- test/RowWiseSparseAdagradFusedTest
+        if [[ $? -eq 124 ]] || [[ $? -eq 137 ]]
+        then
+          echo "SDE RowWiseSparseAdagradFusedTest Killed with return status: $?"
+        fi
+        echo "Finished Test SDE"
 
     - name: Test static FBGEMM lib
       if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
@@ -69,7 +104,7 @@ jobs:
         mkdir build_shared
         cd build_shared
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared ..
-        make -j
+        make -j2
 
     - name: Test shared FBGEMM lib
       if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
