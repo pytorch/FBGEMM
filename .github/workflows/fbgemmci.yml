@@ -28,6 +28,8 @@ jobs:
       if: contains(runner.os, 'linux')
       run: |
         cat /proc/cpuinfo
+        sudo rm /usr/bin/gcc
+        sudo ln -s /usr/bin/gcc-8 /usr/bin/gcc
 
     - name: Get CPU info on macOS
       if: contains(runner.os, 'macOs')
@@ -171,6 +173,8 @@ jobs:
         echo GITHUB_WORKSPACE  = $GITHUB_WORKSPACE
         echo GITHUB_SHA        = $GITHUB_SHA
         echo GITHUB_REF        = $GITHUB_REF
+        sudo rm /usr/bin/gcc
+        sudo ln -s /usr/bin/gcc-8 /usr/bin/gcc
         c++ --verbose
 
     - name: Download bazel
