@@ -54,7 +54,7 @@ jobs:
         mkdir build_static
         cd build_static
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=static ..
-        make -j
+        make
 
     - name: Test static FBGEMM lib
       if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
@@ -69,7 +69,7 @@ jobs:
         mkdir build_shared
         cd build_shared
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared ..
-        make -j
+        make
 
     - name: Test shared FBGEMM lib
       if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2

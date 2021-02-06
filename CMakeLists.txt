@@ -71,12 +71,17 @@ endif()
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
+  FBGEMM_AVX2_INLINE_SRCS)
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
+  FBGEMM_AVX512_INLINE_SRCS)
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
-add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS})
-add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
+add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
+add_library(fbgemm_avx512 OBJECT
+  ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
 
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
