@@ -372,8 +372,10 @@ void requantizeOutputProcessingGConvAvx512(
       }
     } // j loop vectorized
 
+#ifndef NDEBUG
     int remainder = block.col_start + block.col_size - j;
     assert(remainder == 0 || C_PER_G == 8);
+#endif
   } // i loop
 }
 
