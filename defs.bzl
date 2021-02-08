@@ -83,6 +83,10 @@ def get_fbgemm_avx2_srcs(msvc = False):
         "src/PackDepthwiseConvMatrixAvx2.cc",
         "src/QuantUtilsAvx2.cc",
         "src/UtilsAvx2.cc",
+    ]
+
+def get_fbgemm_inline_avx2_srcs(msvc = False):
+    return [
         #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
         "src/FbgemmFP16UKernelsAvx2.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx2.cc",
     ]
@@ -94,6 +98,10 @@ def get_fbgemm_avx512_srcs(msvc = False):
         "src/FbgemmFloat16ConvertAvx512.cc",
         "src/QuantUtilsAvx512.cc",
         "src/UtilsAvx512.cc",
+    ]
+
+def get_fbgemm_inline_avx512_srcs(msvc = False):
+    return [
         #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
         "src/FbgemmFP16UKernelsAvx512.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
         "src/FbgemmFP16UKernelsAvx512_256.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc",
