@@ -9,9 +9,9 @@
 #include <algorithm>
 #include <cstdint>
 
-#include "fbgemm/Types.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 
@@ -286,31 +286,63 @@ FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref(
     bool is_weight_positional = false,
     bool use_offsets = true);
 
+/**
+ * @param num_rows number of rows reading
+ * @param block_size number of parameters per rows
+ * @param param_size total number of parameters
+ * @param w input parameters
+ * @param g input gradients
+ * @param h input momentum
+ * @param indices indices of each row
+ * @param counter used for weight_decay adjusted for frequency. nullptr when
+ *                frequency adjustment is not used. Ignored when weight_decay
+ *                == 0
+ * @param counter_halflife weight_decay is adjusted only after this number of
+ *                         iterations
+ */
 template <typename IndexType>
 FBGEMM_API int sparse_adagrad_ref(
-    int num_rows, // number of rows reading
-    int block_size, // number of parameters per rows
-    std::uint64_t param_size, // total number of parameters
-    float* w, // input parameters
-    const float* g, // input gradients
-    float* h, // input momentums
-    const IndexType* indices, // indices of each row
+    int num_rows,
+    int block_size,
+    std::uint64_t param_size,
+    float* w,
+    const float* g,
+    float* h,
+    const IndexType* indices,
     float epsilon,
     float lr,
-    float weight_decay = 0.f);
+    float weight_decay = 0.f,
+    const double* counter = nullptr,
+    const int64_t counter_halflife = 0);
 
+/**
+ * @param num_rows number of rows reading
+ * @param block_size number of parameters per rows
+ * @param param_size total number of parameters
+ * @param w input parameters
+ * @param g input gradients
+ * @param h input momentum
+ * @param indices indices of each row
+ * @param counter used for weight_decay adjusted for frequency. nullptr when
+ *                frequency adjustment is not used. Ignored when weight_decay
+ *                == 0
+ * @param counter_halflife weight_decay is adjusted only after this number of
+ *                         iterations
+ */
 template <typename IndexType>
 FBGEMM_API int rowwise_sparse_adagrad_ref(
-    int num_rows, // number of rows reading
-    int block_size, // number of parameters per rows
-    std::uint64_t param_size, // total number of parameters
-    float* w, // input parameters
-    const float* g, // input gradients
-    float* h, // input momentums
-    const IndexType* indices, // indices of each row
+    int num_rows,
+    int block_size,
+    std::uint64_t param_size,
+    float* w,
+    const float* g,
+    float* h,
+    const IndexType* indices,
     float epsilon,
     float lr,
-    float weight_decay = 0.f);
+    float weight_decay = 0.f,
+    const double* counter = nullptr,
+    const int64_t counter_halflife = 0);
 
 template <typename DataType, typename IndexType, typename OffsetType>
 FBGEMM_API int rowwise_sparse_adagrad_fused_ref(

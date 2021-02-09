@@ -1472,7 +1472,9 @@ int sparse_adagrad_ref(
     const IndexType* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay) {
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife) {
   for (auto i = 0; i < num_rows; ++i) {
     uint64_t idx = indices[i];
     auto offsetI = i * block_size;
@@ -1481,6 +1483,9 @@ int sparse_adagrad_ref(
     if (block_size + offsetIdx > param_size) {
       return i;
     }
+
+    float freq =
+        (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
     const float* g_;
     const float* h_;
@@ -1495,7 +1500,7 @@ int sparse_adagrad_ref(
     nw_ = w + offsetIdx;
 
     for (auto j = 0; j < block_size; ++j) {
-      float gj = std::fma(weight_decay, w_[j], g_[j]);
+      float gj = std::fma(weight_decay * freq, w_[j], g_[j]);
       float hj = h_[j] + gj * gj;
       nh_[j] = hj;
       nw_[j] = w_[j] + lr * gj / (std::sqrt(hj) + epsilon);
@@ -1515,7 +1520,9 @@ int rowwise_sparse_adagrad_ref(
     const IndexType* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay) {
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife) {
   for (auto i = 0; i < num_rows; ++i) {
     uint64_t idx = indices[i];
     auto offsetI = i * block_size;
@@ -1524,6 +1531,9 @@ int rowwise_sparse_adagrad_ref(
     if (block_size + offsetIdx > param_size) {
       return i;
     }
+
+    float freq =
+        (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
     const float* g_;
     float* h_;
@@ -1546,7 +1556,7 @@ int rowwise_sparse_adagrad_ref(
     constexpr int VLEN = 8;
     array<float, VLEN> partial_sum = {0.0f};
     for (auto j = 0; j < block_size; ++j) {
-      float gj = std::fma(weight_decay, w_[j], g_[j]);
+      float gj = std::fma(weight_decay * freq, w_[j], g_[j]);
       partial_sum[j % VLEN] += gj * gj;
     }
     final_sum = ((partial_sum[0] + partial_sum[1]) +
@@ -1557,7 +1567,7 @@ int rowwise_sparse_adagrad_ref(
     float float_step = lr / (std::sqrt(hi) + epsilon);
 
     for (auto j = 0; j < block_size; ++j) {
-      float gj = std::fma(weight_decay, w_[j], g_[j]);
+      float gj = std::fma(weight_decay * freq, w_[j], g_[j]);
       w_[j] += gj * float_step;
     }
   }
@@ -1813,7 +1823,9 @@ template FBGEMM_API int sparse_adagrad_ref(
     const std::int64_t* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife);
 
 template FBGEMM_API int sparse_adagrad_ref(
     int num_rows, // number of rows reading
@@ -1825,7 +1837,9 @@ template FBGEMM_API int sparse_adagrad_ref(
     const std::int32_t* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife);
 
 template FBGEMM_API int rowwise_sparse_adagrad_ref(
     int num_rows, // number of rows reading
@@ -1837,7 +1851,9 @@ template FBGEMM_API int rowwise_sparse_adagrad_ref(
     const std::int64_t* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife);
 
 template FBGEMM_API int rowwise_sparse_adagrad_ref(
     int num_rows, // number of rows reading
@@ -1849,7 +1865,9 @@ template FBGEMM_API int rowwise_sparse_adagrad_ref(
     const std::int32_t* indices, // indices of each row
     float epsilon,
     float lr,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    const int64_t counter_halflife);
 
 #define INSTANTIATE_SPMDM_BASE(DATA_TYPE, INDEX_TYPE, OFFSET_TYPE) \
   template FBGEMM_API int rowwise_sparse_adagrad_fused_ref(        \
