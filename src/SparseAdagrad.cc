@@ -37,7 +37,9 @@ class ReturnFunctionSignature {
       float epsilon,
       float lr,
       const int* mask_avx2,
-      float weight_decay);
+      float weight_decay,
+      const double* counter,
+      std::int64_t counter_halflife);
 };
 
 template <
@@ -484,12 +486,14 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         x86::Xmm lr(1);
         x86::Gp mask_avx2 = a->gpz(10);
         x86::Xmm weight_decay(2);
+        x86::Gp counter = a->gpz(11);
+        x86::Gp counter_halflife = a->gpz(12);
 
         // reuse mask_avx2 because mask_avx2 is used only at the beginning
         base_offset = a->gpz(10);
-        temp1_ = a->gpz(11);
-        temp2_ = a->gpz(12);
-        temp3_ = a->gpz(13);
+        temp1_ = a->gpz(13);
+        temp2_ = a->gpz(14);
+        temp3_ = a->gpz(15);
 
         asmjit::FuncDetail func;
         func.init(asmjit::FuncSignatureT<
@@ -502,8 +506,10 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
                   const indxType*, // indices
                   float, // epsilon
                   float, // lr
-                  const int*, // mask_avx2 then weight_decay
-                  float>(asmjit::CallConv::kIdHost));
+                  const int*, // mask_avx2
+                  float, // weight_decay
+                  const double*, // counter then counter_halflife
+                  std::int64_t>(asmjit::CallConv::kIdHost));
 
         asmjit::FuncFrame frame;
         frame.init(func);
@@ -523,7 +529,8 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
 
         frame.setDirtyRegs(
-            x86::Reg::kGroupGp, asmjit::Support::bitMask(8, 9, 10, 11, 12, 13));
+            x86::Reg::kGroupGp,
+            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
         asmjit::FuncArgsAssignment args(&func);
         args.assignAll(
@@ -536,7 +543,9 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
             epsilon,
             lr,
             mask_avx2,
-            weight_decay);
+            weight_decay,
+            counter,
+            counter_halflife);
 
         args.updateFuncFrame(frame);
         frame.finalize();
@@ -555,6 +564,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         vec_reg_t epsilon_vreg;
         vec_reg_t lr_vreg;
         vec_reg_t weight_decay_vreg;
+        vec_reg_t adjusted_weight_decay_vreg;
         x86::Ymm mask_vreg; // mask for avx2
         vec_reg_t
             temp_vreg; // temp vreg for avx2 to handle remainder computation
@@ -566,6 +576,8 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         if (has_weight_decay) {
           --unroll_factor;
           weight_decay_vreg = vec_reg_t(unroll_factor);
+          --unroll_factor;
+          adjusted_weight_decay_vreg = vec_reg_t(unroll_factor);
         }
 
         if (remainder) {
@@ -633,6 +645,38 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         } else {
           a->mov(temp2_.r32(), indices_ptr);
         }
+
+        if (has_weight_decay) {
+          // Check counter != nullptr && counter[idx] > 0
+          a->vmovaps(adjusted_weight_decay_vreg, weight_decay_vreg);
+
+          asmjit::Label skip_adjust_freq = a->newLabel();
+
+          a->cmp(counter, 0);
+          a->je(skip_adjust_freq);
+
+          // temp3_ : counter[idx]
+          a->mov(temp3_, x86::qword_ptr(counter, temp2_, 3));
+          a->cmp(temp3_, 0);
+          a->jle(skip_adjust_freq);
+
+          // OK to use Xmm registers with small ids that are reserved for temp
+          // values in the inner most loop.
+          vec_reg_t counter_halflife_vreg(0);
+          x86::Xmm counter_vreg(1);
+          a->cvtsi2sd(counter_halflife_vreg.xmm(), counter_halflife);
+          a->movq(counter_vreg, temp3_);
+          a->divpd(counter_halflife_vreg.xmm(), counter_vreg);
+          a->vcvtpd2ps(counter_halflife_vreg.xmm(), counter_halflife_vreg.ymm());
+          a->vbroadcastss(counter_halflife_vreg, counter_halflife_vreg.xmm());
+          a->vmulps(
+              adjusted_weight_decay_vreg,
+              adjusted_weight_decay_vreg,
+              counter_halflife_vreg);
+
+          a->bind(skip_adjust_freq);
+        }
+
         a->inc(temp2_);
         a->imul(
             temp2_,
@@ -692,7 +736,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
               lr_vreg,
               mask_vreg,
               temp_vreg,
-              weight_decay_vreg,
+              adjusted_weight_decay_vreg,
               has_weight_decay);
         } else {
           genSparseAdagrad(
@@ -705,7 +749,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
               lr_vreg,
               mask_vreg,
               temp_vreg,
-              weight_decay_vreg,
+              adjusted_weight_decay_vreg,
               has_weight_decay);
         }
 
@@ -750,14 +794,20 @@ int SparseAdaGradBlockSize1_(
     float epsilon,
     float lr,
     bool rowwise,
-    float weight_decay) {
+    float weight_decay,
+    const double* counter,
+    std::int64_t counter_halflife) {
   if (weight_decay != 0.0f) {
     for (int i = 0; i < num_rows; ++i) {
       IndexType idx = indices[i];
       if (idx >= param_size) {
         return i;
       }
-      float gi = std::fma(weight_decay, w[idx], g[i]);
+
+      float freq = (counter && counter[idx] > 0)
+          ? counter_halflife / counter[idx]
+          : 1.0f;
+      float gi = std::fma(freq * weight_decay, w[idx], g[i]);
       float hi = h[idx] = h[idx] + gi * gi;
       if (rowwise) {
         w[idx] += lr / (std::sqrt(hi) + epsilon) * gi;
@@ -793,7 +843,9 @@ template int SparseAdaGradBlockSize1_(
     float epsilon,
     float lr,
     bool rowwise,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    std::int64_t counter_halflife);
 
 template int SparseAdaGradBlockSize1_(
     int num_rows, // number of rows reading
@@ -805,7 +857,9 @@ template int SparseAdaGradBlockSize1_(
     float epsilon,
     float lr,
     bool rowwise,
-    float weight_decay);
+    float weight_decay,
+    const double* counter,
+    std::int64_t counter_halflife);
 
 } // namespace
 
@@ -840,7 +894,9 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
             epsilon,
             lr,
             rowwise,
-            weight_decay);
+            weight_decay,
+            nullptr,
+            0);
       };
     }
     static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
@@ -868,7 +924,9 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
           epsilon,
           lr,
           mask_avx2,
-          weight_decay);
+          weight_decay,
+          nullptr,
+          0);
     };
   } else {
 #ifdef VLOG
@@ -893,7 +951,9 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
           indices,
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          nullptr,
+          0);
     };
   }
 }
@@ -907,6 +967,121 @@ GenerateSparseAdaGrad<std::int64_t>(
 
 template FBGEMM_API typename SparseAdaGradSignature<std::int32_t>::Type
 GenerateSparseAdaGrad<std::int32_t>(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay);
+
+template <typename IndexType>
+typename SparseAdaGradSignatureNew<IndexType>::Type GenerateSparseAdaGradNew(
+    int block_size,
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+
+  if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support()) {
+    if (block_size == 1) {
+      return [=](int num_rows, // number of rows reading
+                 std::uint64_t param_size, // total number of parameters
+                 float* w, // input/output parameters
+                 const float* g, // input gradients
+                 float* h, // input/output momentums
+                 const IndexType* indices, // indices of each row
+                 float epsilon,
+                 float lr,
+                 float weight_decay,
+                 const double* counter,
+                 std::int64_t counter_halflife) {
+        return SparseAdaGradBlockSize1_(
+            num_rows,
+            param_size,
+            w,
+            g,
+            h,
+            indices,
+            epsilon,
+            lr,
+            rowwise,
+            weight_decay,
+            counter,
+            counter_halflife);
+      };
+    }
+    static GenSparseAdagrad<IndexType, inst_set_t::avx2> kernel_generator;
+    constexpr int VLEN = simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+    const int* mask_avx2 = &internal::avx2_ps_or_epi32_combined_mask
+                               [(VLEN - (block_size % VLEN)) % VLEN];
+    const auto original_func = kernel_generator.getOrCreate(
+        block_size, prefetch, rowwise, use_weight_decay);
+    return [=](int num_rows, // number of rows reading
+               std::uint64_t param_size, // total number of parameters
+               float* w, // input/output parameters
+               const float* g, // input gradients
+               float* h, // input/output momentums
+               const IndexType* indices, // indices of each row
+               float epsilon,
+               float lr,
+               float weight_decay,
+               const double* counter,
+               std::int64_t counter_halflife) {
+      return original_func(
+          num_rows, // number of rows reading
+          param_size, // total number of parameters
+          w, // input/output parameters
+          g, // input gradients
+          h, // input/output momentums
+          indices, // indices of each row
+          epsilon,
+          lr,
+          mask_avx2,
+          weight_decay,
+          counter,
+          counter_halflife);
+    };
+  } else {
+#ifdef VLOG
+    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+    return [=](int num_rows, // number of rows reading
+               std::uint64_t param_size, // total number of parameters
+               float* w, // input/output parameters
+               const float* g, // input gradients
+               float* h, // input/output momentums
+               const IndexType* indices, // indices of each row
+               float epsilon,
+               float lr,
+               float weight_decay,
+               const double* counter,
+               std::int64_t counter_halflife) {
+      return sparse_adagrad_ref(
+          num_rows, // number of rows reading
+          block_size, // number of parameters per rows
+          param_size, // total number of parameters
+          w, // input/output parameters
+          g, // input gradients
+          h, // input/output momentums
+          indices,
+          epsilon,
+          lr,
+          weight_decay,
+          counter,
+          counter_halflife);
+    };
+  }
+}
+
+template FBGEMM_API typename SparseAdaGradSignatureNew<std::int64_t>::Type
+GenerateSparseAdaGradNew<std::int64_t>(
+    int block_size, // number of parameters per rows
+    bool rowwise,
+    int prefetch,
+    bool use_weight_decay);
+
+template FBGEMM_API typename SparseAdaGradSignatureNew<std::int32_t>::Type
+GenerateSparseAdaGradNew<std::int32_t>(
     int block_size, // number of parameters per rows
     bool rowwise,
     int prefetch,

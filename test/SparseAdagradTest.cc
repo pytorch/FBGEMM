@@ -43,28 +43,29 @@ vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 class SparseAdagradTest
-    : public testing::TestWithParam<tuple<bool, int, bool, bool>> {};
+    : public testing::TestWithParam<tuple<bool, int, bool, bool, bool>> {};
 }; // namespace
 
 // Test:
-// 64 bit indices
-// prefetch distances
-// out of bounds indices
-// null indices
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     SparseAdagradTest,
     ::testing::Combine(
-        ::testing::Bool(),
+        ::testing::Bool(), // 64 bit indices
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(),
-        ::testing::Bool()));
+        ::testing::Bool(), // out of bound indices
+        ::testing::Bool(), // use weight decay
+        ::testing::Bool())); // adjust weight decay
 
 TEST_P(SparseAdagradTest, basicTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, use_weight_decay;
+  bool isIndex64b, out_of_bounds, use_weight_decay, adjust_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
+  tie(isIndex64b,
+      prefetch,
+      out_of_bounds,
+      use_weight_decay,
+      adjust_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -108,6 +109,16 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
       indices_32[idx] = indices[idx] = num_rows;
     }
 
+    vector<double> counters;
+    constexpr int64_t counter_halflife = 1e6;
+    if (adjust_weight_decay) {
+      uniform_real_distribution<> counter_distribution(0, 2 * counter_halflife);
+      counters.resize(num_rows);
+      for (int i = 0; i < num_rows; ++i) {
+        counters[i] = counter_distribution(generator);
+      }
+    }
+
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
       ret_ref = sparse_adagrad_ref(
@@ -120,9 +131,11 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           indices.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int64_t>(
           block_size, false, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -134,7 +147,9 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           indices.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
     } else { // 32 bit indices
       ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -146,9 +161,11 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           indices_32.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int32_t>(
           block_size, false, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -160,7 +177,9 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           indices_32.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
@@ -181,9 +200,13 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
 
 TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, use_weight_decay;
+  bool isIndex64b, out_of_bounds, use_weight_decay, adjust_weight_decay;
   int prefetch;
-  tie(isIndex64b, prefetch, out_of_bounds, use_weight_decay) = GetParam();
+  tie(isIndex64b,
+      prefetch,
+      out_of_bounds,
+      use_weight_decay,
+      adjust_weight_decay) = GetParam();
 
   for (auto input : inputs) {
     int num_rows = input[0];
@@ -224,6 +247,16 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
       indices_32[idx] = indices[idx] = num_rows;
     }
 
+    vector<double> counters;
+    constexpr int64_t counter_halflife = 1e6;
+    if (adjust_weight_decay) {
+      uniform_real_distribution<> counter_distribution(0, 2 * counter_halflife);
+      counters.resize(num_rows);
+      for (int i = 0; i < num_rows; ++i) {
+        counters[i] = counter_distribution(generator);
+      }
+    }
+
     int ret_fbgemm, ret_ref;
     if (isIndex64b) {
       ret_ref = rowwise_sparse_adagrad_ref(
@@ -236,9 +269,11 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           indices.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int64_t>(
+      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int64_t>(
           block_size, true, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -250,7 +285,9 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           indices.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
     } else { // 32 bit indices
       ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -262,9 +299,11 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           indices_32.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
 
-      auto fn_fbgemm = GenerateSparseAdaGrad<std::int32_t>(
+      auto fn_fbgemm = GenerateSparseAdaGradNew<std::int32_t>(
           block_size, true, prefetch, use_weight_decay);
 
       ret_fbgemm = fn_fbgemm(
@@ -276,7 +315,9 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           indices_32.data(), // indices of each row
           epsilon,
           lr,
-          weight_decay);
+          weight_decay,
+          adjust_weight_decay ? counters.data() : nullptr,
+          counter_halflife);
     }
 
     EXPECT_EQ(ret_fbgemm, ret_ref)
