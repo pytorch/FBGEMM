@@ -49,8 +49,7 @@ int fbgemm_get_num_threads();
 int fbgemm_get_thread_num();
 
 template <typename T>
-NOINLINE
-float cache_evict(const T& vec) {
+NOINLINE float cache_evict(const T& vec) {
   auto const size = vec.size();
   auto const elemSize = sizeof(typename T::value_type);
   auto const dataSize = size * elemSize;
@@ -114,47 +113,47 @@ double measureWithWarmup(
   double ttot = 0.0;
 
 #ifdef _OPENMP
-#pragma omp parallel if(useOpenMP)
-{
+#pragma omp parallel if (useOpenMP)
+  {
 #endif
-  for (int i = 0; i < measuredIterations; ++i) {
-    int thread_id = 0;
-    std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+    for (int i = 0; i < measuredIterations; ++i) {
+      int thread_id = 0;
+      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
 #ifdef _OPENMP
-    if (useOpenMP) {
-      thread_id = omp_get_thread_num();
-    }
+      if (useOpenMP) {
+        thread_id = omp_get_thread_num();
+      }
 #endif
 
-    if (thread_id == 0) {
-      fe();
-    }
+      if (thread_id == 0) {
+        fe();
+      }
 
 #ifdef _OPENMP
-    if (useOpenMP) {
-      #pragma omp barrier
-    }
+      if (useOpenMP) {
+#pragma omp barrier
+      }
 #endif
-    start = std::chrono::high_resolution_clock::now();
+      start = std::chrono::high_resolution_clock::now();
 
-    fn();
+      fn();
 
 #ifdef _OPENMP
-    if (useOpenMP) {
-      #pragma omp barrier
-    }
+      if (useOpenMP) {
+#pragma omp barrier
+      }
 #endif
 
-    end = std::chrono::high_resolution_clock::now();
-    auto dur =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+      end = std::chrono::high_resolution_clock::now();
+      auto dur =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
-    if (thread_id == 0) {
-      // TODO: measure load imbalance
-      ttot += dur.count();
+      if (thread_id == 0) {
+        // TODO: measure load imbalance
+        ttot += dur.count();
+      }
     }
-  }
 
 #ifdef _OPENMP
   }
@@ -200,7 +199,7 @@ void test_xerbla(char* srname, const int* info, int);
 
 #define dataset 1
 
-template<typename btype>
+template <typename btype>
 void performance_test(
     int num_instances,
     bool flush,
@@ -260,10 +259,9 @@ void performance_test(
     randFill(Bint, 0, 4);
     aligned_vector<float> B(Bint.begin(), Bint.end());
     std::vector<std::unique_ptr<PackedGemmMatrixB<btype>>> Bp;
-    for(int i = 0; i < num_instances; ++i) {
-      Bp.emplace_back(
-        std::unique_ptr<PackedGemmMatrixB<btype>>(
-            new PackedGemmMatrixB<btype>(btran, k, n, alpha, B.data())));
+    for (int i = 0; i < num_instances; ++i) {
+      Bp.emplace_back(std::unique_ptr<PackedGemmMatrixB<btype>>(
+          new PackedGemmMatrixB<btype>(btran, k, n, alpha, B.data())));
     }
     auto kAligned = ((k * sizeof(float) + 64) & ~63) / sizeof(float);
     auto nAligned = ((n * sizeof(float) + 64) & ~63) / sizeof(float);
