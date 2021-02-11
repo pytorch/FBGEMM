@@ -22,6 +22,7 @@ ASSOC = 32
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
+INT8_EMB_ROW_DIM_OFFSET = 8
 
 
 class EmbeddingLocation(enum.IntEnum):
@@ -68,6 +69,8 @@ def construct_split_state(
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
     rowwise: bool,
     cacheable: bool,
+    precision: SparseType = SparseType.FP32,
+    int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -76,6 +79,8 @@ def construct_split_state(
     uvm_size = 0
     for (num_embeddings, embedding_dim, location, _) in embedding_specs:
         assert embedding_dim % 4 == 0, f"{embedding_dim}"
+        if precision == SparseType.INT8:
+            embedding_dim += int8_emb_row_dim_offset
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
@@ -167,6 +172,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
         fp16: bool = False,
+        weights_precision: SparseType = SparseType.FP32,
         optimizer: OptimType = OptimType.EXACT_SGD,
         # General Optimizer args
         stochastic_rounding: bool = False,
@@ -182,9 +188,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
     ):
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
-
         self.pooling_mode = pooling_mode
-
+        self.weights_precision = weights_precision
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
         self.dummy_tensor = torch.tensor(0)
 
@@ -203,6 +208,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.current_device = (
             torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
+
+        # add placeholder require_grad param tensor to enable autograd with int8 weights
+        self.placeholder_autograd_tensor = nn.Parameter(
+                torch.zeros(
+                    0, device=self.current_device, dtype=torch.float
+                )
+            )
+
+        self.int8_emb_row_dim_offset = INT8_EMB_ROW_DIM_OFFSET
 
         self.feature_table_map = (
             feature_table_map if feature_table_map is not None else list(range(T_))
@@ -234,9 +248,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ),
         )
         weight_split = construct_split_state(
-            embedding_specs, rowwise=False, cacheable=True
+            embedding_specs, rowwise=False, cacheable=True, precision=weights_precision,
         )
-        table_embedding_dtype = torch.float16 if fp16 else torch.float32
+        table_embedding_dtype = torch.float32
+        if weights_precision == SparseType.FP16:
+            table_embedding_dtype = torch.float16
+        elif weights_precision == SparseType.INT8:
+            table_embedding_dtype = torch.uint8
+
         self._apply_split(
             weight_split,
             prefix="weights",
@@ -388,6 +407,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         common_args = invokers.lookup_args.CommonArgs(
             # pyre-fixme[16]
+            placeholder_autograd_tensor=self.placeholder_autograd_tensor,
+            # pyre-fixme[16]
             dev_weights=self.weights_dev,
             # pyre-fixme[16]
             host_weights=self.weights_host,
@@ -529,6 +550,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
+    def init_embedding_weights_uniform(self, min_val, max_val):
+        splits = self.split_embedding_weights()
+        if self.weights_precision == SparseType.INT8:
+            # TODO: add in-place FloatToFused8BitRowwiseQuantized conversion
+            for emb in splits:
+                assert len(emb.shape) == 2, "Int8 embedding only supported for 2D weight tensors."
+                shape = [emb.shape[0], emb.shape[1] - self.int8_emb_row_dim_offset]
+                tmp_emb = torch.zeros(shape)
+                tmp_emb.uniform_(min_val, max_val)
+                tmp_emb_i8 = torch.ops.fb.FloatToFused8BitRowwiseQuantized(tmp_emb)
+                emb.data.copy_(tmp_emb_i8)
+        else:
+            for param in splits:
+                param.uniform_(min_val, max_val)
+
     @torch.jit.export
     def split_embedding_weights(self):
         """
@@ -536,6 +572,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         splits = []
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
+            if self.weights_precision == SparseType.INT8:
+                dim += self.int8_emb_row_dim_offset
             placement = self.weights_physical_placements[t]
             offset = self.weights_physical_offsets[t]
             if placement == EmbeddingLocation.DEVICE.value:
@@ -709,12 +747,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(placements, device=self.current_device, dtype=torch.int32),
         )
         if split.dev_size > 0:
-            setattr(
-                self,
+            self.register_buffer(
                 f"{prefix}_dev",
-                nn.Parameter(
-                    torch.zeros(split.dev_size, device=self.current_device, dtype=dtype)
-                ),
+                torch.zeros(split.dev_size, device=self.current_device, dtype=dtype),
             )
         else:
             self.register_buffer(
@@ -738,18 +773,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         if split.uvm_size > 0:
             assert not self.use_cpu
-            setattr(
-                self,
+            self.register_buffer(
                 f"{prefix}_uvm",
-                nn.Parameter(
+                torch.zeros(split.uvm_size, out=torch.ops.fb.new_managed_tensor(
                     torch.zeros(
-                        split.uvm_size,
-                        out=torch.ops.fb.new_managed_tensor(
-                            torch.zeros(1, device=self.current_device, dtype=dtype),
-                            [split.uvm_size],
-                        ),
-                    )
-                ),
+                        1, device=self.current_device, dtype=dtype
+                    ),
+                    [split.uvm_size],
+                )),
             )
         else:
             self.register_buffer(

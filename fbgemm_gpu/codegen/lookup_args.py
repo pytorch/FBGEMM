@@ -10,6 +10,7 @@ from typing import NamedTuple, Optional
 import torch
 
 class CommonArgs(NamedTuple):
+    placeholder_autograd_tensor: torch.Tensor
     dev_weights: torch.Tensor
     host_weights: torch.Tensor
     uvm_weights: torch.Tensor
