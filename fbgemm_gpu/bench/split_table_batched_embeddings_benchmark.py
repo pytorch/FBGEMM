@@ -12,8 +12,7 @@ import click
 import numpy as np
 import split_table_batched_embeddings_ops
 import torch
-from split_table_batched_embeddings_ops import OptimType
-
+from split_table_batched_embeddings_ops import OptimType, SparseType
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -153,6 +152,7 @@ def cli():
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
 @click.option("--fp16", is_flag=True, default=False)
+@click.option("--int8", is_flag=True, default=False)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--managed", default="device")
@@ -169,6 +169,7 @@ def device(  # noqa C901
     batch_size: int,
     embedding_dim: int,
     fp16: bool,
+    int8: bool,
     stoc: bool,
     iters: int,
     managed: str,
@@ -214,14 +215,25 @@ def device(  # noqa C901
         managed_option = split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
     else:
         managed_option = split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED
+
+    sparse_precision = SparseType.FP32
+    if fp16:
+        sparse_precision = SparseType.FP16
+    elif int8:
+        sparse_precision = SparseType.INT8
+
     emb = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [(E, d, managed_option, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for d in Ds],
         optimizer=optimizer,
         learning_rate=0.1,
         eps=0.1,
-        fp16=fp16,
+        precision=sparse_precision,
         stochastic_rounding=stoc,
-    ).cuda()
+    )
+    if sparse_precision == SparseType.INT8:
+        emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+    emb.cuda()
 
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
     logging.info(
