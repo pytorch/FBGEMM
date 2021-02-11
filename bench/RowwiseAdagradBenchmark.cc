@@ -85,7 +85,9 @@ void run_benchmark(
            indices.data(), // indices of each row
            epsilon,
            lr,
-           0.0f); // weight_decay
+           0.0f, // weight_decay
+           nullptr, // counters
+           0); // counter_halflife
       },
       NUM_WARMUP,
       NUM_ITER,

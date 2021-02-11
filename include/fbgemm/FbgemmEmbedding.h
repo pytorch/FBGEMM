@@ -167,7 +167,12 @@ class SparseAdaGradSignature {
       const IndexType* indices, // indices of each row
       float epsilon,
       float lr,
-      float weight_decay)>;
+      float weight_decay,
+      const double* counter, // used for weight_decay adjusted for frequency
+                             // nullptr when frequency adjustment is not used.
+                             // ignored when the kernel is generated with
+                             // use_weight_decay = false.
+      std::int64_t counter_halflife)>; // frequency adjust happens only after
 };
 
 /**
