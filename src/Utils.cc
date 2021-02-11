@@ -355,6 +355,12 @@ void fbgemmPartition1D(
     int total_work,
     int& start,
     int& end) {
+  // if num_threads == 0,
+  // this threads should not perform any work
+  if (num_threads == 0) {
+    start = end = 0;
+    return;
+  }
   int work_per_thread = (total_work + num_threads - 1) / num_threads;
   start = std::min(thread_id * work_per_thread, total_work);
   end = std::min((thread_id + 1) * work_per_thread, total_work);
@@ -419,13 +425,23 @@ int fbgemmGet2DPartition(
   // bm: number of rows assigned per thread block (bm = ceil(m/mb)).
   // bn: number of cols assigned per thread block (bn = ceil(n/nb)).
   // find mb and nb such that bm / bn is as close as possible to aspect_ratio.
+
+  // for large thread numbers, we would like to reduce the aspect_ratio ---
+  // if the matrix is short-and-fat
+  // this allows us to assign more parallelism to i-dimension
+  if (nthreads > 16 && m/n < 0.2) {
+    aspect_ratio = 0.2;
+  }
+
   int mb = 1;
   int nb = nthreads / mb;
   int bm = (m + mb - 1) / mb;
   int bn = ((n + n_align - 1) / n_align + nb - 1) / nb * n_align;
   double best_delta = std::abs(static_cast<double>(bm) / bn - aspect_ratio);
   for (int mb_candidate = 2; mb_candidate <= nthreads; mb_candidate++) {
-    if (nthreads % mb_candidate != 0) {
+    // mb does not need to divide nthreads
+    // here nthreads % mb_candidate!=0 constraint is removed for nthreads>16
+    if (nthreads % mb_candidate != 0 && nthreads <= 16) {
       continue;
     }
     int nb_candidate = nthreads / mb_candidate;
@@ -481,7 +497,10 @@ thread_type_t fbgemmGetThreadPartition(
   // dimension, so we set aspect_ratio to 0.5 here.
   th_info.m_num_threads = fbgemmGet2DPartition(m, n, num_threads, n_align, 0.5);
 
-  assert(num_threads % (th_info.m_num_threads) == 0);
+  //when num_threads >16, m_num_threads may not divide num_threads
+  if (num_threads <= 16) {
+    assert(num_threads % (th_info.m_num_threads) == 0);
+  }
   th_info.n_num_threads = num_threads / th_info.m_num_threads;
 
   // When there are 12 threads (num_threads = 12) and g_nthreads = 2, m_nthreads
@@ -497,6 +516,18 @@ thread_type_t fbgemmGetThreadPartition(
   //
   // (0, 0, 0), (0, 0, 1), (0, 0, 2)            (1, 0, 0), (1, 0, 1), (1, 0, 2)
   // (0, 1, 0), (0, 1, 1), (0, 1, 2)            (1, 1, 0), (1, 1, 1), (1, 1, 2)
+
+  // thread can be inactive,
+  // meaning they are launched, but will not be assigned any work
+  if (thread_id >= th_info.g_num_threads*th_info.m_num_threads*th_info.n_num_threads) {
+    th_info.m_thread_id = 0;
+    th_info.n_thread_id = 0;
+    th_info.g_thread_id = 0;
+    th_info.m_num_threads = 0;
+    th_info.n_num_threads = 0;
+    th_info.g_num_threads = 0;
+    return th_info;
+  }
 
   // We can view the thread as the ternary with 3-dim base: {g,m,n}_num_threads.
   th_info.n_thread_id = thread_id % th_info.n_num_threads;
