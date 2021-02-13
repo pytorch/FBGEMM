@@ -979,28 +979,4 @@ GenerateSparseAdaGrad<std::int32_t>(
     int prefetch,
     bool use_weight_decay);
 
-template <typename IndexType>
-typename SparseAdaGradSignatureNew<IndexType>::Type GenerateSparseAdaGradNew(
-    int block_size,
-    bool rowwise,
-    int prefetch,
-    bool use_weight_decay) {
-  return GenerateSparseAdaGrad<IndexType>(
-      block_size, rowwise, prefetch, use_weight_decay);
-}
-
-template FBGEMM_API typename SparseAdaGradSignatureNew<std::int64_t>::Type
-GenerateSparseAdaGradNew<std::int64_t>(
-    int block_size, // number of parameters per rows
-    bool rowwise,
-    int prefetch,
-    bool use_weight_decay);
-
-template FBGEMM_API typename SparseAdaGradSignatureNew<std::int32_t>::Type
-GenerateSparseAdaGradNew<std::int32_t>(
-    int block_size, // number of parameters per rows
-    bool rowwise,
-    int prefetch,
-    bool use_weight_decay);
-
 } // namespace fbgemm
