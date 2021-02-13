@@ -175,41 +175,9 @@ class SparseAdaGradSignature {
       std::int64_t counter_halflife)>; // frequency adjust happens only after
 };
 
-/**
- * @return The number of rows processed. If smaller than num_rows, an error
- *         must have happened at the last row processed.
- */
-template <typename IndexType>
-class SparseAdaGradSignatureNew {
- public:
-  using Type = std::function<int(
-      int num_rows, // number of rows reading
-      std::uint64_t param_size, // total number of parameters
-      float* w, // input/output parameters
-      const float* g, // input gradients
-      float* h, // input/output momentums
-      const IndexType* indices, // indices of each row
-      float epsilon,
-      float lr,
-      float weight_decay,
-      const double* counter, // used for weight_decay adjusted for frequency
-                             // nullptr when frequency adjustment is not used.
-                             // ignored when the kernel is generated with
-                             // use_weight_decay = false.
-      std::int64_t counter_halflife)>; // frequency adjust happens only after
-};
-
 template <typename IndexType>
 FBGEMM_API typename SparseAdaGradSignature<IndexType>::Type
 GenerateSparseAdaGrad(
-    int block_size, // number of parameters per row
-    bool rowwise = false,
-    int prefetch = 16,
-    bool use_weight_decay = false);
-
-template <typename IndexType>
-FBGEMM_API typename SparseAdaGradSignatureNew<IndexType>::Type
-GenerateSparseAdaGradNew(
     int block_size, // number of parameters per row
     bool rowwise = false,
     int prefetch = 16,
