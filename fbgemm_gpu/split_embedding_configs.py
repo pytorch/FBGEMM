@@ -15,10 +15,6 @@ class EmbOptimType(enum.Enum):
     )
     LAMB = "lamb"
     ADAM = "adam"
-    # approx refers to that gradients to the same row are applied in sequence
-    # instead of first coalescing gradients then apply together
-    APPROX_ADAGRAD = "adagrad"
-    APPROX_ROWWISE_ADAGRAD = "approx_row_wise_adagrad"
     # exact/dedup: gradients to the same row are applied with coalesce then apply
     # together, instead of applied in sequence (approx).
     EXACT_ADAGRAD = "exact_adagrad"
