@@ -17,8 +17,9 @@ __global__ void _index_hash_cuda_kernel(
     int64_t seed,
     int64_t modulo,
     scalar_t* __restrict__ hashed_indices) {
-  int64_t idx = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < N) {
+  int64_t start_idx = static_cast<int64_t>(blockIdx.x * blockDim.x + threadIdx.x);
+  const int64_t stride = static_cast<int64_t>(gridDim.x * blockDim.x);
+  for (int64_t idx = start_idx; idx < N; idx += stride) {
     int8_t* bytes = (int8_t*)&(indices[idx]);
     scalar_t hashed = seed * 0xDEADBEEF;
     // The compiler can unroll the loop
@@ -38,8 +39,9 @@ __global__ void _offsets_range_cuda_kernel(
     int64_t range_size,
     const scalar_t* __restrict__ offsets_data,
     scalar_t* __restrict__ range_data) {
-  int row_idx = blockIdx.x * blockDim.y + threadIdx.y;
-  if (row_idx < N) {
+  int start_row_idx = blockIdx.x * blockDim.y + threadIdx.y;
+  const int stride = gridDim.x * blockDim.y;
+  for (int row_idx = start_row_idx; row_idx < N; row_idx += stride) {
     scalar_t row_start = offsets_data[row_idx];
     scalar_t row_end =
         (row_idx < N - 1 ? offsets_data[row_idx + 1] : range_size);
@@ -72,8 +74,9 @@ __global__ void _bucketize_sparse_features_cuda_kernel1(
     const scalar_t* __restrict__ offsets_data,
     const scalar_t* __restrict__ indices_data,
     scalar_t* __restrict__ new_lengths_data) {
-  int r = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  if (r < lengths_size) {
+  int start_r = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int r = start_r; r < lengths_size; r += stride) {
     scalar_t rowstart = (r == 0 ? 0 : offsets_data[r - 1]);
     scalar_t rowend = offsets_data[r];
     for (scalar_t i = rowstart; i < rowend; ++i) {
@@ -103,8 +106,9 @@ __global__ void _bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ new_indices_data,
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data) {
-  int r = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  if (r < lengths_size) {
+  int start_r = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int r = start_r; r < lengths_size; r += stride) {
     index_t rowstart = r == 0 ? 0 : offsets_data[r - 1];
     index_t rowend = offsets_data[r];
     for (index_t i = rowstart; i < rowend; ++i) {
@@ -137,18 +141,18 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel1(
     const index_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
     index_t* __restrict__ new_lengths_data) {
-  int32_t b_t = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  if (b_t >= lengths_size) {
-    return;
-  }
-  int32_t t = b_t / B;
-  index_t blk_size = block_sizes_data[t];
-  index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
-  index_t rowend = offsets_data[b_t];
-  for (index_t i = rowstart; i < rowend; ++i) {
-    index_t idx = indices_data[i];
-    index_t p = idx / blk_size;
-    new_lengths_data[p * lengths_size + b_t]++;
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+    int32_t t = b_t / B;
+    index_t blk_size = block_sizes_data[t];
+    index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    index_t rowend = offsets_data[b_t];
+    for (index_t i = rowstart; i < rowend; ++i) {
+      index_t idx = indices_data[i];
+      index_t p = idx / blk_size;
+      new_lengths_data[p * lengths_size + b_t]++;
+    }
   }
 }
 
@@ -174,26 +178,26 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ new_indices_data,
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data) {
-  int32_t b_t = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  if (b_t >= lengths_size) {
-    return;
-  }
-  int32_t t = b_t / B;
-  index_t blk_size = block_sizes_data[t];
-  index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
-  index_t rowend = offsets_data[b_t];
-  for (index_t i = rowstart; i < rowend; ++i) {
-    index_t idx = indices_data[i];
-    index_t p = idx / blk_size;
-    index_t new_idx = idx % blk_size;
-    index_t pos = new_offsets_data[p * lengths_size + b_t];
-    new_indices_data[pos] = new_idx;
-    new_offsets_data[p * lengths_size + b_t]++;
-    if (has_weight) {
-      new_weights_data[pos] = weights_data[i];
-    }
-    if (bucketize_pos) {
-      new_pos_data[pos] = i - rowstart;
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+    int32_t t = b_t / B;
+    index_t blk_size = block_sizes_data[t];
+    index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    index_t rowend = offsets_data[b_t];
+    for (index_t i = rowstart; i < rowend; ++i) {
+      index_t idx = indices_data[i];
+      index_t p = idx / blk_size;
+      index_t new_idx = idx % blk_size;
+      index_t pos = new_offsets_data[p * lengths_size + b_t];
+      new_indices_data[pos] = new_idx;
+      new_offsets_data[p * lengths_size + b_t]++;
+      if (has_weight) {
+        new_weights_data[pos] = weights_data[i];
+      }
+      if (bucketize_pos) {
+        new_pos_data[pos] = i - rowstart;
+      }
     }
   }
 }
@@ -243,12 +247,13 @@ __global__ void permute_indices_weights_kernel(
     const index_t* __restrict__ output_offsets,
     index_t* __restrict__ permuted_indices,
     scalar_t* __restrict__ permuted_weights) {
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  index_t output_start = output_offsets[b_t];
-  index_t segment_length;
-  if (b_t < B * T) {
+  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const int stride = gridDim.x * blockDim.y;
+  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+    int32_t b = b_t % B;
+    int32_t t = b_t / B;
+    index_t output_start = output_offsets[b_t];
+    index_t segment_length;
     if (b_t == B * T - 1) {
       segment_length = len - output_offsets[b_t];
     } else {
@@ -272,10 +277,11 @@ __global__ void permute_lengths_kernel(
     const index_t* __restrict__ lengths,
     const int32_t* __restrict__ permute,
     index_t* __restrict__ permuted_lengths) {
-  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  if (b_t < B * T) {
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+    int32_t b = b_t % B;
+    int32_t t = b_t / B;
     permuted_lengths[b_t] = lengths[permute[t] * B + b];
   }
 }
@@ -291,10 +297,11 @@ __global__ void construct_offsets_kernel(
     const int64_t T,
     const int64_t B) {
   // do warp-per-D (so only need warp reduction)
-  index_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  index_t b = b_t % B;
-  index_t t = b_t / B;
-  if (t < T) {
+  index_t b_t_start = blockIdx.x * blockDim.x + threadIdx.x;
+  const index_t stride = gridDim.x * blockDim.x;
+  for (index_t b_t = b_t_start; b_t < B * T; b_t += stride) {
+    index_t b = b_t % B;
+    index_t t = b_t / B;
     index_t upper = 0;
     if (b != B - 1) {
       upper = batch_offsets_per_table[t * B + b + 1];
