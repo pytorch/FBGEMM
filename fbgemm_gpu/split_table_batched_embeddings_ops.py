@@ -1042,3 +1042,8 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
         return splits
+
+    def init_embedding_weights_uniform(self, min_val, max_val):
+        splits = self.split_embedding_weights()
+        for param in splits:
+            param.uniform_(min_val, max_val)
