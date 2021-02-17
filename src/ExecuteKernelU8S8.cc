@@ -127,6 +127,17 @@ void ExecuteKernel<
   bool lastKBlock = packedB_.isThisLastKBlock(kBlock % packedB_.blockRows());
   bool accum = (kBlock % packedB_.blockRows()) > 0;
 
+  int jb_begin, jb_end;
+  fbgemmPartition1D(
+      th_info_.n_thread_id,
+      th_info_.n_num_threads,
+      bColBlocks,
+      jb_begin,
+      jb_end);
+  if (jb_end == jb_begin) {
+    return;
+  }
+
   typename BaseType::jit_micro_kernel_fp fn;
 
   const inst_set_t isa = fbgemmInstructionSet();
@@ -203,13 +214,6 @@ void ExecuteKernel<
   t_start = std::chrono::high_resolution_clock::now();
 #endif
 
-  int jb_begin, jb_end;
-  fbgemmPartition1D(
-      th_info_.n_thread_id,
-      th_info_.n_num_threads,
-      bColBlocks,
-      jb_begin,
-      jb_end);
   for (int jb = jb_begin; jb < jb_end; ++jb) {
     if (jb == bColBlocks - 1) {
       int nc = ((packedB_.lastBcol() - 1) / nrMinSize_ + 1) * nrMinSize_;
