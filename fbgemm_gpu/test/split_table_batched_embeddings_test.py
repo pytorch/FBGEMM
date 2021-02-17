@@ -1265,5 +1265,25 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
 
 
+@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+class CUMemTest(unittest.TestCase):
+    @given(sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_is_uvm_tensor(self, sizes):
+        uvm_t = torch.ops.fb.new_managed_tensor(torch.zeros(*sizes, device="cuda:0",
+                                                        dtype=torch.float), sizes)
+        assert torch.ops.fb.is_uvm_tensor(uvm_t)
+
+    @given(sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_uvm_to_cpu(self, sizes):
+        uvm_t = torch.ops.fb.new_managed_tensor(torch.zeros(*sizes, device="cuda:0",
+                                                            dtype=torch.float), sizes)
+        cpu_t = torch.ops.fb.uvm_to_cpu(uvm_t)
+        assert not torch.ops.fb.is_uvm_tensor(cpu_t)
+        uvm_t.copy_(cpu_t)
+        assert torch.ops.fb.is_uvm_tensor(uvm_t)
+
+
 if __name__ == "__main__":
     unittest.main()
