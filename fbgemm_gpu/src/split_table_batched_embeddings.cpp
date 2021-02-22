@@ -80,13 +80,13 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       torch::dispatch(
           c10::DispatchKey::CUDA, TORCH_FN(linearize_cache_indices_cuda)));
   m.def(
-      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor lxu_cache_state, Tensor lxu_cache_weights, int time_stamp, Tensor lru_state, bool stochastic_rounding) -> ()");
+      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, bool stochastic_rounding) -> ()");
   m.impl(
       "lru_cache_populate",
       torch::dispatch(
           c10::DispatchKey::CUDA, TORCH_FN(lru_cache_populate_cuda)));
   m.def(
-      "lfu_cache_populate(Tensor weights, Tensor cache_hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor lxu_cache_state, Tensor lxu_cache_weights, Tensor lfu_state, bool stochastic_rounding) -> ()");
+      "lfu_cache_populate(Tensor weights, Tensor cache_hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, Tensor(c!) lfu_state, bool stochastic_rounding) -> ()");
   m.impl(
       "lfu_cache_populate",
       torch::dispatch(
