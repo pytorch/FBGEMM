@@ -863,7 +863,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
             // Stay under 64K of shared memory (96K in total), BT_block_size must be a power of two.
             // B
-            while(BT_block_size * sizeof(acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= 64 * 1024) {
+            while (BT_block_size * sizeof(acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= 64 * 1024) {
                 BT_block_size /= 2;
             }
             if (std::is_same<{{ "scalar_t" if dense else "emb_t" }}, double>::value) {

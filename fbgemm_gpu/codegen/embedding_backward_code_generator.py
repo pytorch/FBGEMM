@@ -22,7 +22,7 @@ args, _ = parser.parse_known_args()
 env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(os.path.dirname(os.path.abspath(__file__)))
 )
-env.globals["max_embedding_dim"] = 1024
+env.globals["max_embedding_dim"] = 4096
 env.globals["dense"] = False
 
 
