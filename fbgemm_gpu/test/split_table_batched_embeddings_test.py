@@ -14,7 +14,7 @@ import numpy as np
 import split_table_batched_embeddings_ops
 import torch
 from hypothesis import Verbosity, assume, given, settings
-from split_table_batched_embeddings_ops import OptimType
+from split_table_batched_embeddings_ops import OptimType, SparseType
 
 
 MAX_EXAMPLES = 40
@@ -75,7 +75,7 @@ def generate_requests(
     # alpha <= 1.0: use uniform distribution
     # alpha > 1.0: use zjpf distribution
     alpha: float = 1.0,
-    fp16: bool = False,
+    weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
 ) -> List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]:
     if alpha <= 1.0:
@@ -101,11 +101,12 @@ def generate_requests(
             all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
 
     rs = [
-        get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L)) + (
+        get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
+        + (
             torch.randn(
                 T * B * L,
                 device=torch.cuda.current_device(),
-                dtype=torch.float16 if fp16 else torch.float32,
+                dtype=torch.float16 if weights_precision else torch.float32,
             )
             if weighted
             else None,
@@ -124,16 +125,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        fp16=st.booleans(),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            split_table_batched_embeddings_ops.PoolingMode
-        ),
+        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -144,7 +143,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B,
         log_E,
         L,
-        fp16,
+        weights_precision,
         weighted,
         mixed,
         use_cache,
@@ -185,9 +184,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif use_cache:
             managed = [
@@ -215,7 +212,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             bs = [b.half() for b in bs]
 
@@ -223,7 +220,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
@@ -247,7 +244,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 for (E, D, M) in zip(Es, Ds, managed)
             ],
-            fp16=fp16,
+            weights_precision=weights_precision,
             optimizer=OptimType.EXACT_SGD,
             learning_rate=0.05,
             cache_algorithm=cache_algorithm,
@@ -271,8 +268,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(
             fc2.float(),
             f.float(),
-            atol=8.0e-3 if fp16 else 1.0e-5,
-            rtol=8.0e-3 if fp16 else 1.0e-5,
+            atol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
+            rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
     @given(
@@ -281,13 +278,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=32),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=10),
-        fp16=st.booleans(),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(
-            split_table_batched_embeddings_ops.PoolingMode
-        ),
+        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
@@ -298,7 +293,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B,
         log_E,
         L,
-        fp16,
+        weights_precision,
         weighted,
         mixed,
         long_segments,
@@ -339,7 +334,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             bs = [b.half() for b in bs]
 
@@ -354,14 +349,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             for e in Es
         ]
-        if long_segments and L > 0 and not fp16:
+        if long_segments and L > 0 and weights_precision != SparseType.FP16:
             for x in xs:
                 x[:, 0] = 0
 
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
@@ -377,7 +372,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
         grad_weights = torch.cat([b.weight.grad.view(-1) for b in bs])
-        if fp16:
+        if weights_precision == SparseType.FP16:
             grad_weights = grad_weights.half()
 
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
@@ -385,7 +380,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
         )
-        if fp16:
+        if weights_precision == SparseType.FP16:
             cc = cc.half()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -406,8 +401,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(
             fc2.float(),
             f.float(),
-            atol=5.0e-3 if fp16 else 1.0e-5,
-            rtol=5.0e-3 if fp16 else 1.0e-5,
+            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
+            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
         goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
@@ -415,8 +410,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(
             cc.weights.grad,
             grad_weights,
-            atol=5.0e-3 if fp16 else 1.0e-4,
-            rtol=5.0e-3 if fp16 else 1.0e-4,
+            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
+            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
         )
 
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
@@ -439,7 +434,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        fp16=st.booleans(),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
@@ -447,9 +442,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(
-            split_table_batched_embeddings_ops.PoolingMode
-        ),
+        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -460,7 +453,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B,
         log_E,
         L,
-        fp16,
+        weights_precision,
         weighted,
         mixed,
         use_cache,
@@ -502,9 +495,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif use_cache:
             managed = [
@@ -533,7 +524,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             bs = [b.half() for b in bs]
 
@@ -543,11 +534,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         feature_table_map.insert(table_to_replicate, table_to_replicate)
 
         xs = [
-            to_device(torch.from_numpy(
-                np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
-                    np.int64
-                )
-            ), use_cpu)
+            to_device(
+                torch.from_numpy(
+                    np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
+                        np.int64
+                    )
+                ),
+                use_cpu,
+            )
             for t in feature_table_map
         ]
 
@@ -558,7 +552,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
         xws_acc_type = copy.deepcopy(xws)
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
@@ -582,7 +576,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             optimizer=OptimType.EXACT_SGD,
             feature_table_map=feature_table_map,
             learning_rate=0.05,
-            fp16=fp16,
+            weights_precision=weights_precision,
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
         )
@@ -606,9 +600,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             torch.testing.assert_allclose(
                 cc.split_embedding_weights()[t],
-                new_weights[t].half() if fp16 and use_cpu else new_weights[t],
-                atol=(1.0e-2 if long_segments else 5.0e-3) if fp16 else 1.0e-5,
-                rtol=(1.0e-2 if long_segments else 5.0e-3) if fp16 else 1.0e-5,
+                new_weights[t].half()
+                if weights_precision == SparseType.FP16 and use_cpu
+                else new_weights[t],
+                atol=(1.0e-2 if long_segments else 5.0e-3)
+                if weights_precision == SparseType.FP16
+                else 1.0e-5,
+                rtol=(1.0e-2 if long_segments else 5.0e-3)
+                if weights_precision == SparseType.FP16
+                else 1.0e-5,
             )
 
     @given(
@@ -618,7 +618,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
         D_gradcheck=st.integers(min_value=1, max_value=2),
-        fp16=st.booleans(),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         stochastic_rounding=st.booleans(),
         weighted=st.booleans(),
         row_wise=st.booleans(),
@@ -627,9 +627,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            split_table_batched_embeddings_ops.PoolingMode
-        ),
+        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -641,7 +639,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E,
         L,
         D_gradcheck,
-        fp16,
+        weights_precision,
         stochastic_rounding,
         weighted,
         row_wise,
@@ -653,7 +651,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     ):
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
-        exact = True # Only exact sparse optimizers are supported
+        exact = True  # Only exact sparse optimizers are supported
 
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -694,9 +692,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif use_cache:
             managed = [
@@ -725,7 +721,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             bs = [b.half() for b in bs]
 
@@ -737,17 +733,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
         xs = [
-            to_device(torch.from_numpy(
-                np.random.choice(range(Es[t]), size=(B, L), replace=exact).astype(
-                    np.int64
-                )
-            ), use_cpu)
+            to_device(
+                torch.from_numpy(
+                    np.random.choice(range(Es[t]), size=(B, L), replace=exact).astype(
+                        np.int64
+                    )
+                ),
+                use_cpu,
+            )
             for t in feature_table_map
         ]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
         xws_acc_type = copy.deepcopy(xws)
 
-        if fp16 and not use_cpu:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
@@ -773,7 +772,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else OptimType.EXACT_ADAGRAD,
             learning_rate=lr,
             eps=eps,
-            fp16=fp16,
+            weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             pooling_mode=pooling_mode,
         )
@@ -801,8 +800,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_allclose(
                 split_optimizer_states[t].float(),
                 ref_optimizer_state.mean(dim=1) if row_wise else ref_optimizer_state,
-                atol=5.0e-3 if fp16 else 1.0e-4,
-                rtol=5.0e-3 if fp16 else 1.0e-4,
+                atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
+                rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
             )
 
         for t in range(T):
@@ -819,8 +818,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     .add_(eps)
                     .view(Es[t], 1 if row_wise else Ds[t]),
                 ),
-                atol=5.0e-3 if fp16 else 1.0e-4,
-                rtol=5.0e-3 if fp16 else 1.0e-4,
+                atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
+                rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
             )
         if use_cpu:
             D_gradcheck = (D_gradcheck + 15) // 16 * 4
@@ -834,7 +833,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else OptimType.EXACT_ADAGRAD,
             learning_rate=0.0,
             eps=eps,
-            fp16=fp16,
+            weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             # NOTE: only SUM pooling can work with per_sample_weights!
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
@@ -866,7 +865,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
         T_ = len(xws)
         feature_requires_grad = to_device(
-            torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(), use_cpu
+            torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
+            use_cpu,
         )
         per_sample_weights = per_sample_weights.detach().clone()
         per_sample_weights.requires_grad = True
@@ -902,9 +902,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_cache_pipeline(
-        self, T, D, B, log_E, L, mixed, cache_algorithm
-    ):
+    def test_cache_pipeline(self, T, D, B, log_E, L, mixed, cache_algorithm):
         iters = 3
         E = int(10 ** log_E)
         D = D * 4
@@ -944,7 +942,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, M, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for (E, D, M) in zip(Es, Ds, managed)],
+            [
+                (E, D, M, split_table_batched_embeddings_ops.ComputeDevice.CUDA)
+                for (E, D, M) in zip(Es, Ds, managed)
+            ],
             cache_algorithm=cache_algorithm,
         )
         for t in range(T):
@@ -992,9 +993,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(
-            split_table_batched_embeddings_ops.PoolingMode
-        ),
+        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -1044,9 +1043,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         else:
             managed = [
@@ -1064,9 +1061,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ]
 
         xs = [
-            to_device(torch.from_numpy(
-                np.random.choice(range(e), size=(B, L), replace=True).astype(np.int64)
-            ), use_cpu)
+            to_device(
+                torch.from_numpy(
+                    np.random.choice(range(e), size=(B, L), replace=True).astype(
+                        np.int64
+                    )
+                ),
+                use_cpu,
+            )
             for e in Es
         ]
         if long_segments and L > 0:
