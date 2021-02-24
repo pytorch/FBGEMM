@@ -452,7 +452,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
       [&]() ->
       typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel {
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
@@ -509,7 +509,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
                   const int*, // mask_avx2
                   float, // weight_decay
                   const double*, // counter then counter_halflife
-                  std::int64_t>(asmjit::CallConv::kIdHost));
+                  std::int64_t>(asmjit::CallConv::kIdHost), a->environment());
 
         asmjit::FuncFrame frame;
         frame.init(func);

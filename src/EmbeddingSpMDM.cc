@@ -188,7 +188,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
 
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -264,7 +264,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
                   const float*, // weights
                   float*, // out
                   const std::int32_t*, // compressed_indices_table and then mask
-                  const int*>(asmjit::CallConv::kIdHost));
+                  const int*>(asmjit::CallConv::kIdHost), a->environment());
         } else {
           func.init(asmjit::FuncSignatureT<
                     bool,
@@ -276,7 +276,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
                     const offsetType*, // offsets or lengths
                     const float*, // weights
                     float*, // out and then mask
-                    const int*>(asmjit::CallConv::kIdHost));
+                    const int*>(asmjit::CallConv::kIdHost), a->environment());
         }
 
         asmjit::FuncFrame frame;

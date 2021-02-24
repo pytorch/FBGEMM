@@ -120,7 +120,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 offsetType,
                 dataType>::jit_sparse_adagrad_kernel {
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         bool areIndices64b = is_same<indxType, int64_t>::value;
@@ -169,7 +169,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   const int*, // lengths
                   float, // epsilon
                   float, // lr then rand_buffer
-                  uint32_t*>(asmjit::CallConv::kIdHost));
+                  uint32_t*>(asmjit::CallConv::kIdHost), a->environment());
 
         asmjit::FuncFrame frame;
         frame.init(func);

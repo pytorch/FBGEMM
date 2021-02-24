@@ -203,7 +203,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_kernel_signature {
     asmjit::CodeHolder code;
-    code.init(runtime().codeInfo());
+    code.init(runtime().environment());
     x86::Assembler assembler(&code);
     x86::Emitter* e = assembler.as<x86::Emitter>();
 #ifdef FBGEMM_LOG_CODE
@@ -270,7 +270,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
               int,
               const int*,
               int,
-              const std::int32_t*>(asmjit::CallConv::kIdHost));
+              const std::int32_t*>(asmjit::CallConv::kIdHost), e->environment());
 
     asmjit::FuncFrame frame;
     frame.init(func);

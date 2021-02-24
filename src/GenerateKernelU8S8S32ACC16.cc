@@ -134,7 +134,7 @@ getOrCreate<inst_set_t::avx2>(
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
     asmjit::CodeHolder code;
-    code.init(runtime().codeInfo());
+    code.init(runtime().environment());
     x86::Assembler assembler(&code);
     x86::Emitter* a = assembler.as<x86::Emitter>();
 
@@ -189,7 +189,7 @@ getOrCreate<inst_set_t::avx2>(
               int8_t*,
               int32_t*,
               int,
-              int>(asmjit::CallConv::kIdHost));
+              int>(asmjit::CallConv::kIdHost), a->environment());
 
     asmjit::FuncFrame frame;
     frame.init(func);

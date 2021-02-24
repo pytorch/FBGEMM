@@ -168,7 +168,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         bool areIndices64b = is_same<indxType, int64_t>::value;
 
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -245,7 +245,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                     const float*, // weights
                     float*, // out
                     const int32_t* /* compressed_indices_table */,
-                    const int* /* mask */>(asmjit::CallConv::kIdHost));
+                    const int* /* mask */>(asmjit::CallConv::kIdHost), a->environment());
         } else {
           func.init(asmjit::FuncSignatureT<
                     bool,
@@ -257,7 +257,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
                     const offsetType*, // offsets or lengths
                     const float*, // weights
                     float*, // out
-                    const int* /* mask */>(asmjit::CallConv::kIdHost));
+                    const int* /* mask */>(asmjit::CallConv::kIdHost), a->environment());
         }
 
         asmjit::FuncFrame frame;
