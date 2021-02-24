@@ -16,6 +16,11 @@ from split_table_batched_embeddings_ops import OptimType, SparseType
 
 logging.basicConfig(level=logging.DEBUG)
 
+PRECISION_SIZE_MULTIPLIER = {
+    SparseType.FP32 : 4,
+    SparseType.FP16 : 2,
+    SparseType.INT8 : 1,
+}
 
 def div_round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
@@ -46,7 +51,7 @@ def generate_requests(
     # alpha <= 1.0: use uniform distribution
     # alpha > 1.0: use zjpf distribution
     alpha: float = 1.0,
-    fp16: bool = False,
+    weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
 ) -> List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]:
     if alpha <= 1.0:
@@ -77,7 +82,7 @@ def generate_requests(
             torch.randn(
                 T * B * L,
                 device=torch.cuda.current_device(),
-                dtype=torch.float16 if fp16 else torch.float32,
+                dtype=torch.float16 if weights_precision == SparseType.FP16 else torch.float32,
             )
             if weighted
             else None,
@@ -151,8 +156,7 @@ def cli():
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
-@click.option("--fp16", is_flag=True, default=False)
-@click.option("--int8", is_flag=True, default=False)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--managed", default="device")
@@ -168,8 +172,7 @@ def device(  # noqa C901
     bag_size: int,
     batch_size: int,
     embedding_dim: int,
-    fp16: bool,
-    int8: bool,
+    weights_precision: SparseType,
     stoc: bool,
     iters: int,
     managed: str,
@@ -216,36 +219,31 @@ def device(  # noqa C901
     else:
         managed_option = split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED
 
-    sparse_precision = SparseType.FP32
-    if fp16:
-        sparse_precision = SparseType.FP16
-    elif int8:
-        sparse_precision = SparseType.INT8
-
     emb = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [(E, d, managed_option, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for d in Ds],
         optimizer=optimizer,
         learning_rate=0.1,
         eps=0.1,
-        precision=sparse_precision,
+        weights_precision=weights_precision,
         stochastic_rounding=stoc,
-    )
-    if sparse_precision == SparseType.INT8:
+    ).cuda()
+    if weights_precision == SparseType.INT8:
         emb.init_embedding_weights_uniform(-0.0003, 0.0003)
 
-    emb.cuda()
-
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
+
+    param_size_multiplier = PRECISION_SIZE_MULTIPLIER[weights_precision]
+
     logging.info(
         f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * (2 if fp16 else 4)  / 1.0e9: .2f}GB"
+        f"{nparams * param_size_multiplier / 1.0e9: .2f}GB"
     )
     logging.info(
-        f"Accessed weights per batch: {B * T * L * D * (2 if fp16 else 4) / 1.0e6: .2f}MB"
+        f"Accessed weights per batch: {B * T * L * D * param_size_multiplier / 1.0e6: .2f}MB"
     )
 
     requests = generate_requests(
-        iters, B, T, L, E, reuse=reuse, alpha=alpha, fp16=fp16, weighted=weighted
+        iters, B, T, L, E, reuse=reuse, alpha=alpha, weights_precision=weights_precision, weighted=weighted
     )
 
     # forward
@@ -261,7 +259,7 @@ def device(  # noqa C901
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 if fp16 else 4) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -278,7 +276,7 @@ def device(  # noqa C901
     )
     logging.info(
         f"ForwardBackward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * (2 if fp16 else 4) * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -288,7 +286,7 @@ def device(  # noqa C901
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
-@click.option("--fp16", is_flag=True, default=False)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--mixed", is_flag=True, default=False)
@@ -303,7 +301,7 @@ def uvm(
     bag_size: int,
     batch_size: int,
     embedding_dim: int,
-    fp16: bool,
+    weights_precision: SparseType,
     stoc: bool,
     iters: int,
     mixed: bool,
@@ -344,9 +342,13 @@ def uvm(
             )
             for d in Ds[:T_uvm]
         ],
-        fp16=fp16,
+        weights_precision=weights_precision,
         stochastic_rounding=stoc,
     ).cuda()
+
+    if weights_precision == SparseType.INT8:
+        emb_uvm.init_embedding_weights_uniform(-0.0003, 0.0003)
+
     emb_gpu = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [
             (
@@ -357,9 +359,13 @@ def uvm(
             )
             for d in Ds[T_uvm:]
         ],
-        fp16=fp16,
+        weights_precision=weights_precision,
         stochastic_rounding=stoc,
     ).cuda()
+
+    if weights_precision == SparseType.INT8:
+        emb_gpu.init_embedding_weights_uniform(-0.0003, 0.0003)
+
     emb_mixed = (
         split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [
@@ -377,10 +383,14 @@ def uvm(
                     * T_gpu,
                 )
             ],
-            fp16=fp16,
+            weights_precision=weights_precision,
             stochastic_rounding=stoc,
         ).cuda()
     )
+
+    if weights_precision == SparseType.INT8:
+        emb_mixed.init_embedding_weights_uniform(-0.0003, 0.0003)
+
     requests_uvm = generate_requests(
         iters,
         B,
@@ -389,11 +399,11 @@ def uvm(
         E,
         reuse=reuse,
         alpha=alpha,
-        fp16=fp16,
+        weights_precision=weights_precision,
         weighted=weighted,
     )
     requests_gpu = generate_requests(
-        iters, B, T_gpu, L, E, reuse=reuse, alpha=alpha, fp16=fp16, weighted=False
+        iters, B, T_gpu, L, E, reuse=reuse, alpha=alpha, weights_precision=weights_precision, weighted=False
     )
     requests = []
     for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
@@ -413,10 +423,12 @@ def uvm(
             per_sample_weights,
         ),
     )
+    param_size_multiplier = PRECISION_SIZE_MULTIPLIER[weights_precision]
+
     logging.info(
         f"GPU Forward, B: {B}, "
         f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 if fp16 else 4) * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -431,7 +443,7 @@ def uvm(
     logging.info(
         f"UVM Forward, B: {B}, "
         f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 if fp16 else 4) * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -446,7 +458,7 @@ def uvm(
     logging.info(
         f"Mixed Forward, B: {B}, "
         f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 if fp16 else 4) * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -458,7 +470,7 @@ def uvm(
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-sets", default=1024)
 @click.option("--embedding-dim", default=128)
-@click.option("--fp16", is_flag=True, default=False)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--long-index", is_flag=True, default=False)
 @click.option("--iters", default=100)
@@ -474,7 +486,7 @@ def cache(  # noqa C901
     cache_algorithm: str,
     cache_sets: int,
     embedding_dim: int,
-    fp16: bool,
+    weights_precision: SparseType,
     stoc: bool,
     iters: int,
     long_index: bool,
@@ -517,9 +529,13 @@ def cache(  # noqa C901
             for d in Ds
         ],
         optimizer=optimizer,
-        fp16=fp16,
+        weights_precision=weights_precision,
         stochastic_rounding=stoc,
     ).cuda()
+
+    if weights_precision == SparseType.INT8:
+        emb_nc.init_embedding_weights_uniform(-0.0003, 0.0003)
+
     emb = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
         [
             (
@@ -531,19 +547,24 @@ def cache(  # noqa C901
             for d in Ds
         ],
         optimizer=optimizer,
-        fp16=fp16,
+        weights_precision=weights_precision,
         stochastic_rounding=stoc,
         cache_sets=cache_sets,
         cache_algorithm=cache_alg,
     ).cuda()
+
+    if weights_precision == SparseType.INT8:
+        emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
+    param_size_multiplier = PRECISION_SIZE_MULTIPLIER[weights_precision]
     logging.info(
         f"Embedding tables: {E * T} rows, {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * (2 if fp16 else 4)  / 1.0e6: .2f}MB"
+        f"{nparams * param_size_multiplier  / 1.0e6: .2f}MB"
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
-        f"{B * T * L * D * (2 if fp16 else 4) / 1.0e6: .2f}MB"
+        f"{B * T * L * D * param_size_multiplier / 1.0e6: .2f}MB"
     )
 
     requests = generate_requests(
@@ -560,7 +581,7 @@ def cache(  # noqa C901
     )
     logging.info(
         f"ForwardBackward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * (2 if fp16 else 4) * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -605,11 +626,11 @@ def cache(  # noqa C901
     logging.info(
         f"ForwardBackward (LXU), reuse: {reuse}, alpha: {alpha}, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * (2 if fp16 else 4) * B * sum(Ds) * L / e2e_time / 1.0e9: .2f}GB/s, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / e2e_time / 1.0e9: .2f}GB/s, "
         f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
-        f"{2 * sum(exchanged_cache_lines) * (2 if fp16 else 4) * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
+        f"{2 * sum(exchanged_cache_lines) * param_size_multiplier * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
         f"Tfwdbwd: {forward_backward_time * 1.0e6:.0f}us, "
-        f"{3 * (2 if fp16 else 4) * B * sum(Ds) * L / forward_backward_time / 1.0e9: .2f} GB/s, "
+        f"{3 * param_size_multiplier * B * sum(Ds) * L / forward_backward_time / 1.0e9: .2f} GB/s, "
         f"Te2e: {e2e_time * 1.0e6:.0f}us, "
     )
 
