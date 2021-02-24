@@ -1,8 +1,20 @@
-version: 2
-jobs:
-  build:
+version: 2.1
+
+executors:
+  xenial:
     docker:
       - image: buildpack-deps:xenial
+  macos11:
+    macos:
+      xcode: 11.3.0
+
+jobs:
+  build:
+    parameters:
+      e:
+        type: executor
+    executor: << parameters.e >>
+
     steps:
       - checkout
       - run:
@@ -51,3 +63,11 @@ jobs:
             set -e
             cd build_shared
             ctest --verbose
+
+workflows:
+  workflow:
+    jobs:
+      - build:
+          e: xenial
+      - build:
+          e: macos11
