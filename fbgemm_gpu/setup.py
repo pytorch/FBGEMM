@@ -64,9 +64,7 @@ cpp_cuda_output_files = (
     ]
 )
 
-py_output_files = ["lookup_{}.py".format(optimizer) for optimizer in OPTIMIZERS] + [
-    "__init__.py",
-]
+py_output_files = ["lookup_{}.py".format(optimizer) for optimizer in OPTIMIZERS]
 
 
 def generate_jinja_files():
