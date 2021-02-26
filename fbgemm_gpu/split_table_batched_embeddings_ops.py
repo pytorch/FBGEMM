@@ -999,6 +999,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 row for (row, _) in embedding_specs[:t]
             )
 
+        self.weights_physical_offsets = weights_offsets
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
         self.register_buffer(
             "weights_offsets",
@@ -1037,7 +1038,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         splits = []
         for t, (rows, dim) in enumerate(self.embedding_specs):
-            offset = self.weights_offsets[t]
+            offset = self.weights_physical_offsets[t]
             splits.append(
                 self.weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
