@@ -8,7 +8,8 @@
 
 using namespace at;
 
-Tensor split_embedding_codegen_forward_cpu(
+template <typename weights_t, typename ind_weights_t, typename output_t>
+void split_embedding_forward_cpu_kernel(
     Tensor weights,
     Tensor weights_offsets,
     Tensor D_offsets,
@@ -16,7 +17,8 @@ Tensor split_embedding_codegen_forward_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    Tensor indice_weights) {
+    Tensor indice_weights,
+    Tensor output) {
   int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
@@ -28,12 +30,16 @@ Tensor split_embedding_codegen_forward_cpu(
   const auto offsets_data = offsets.accessor<int64_t, 1>();
   const auto indices_data = indices.accessor<int64_t, 1>();
 
-  Tensor output;
-  if (weights.scalar_type() == at::kHalf) {
-    output = zeros({B, total_D}, weights.options().dtype(at::kFloat));
-  } else {
-    output = zeros({B, total_D}, weights.options());
-  }
+  const auto weights_data = weights.accessor<weights_t, 1>();
+  const auto indice_weights_data = indice_weights.defined()
+      ?
+      // If indice_weights not defined, then this accessor won't be used
+      indice_weights.accessor<ind_weights_t, 1>()
+      : weights.accessor<ind_weights_t, 1>(); // this is just to make compiler
+                                              // happy
+
+  auto output_data = output.accessor<output_t, 2>();
+
   for (int64_t t = 0; t < T; ++t) {
     const auto D_begin = D_offsets_data[t];
     const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
@@ -49,14 +55,61 @@ Tensor split_embedding_codegen_forward_cpu(
       for (auto p = pool_begin; p < pool_end; ++p) {
         const int64_t embedding_begin = table_begin + indices_data[p] * D;
         for (int64_t d = 0; d < D; ++d) {
-          output[b][D_begin + d] += scale_factor *
+          output_data[b][D_begin + d] += scale_factor *
               (indice_weights.defined()
-                   ? weights[embedding_begin + d] * indice_weights[p]
-                   : weights[embedding_begin + d]);
+                   ? static_cast<output_t>(weights_data[embedding_begin + d]) *
+                       indice_weights_data[p]
+                   : static_cast<output_t>(weights_data[embedding_begin + d]));
         }
       }
     }
   }
+}
+
+Tensor split_embedding_codegen_forward_cpu(
+    Tensor weights,
+    Tensor weights_offsets,
+    Tensor D_offsets,
+    int64_t total_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    Tensor indice_weights) {
+  int64_t T = D_offsets.numel() - 1;
+  TORCH_CHECK(T > 0);
+  // offsets = [T x B  + 1]
+  int64_t B = (offsets.size(0) - 1) / T;
+  TORCH_CHECK(B > 0);
+
+  Tensor output;
+  if (weights.scalar_type() == at::kHalf) {
+    output = zeros({B, total_D}, weights.options().dtype(at::kFloat));
+  } else {
+    output = zeros({B, total_D}, weights.options());
+  }
+
+  // In both cases of the if condition above, output tensor is of type float
+  TORCH_CHECK(output.scalar_type() == at::kFloat);
+
+  // It is assumed that the indice_weights will always be float
+  if (indice_weights.defined()) {
+    TORCH_CHECK(indice_weights.scalar_type() == at::kFloat);
+  }
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      weights.scalar_type(), "split_embedding_cpu_forward", [&]() {
+        split_embedding_forward_cpu_kernel<scalar_t, float, float>(
+            weights,
+            weights_offsets,
+            D_offsets,
+            total_D,
+            indices,
+            offsets,
+            pooling_mode,
+            indice_weights,
+            output);
+      });
+
   return output;
 }
 
