@@ -23,6 +23,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmFP16.cc",
         "src/FbgemmFloat16Convert.cc",
         "src/FbgemmI64.cc",
+        "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
         "src/GenerateKernel.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
@@ -44,6 +45,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
+        "src/spmmUtils.cc",
         "src/TransposeUtils.cc",
     ] + (get_fbgemm_base_srcs() if with_base else [])
 
@@ -60,11 +62,14 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmI8DepthwiseAvx2.h",
         "include/fbgemm/FbgemmI8Spmdm.h",
         "include/fbgemm/FbgemmPackMatrixB.h",
+        "include/fbgemm/FbgemmSparse.h",
         "include/fbgemm/OutputProcessing-inl.h",
         "include/fbgemm/PackingTraits-inl.h",
         "include/fbgemm/QuantUtils.h",
         "include/fbgemm/QuantUtilsAvx2.h",
         "include/fbgemm/QuantUtilsAvx512.h",
+        "include/fbgemm/spmmUtils.h",
+        "include/fbgemm/spmmUtilsAvx2.h",
         "include/fbgemm/Utils.h",
         "include/fbgemm/UtilsAvx2.h",
         "include/fbgemm/Types.h",
@@ -79,9 +84,12 @@ def get_fbgemm_avx2_srcs(msvc = False):
         "src/FbgemmI8Depthwise3DAvx2.cc",
         "src/FbgemmI8DepthwiseAvx2.cc",
         "src/FbgemmI8DepthwisePerChannelQuantAvx2.cc",
+        "src/FbgemmSparseDenseAvx2.cc",
+        "src/FbgemmSparseDenseInt8Avx2.cc",
         "src/OptimizedKernelsAvx2.cc",
         "src/PackDepthwiseConvMatrixAvx2.cc",
         "src/QuantUtilsAvx2.cc",
+        "src/spmmUtilsAvx2.cc",
         "src/UtilsAvx2.cc",
     ]
 
@@ -96,6 +104,9 @@ def get_fbgemm_avx512_srcs(msvc = False):
         #All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
         "src/FbgemmFloat16ConvertAvx512.cc",
+        "src/FbgemmSparseDenseAvx512.cc",
+        "src/FbgemmSparseDenseInt8Avx512.cc",
+        "src/FbgemmSparseDenseVectorInt8Avx512.cc",
         "src/QuantUtilsAvx512.cc",
         "src/UtilsAvx512.cc",
     ]

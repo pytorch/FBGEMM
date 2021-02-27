@@ -503,4 +503,18 @@ void performance_test(
   }
 }
 
+aligned_vector<float> getRandomSparseVector(
+    unsigned size,
+    float fractionNonZeros = 1.0);
+
+template <typename T>
+aligned_vector<T> getRandomBlockSparseMatrix(
+    int Rows,
+    int Cols,
+    float fractionNonZerosBlocks = 1.0,
+    int RowBlockSize = 4,
+    int ColBlockSize = 1,
+    T low = 0,
+    T high = 9);
+
 } // namespace fbgemm

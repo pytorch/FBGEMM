@@ -21,7 +21,7 @@ enum class FBGEMM_ENUM_CLASS_API QuantizationGranularity {
 /**
  * @brief A struct to represent a block of a matrix.
  */
-struct block_type_t {
+struct FBGEMM_API block_type_t {
   int row_start;
   int row_size;
   int col_start;
