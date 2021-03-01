@@ -10,9 +10,9 @@ from typing import Callable, List, Optional, Tuple
 
 import click
 import numpy as np
-import split_table_batched_embeddings_ops
+import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import torch
-from split_table_batched_embeddings_ops import OptimType, SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
 
 logging.basicConfig(level=logging.DEBUG)
 

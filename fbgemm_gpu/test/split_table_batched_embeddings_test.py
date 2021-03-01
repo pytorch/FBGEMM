@@ -11,10 +11,10 @@ from typing import Any, Callable, List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
-import split_table_batched_embeddings_ops
+import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import torch
 from hypothesis import Verbosity, assume, given, settings
-from split_table_batched_embeddings_ops import OptimType, SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
 
 
 MAX_EXAMPLES = 40
