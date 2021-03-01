@@ -50,7 +50,24 @@ using namespace at;
   const auto momentum2_offsets_data = momentum2_offsets.accessor<int64_t, 1>();
   {% endif %}
 
-  auto grad = zeros_like(host_weights);
+  // Gradients are of type fp32, so weights should not have higher precision
+  TORCH_CHECK(host_weights.element_size() <= 4);
+  auto grad = zeros_like(host_weights, at::kFloat);
+
+  TORCH_CHECK(host_weights.dim() == 1);
+  auto grad_data = grad.accessor<float, 1>();
+
+  // It is assumed that the indice_weights will be of type float
+  if (indice_weights.defined())
+    TORCH_CHECK(indice_weights.scalar_type() == at::kFloat);
+  auto indice_weights_data = indice_weights.defined() ?
+    // If indice_weights are not defined, then this accessor won't be used
+    indice_weights.accessor<float, 1>()
+    : grad.accessor<float, 1>(); // this is just to make compiler happy
+
+  TORCH_CHECK(grad_output.scalar_type() == at::kFloat);
+  auto grad_output_data = grad_output.accessor<float, 2>();
+
   for (int64_t t = 0; t < T; ++t) {
     const auto D_begin = D_offsets_data[t];
     const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
@@ -66,10 +83,10 @@ using namespace at;
       for (auto p = pool_begin; p < pool_end; ++p) {
         const int64_t embedding_begin = table_begin + indices_data[p] * D;
         for (int64_t d = 0; d < D; ++d) {
-          grad[embedding_begin + d] += scale_factor *
+          grad_data[embedding_begin + d] += scale_factor *
               (indice_weights.defined()
-                   ? grad_output[b][D_begin + d] * indice_weights[p]
-                   : grad_output[b][D_begin + d]);
+                   ? grad_output_data[b][D_begin + d] * indice_weights_data[p]
+                   : grad_output_data[b][D_begin + d]);
         }
       }
     }

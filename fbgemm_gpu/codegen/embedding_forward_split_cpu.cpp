@@ -53,12 +53,17 @@ void split_embedding_forward_cpu_kernel(
                                                                        : 1.0;
       for (auto p = pool_begin; p < pool_end; ++p) {
         const int64_t embedding_begin = table_begin + indices_data[p] * D;
-        for (int64_t d = 0; d < D; ++d) {
-          output_data[b][D_begin + d] += scale_factor *
-              (indice_weights.defined()
-                   ? static_cast<output_t>(weights_data[embedding_begin + d]) *
-                       static_cast<output_t>(indice_weights_data[p])
-                   : static_cast<output_t>(weights_data[embedding_begin + d]));
+        if (indice_weights.defined()) {
+          for (int64_t d = 0; d < D; ++d) {
+            output_data[b][D_begin + d] += scale_factor *
+                static_cast<output_t>(weights_data[embedding_begin + d]) *
+                static_cast<output_t>(indice_weights_data[p]);
+          }
+        } else {
+          for (int64_t d = 0; d < D; ++d) {
+            output_data[b][D_begin + d] += scale_factor *
+                     static_cast<output_t>(weights_data[embedding_begin + d]);
+          }
         }
       }
     }
