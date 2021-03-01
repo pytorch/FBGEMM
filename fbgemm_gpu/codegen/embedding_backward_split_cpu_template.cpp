@@ -51,46 +51,48 @@ using namespace at;
   {% endif %}
 
   // Gradients are of type fp32, so weights should not have higher precision
-  TORCH_CHECK(host_weights.element_size() <= 4);
-  auto grad = zeros_like(host_weights, at::kFloat);
-
   TORCH_CHECK(host_weights.dim() == 1);
-  auto grad_data = grad.accessor<float, 1>();
+  auto grad = zeros_like(host_weights, grad_output.dtype());
 
-  // It is assumed that the indice_weights will be of type float
-  if (indice_weights.defined())
-    TORCH_CHECK(indice_weights.scalar_type() == at::kFloat);
-  auto indice_weights_data = indice_weights.defined() ?
-    // If indice_weights are not defined, then this accessor won't be used
-    indice_weights.accessor<float, 1>()
-    : grad.accessor<float, 1>(); // this is just to make compiler happy
+  AT_DISPATCH_FLOATING_TYPES(
+      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+        auto grad_data = grad.accessor<scalar_t, 1>();
+        auto indice_weights_data = indice_weights.defined()
+            ?
+            // If indice_weights are not defined, then this accessor won't be
+            // used
+            indice_weights.accessor<scalar_t, 1>()
+            : grad.accessor<scalar_t, 1>(); // this is just to make compiler
+                                            // happy
 
-  TORCH_CHECK(grad_output.scalar_type() == at::kFloat);
-  auto grad_output_data = grad_output.accessor<float, 2>();
+        auto grad_output_data = grad_output.accessor<scalar_t, 2>();
 
-  for (int64_t t = 0; t < T; ++t) {
-    const auto D_begin = D_offsets_data[t];
-    const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
-    const auto table_begin = weights_offsets_data[t];
-    for (int64_t b = 0; b < B; ++b) {
-      const auto pool_begin = offsets_data[t * B + b];
-      const auto pool_end = offsets_data[t * B + b + 1];
-      const auto L = pool_end - pool_begin;
-      const double scale_factor =
-          // NOTE: MEAN pooling will not work with indice_weights!
-          (pooling_mode == MEAN && !indice_weights.defined() && L > 0) ? 1.0 / L
-                                                                       : 1.0;
-      for (auto p = pool_begin; p < pool_end; ++p) {
-        const int64_t embedding_begin = table_begin + indices_data[p] * D;
-        for (int64_t d = 0; d < D; ++d) {
-          grad_data[embedding_begin + d] += scale_factor *
-              (indice_weights.defined()
-                   ? grad_output_data[b][D_begin + d] * indice_weights_data[p]
-                   : grad_output_data[b][D_begin + d]);
+        for (int64_t t = 0; t < T; ++t) {
+          const auto D_begin = D_offsets_data[t];
+          const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
+          const auto table_begin = weights_offsets_data[t];
+          for (int64_t b = 0; b < B; ++b) {
+            const auto pool_begin = offsets_data[t * B + b];
+            const auto pool_end = offsets_data[t * B + b + 1];
+            const auto L = pool_end - pool_begin;
+            const double scale_factor =
+                // NOTE: MEAN pooling will not work with indice_weights!
+                (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+                ? 1.0 / L
+                : 1.0;
+            for (auto p = pool_begin; p < pool_end; ++p) {
+              const int64_t embedding_begin = table_begin + indices_data[p] * D;
+              for (int64_t d = 0; d < D; ++d) {
+                grad_data[embedding_begin + d] += scale_factor *
+                    (indice_weights.defined()
+                         ? grad_output_data[b][D_begin + d] *
+                             indice_weights_data[p]
+                         : grad_output_data[b][D_begin + d]);
+              }
+            }
+          }
         }
-      }
-    }
-  }
+      });
 
   {{ split_weight_update_cpu }}
 
