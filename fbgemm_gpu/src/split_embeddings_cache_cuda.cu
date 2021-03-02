@@ -16,6 +16,7 @@
 #include <curand_kernel.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <THC/THCAtomics.cuh>
+#include <limits>
 #include <mutex>
 #include "cub/device/device_radix_sort.cuh"
 #include "cub/device/device_run_length_encode.cuh"
@@ -119,7 +120,9 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     if (std::is_same<emb_t, uint8_t>::value) {
       qparams =
           thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
-      weight_row.store_qparams(qparams);
+      if (threadIdx.x == 0) {
+        weight_row.store_qparams(qparams);
+      }
     }
     for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
       Vec4T<acc_type<cache_t, true>> cache_weights_vec =
@@ -565,11 +568,18 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         weight_row.set_stoc_state(&state);
       }
       float2 qparams;
+      acc_type<cache_t, true> local_min = std::numeric_limits<acc_type<cache_t, true>>::max();
+      acc_type<cache_t, true> local_max = std::numeric_limits<acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
-        qparams = thrust_find_qparams<cache_t>(
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            D_current);
-        weight_row.store_qparams(qparams);
+        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams); // qparams not used
+          local_max = max(local_max, vec4_max(cache_weights_vec));
+          local_min = min(local_min, vec4_min(cache_weights_vec));
+        }
+        qparams = warp_find_qparams(local_min, local_max);
+        if (threadIdx.x == 0) {
+            weight_row.store_qparams(qparams);
+        }
       }
       for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
         Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
@@ -1002,11 +1012,18 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       }
 
       float2 qparams;
+      acc_type<cache_t, true> local_min = std::numeric_limits<acc_type<cache_t, true>>::max();
+      acc_type<cache_t, true> local_max = std::numeric_limits<acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
-        qparams = thrust_find_qparams<cache_t>(
-            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-            D_current);
-        weight_row.store_qparams(qparams);
+        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams); // qparams not used
+          local_max = max(local_max, vec4_max(cache_weights_vec));
+          local_min = min(local_min, vec4_min(cache_weights_vec));
+        }
+        qparams = warp_find_qparams(local_min, local_max);
+        if (threadIdx.x == 0) {
+            weight_row.store_qparams(qparams);
+        }
       }
       for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
         Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);

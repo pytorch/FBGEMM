@@ -688,7 +688,7 @@ DEVICE_INLINE bool is_aligned(const void* ptr) {
 
 template <typename scalar_t>
 __device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
-float2 qparams;
+  float2 qparams;
   float minimum_element =
         *thrust::min_element(thrust::device, input_row, input_row + D);
   float maximum_element =
@@ -701,19 +701,17 @@ float2 qparams;
 
 template <typename scalar_t>
 __device__ float2 thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
-/** TODO: this kernel is sequential. We can optimize with WarpReduceAllMin/Max to paralellize
-* in cases where invoked with blockDim.x = warp size (32).
-*/
-float2 qparams;
-float min_val = vec4_min(input_row[0]);
-float max_val = vec4_max(input_row[0]);
-for (int i = 0; i < D / 4; ++i) {
-  min_val = min(min_val, vec4_min(input_row[i]));
-  max_val = max(max_val, vec4_max(input_row[i]));
-}
-qparams.x = (max_val - min_val) / 255.0f;
-qparams.y = min_val;
-return qparams;
+  // TODO: replace uses in backward kernels with warp find qparams
+  float2 qparams;
+  float min_val = vec4_min(input_row[0]);
+  float max_val = vec4_max(input_row[0]);
+  for (int i = 0; i < D / 4; ++i) {
+    min_val = min(min_val, vec4_min(input_row[i]));
+    max_val = max(max_val, vec4_max(input_row[i]));
+  }
+  qparams.x = (max_val - min_val) / 255.0f;
+  qparams.y = min_val;
+  return qparams;
 }
 
 template <typename scalar_t>
@@ -736,5 +734,38 @@ DEVICE_INLINE scalar_t vec4_max(
   return max_val;
 }
 
+// Min a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_min(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::min(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+// Max a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_max(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::max(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+template <typename scalar_t>
+__device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
+  float2 qparams;
+  local_min = warp_reduce_min<scalar_t>(local_min);
+  local_max = warp_reduce_max<scalar_t>(local_max);
+  if (threadIdx.x == 0) {
+    qparams.x = (local_max - local_min) / 255.0f;
+    qparams.y = local_min;
+  }
+  qparams.x = __shfl_sync(0xFFFFFFFF, qparams.x, 0);
+  qparams.y = __shfl_sync(0xFFFFFFFF, qparams.y, 0);
+  return qparams;
+}
 
 } // namespace fbgemm_gpu
