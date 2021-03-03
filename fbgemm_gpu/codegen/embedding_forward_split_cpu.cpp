@@ -31,12 +31,11 @@ void split_embedding_forward_cpu_kernel(
   const auto indices_data = indices.accessor<int64_t, 1>();
 
   const auto weights_data = weights.accessor<weights_t, 1>();
+  // If indice_weights not defined, then this accessor won't be used.
+  // The else condition is just to make compiler happy
   const auto indice_weights_data = indice_weights.defined()
-      ?
-      // If indice_weights not defined, then this accessor won't be used
-      indice_weights.accessor<ind_weights_t, 1>()
-      : weights.accessor<ind_weights_t, 1>(); // this is just to make compiler
-                                              // happy
+      ? indice_weights.accessor<ind_weights_t, 1>()
+      : TensorAccessor<ind_weights_t, 1>(nullptr, nullptr, nullptr);
 
   auto output_data = output.accessor<output_t, 2>();
 
@@ -58,13 +57,23 @@ void split_embedding_forward_cpu_kernel(
           output_data[b][D_begin + d] += scale_factor *
               (indice_weights.defined()
                    ? static_cast<output_t>(weights_data[embedding_begin + d]) *
-                       indice_weights_data[p]
+                       static_cast<output_t>(indice_weights_data[p])
                    : static_cast<output_t>(weights_data[embedding_begin + d]));
         }
       }
     }
   }
 }
+
+template <typename T>
+struct weight2out_type {
+  using type = T;
+};
+
+template <>
+struct weight2out_type<at::Half> {
+  using type = float;
+};
 
 Tensor split_embedding_codegen_forward_cpu(
     Tensor weights,
@@ -88,17 +97,15 @@ Tensor split_embedding_codegen_forward_cpu(
     output = zeros({B, total_D}, weights.options());
   }
 
-  // In both cases of the if condition above, output tensor is of type float
-  TORCH_CHECK(output.scalar_type() == at::kFloat);
-
   // It is assumed that the indice_weights will always be float
-  if (indice_weights.defined()) {
-    TORCH_CHECK(indice_weights.scalar_type() == at::kFloat);
-  }
-
+  TORCH_CHECK(
+      !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       weights.scalar_type(), "split_embedding_cpu_forward", [&]() {
-        split_embedding_forward_cpu_kernel<scalar_t, float, float>(
+        split_embedding_forward_cpu_kernel<
+            scalar_t,
+            weight2out_type<scalar_t>::type,
+            weight2out_type<scalar_t>::type>(
             weights,
             weights_offsets,
             D_offsets,
