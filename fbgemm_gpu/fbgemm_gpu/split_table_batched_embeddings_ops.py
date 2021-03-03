@@ -272,7 +272,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LARS_SGD,
             OptimType.PARTIAL_ROWWISE_ADAM,
             OptimType.PARTIAL_ROWWISE_LAMB,
-        )
+        ), f"Optimizer {optimizer} is not supported."
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
 
