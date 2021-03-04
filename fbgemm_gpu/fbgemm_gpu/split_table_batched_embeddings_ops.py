@@ -557,7 +557,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for emb in splits:
                 assert len(emb.shape) == 2, "Int8 embedding only supported for 2D weight tensors."
                 shape = [emb.shape[0], emb.shape[1] - self.int8_emb_row_dim_offset]
-                tmp_emb = torch.zeros(shape)
+                tmp_emb = torch.zeros(shape, device=self.current_device)
                 tmp_emb.uniform_(min_val, max_val)
                 tmp_emb_i8 = torch.ops.fb.FloatToFused8BitRowwiseQuantized(tmp_emb)
                 emb.data.copy_(tmp_emb_i8)

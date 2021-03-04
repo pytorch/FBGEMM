@@ -241,8 +241,8 @@ __global__ void _fusednbitrowwise_to_float_cuda_kernel(
       const __half* input_row_scale_bias = reinterpret_cast<const __half*>(
           input_row +
           (output_columns + num_elem_per_byte - 1) / num_elem_per_byte);
-      float scale = input_row_scale_bias[0];
-      float bias = input_row_scale_bias[1];
+      float scale = __half2float(input_row_scale_bias[0]);
+      float bias = __half2float(input_row_scale_bias[1]);
       float* output_row = output + row * output_columns;
 
       std::uint8_t quantized = input_row[col / num_elem_per_byte];
