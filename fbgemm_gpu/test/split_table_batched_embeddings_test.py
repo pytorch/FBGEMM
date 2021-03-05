@@ -9,12 +9,12 @@ import copy
 import unittest
 from typing import Any, Callable, List, Optional, Tuple
 
+import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
-import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import torch
-from hypothesis import Verbosity, assume, given, settings
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
+from hypothesis import HealthCheck, Verbosity, assume, given, settings
 
 
 MAX_EXAMPLES = 40
@@ -117,7 +117,6 @@ def generate_requests(
     return rs
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -133,9 +132,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
+              suppress_health_check=[HealthCheck.filter_too_much])
     def test_forward(
         self,
         T,
@@ -155,6 +155,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
+        assume(not (use_cpu and weights_precision == SparseType.FP16))
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -283,9 +284,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed=st.booleans(),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None,
+              suppress_health_check=[HealthCheck.filter_too_much])
     def test_backward_dense(
         self,
         T,
@@ -307,6 +309,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
+        assume(not (use_cpu and weights_precision == SparseType.FP16))
+
         mode = (
             "sum"
             if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -372,7 +376,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
         grad_weights = torch.cat([b.weight.grad.view(-1) for b in bs])
-        if weights_precision == SparseType.FP16:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
 
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
@@ -380,7 +384,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
         )
-        if weights_precision == SparseType.FP16:
+        if weights_precision == SparseType.FP16 and not use_cpu:
             cc = cc.half()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -443,9 +447,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
+              suppress_health_check=[HealthCheck.filter_too_much])
     def test_backward_sgd(  # noqa C901
         self,
         T,
@@ -466,6 +471,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
+        assume(not (use_cpu and weights_precision == SparseType.FP16))
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -601,14 +607,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_allclose(
                 cc.split_embedding_weights()[t],
                 new_weights[t].half()
-                if weights_precision == SparseType.FP16 and use_cpu
+                if weights_precision == SparseType.FP16 and not use_cpu
                 else new_weights[t],
                 atol=(1.0e-2 if long_segments else 5.0e-3)
                 if weights_precision == SparseType.FP16
                 else 1.0e-5,
-                rtol=(1.0e-2 if long_segments else 5.0e-3)
-                if weights_precision == SparseType.FP16
-                else 1.0e-5,
+                rtol=2.0e-2 if weights_precision == SparseType.FP16 else 1.0e-5,
             )
 
     @given(
@@ -628,9 +632,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
+              suppress_health_check=[HealthCheck.filter_too_much])
     def test_backward_adagrad(  # noqa C901
         self,
         T,
@@ -656,6 +661,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
         assume(not use_cpu or T * B * L * D <= 1024)
+        assume(not (use_cpu and weights_precision == SparseType.FP16))
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -890,6 +896,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
                 )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=64),
@@ -994,7 +1001,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_backward_optimizers(  # noqa C901
@@ -1269,18 +1276,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class CUMemTest(unittest.TestCase):
-    @given(sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4))
+    @given(
+        sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
+    )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_is_uvm_tensor(self, sizes):
-        uvm_t = torch.ops.fb.new_managed_tensor(torch.zeros(*sizes, device="cuda:0",
-                                                        dtype=torch.float), sizes)
+        uvm_t = torch.ops.fb.new_managed_tensor(
+            torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
+        )
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
 
-    @given(sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4))
+    @given(
+        sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
+    )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu(self, sizes):
-        uvm_t = torch.ops.fb.new_managed_tensor(torch.zeros(*sizes, device="cuda:0",
-                                                            dtype=torch.float), sizes)
+        uvm_t = torch.ops.fb.new_managed_tensor(
+            torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
+        )
         cpu_t = torch.ops.fb.uvm_to_cpu(uvm_t)
         assert not torch.ops.fb.is_uvm_tensor(cpu_t)
         uvm_t.copy_(cpu_t)
