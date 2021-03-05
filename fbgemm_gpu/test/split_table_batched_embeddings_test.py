@@ -1298,6 +1298,9 @@ class CUMemTest(unittest.TestCase):
         assert not torch.ops.fb.is_uvm_tensor(cpu_t)
         uvm_t.copy_(cpu_t)
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
+        # Test use of cpu tensor after freeing the uvm tensor
+        del uvm_t
+        cpu_t.mul_(42)
 
 
 if __name__ == "__main__":
