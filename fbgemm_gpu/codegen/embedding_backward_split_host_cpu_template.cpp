@@ -12,7 +12,7 @@
 
 using namespace at;
 
-void split_embedding_backward_codegen_{{ optimizer }}_exact_cpu(
+void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,
     Tensor host_weights,
     Tensor weights_placements,
@@ -117,7 +117,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     using torch::autograd::Variable;
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
-    split_embedding_backward_codegen_{{ optimizer }}_exact_cpu(
+    split_embedding_backward_codegen_{{ optimizer }}_cpu(
         grad_output,
         host_weights,
         weights_placements,
