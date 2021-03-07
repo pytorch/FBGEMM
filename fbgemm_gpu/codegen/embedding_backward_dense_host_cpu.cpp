@@ -12,7 +12,7 @@
 
 using namespace at;
 
-Tensor split_embedding_backward_codegen_dense_exact_cpu(
+Tensor split_embedding_backward_codegen_dense_cpu(
     Tensor grad_output,
     Tensor host_weights,
     Tensor weights_offsets,
@@ -97,7 +97,7 @@ class SplitLookupFunction_Dense_Op
 
     using torch::autograd::Variable;
 
-    auto grad_host_weights = split_embedding_backward_codegen_dense_exact_cpu(
+    auto grad_host_weights = split_embedding_backward_codegen_dense_cpu(
         grad_outputs[0],
         host_weights,
         weights_offsets,

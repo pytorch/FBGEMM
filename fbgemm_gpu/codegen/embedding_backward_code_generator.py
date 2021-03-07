@@ -107,7 +107,13 @@ def generate(**kwargs):
     # Generates CPU variants.
     kwargs["args"] = gen_args["cpu"]
 
-    template = env.get_template("embedding_backward_split_cpu_template.cpp")
+    is_approx = "approx" in kwargs.get('optimizer')
+    template = (
+        env.get_template("embedding_backward_split_cpu_approx_template.cpp")
+        if is_approx
+        else env.get_template("embedding_backward_split_cpu_template.cpp")
+    )
+
     src_cpp = template.render(**kwargs)
     write(
         f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
@@ -363,6 +369,23 @@ def sgd():
 
     generate(
         optimizer="sgd",
+        args=make_args([(FLOAT, "learning_rate")]),
+        split_precomputation="",
+        split_weight_update=split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+
+def approx_sgd():
+    split_weight_update = """
+      // approx_sgd not supported for GPU
+    """
+    split_weight_update_cpu = """
+      host_weights_data[embedding_begin + d] += learning_rate * grad_val;
+    """
+
+    generate(
+        optimizer="approx_sgd",
         args=make_args([(FLOAT, "learning_rate")]),
         split_precomputation="",
         split_weight_update=split_weight_update,
@@ -851,6 +874,7 @@ def emb_codegen(install_dir=None, is_fbcode=True):
     args.is_fbcode = is_fbcode
     adagrad()
     adam()
+    approx_sgd()
     backward_indices()
     backward_dense()
     forward_split()

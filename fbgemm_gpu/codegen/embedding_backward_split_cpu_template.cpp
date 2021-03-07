@@ -13,7 +13,8 @@
 
 using namespace at;
 
-{{ "void" if not dense else "Tensor" }}  split_embedding_backward_codegen_{{ optimizer }}_exact_cpu(
+// The template for exact optimizers
+{{ "void" if not dense else "Tensor" }}  split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,
     Tensor host_weights,
     {% if not dense %}

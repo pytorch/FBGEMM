@@ -272,7 +272,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LARS_SGD,
             OptimType.PARTIAL_ROWWISE_ADAM,
             OptimType.PARTIAL_ROWWISE_LAMB,
+            OptimType.SGD,
         ), f"Optimizer {optimizer} is not supported."
+
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
 
@@ -437,6 +439,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.EXACT_SGD:
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
+        elif self.optimizer == OptimType.SGD:
+            assert self.use_cpu, "Approx SGD is only support in cpu mode"
+            return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
             dev=self.momentum1_dev,
