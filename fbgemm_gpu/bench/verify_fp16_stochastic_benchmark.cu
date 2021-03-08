@@ -134,7 +134,7 @@ void flush_cache(
     char* d_flush,
     char* d_flush2,
     int cache_size,
-    bool do_write=false) {
+    bool do_write = false) {
   cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice);
   unsigned num_blocks = cache_size / 512;
   flush_gpu<<<num_blocks, 512>>>(d_flush, d_flush2, do_write);

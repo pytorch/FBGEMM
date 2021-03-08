@@ -134,8 +134,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
-              suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     def test_forward(
         self,
         T,
@@ -286,8 +290,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None,
-              suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     def test_backward_dense(
         self,
         T,
@@ -449,8 +457,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
-              suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     def test_backward_sgd(  # noqa C901
         self,
         T,
@@ -634,8 +646,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None,
-              suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     def test_backward_adagrad(  # noqa C901
         self,
         T,
