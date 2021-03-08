@@ -120,14 +120,16 @@ Tensor split_embedding_codegen_forward_cpu(
   return output;
 }
 
-Tensor split_embedding_codegen_grad_indice_weights_cpu(
+template <typename weights_t, typename grad_t>
+void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor grad_output,
     Tensor weights,
     Tensor weights_offsets,
     Tensor D_offsets,
     Tensor indices,
     Tensor offsets,
-    Tensor feature_requires_grad) {
+    Tensor feature_requires_grad,
+    Tensor grad_indice_weights) {
   int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
@@ -139,8 +141,10 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
   const auto offsets_data = offsets.accessor<int64_t, 1>();
   const auto indices_data = indices.accessor<int64_t, 1>();
 
-  auto grad_indice_weights =
-      zeros_like(indices, indices.options().dtype(grad_output.dtype()));
+  auto weights_data = weights.accessor<weights_t, 1>();
+  auto grad_output_data = grad_output.accessor<grad_t, 2>();
+  auto grad_indice_weights_data = grad_indice_weights.accessor<grad_t, 1>();
+
   for (int64_t t = 0; t < T; ++t) {
     if (feature_requires_grad.defined() &&
         !feature_requires_grad[t].is_nonzero()) {
@@ -156,11 +160,45 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
       for (auto p = pool_begin; p < pool_end; ++p) {
         const int64_t embedding_begin = table_begin + indices_data[p] * D;
         for (int64_t d = 0; d < D; ++d) {
-          grad_indice_weights[p] +=
-              grad_output[b][D_begin + d] * weights[embedding_begin + d];
+          grad_indice_weights_data[p] += grad_output_data[b][D_begin + d] *
+              weights_data[embedding_begin + d];
         }
       }
     }
   }
+}
+
+Tensor split_embedding_codegen_grad_indice_weights_cpu(
+    Tensor grad_output,
+    Tensor weights,
+    Tensor weights_offsets,
+    Tensor D_offsets,
+    Tensor indices,
+    Tensor offsets,
+    Tensor feature_requires_grad) {
+  auto grad_indice_weights =
+      zeros_like(indices, indices.options().dtype(grad_output.dtype()));
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      weights.scalar_type(), "split_embedding_grad_indice_weights_cpu", [&]() {
+        using weights_t = scalar_t;
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            grad_output.scalar_type(),
+            "split_embedding_grad_indice_weights_cpu_inner",
+            [&]() {
+              using grad_t = scalar_t;
+
+              split_embedding_grad_indice_weights_cpu_kernel<weights_t, grad_t>(
+                  grad_output,
+                  weights,
+                  weights_offsets,
+                  D_offsets,
+                  indices,
+                  offsets,
+                  feature_requires_grad,
+                  grad_indice_weights);
+            });
+      });
+
   return grad_indice_weights;
 }
