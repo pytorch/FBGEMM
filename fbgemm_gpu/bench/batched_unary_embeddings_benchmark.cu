@@ -13,9 +13,9 @@
 #include <random>
 #include <vector>
 
+#include "fbgemm_gpu/batched_unary_embedding_wrappers.cuh"
 #include "fbgemm_gpu/bench_utils.cuh"
 #include "fbgemm_gpu/cuda_utils.cuh"
-#include "fbgemm_gpu/batched_unary_embedding_wrappers.cuh"
 
 void generate_auxiliary_tensors(
     int batch_size,

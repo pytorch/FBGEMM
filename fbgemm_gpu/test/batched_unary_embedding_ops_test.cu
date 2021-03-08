@@ -29,51 +29,54 @@ class FBGEMMGPUBatchUnaryEmbeddingTest : public ::testing::Test {
     table_offsets = new long[T + 1]{0, 2, 5};
     offsets = new long[indices_size + 1]{0, 1, 2, 3, 4, 5, 6};
     indices = new long[indices_size]{1, 1, 1, 0, 2, 1};
-    weights = new float[(hash_sizes[0] + hash_sizes[1]) * num_task]{-0.1264,
-                                                                    0.2836,
-                                                                    -0.5619,
-                                                                    0.5717,
-                                                                    0.1725,
-                                                                    -0.2929,
-                                                                    0.2342,
-                                                                    0.0099,
-                                                                    -0.5364,
-                                                                    -0.4393};
-    output_ref = new float[T * num_task * B]{0.2836,
-                                             -0.5619,
-                                             0.2836,
-                                             0.1725,
-                                             0.2836,
-                                             0.5717,
-                                             0.2342,
-                                             0.0099,
-                                             0.2342,
-                                             -0.4393,
-                                             0.2342,
-                                             -0.5364};
-    grad_output_ref = new float[T * num_task * B]{-0.1434,
-                                                  0.0576,
-                                                  -0.0076,
-                                                  -0.1141,
-                                                  -0.0708,
-                                                  -0.0876,
-                                                  -0.0649,
-                                                  -0.0071,
-                                                  -0.0240,
-                                                  0.1031,
-                                                  0.2131,
-                                                  -0.1412};
-    grad_weight_ref =
-        new float[(hash_sizes[0] + hash_sizes[1]) * num_task]{-0.0000,
-                                                              -0.2218,
-                                                              0.0576,
-                                                              -0.0876,
-                                                              -0.1141,
-                                                              0.0000,
-                                                              0.1243,
-                                                              -0.0071,
-                                                              -0.1412,
-                                                              0.1031};
+    weights = new float[(hash_sizes[0] + hash_sizes[1]) * num_task]{
+        -0.1264,
+        0.2836,
+        -0.5619,
+        0.5717,
+        0.1725,
+        -0.2929,
+        0.2342,
+        0.0099,
+        -0.5364,
+        -0.4393};
+    output_ref = new float[T * num_task * B]{
+        0.2836,
+        -0.5619,
+        0.2836,
+        0.1725,
+        0.2836,
+        0.5717,
+        0.2342,
+        0.0099,
+        0.2342,
+        -0.4393,
+        0.2342,
+        -0.5364};
+    grad_output_ref = new float[T * num_task * B]{
+        -0.1434,
+        0.0576,
+        -0.0076,
+        -0.1141,
+        -0.0708,
+        -0.0876,
+        -0.0649,
+        -0.0071,
+        -0.0240,
+        0.1031,
+        0.2131,
+        -0.1412};
+    grad_weight_ref = new float[(hash_sizes[0] + hash_sizes[1]) * num_task]{
+        -0.0000,
+        -0.2218,
+        0.0576,
+        -0.0876,
+        -0.1141,
+        0.0000,
+        0.1243,
+        -0.0071,
+        -0.1412,
+        0.1031};
   }
 
   static void TearDownTestCase() {

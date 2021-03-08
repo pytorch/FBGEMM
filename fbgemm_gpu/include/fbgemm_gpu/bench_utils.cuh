@@ -20,7 +20,7 @@ __global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
   }
 }
 
-void flush_cache(int cache_size_mb=40, bool do_write=false) {
+void flush_cache(int cache_size_mb = 40, bool do_write = false) {
   const int cache_size = cache_size_mb * 1024 * 1024; // A100 40MB L2 cache
   std::vector<char> flush(cache_size, (char)255);
   char* d_flush;

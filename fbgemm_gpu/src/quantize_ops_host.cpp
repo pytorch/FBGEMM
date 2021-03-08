@@ -11,6 +11,9 @@ at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
 
 using namespace at;
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
-    m.impl("FloatToFused8BitRowwiseQuantized", torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(_float_to_fused8bitrowwise_gpu)));
+  m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
+  m.impl(
+      "FloatToFused8BitRowwiseQuantized",
+      torch::dispatch(
+          c10::DispatchKey::CUDA, TORCH_FN(_float_to_fused8bitrowwise_gpu)));
 }

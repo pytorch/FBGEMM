@@ -17,7 +17,8 @@ __global__ void _index_hash_cuda_kernel(
     int64_t seed,
     int64_t modulo,
     scalar_t* __restrict__ hashed_indices) {
-  int64_t start_idx = static_cast<int64_t>(blockIdx.x * blockDim.x + threadIdx.x);
+  int64_t start_idx =
+      static_cast<int64_t>(blockIdx.x * blockDim.x + threadIdx.x);
   const int64_t stride = static_cast<int64_t>(gridDim.x * blockDim.x);
   for (int64_t idx = start_idx; idx < N; idx += stride) {
     int8_t* bytes = (int8_t*)&(indices[idx]);

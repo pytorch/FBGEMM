@@ -479,10 +479,8 @@ DEVICE_INLINE void nearest_rounding_vector(
 }
 
 template <>
-DEVICE_INLINE void nearest_rounding_vector(
-    uint8_t* output,
-    Vec4T<float> value,
-    float2 qparams) {
+DEVICE_INLINE void
+nearest_rounding_vector(uint8_t* output, Vec4T<float> value, float2 qparams) {
   float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = std::lrintf((value.acc.x - qparams.y) * inv_scale);
   output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
@@ -516,16 +514,12 @@ DEVICE_INLINE void quantize_store(
 }
 
 template <typename dst_t, typename src_t>
-DEVICE_INLINE Vec4T<dst_t> dequantize_load(
-    src_t* value,
-    float2 /* unused */) {
+DEVICE_INLINE Vec4T<dst_t> dequantize_load(src_t* value, float2 /* unused */) {
   return Vec4T<dst_t>(value);
 }
 
 template <>
-DEVICE_INLINE Vec4T<float> dequantize_load(
-    uint8_t* value,
-    float2 qparams) {
+DEVICE_INLINE Vec4T<float> dequantize_load(uint8_t* value, float2 qparams) {
   Vec4T<float> out;
   out.acc.x = value[0] * qparams.x + qparams.y;
   out.acc.y = value[1] * qparams.x + qparams.y;
@@ -535,9 +529,7 @@ DEVICE_INLINE Vec4T<float> dequantize_load(
 }
 
 template <>
-DEVICE_INLINE Vec4T<at::Half> dequantize_load(
-    uint8_t* value,
-    float2 qparams) {
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(uint8_t* value, float2 qparams) {
   Vec4T<at::Half> out;
   out.acc.x = value[0] * qparams.x + qparams.y;
   out.acc.y = value[1] * qparams.x + qparams.y;
@@ -585,7 +577,8 @@ struct WeightRow {
   int dim_;
   StochasticRoundingRNGState* stoc_rounding_state_;
 
-  DEVICE_INLINE void set_stoc_state(StochasticRoundingRNGState* stoc_rounding_state) {
+  DEVICE_INLINE void set_stoc_state(
+      StochasticRoundingRNGState* stoc_rounding_state) {
     stoc_rounding_state_ = stoc_rounding_state;
   }
 
@@ -598,8 +591,8 @@ struct WeightRow {
     }
   }
 
-  // write back weight (high precision) to cache if resident; else write to embedding
-  // assume dst_t is higher precision than cache_t and emb_t
+  // write back weight (high precision) to cache if resident; else write to
+  // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void store(Vec4T<dst_t> v, int32_t d, float2 qparams) {
     if (cache_row_) {
       quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
@@ -690,9 +683,9 @@ template <typename scalar_t>
 __device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
   float2 qparams;
   float minimum_element =
-        *thrust::min_element(thrust::device, input_row, input_row + D);
+      *thrust::min_element(thrust::device, input_row, input_row + D);
   float maximum_element =
-  *thrust::max_element(thrust::device, input_row, input_row + D);
+      *thrust::max_element(thrust::device, input_row, input_row + D);
   float range = maximum_element - minimum_element;
   qparams.x = range / 255.0f;
   qparams.y = minimum_element;
@@ -700,7 +693,8 @@ __device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
 }
 
 template <typename scalar_t>
-__device__ float2 thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
+__device__ float2
+thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
   // TODO: replace uses in backward kernels with warp find qparams
   float2 qparams;
   float min_val = vec4_min(input_row[0]);
@@ -715,8 +709,7 @@ __device__ float2 thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, in
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_min(
-    fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_min(fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t min_val = vec4.acc.x;
   min_val = min(vec4.acc.y, min_val);
   min_val = min(vec4.acc.z, min_val);
@@ -725,8 +718,7 @@ DEVICE_INLINE scalar_t vec4_min(
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_max(
-    fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_max(fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t max_val = vec4.acc.x;
   max_val = max(vec4.acc.y, max_val);
   max_val = max(vec4.acc.z, max_val);

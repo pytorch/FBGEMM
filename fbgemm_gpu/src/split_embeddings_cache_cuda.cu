@@ -568,17 +568,20 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         weight_row.set_stoc_state(&state);
       }
       float2 qparams;
-      acc_type<cache_t, true> local_min = std::numeric_limits<acc_type<cache_t, true>>::max();
-      acc_type<cache_t, true> local_max = std::numeric_limits<acc_type<cache_t, true>>::lowest();
+      acc_type<cache_t, true> local_min =
+          std::numeric_limits<acc_type<cache_t, true>>::max();
+      acc_type<cache_t, true> local_max =
+          std::numeric_limits<acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams); // qparams not used
+          Vec4T<cache_t> cache_weights_vec =
+              weight_row.load(d * 4, qparams); // qparams not used
           local_max = max(local_max, vec4_max(cache_weights_vec));
           local_min = min(local_min, vec4_min(cache_weights_vec));
         }
         qparams = warp_find_qparams(local_min, local_max);
         if (threadIdx.x == 0) {
-            weight_row.store_qparams(qparams);
+          weight_row.store_qparams(qparams);
         }
       }
       for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
@@ -1012,17 +1015,20 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       }
 
       float2 qparams;
-      acc_type<cache_t, true> local_min = std::numeric_limits<acc_type<cache_t, true>>::max();
-      acc_type<cache_t, true> local_max = std::numeric_limits<acc_type<cache_t, true>>::lowest();
+      acc_type<cache_t, true> local_min =
+          std::numeric_limits<acc_type<cache_t, true>>::max();
+      acc_type<cache_t, true> local_max =
+          std::numeric_limits<acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams); // qparams not used
+          Vec4T<cache_t> cache_weights_vec =
+              weight_row.load(d * 4, qparams); // qparams not used
           local_max = max(local_max, vec4_max(cache_weights_vec));
           local_min = min(local_min, vec4_min(cache_weights_vec));
         }
         qparams = warp_find_qparams(local_min, local_max);
         if (threadIdx.x == 0) {
-            weight_row.store_qparams(qparams);
+          weight_row.store_qparams(qparams);
         }
       }
       for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {

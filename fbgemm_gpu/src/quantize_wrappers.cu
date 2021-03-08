@@ -6,9 +6,9 @@
  */
 // Copyright 2004-present Facebook. All Rights Reserved.
 #include <ATen/ATen.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cassert>
-#include <c10/cuda/CUDAGuard.h>
 #include "fbgemm_gpu/cuda_utils.cuh"
 #include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/quantize_wrappers.cuh"
@@ -132,6 +132,7 @@ at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input) {
   if (nrows == 0 || ncols == 0) {
     return output;
   }
-  fbgemm_gpu_test::FloatToFused8BitRowwiseQuantized(nrows, ncols, input.data_ptr<float>(), output.data_ptr<std::uint8_t>());
+  fbgemm_gpu_test::FloatToFused8BitRowwiseQuantized(
+      nrows, ncols, input.data_ptr<float>(), output.data_ptr<std::uint8_t>());
   return output;
 }
