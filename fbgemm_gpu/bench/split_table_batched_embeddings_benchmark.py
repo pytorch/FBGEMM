@@ -9,18 +9,19 @@ import logging
 from typing import Callable, List, Optional, Tuple
 
 import click
-import numpy as np
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
+import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
 
 logging.basicConfig(level=logging.DEBUG)
 
 PRECISION_SIZE_MULTIPLIER = {
-    SparseType.FP32 : 4,
-    SparseType.FP16 : 2,
-    SparseType.INT8 : 1,
+    SparseType.FP32: 4,
+    SparseType.FP16: 2,
+    SparseType.INT8: 1,
 }
+
 
 def div_round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
@@ -82,7 +83,9 @@ def generate_requests(
             torch.randn(
                 T * B * L,
                 device=torch.cuda.current_device(),
-                dtype=torch.float16 if weights_precision == SparseType.FP16 else torch.float32,
+                dtype=torch.float16
+                if weights_precision == SparseType.FP16
+                else torch.float32,
             )
             if weighted
             else None,
@@ -220,7 +223,15 @@ def device(  # noqa C901
         managed_option = split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED
 
     emb = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, managed_option, split_table_batched_embeddings_ops.ComputeDevice.CUDA) for d in Ds],
+        [
+            (
+                E,
+                d,
+                managed_option,
+                split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+            )
+            for d in Ds
+        ],
         optimizer=optimizer,
         learning_rate=0.1,
         eps=0.1,
@@ -243,7 +254,15 @@ def device(  # noqa C901
     )
 
     requests = generate_requests(
-        iters, B, T, L, E, reuse=reuse, alpha=alpha, weights_precision=weights_precision, weighted=weighted
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weights_precision=weights_precision,
+        weighted=weighted,
     )
 
     # forward
@@ -403,7 +422,15 @@ def uvm(
         weighted=weighted,
     )
     requests_gpu = generate_requests(
-        iters, B, T_gpu, L, E, reuse=reuse, alpha=alpha, weights_precision=weights_precision, weighted=False
+        iters,
+        B,
+        T_gpu,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weights_precision=weights_precision,
+        weighted=False,
     )
     requests = []
     for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
