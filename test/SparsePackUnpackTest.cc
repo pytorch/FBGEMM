@@ -9,7 +9,6 @@
 
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmSparse.h"
-#include "fbgemm/Utils.h"
 #include "fbgemm/spmmUtils.h"
 
 using namespace std;

@@ -12,7 +12,6 @@
 #include "fbgemm/FbgemmSparse.h"
 #include "fbgemm/spmmUtils.h"
 #include "src/RefImplementations.h"
-#include "test/TestUtils.h"
 
 using namespace std;
 using namespace fbgemm;
