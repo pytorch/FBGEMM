@@ -43,25 +43,31 @@ void split_embedding_forward_cpu_kernel(
     const auto D_begin = D_offsets_data[t];
     const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
     const auto table_begin = weights_offsets_data[t];
-    for (int64_t b = 0; b < B; ++b) {
-      const auto pool_begin = offsets_data[t * B + b];
-      const auto pool_end = offsets_data[t * B + b + 1];
-      const auto L = pool_end - pool_begin;
-      const double scale_factor =
-          // NOTE: MEAN pooling will not work with indice_weights!
-          (pooling_mode == MEAN && !indice_weights.defined() && L > 0) ? 1.0 / L
-                                                                       : 1.0;
-      for (auto p = pool_begin; p < pool_end; ++p) {
-        const int64_t embedding_begin = table_begin + indices_data[p] * D;
-        for (int64_t d = 0; d < D; ++d) {
-          output_data[b][D_begin + d] += scale_factor *
-              (indice_weights.defined()
-                   ? static_cast<output_t>(weights_data[embedding_begin + d]) *
-                       static_cast<output_t>(indice_weights_data[p])
-                   : static_cast<output_t>(weights_data[embedding_begin + d]));
+
+    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
+      for (int64_t b = b_begin; b < b_end; ++b) {
+        const auto pool_begin = offsets_data[t * B + b];
+        const auto pool_end = offsets_data[t * B + b + 1];
+        const auto L = pool_end - pool_begin;
+        const double scale_factor =
+            // NOTE: MEAN pooling will not work with indice_weights!
+            (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+            ? 1.0 / L
+            : 1.0;
+        for (auto p = pool_begin; p < pool_end; ++p) {
+          const int64_t embedding_begin = table_begin + indices_data[p] * D;
+          for (int64_t d = 0; d < D; ++d) {
+            output_data[b][D_begin + d] += scale_factor *
+                (indice_weights.defined()
+                     ? static_cast<output_t>(
+                           weights_data[embedding_begin + d]) *
+                         static_cast<output_t>(indice_weights_data[p])
+                     : static_cast<output_t>(
+                           weights_data[embedding_begin + d]));
+          }
         }
       }
-    }
+    });
   }
 }
 
@@ -144,7 +150,6 @@ void split_embedding_grad_indice_weights_cpu_kernel(
   auto weights_data = weights.accessor<weights_t, 1>();
   auto grad_output_data = grad_output.accessor<grad_t, 2>();
   auto grad_indice_weights_data = grad_indice_weights.accessor<grad_t, 1>();
-
   for (int64_t t = 0; t < T; ++t) {
     if (feature_requires_grad.defined() &&
         !feature_requires_grad[t].is_nonzero()) {
@@ -154,17 +159,19 @@ void split_embedding_grad_indice_weights_cpu_kernel(
     const auto D_begin = D_offsets_data[t];
     const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
     const auto table_begin = weights_offsets_data[t];
-    for (int64_t b = 0; b < B; ++b) {
-      const auto pool_begin = offsets_data[t * B + b];
-      const auto pool_end = offsets_data[t * B + b + 1];
-      for (auto p = pool_begin; p < pool_end; ++p) {
-        const int64_t embedding_begin = table_begin + indices_data[p] * D;
-        for (int64_t d = 0; d < D; ++d) {
-          grad_indice_weights_data[p] += grad_output_data[b][D_begin + d] *
-              weights_data[embedding_begin + d];
+    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
+      for (int64_t b = b_begin; b < b_end; ++b) {
+        const auto pool_begin = offsets_data[t * B + b];
+        const auto pool_end = offsets_data[t * B + b + 1];
+        for (auto p = pool_begin; p < pool_end; ++p) {
+          const int64_t embedding_begin = table_begin + indices_data[p] * D;
+          for (int64_t d = 0; d < D; ++d) {
+            grad_indice_weights_data[p] += grad_output_data[b][D_begin + d] *
+                weights_data[embedding_begin + d];
+          }
         }
       }
-    }
+    });
   }
 }
 

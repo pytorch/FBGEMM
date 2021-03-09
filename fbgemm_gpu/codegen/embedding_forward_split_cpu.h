@@ -7,6 +7,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/Parallel.h>
 
 enum PoolingMode { SUM = 0, MEAN = 1 };
 
