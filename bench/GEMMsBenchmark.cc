@@ -127,7 +127,7 @@ void performance_test() {
          << setw(16) << runType << ", "
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
          << setw(16) << 0 << ", " << setw(16) << 0 << ", " << setw(16) << 0
-         << ", " << setw(16) << 0 << ", "
+         << ", " << setw(16) << ttot / 1e3 << ", "
 #endif
          << setw(5) << fixed << setw(5) << setprecision(1) << nops / ttot
          << endl;
