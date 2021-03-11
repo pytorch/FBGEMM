@@ -166,13 +166,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             Tuple[int, int, EmbeddingLocation, ComputeDevice]
         ],  # tuple of (rows, dims, placements, compute_devices)
         feature_table_map: Optional[List[int]] = None,  # [T]
-        cache_algorithm: CacheAlgorithm = CacheAlgorithm.LFU,
+        cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
         fp16: bool = False,
         weights_precision: SparseType = SparseType.FP32,
+        enforce_hbm: bool = False, # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
         # General Optimizer args
         stochastic_rounding: bool = False,
@@ -260,6 +261,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             weight_split,
             prefix="weights",
             dtype=table_embedding_dtype,
+            enforce_hbm=enforce_hbm,
         )
 
         # Construct optimizer states
@@ -308,6 +310,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
                 prefix="momentum1",
                 dtype=torch.float32,
+                enforce_hbm=enforce_hbm,
             )
         else:
             # NOTE: make TorchScript work!
@@ -737,7 +740,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.stochastic_rounding,
         )
 
-    def _apply_split(self, split, prefix, dtype):
+    def _apply_split(self, split, prefix, dtype, enforce_hbm=False):
         setattr(self, f"{prefix}_physical_placements", split.placements)
         setattr(self, f"{prefix}_physical_offsets", split.offsets)
 
@@ -778,15 +781,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         if split.uvm_size > 0:
             assert not self.use_cpu
-            self.register_buffer(
-                f"{prefix}_uvm",
-                torch.zeros(split.uvm_size, out=torch.ops.fb.new_managed_tensor(
-                    torch.zeros(
-                        1, device=self.current_device, dtype=dtype
-                    ),
-                    [split.uvm_size],
-                )),
-            )
+            if enforce_hbm:
+                self.register_buffer(
+                    f"{prefix}_uvm",
+                    torch.zeros(split.uvm_size, device=self.current_device, dtype=dtype),
+                )
+            else:
+                self.register_buffer(
+                    f"{prefix}_uvm",
+                    torch.zeros(split.uvm_size, out=torch.ops.fb.new_managed_tensor(
+                        torch.zeros(
+                            1, device=self.current_device, dtype=dtype
+                        ),
+                        [split.uvm_size],
+                    )),
+                )
         else:
             self.register_buffer(
                 f"{prefix}_uvm",
