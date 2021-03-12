@@ -259,12 +259,14 @@ __global__ void _float_to_bfloat16_cuda_kernel(
     const int nrows,
     const int ncols,
     uint16_t* __restrict__ output) {
-  int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < nrows) {
+  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+  for (/*row*/; row < nrows; row += row_incre) {
     const float* input_row = input + row * ncols;
     uint16_t* output_row = output + row * ncols;
-    for (std::size_t col = 0; col < ncols; ++col) {
+    for (/*col*/; col < ncols; col += col_incre) {
       // Add 2^15 and right shift 16 to do round-nearest
       output_row[col] =
           (*reinterpret_cast<const uint32_t*>(input_row + col) + (1 << 15)) >>
@@ -280,10 +282,11 @@ __global__ void _bfloat16_to_float_cuda_kernel(
     const int ncols,
     float* __restrict__ output) {
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
-  const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
   for (/*row*/; row < nrows; row += row_incre) {
-    if (col < ncols) {
+    for (/*col*/; col < ncols; col += col_incre) {
       const uint16_t* input_row = input + row * ncols;
       float* output_row = output + row * ncols;
       uint32_t val_fp32 = static_cast<uint32_t>(
@@ -402,8 +405,11 @@ __global__ void _float_to_hfp8_cuda_kernel(
     float max_pos) {
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  for (int i = row; i < nrows; i += blockDim.y) {
-    for (int j = col; j < ncols; j += blockDim.x) {
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+
+  for (int i = row; i < nrows; i += row_incre) {
+    for (int j = col; j < ncols; j += col_incre) {
       output[i * ncols + j] = float_to_hfp8(
           input[i * ncols + j], ebits, mbits, bias, min_pos, max_pos);
     }
