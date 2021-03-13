@@ -233,6 +233,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [0] + _cumsum(D_offsets)
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
+        cached_dims = [
+            embedding_spec[1] for embedding_spec in embedding_specs
+            if embedding_spec[2] == EmbeddingLocation.MANAGED_CACHING
+        ]
+        self.max_D_cache = max(cached_dims) if len(cached_dims) > 0 else 0
 
         self.register_buffer(
             "D_offsets",
@@ -849,10 +854,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets = (
                 int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
             ) // ASSOC
-            cache_size = cache_sets * ASSOC * element_size * self.max_D
+            cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (
-                    int(1.0 * free_memory / self.max_D / element_size) + ASSOC - 1
+                    int(1.0 * free_memory / self.max_D_cache / element_size) + ASSOC - 1
                 ) // ASSOC
         cache_load_factor = (
             1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
@@ -860,7 +865,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2 ** 24 - 1
-        cache_size = cache_sets * 32 * element_size * self.max_D
+        cache_size = cache_sets * 32 * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -895,7 +900,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "lxu_cache_weights",
             torch.zeros(
                 cache_sets * ASSOC,
-                self.max_D,
+                self.max_D_cache,
                 device=self.current_device,
                 dtype=dtype,
             ),
