@@ -319,11 +319,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         else:
             # NOTE: make TorchScript work!
-            self.momentum1_dev = self.dummy_tensor
-            self.momentum1_host = self.dummy_tensor
-            self.momentum1_uvm = self.dummy_tensor
-            self.momentum1_placements = self.dummy_tensor
-            self.momentum1_offsets = self.dummy_tensor
+            self.register_buffer("momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum1_placements", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum1_offsets", torch.tensor([0], dtype=torch.int64), persistent=False)
         if optimizer in (
             OptimType.ADAM,
             OptimType.PARTIAL_ROWWISE_ADAM,
@@ -343,12 +343,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.register_buffer("iter", torch.tensor([0], dtype=torch.int64))
         else:
             # NOTE: make TorchScript work!
-            self.momentum2_dev = self.dummy_tensor
-            self.momentum2_host = self.dummy_tensor
-            self.momentum2_uvm = self.dummy_tensor
-            self.momentum2_placements = self.dummy_tensor
-            self.momentum2_offsets = self.dummy_tensor
-            self.iter = self.dummy_tensor
+            self.register_buffer("momentum2_dev", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum2_host", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum2_uvm", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum2_placements", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("momentum2_offsets", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer("iter", torch.tensor([0], dtype=torch.int64), persistent=False)
 
         cache_state = construct_cache_state(embedding_specs, self.feature_table_map)
         if cache_precision == SparseType.FP32:
@@ -832,11 +832,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(0, 0, device=self.current_device, dtype=dtype),
             )
             # NOTE: make TorchScript work!
-            self.cache_hash_size_cumsum = self.dummy_tensor
-            self.total_cache_hash_size = self.dummy_tensor
-            self.cache_index_table_map = self.dummy_tensor
-            self.lxu_cache_state = self.dummy_tensor
-            self.lxu_state = self.dummy_tensor
+            self.register_buffer(
+                "cache_hash_size_cumsum",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "total_cache_hash_size",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "cache_index_table_map",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "lxu_cache_state",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "lxu_state",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
             return
 
         assert cache_load_factor > 0
