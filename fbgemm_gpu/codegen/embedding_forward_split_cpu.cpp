@@ -6,6 +6,8 @@
  */
 #include "codegen/embedding_forward_split_cpu.h"
 
+#include <ATen/AccumulateType.h>
+
 using namespace at;
 
 template <typename weights_t, typename ind_weights_t, typename output_t>
@@ -71,16 +73,6 @@ void split_embedding_forward_cpu_kernel(
   }
 }
 
-template <typename T>
-struct weight2out_type {
-  using type = T;
-};
-
-template <>
-struct weight2out_type<at::Half> {
-  using type = float;
-};
-
 Tensor split_embedding_codegen_forward_cpu(
     Tensor weights,
     Tensor weights_offsets,
@@ -110,8 +102,8 @@ Tensor split_embedding_codegen_forward_cpu(
       weights.scalar_type(), "split_embedding_cpu_forward", [&]() {
         split_embedding_forward_cpu_kernel<
             scalar_t,
-            weight2out_type<scalar_t>::type,
-            weight2out_type<scalar_t>::type>(
+            acc_type<scalar_t, true>,
+            acc_type<scalar_t, true>>(
             weights,
             weights_offsets,
             D_offsets,
