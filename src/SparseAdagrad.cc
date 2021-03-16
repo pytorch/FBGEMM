@@ -452,7 +452,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
       [&]() ->
       typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel {
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
@@ -496,20 +496,22 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         temp3_ = a->gpz(15);
 
         asmjit::FuncDetail func;
-        func.init(asmjit::FuncSignatureT<
-                  int, // return type
-                  int, // num rows
-                  std::uint64_t, // param_size
-                  float*, // w
-                  const float*, // g
-                  float*, // h
-                  const indxType*, // indices
-                  float, // epsilon
-                  float, // lr
-                  const int*, // mask_avx2
-                  float, // weight_decay
-                  const double*, // counter then counter_halflife
-                  std::int64_t>(asmjit::CallConv::kIdHost));
+        func.init(
+            asmjit::FuncSignatureT<
+                int, // return type
+                int, // num rows
+                std::uint64_t, // param_size
+                float*, // w
+                const float*, // g
+                float*, // h
+                const indxType*, // indices
+                float, // epsilon
+                float, // lr
+                const int*, // mask_avx2
+                float, // weight_decay
+                const double*, // counter then counter_halflife
+                std::int64_t>(asmjit::CallConv::kIdHost),
+            a->environment());
 
         asmjit::FuncFrame frame;
         frame.init(func);

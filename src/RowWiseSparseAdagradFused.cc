@@ -120,7 +120,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 offsetType,
                 dataType>::jit_sparse_adagrad_kernel {
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
         bool areIndices64b = is_same<indxType, int64_t>::value;
@@ -157,19 +157,21 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         x86::Gp scratchReg2 = a->gpz(14); // for prefetching
 
         asmjit::FuncDetail func;
-        func.init(asmjit::FuncSignatureT<
-                  bool, // return type
-                  int64_t, // output_size
-                  int64_t, // index_size
-                  int64_t, // data_size
-                  dataType*, // w
-                  const float*, // g
-                  float*, // h
-                  const indxType*, // indices
-                  const int*, // lengths
-                  float, // epsilon
-                  float, // lr then rand_buffer
-                  uint32_t*>(asmjit::CallConv::kIdHost));
+        func.init(
+            asmjit::FuncSignatureT<
+                bool, // return type
+                int64_t, // output_size
+                int64_t, // index_size
+                int64_t, // data_size
+                dataType*, // w
+                const float*, // g
+                float*, // h
+                const indxType*, // indices
+                const int*, // lengths
+                float, // epsilon
+                float, // lr then rand_buffer
+                uint32_t*>(asmjit::CallConv::kIdHost),
+            a->environment());
 
         asmjit::FuncFrame frame;
         frame.init(func);
