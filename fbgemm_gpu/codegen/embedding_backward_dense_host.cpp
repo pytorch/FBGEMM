@@ -160,10 +160,17 @@ class SplitLookupFunction_Dense_Op
     constexpr int32_t max_segment_length_per_warp = 32;
     using torch::autograd::Variable;
 
+    auto grad_output = grad_outputs[0];
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+        grad_output.stride(1) != 1 ||
+        grad_output.stride(0) % 4 != 0) {
+        grad_output = grad_output.contiguous();
+    }
+
     if (!indice_weights.defined()) {
       auto grad_dev_weights =
           split_embedding_backward_codegen_dense_unweighted_exact_cuda(
-              grad_outputs[0],
+              grad_output,
               dev_weights,
               weights_offsets,
               D_offsets,
@@ -193,7 +200,7 @@ class SplitLookupFunction_Dense_Op
     } else {
       auto grad_indice_weights =
           dense_embedding_codegen_grad_indice_weights_cuda(
-              grad_outputs[0],
+              grad_output,
               dev_weights,
               weights_offsets,
               D_offsets,
@@ -203,7 +210,7 @@ class SplitLookupFunction_Dense_Op
               feature_requires_grad);
       auto grad_dev_weights =
           split_embedding_backward_codegen_dense_weighted_exact_cuda(
-              grad_outputs[0],
+              grad_output,
               dev_weights,
               weights_offsets,
               D_offsets,
