@@ -41,13 +41,17 @@ void split_embedding_forward_cpu_kernel(
 
   auto output_data = output.accessor<output_t, 2>();
 
-  for (int64_t t = 0; t < T; ++t) {
-    const auto D_begin = D_offsets_data[t];
-    const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
-    const auto table_begin = weights_offsets_data[t];
+  at::parallel_for(0, T * B, 0, [&](int64_t tb_begin, int64_t tb_end) {
+    int t_begin = tb_begin / B;
+    int t_end = (tb_end + B - 1) / B;
+    for (int t = t_begin; t < t_end; ++t) {
+      const auto D_begin = D_offsets_data[t];
+      const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
+      const auto table_begin = weights_offsets_data[t];
 
-    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
-      for (int64_t b = b_begin; b < b_end; ++b) {
+      int b_begin = (t == t_begin) ? tb_begin % B : 0;
+      int b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+      for (int b = b_begin; b < b_end; ++b) {
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
         const auto L = pool_end - pool_begin;
@@ -68,9 +72,9 @@ void split_embedding_forward_cpu_kernel(
                            weights_data[embedding_begin + d]));
           }
         }
-      }
-    });
-  }
+      } // for each b
+    } // for each t
+  }); // parallel for
 }
 
 Tensor split_embedding_codegen_forward_cpu(
