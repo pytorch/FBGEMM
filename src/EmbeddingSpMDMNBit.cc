@@ -168,7 +168,7 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         bool areIndices64b = is_same<indxType, int64_t>::value;
 
         asmjit::CodeHolder code;
-        code.init(runtime().codeInfo());
+        code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
@@ -234,30 +234,34 @@ typename ReturnFunctionSignature<indxType, offsetType, ROWWISE_SPARSE>::
         asmjit::FuncDetail func;
 
         if (ROWWISE_SPARSE) {
-          func.init(asmjit::FuncSignatureT<
-                    bool,
-                    int64_t, // output_size
-                    int64_t, // index_size
-                    int64_t, // uncompressed_data_size
-                    const uint8_t*, // input uint8_t or float
-                    const indxType*, // indices
-                    const offsetType*, // offsets or lengths
-                    const float*, // weights
-                    float*, // out
-                    const int32_t* /* compressed_indices_table */,
-                    const int* /* mask */>(asmjit::CallConv::kIdHost));
+          func.init(
+              asmjit::FuncSignatureT<
+                  bool,
+                  int64_t, // output_size
+                  int64_t, // index_size
+                  int64_t, // uncompressed_data_size
+                  const uint8_t*, // input uint8_t or float
+                  const indxType*, // indices
+                  const offsetType*, // offsets or lengths
+                  const float*, // weights
+                  float*, // out
+                  const int32_t* /* compressed_indices_table */,
+                  const int* /* mask */>(asmjit::CallConv::kIdHost),
+              a->environment());
         } else {
-          func.init(asmjit::FuncSignatureT<
-                    bool,
-                    int64_t, // output_size
-                    int64_t, // index_size
-                    int64_t, // data_size
-                    const uint8_t*, // input uint8_t or float
-                    const indxType*, // indices
-                    const offsetType*, // offsets or lengths
-                    const float*, // weights
-                    float*, // out
-                    const int* /* mask */>(asmjit::CallConv::kIdHost));
+          func.init(
+              asmjit::FuncSignatureT<
+                  bool,
+                  int64_t, // output_size
+                  int64_t, // index_size
+                  int64_t, // data_size
+                  const uint8_t*, // input uint8_t or float
+                  const indxType*, // indices
+                  const offsetType*, // offsets or lengths
+                  const float*, // weights
+                  float*, // out
+                  const int* /* mask */>(asmjit::CallConv::kIdHost),
+              a->environment());
         }
 
         asmjit::FuncFrame frame;

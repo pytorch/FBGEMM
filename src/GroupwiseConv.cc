@@ -175,7 +175,7 @@ jit_conv_kernel_fp getOrCreateConvKernel(
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   asmjit::CodeHolder code;
-  code.init(this->runtime().codeInfo());
+  code.init(this->runtime().environment());
   x86::Assembler assembler(&code);
   x86::Emitter* a = assembler.as<x86::Emitter>();
 
@@ -215,16 +215,18 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   scratchReg1_ = a->gpz(12);
   scratchReg2_ = a->gpz(13);
 
-  func_.init(asmjit::FuncSignatureT<
-             void,
-             uint8_t*,
-             int8_t*,
-             int32_t*,
-             int32_t,
-             int32_t,
-             int32_t,
-             int32_t,
-             int32_t*>(asmjit::CallConv::kIdHost));
+  func_.init(
+      asmjit::FuncSignatureT<
+          void,
+          uint8_t*,
+          int8_t*,
+          int32_t*,
+          int32_t,
+          int32_t,
+          int32_t,
+          int32_t,
+          int32_t*>(asmjit::CallConv::kIdHost),
+      a->environment());
 
   frame_.init(func_);
 
