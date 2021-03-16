@@ -144,19 +144,22 @@ __global__ void _fake_8bit_quantize_cuda_kernel(
   constexpr float kEpsilon = 1e-8f;
   int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
   int col = (int)blockIdx.y * blockDim.y + threadIdx.y;
-
-  if (row < nrows && col < ncols) {
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+  for (/*row*/; row < nrows; row += row_incre) {
     const float* input_row = input + row * ncols;
     float* output_row = output + row * ncols;
-    float minimum_element =
-        *thrust::min_element(thrust::device, input_row, input_row + ncols);
-    float maximum_element =
-        *thrust::max_element(thrust::device, input_row, input_row + ncols);
-    float range = maximum_element - minimum_element;
-    const auto inverse_scale = 255.0f / (range + kEpsilon);
-    std::uint8_t quantized_val =
-        std::lrintf((input_row[col] - minimum_element) * inverse_scale);
-    output_row[col] = quantized_val * (range / 255.0f) + minimum_element;
+    for (/*col*/; col < ncols; col += col_incre) {
+      float minimum_element =
+          *thrust::min_element(thrust::device, input_row, input_row + ncols);
+      float maximum_element =
+          *thrust::max_element(thrust::device, input_row, input_row + ncols);
+      float range = maximum_element - minimum_element;
+      const auto inverse_scale = 255.0f / (range + kEpsilon);
+      std::uint8_t quantized_val =
+          std::lrintf((input_row[col] - minimum_element) * inverse_scale);
+      output_row[col] = quantized_val * (range / 255.0f) + minimum_element;
+    }
   }
 }
 
@@ -172,8 +175,8 @@ __global__ void _float_to_fusednbitrowwise_cuda_kernel(
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte + 2 * sizeof(__half);
 
   int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < nrows) {
+  const int row_incre = blockDim.x * gridDim.x;
+  for (/*row*/; row < nrows; row += row_incre) {
     const float* input_row = input + row * ncols;
     std::uint8_t* output_row = output + row * output_columns;
     __half* output_row_scale_bias = reinterpret_cast<__half*>(
@@ -259,12 +262,14 @@ __global__ void _float_to_bfloat16_cuda_kernel(
     const int nrows,
     const int ncols,
     uint16_t* __restrict__ output) {
-  int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < nrows) {
+  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+  for (/*row*/; row < nrows; row += row_incre) {
     const float* input_row = input + row * ncols;
     uint16_t* output_row = output + row * ncols;
-    for (std::size_t col = 0; col < ncols; ++col) {
+    for (/*col*/; col < ncols; col += col_incre) {
       // Add 2^15 and right shift 16 to do round-nearest
       output_row[col] =
           (*reinterpret_cast<const uint32_t*>(input_row + col) + (1 << 15)) >>
@@ -280,10 +285,11 @@ __global__ void _bfloat16_to_float_cuda_kernel(
     const int ncols,
     float* __restrict__ output) {
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
-  const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
   for (/*row*/; row < nrows; row += row_incre) {
-    if (col < ncols) {
+    for (/*col*/; col < ncols; col += col_incre) {
       const uint16_t* input_row = input + row * ncols;
       float* output_row = output + row * ncols;
       uint32_t val_fp32 = static_cast<uint32_t>(
@@ -402,8 +408,11 @@ __global__ void _float_to_hfp8_cuda_kernel(
     float max_pos) {
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  for (int i = row; i < nrows; i += blockDim.y) {
-    for (int j = col; j < ncols; j += blockDim.x) {
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+
+  for (int i = row; i < nrows; i += row_incre) {
+    for (int j = col; j < ncols; j += col_incre) {
       output[i * ncols + j] = float_to_hfp8(
           input[i * ncols + j], ebits, mbits, bias, min_pos, max_pos);
     }
