@@ -14,7 +14,6 @@
 
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "test/TestUtils.h"
 #include "fbgemm/FbgemmSparse.h"
 #include "fbgemm/spmmUtils.h"
 
