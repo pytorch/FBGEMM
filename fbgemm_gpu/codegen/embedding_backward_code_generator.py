@@ -31,30 +31,44 @@ def write(filename, s):
         f.write(s)
 
 
-def acc_cache_tensor_arg_constructor(name):
-    return f"{name}.packed_accessor64<acc_type<cache_t, true>, 1, RestrictPtrTraits>()"
-
-
-def acc_cache_tensor_arg(name):
+def _arg_constructor(type: str, name: str, gpu: bool = True, precision: int = 32):
     return (
-        f"PackedTensorAccessor64<acc_type<cache_t, true>, 1, RestrictPtrTraits> {name}"
+        f"{name}.packed_accessor{precision}<{type}, 1, RestrictPtrTraits>()"
+        if gpu
+        else f"auto {name}_accessor = {name}.accessor<{type}, 1>()"
     )
 
 
-def long_tensor_arg_constructor(name):
-    return f"{name}.packed_accessor32<int64_t, 1, RestrictPtrTraits>()"
+def _arg(type: str, name: str, precision: int = 32):
+    return f"PackedTensorAccessor{precision}<{type}, 1, RestrictPtrTraits> {name}"
+
+
+def acc_cache_tensor_arg_constructor(name):
+    return _arg_constructor("acc_type<cache_t, true>", name, precision=64)
+
+
+def acc_cache_tensor_arg(name):
+    return _arg("acc_type<cache_t, true>", name, precision=64)
+
+
+def long_tensor_arg_constructor(name, gpu=True):
+    return _arg_constructor("int64_t", name, gpu=gpu)
 
 
 def long_tensor_arg(name):
-    return f"PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> {name}"
+    return _arg("int64_t", name)
 
 
-def int_tensor_arg_constructor(name):
-    return f"{name}.packed_accessor32<int32_t, 1, RestrictPtrTraits>()"
+def int_tensor_arg_constructor(name, gpu=True):
+    return _arg_constructor("int32_t", name, gpu=gpu)
 
 
 def int_tensor_arg(name):
-    return f"PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> {name}"
+    return _arg("int32_t", name)
+
+
+def host_accessor_constructor(name):
+    return _arg_constructor("acc_type<scalar_t, true>", name, gpu=False)
 
 
 def tensor_arg(name):
@@ -107,7 +121,7 @@ def generate(**kwargs):
     # Generates CPU variants.
     kwargs["args"] = gen_args["cpu"]
 
-    is_approx = "approx" in kwargs.get('optimizer')
+    is_approx = "approx" in kwargs.get("optimizer")
     template = (
         env.get_template("embedding_backward_split_cpu_approx_template.cpp")
         if is_approx
@@ -123,7 +137,9 @@ def generate(**kwargs):
     if not kwargs.get("dense"):
         template = env.get_template("embedding_backward_split_host_cpu_template.cpp")
         src_cpp = template.render(**kwargs)
-        write(f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp", src_cpp)
+        write(
+            f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp", src_cpp
+        )
 
 
 Args = collections.namedtuple(
@@ -131,6 +147,7 @@ Args = collections.namedtuple(
     [
         "split_kernel_args",
         "split_kernel_arg_constructors",
+        "split_host_accessor_constructors",
         "split_function_args",
         "split_saved_tensors",
         "split_tensors",
@@ -163,6 +180,15 @@ def make_args(arg_spec):
             FLOAT: lambda x: x,
         }[ty](name)
 
+    def make_host_accessor_constructor(ty, name):
+        return {
+            TENSOR: host_accessor_constructor,
+            INT_TENSOR: lambda x: int_tensor_arg_constructor(x, gpu=False),
+            LONG_TENSOR: lambda x: long_tensor_arg_constructor(x, gpu=False),
+            INT: lambda x: "",
+            FLOAT: lambda x: "",
+        }[ty](name)
+
     def make_function_arg(ty, name):
         return {
             TENSOR: tensor_arg,
@@ -186,9 +212,15 @@ def make_args(arg_spec):
 
     def make_args_for_compute_device(split_arg_spec):
         return Args(
-            split_kernel_args=[make_kernel_arg(ty, name) for (ty, name) in split_arg_spec],
+            split_kernel_args=[
+                make_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+            ],
             split_kernel_arg_constructors=[
                 make_kernel_arg_constructor(ty, name) for (ty, name) in split_arg_spec
+            ],
+            split_host_accessor_constructors=[
+                make_host_accessor_constructor(ty, name)
+                for (ty, name) in split_arg_spec
             ],
             split_function_args=[
                 make_function_arg(ty, name) for (ty, name) in split_arg_spec
@@ -243,7 +275,6 @@ def make_args(arg_spec):
     return {"cpu": cpu, "cuda": cuda}
 
 
-
 def adagrad():
     split_weight_update = """
       Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
@@ -259,11 +290,13 @@ def adagrad():
       weight_new.acc.w -= learning_rate * grad.acc.w / (sqrtf(m_t.acc.w) + eps);
     """
     split_weight_update_cpu = """
-      momentum1_host += grad * grad;
-
-      const auto scalar_type = momentum1_host.scalar_type();
-      const auto new_scalar_type = scalar_type == at::kHalf ? at::kFloat : scalar_type;
-      host_weights -= learning_rate * grad / (momentum1_host.to(new_scalar_type).sqrt() + eps);
+      for (int64_t d = 0; d < D; ++d) {
+        momentum1_host_accessor[embedding_begin + d] +=
+            grad_buffer[d] * grad_buffer[d];
+        host_weights_data[embedding_begin + d] -=
+            learning_rate * grad_buffer[d] /
+            (sqrt(momentum1_host_accessor[embedding_begin + d]) + eps);
+      }
     """
 
     generate(
@@ -325,27 +358,19 @@ def rowwise_adagrad():
     }
     multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
     """
-    split_weight_update_cpu = table_info_precomputation("momentum1") + """
-      const auto scalar_type = momentum1_host.scalar_type();
-      const auto new_scalar_type = scalar_type == at::kHalf ? at::kFloat : scalar_type;
-      for (auto it = table_info_map.cbegin(); it != table_info_map.cend(); ++it) {
-        const auto E = std::get<0>(it->second);
-        const auto D = std::get<1>(it->second);
-        const auto momentum1_row_begin = std::get<2>(it->second);
-        const auto table_begin = it->first;
-        for (int64_t e = 0; e < E; ++e) {
-          const auto row_idx = momentum1_row_begin + e;
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            momentum1_host[row_idx] += grad[idx] * grad[idx] / D;
-          }
-          const auto multiplier = learning_rate / (momentum1_host[row_idx].to(new_scalar_type).sqrt() + eps);
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            host_weights[idx] -= multiplier * grad[idx];
-          }
+    split_weight_update_cpu = """
+        grad_t g_local_sum_square = 0.0;
+        for (int64_t d = 0; d < D; ++d) {
+            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
-      }
+        auto g_avg_square = g_local_sum_square / D;
+        grad_t new_sum_square_grads = momentum1_host_accessor[momentum1_offsets_data[feature_begin] + batched_csc.column_indices[c]] + g_avg_square;
+        momentum1_host_accessor[momentum1_offsets_data[feature_begin] + batched_csc.column_indices[c]] = new_sum_square_grads;
+        grad_t multiplier;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        for (int64_t d = 0; d < D; ++d) {
+            host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
+        }
     """
 
     generate(
@@ -364,7 +389,9 @@ def sgd():
       weight_new.fma_(grad, -learning_rate);
     """
     split_weight_update_cpu = """
-      host_weights -= learning_rate * grad;
+      for (int64_t d = 0; d < D; ++d) {
+        host_weights_data[embedding_begin + d] -= learning_rate * grad_buffer[d];
+      }
     """
 
     generate(
@@ -441,32 +468,7 @@ def lamb():
     split_weight_update = """
       weight_new.fma_(grad, -learning_rate * true_ratio);
     """
-    split_weight_update_cpu = table_info_precomputation() + """
-      for (auto it = table_info_map.cbegin(); it != table_info_map.cend(); ++it) {
-        const auto E = std::get<0>(it->second);
-        const auto D = std::get<1>(it->second);
-        const auto table_begin = it->first;
-        for (int64_t e = 0; e < E; ++e) {
-          Tensor weight_sum_sq = zeros({}, host_weights.options());
-          Tensor rtw_sum_sq = zeros({}, grad.options());
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            momentum1_host[idx] = beta1 * momentum1_host[idx] + (1.0 - beta1) * grad[idx];
-            momentum2_host[idx] = beta2 * momentum2_host[idx] + (1.0 - beta2) * grad[idx] * grad[idx];
-            grad[idx] = momentum1_host[idx] / (1.0 - powf(beta1, iter)) / ((momentum2_host[idx] / (1.0 - powf(beta2, iter))).sqrt() + eps) + weight_decay * host_weights[idx];
-            weight_sum_sq += host_weights[idx] * host_weights[idx];
-            rtw_sum_sq += grad[idx] * grad[idx];
-          }
-          const auto weight_norm = weight_sum_sq.sqrt();
-          const auto rtw_norm = rtw_sum_sq.sqrt();
-          const auto true_ratio = weight_norm / rtw_norm;
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            host_weights[idx] -= learning_rate * true_ratio * grad[idx];
-          }
-        }
-      }
-    """
+    split_weight_update_cpu = ""
 
     generate(
         optimizer="lamb",
@@ -552,40 +554,8 @@ def partial_rowwise_lamb():
     split_weight_update = """
       weight_new.fma_(grad, -learning_rate * true_ratio);
     """
-    split_weight_update_cpu = table_info_precomputation("momentum2") + """
-      for (auto it = table_info_map.cbegin(); it != table_info_map.cend(); ++it) {
-        const auto E = std::get<0>(it->second);
-        const auto D = std::get<1>(it->second);
-        const auto momentum2_row_begin = std::get<2>(it->second);
-        const auto table_begin = it->first;
-        for (int64_t e = 0; e < E; ++e) {
-          Tensor avg_square = zeros({}, grad.options());
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            avg_square += grad[idx] * grad[idx] / D;
-          }
-          const auto row_idx = momentum2_row_begin + e;
-          momentum2_host[row_idx] = momentum2_host[row_idx] * beta2 + avg_square * (1.0 - beta2);
-          const auto m2_hat = 1.0 / ((momentum2_host[row_idx] / (1.0 - powf(beta2, iter))).sqrt() + eps);
-          Tensor weight_sum_sq = zeros({}, host_weights.options());
-          Tensor rtw_sum_sq = zeros({}, grad.options());
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            momentum1_host[idx] = momentum1_host[idx] * beta1 + grad[idx] * (1.0 - beta1);
-            grad[idx] = (momentum1_host[idx] / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * host_weights[idx];
-            weight_sum_sq += host_weights[idx] * host_weights[idx];
-            rtw_sum_sq += grad[idx] * grad[idx];
-          }
-          const auto weight_norm = weight_sum_sq.sqrt();
-          const auto rtw_norm = rtw_sum_sq.sqrt();
-          const auto true_ratio = weight_norm / rtw_norm;
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            host_weights[idx] -= learning_rate * true_ratio * grad[idx];
-          }
-        }
-      }
-    """
+    split_weight_update_cpu = ""  #TODO
+
 
     generate(
         optimizer="partial_rowwise_lamb",
@@ -635,15 +605,7 @@ def adam():
       weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.z / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.z);
       weight_new.acc.w -= learning_rate * (m_t.acc.w / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.w / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.w);
     """
-    split_weight_update_cpu = """
-      momentum1_host.copy_(momentum1_host * beta1 + grad * (1.0 - beta1));
-
-      momentum2_host.copy_(momentum2_host * beta2 + grad * grad * (1.0 - beta2));
-
-      const auto scalar_type = momentum2_host.scalar_type();
-      const auto new_scalar_type = scalar_type == at::kHalf ? at::kFloat : scalar_type;
-      host_weights -= learning_rate * (momentum1_host / (1.0 - powf(beta1, iter)) / ((momentum2_host / (1.0 - powf(beta2, iter))).to(new_scalar_type).sqrt() + eps) + weight_decay * host_weights);
-    """
+    split_weight_update_cpu = ""  #TODO
 
     generate(
         optimizer="adam",
@@ -703,29 +665,7 @@ def partial_rowwise_adam():
       weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.z);
       weight_new.acc.w -= learning_rate * (m_t.acc.w / (1.0 - powf(beta1, iter)) / (sqrtf(v_hat_t) + eps) + weight_decay * weight_new.acc.w);
     """
-    split_weight_update_cpu = table_info_precomputation("momentum2") + """
-      for (auto it = table_info_map.cbegin(); it != table_info_map.cend(); ++it) {
-        const auto E = std::get<0>(it->second);
-        const auto D = std::get<1>(it->second);
-        const auto momentum2_row_begin = std::get<2>(it->second);
-        const auto table_begin = it->first;
-        for (int64_t e = 0; e < E; ++e) {
-          Tensor avg_square = zeros({}, grad.options());
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            momentum1_host[idx] = momentum1_host[idx] * beta1 + grad[idx] * (1.0 - beta1);
-            avg_square += grad[idx] * grad[idx] / D;
-          }
-          const auto row_idx = momentum2_row_begin + e;
-          momentum2_host[row_idx] = momentum2_host[row_idx] * beta2 + avg_square * (1.0 - beta2);
-          const auto v_hat = momentum2_host[row_idx] / (1.0 - powf(beta2, iter));
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            host_weights[idx] -= learning_rate * (momentum1_host[idx] / (1.0 - powf(beta1, iter)) / (v_hat.sqrt() + eps) + weight_decay * host_weights[idx]);
-          }
-        }
-      }
-    """
+    split_weight_update_cpu = ""  # TODO
 
     generate(
         optimizer="partial_rowwise_adam",
@@ -786,30 +726,7 @@ def lars_sgd():
       weight_new.acc.z -= m1.acc.z;
       weight_new.acc.w -= m1.acc.w;
     """
-    split_weight_update_cpu = table_info_precomputation() + """
-      for (auto it = table_info_map.cbegin(); it != table_info_map.cend(); ++it) {
-        const auto E = std::get<0>(it->second);
-        const auto D = std::get<1>(it->second);
-        const auto table_begin = it->first;
-        for (int64_t e = 0; e < E; ++e) {
-          Tensor weight_sum_sq = zeros({}, host_weights.options());
-          Tensor grad_sum_sq = zeros({}, grad.options());
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            weight_sum_sq += host_weights[idx] * host_weights[idx];
-            grad_sum_sq += grad[idx] * grad[idx];
-          }
-          const auto weight_norm = weight_sum_sq.sqrt();
-          const auto grad_norm = grad_sum_sq.sqrt();
-          const auto adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
-          for (int64_t d = 0; d < D; ++d) {
-            const auto idx = table_begin + e * D + d;
-            momentum1_host[idx] = momentum * momentum1_host[idx] + adjusted_lr * (grad[idx] + weight_decay * host_weights[idx]);
-            host_weights[idx] -= momentum1_host[idx];
-          }
-        }
-      }
-    """
+    split_weight_update_cpu = ""  # TODO
 
     generate(
         optimizer="lars_sgd",
