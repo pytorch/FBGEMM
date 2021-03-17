@@ -104,7 +104,7 @@ setup(
     long_description=long_description,
     ext_modules=[
         CUDAExtension(
-            name="fbgemm_gpu",
+            name="fbgemm_gpu_py",
             sources=[
                 os.path.join(cur_dir, build_codegen_path, "{}".format(f))
                 for f in cpp_cuda_output_files + cpp_cpu_output_files

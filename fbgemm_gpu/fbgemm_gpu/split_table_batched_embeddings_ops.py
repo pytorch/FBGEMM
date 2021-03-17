@@ -12,7 +12,7 @@ from math import log2
 from numbers import Number
 from typing import Dict, List, Optional, Tuple
 
-import split_embedding_codegen_lookup_invokers as invokers
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
