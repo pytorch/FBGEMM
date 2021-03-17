@@ -1097,8 +1097,12 @@ bool EmbeddingSpMDM_ref(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional,
-    bool use_offsets) {
+    bool use_offsets,
+    int64_t output_stride /*=-1*/) {
   bool is8bit = is_same<InType, uint8_t>::value;
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
@@ -1142,7 +1146,7 @@ bool EmbeddingSpMDM_ref(
           out[j] *= scale;
         }
       }
-      out += block_size;
+      out += output_stride;
     }
     return current == index_size;
   } else {
@@ -1182,7 +1186,7 @@ bool EmbeddingSpMDM_ref(
           out[j] *= scale;
         }
       }
-      out += block_size;
+      out += output_stride;
     }
     return current == index_size;
   }
@@ -1740,7 +1744,8 @@ template FBGEMM_API void transposeConvWeights(
       bool normalize_by_lengths,                                 \
       float* out,                                                \
       bool is_weight_positional,                                 \
-      bool use_offsets);                                         \
+      bool use_offsets,                                          \
+      int64_t output_stride);                                    \
   template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(      \
       const int64_t block_size,                                  \
       const int64_t output_size,                                 \

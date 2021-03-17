@@ -74,6 +74,24 @@ FBGEMM_API
         bool use_offsets = true);
 
 /**
+ * @param output_stride If not -1, output_stride is not same as block_size
+ */
+template <
+    typename InType,
+    typename IndexType,
+    typename OffsetType = std::int32_t>
+FBGEMM_API
+    typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
+    GenerateEmbeddingSpMDMWithOutputStride(
+        const std::int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch = 16,
+        bool is_weight_positional = false,
+        bool use_offsets = true,
+        std::int64_t output_stride = -1);
+
+/**
  * @tparam IndexType can be int32_t or int64_t
  * @tparam OffsetType can be int32_t or int64_t
  * @param bit_rate can be 2 or 4
