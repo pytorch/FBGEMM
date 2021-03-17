@@ -815,7 +815,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         fc2.backward(torch.cat([go.view(B, -1) for go in gos], dim=1))
         cc.flush()
-
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
         for t in range(T):
             ref_optimizer_state = bs[t].weight.grad.float().to_dense().pow(2)
@@ -825,7 +824,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
                 rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
             )
-
         for t in range(T):
             # optimizer_state = squares (no row-wise) or sum squares (row-wise)
             torch.testing.assert_allclose(

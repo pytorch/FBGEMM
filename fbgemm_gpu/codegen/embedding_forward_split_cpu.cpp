@@ -278,3 +278,93 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
 
   return grad_indice_weights;
 }
+
+namespace internal {
+
+template <typename scalar_t>
+void batched_csr2csc(
+    BatchedHyperCompressedSparseColumn& batched_csc,
+    int num_tables, // number of tables, not number of features
+    int B,
+    // TODO: use accessor for the following 3 parameters
+    const int64_t* batched_csr_offsets,
+    const int64_t* batched_csr_indices,
+    const scalar_t* batched_csr_weights,
+    int64_t pooling_mode,
+    const int* table_to_feature_offset) {
+  batched_csc.num_tables = num_tables;
+  batched_csc.table_ptr.resize(num_tables + 1);
+  int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B];
+  batched_csc.row_indices.resize(nnz);
+  if (batched_csr_weights || pooling_mode == MEAN) {
+    batched_csc.weights.resize(nnz);
+  }
+
+  batched_csc.table_ptr.push_back(0);
+  batched_csc.column_ptr.push_back(0);
+  int column_ptr_curr = 0;
+  for (int t = 0; t < num_tables; ++t) {
+    std::unordered_map<int64_t, std::vector<std::pair<int, scalar_t>>>
+        non_empty_columns;
+    for (int feature = table_to_feature_offset[t];
+         feature < table_to_feature_offset[t + 1];
+         ++feature) {
+      for (int b = 0; b < B; ++b) {
+        int64_t pool_begin = batched_csr_offsets[feature * B + b];
+        int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
+        int64_t L = pool_end - pool_begin;
+        // MEAN pooling will not work with indice_weights!
+        double scale_factor =
+            (pooling_mode == MEAN && !batched_csr_weights && L > 0) ? 1.0 / L
+                                                                    : 1.0;
+        for (int64_t p = pool_begin; p < pool_end; ++p) {
+          non_empty_columns[batched_csr_indices[p]].emplace_back(
+              feature * B + b,
+              scale_factor *
+                  (batched_csr_weights ? batched_csr_weights[p] : 1.0f));
+        }
+      }
+    } // for each feature
+
+    batched_csc.table_ptr[t + 1] =
+        batched_csc.table_ptr[t] + non_empty_columns.size();
+    batched_csc.column_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
+    batched_csc.column_indices.reserve(batched_csc.table_ptr[t + 1]);
+    for (auto const& column : non_empty_columns) {
+      batched_csc.column_ptr.push_back(column_ptr_curr + column.second.size());
+      batched_csc.column_indices.push_back(column.first);
+
+      for (auto const& non_zero : column.second) {
+        batched_csc.row_indices[column_ptr_curr] = non_zero.first;
+        if (!batched_csc.weights.empty()) {
+          batched_csc.weights[column_ptr_curr] = non_zero.second;
+        }
+        ++column_ptr_curr;
+      }
+    }
+  } // for each matrix (table)
+
+  assert(column_ptr_curr == nnz);
+}
+
+template void batched_csr2csc<float>(
+    BatchedHyperCompressedSparseColumn& batched_csc,
+    int T,
+    int B,
+    const int64_t* batched_csr_offsets,
+    const int64_t* batched_csr_indices,
+    const float* batched_csr_weights,
+    int64_t pooling_mode,
+    const int* table_to_feature_offset);
+
+template void batched_csr2csc<double>(
+    BatchedHyperCompressedSparseColumn& batched_csc,
+    int T,
+    int B,
+    const int64_t* batched_csr_offsets,
+    const int64_t* batched_csr_indices,
+    const double* batched_csr_weights,
+    int64_t pooling_mode,
+    const int* table_to_feature_offset);
+
+} // namespace internal

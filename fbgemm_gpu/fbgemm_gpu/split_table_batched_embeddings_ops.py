@@ -269,18 +269,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             enforce_hbm=enforce_hbm,
         )
 
+        if self.use_cpu:
         # Construct optimizer states
-        assert optimizer in (
-            OptimType.ADAM,
-            OptimType.EXACT_ADAGRAD,
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.EXACT_SGD,
-            OptimType.LAMB,
-            OptimType.LARS_SGD,
-            OptimType.PARTIAL_ROWWISE_ADAM,
-            OptimType.PARTIAL_ROWWISE_LAMB,
-            OptimType.SGD,
-        ), f"Optimizer {optimizer} is not supported."
+            assert optimizer in (
+                #OptimType.ADAM,
+                OptimType.EXACT_ADAGRAD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_SGD,
+                #OptimType.LAMB,
+                #OptimType.LARS_SGD,
+                #OptimType.PARTIAL_ROWWISE_ADAM,
+                #OptimType.PARTIAL_ROWWISE_LAMB,
+                OptimType.SGD,
+            ), f"Optimizer {optimizer} is not supported in cpu mode."
+        else:
+            assert optimizer in (
+                OptimType.ADAM,
+                OptimType.EXACT_ADAGRAD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_SGD,
+                OptimType.LAMB,
+                OptimType.LARS_SGD,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+                OptimType.SGD,
+            ), f"Optimizer {optimizer} is not supported."
 
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
