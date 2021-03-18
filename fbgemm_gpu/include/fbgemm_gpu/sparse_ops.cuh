@@ -314,28 +314,4 @@ __global__ void construct_offsets_kernel(
   }
 }
 
-// Kernel for recat the embedding gradient output with the mixed dimension
-// support
-template <typename scalar_t>
-__global__ void recat_copy_async_kernel(
-    const int64_t* __restrict__ dim_sum_per_rank, // 1D, dim_num
-    const int64_t* __restrict__ cum_dim_sum_per_rank, // 1D, dim_num
-    const scalar_t* __restrict__ go, // 2D, B x sum(mixed_D)
-    scalar_t* __restrict__ sgo, // 1D, B * sum(mixed_D)
-    const int64_t dim_num,
-    const int64_t B,
-    const int64_t dim_sum) {
-  auto b_w = blockIdx.x * blockDim.y + threadIdx.y;
-  auto dim_id = b_w % dim_num;
-  auto b = b_w / dim_num;
-  if (b >= B) {
-    return;
-  }
-  auto D_current = dim_sum_per_rank[dim_id];
-  const auto tgt_base_addr = B * cum_dim_sum_per_rank[dim_id];
-  const auto src_base_addr = cum_dim_sum_per_rank[dim_id];
-  for (int32_t d = threadIdx.x; d < D_current; d += blockDim.x) {
-    sgo[tgt_base_addr + b * D_current + d] =
-        go[b * dim_sum + src_base_addr + d];
-  }
-}
+

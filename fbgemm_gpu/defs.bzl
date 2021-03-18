@@ -19,5 +19,6 @@ def get_fbgemm_gpu_public_headers():
         "include/fbgemm_gpu/quantize_ops.cuh",
         "include/fbgemm_gpu/quantize_wrappers.cuh",
         "include/fbgemm_gpu/sparse_ops.cuh",
+        "include/fbgemm_gpu/layout_transform_ops.cuh",
         "include/fbgemm_gpu/sparse_wrappers.cuh",
     ]
