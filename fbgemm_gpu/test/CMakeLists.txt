@@ -29,7 +29,7 @@ macro(add_gtest TESTNAME)
   add_executable(${TESTNAME} ${ARGN}
   )
   set_target_properties(${TESTNAME} PROPERTIES
-          CUDA_SEPARABLE_COMPILATION ON
+          CUDA_SEPARABLE_COMPILATION OFF
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
   #To compile test files with AVX2 turned on

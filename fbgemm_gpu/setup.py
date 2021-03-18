@@ -119,6 +119,7 @@ setup(
                 os.path.join(cur_dir, "src/cumem_utils_host.cpp"),
                 os.path.join(cur_dir, "src/quantize_wrappers.cu"),
                 os.path.join(cur_dir, "src/quantize_ops_host.cpp"),
+                os.path.join(cur_dir, "src/quantize_ops.cpp"),
             ],
             include_dirs=[
                 cur_dir,
