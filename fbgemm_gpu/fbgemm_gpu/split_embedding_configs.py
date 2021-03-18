@@ -6,6 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import enum
+from typing import Dict
 
 @enum.unique
 class EmbOptimType(enum.Enum):
@@ -35,3 +36,10 @@ class SparseType(enum.Enum):
 
     def __str__(self):
         return self.value
+
+
+ELEMENT_SIZE: Dict[SparseType, int] = {
+    SparseType.FP32: 4,
+    SparseType.FP16: 2,
+    SparseType.INT8: 1,
+}
