@@ -124,6 +124,7 @@ setup(
             include_dirs=[
                 cur_dir,
                 os.path.join(cur_dir, "include"),
+                os.path.join(cur_dir, "../include"),
                 cub_include_path,
             ],
         )
