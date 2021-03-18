@@ -1017,7 +1017,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     def test_backward_optimizers(  # noqa C901
         self,
         T,
@@ -1035,6 +1040,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     ):
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
+        assume(
+            not use_cpu
+            or optimizer
+            in [
+                OptimType.EXACT_ADAGRAD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_SGD,
+                OptimType.SGD,
+            ]
+        )
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
