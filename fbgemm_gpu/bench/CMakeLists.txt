@@ -12,6 +12,7 @@ endif()
 macro(add_benchmark BENCHNAME)
   add_executable(${BENCHNAME} ${ARGN})
   set_target_properties(${BENCHNAME} PROPERTIES
+          CUDA_SEPARABLE_COMPILATION OFF
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
   target_link_libraries(${BENCHNAME} fbgemm_gpu -lcurand)
