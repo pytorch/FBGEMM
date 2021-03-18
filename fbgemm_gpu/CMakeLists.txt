@@ -62,7 +62,7 @@ add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_gpu_generic defs.bzl)
 
 set_target_properties(fbgemm_gpu_generic PROPERTIES
-      CUDA_SEPARABLE_COMPILATION ON
+      CUDA_SEPARABLE_COMPILATION OFF
       CXX_STANDARD 14
       CXX_STANDARD_REQUIRED YES
       CXX_EXTENSIONS NO
