@@ -56,13 +56,11 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   AT_DISPATCH_FLOATING_TYPES(
       grad_output.scalar_type(), "split_embedding_backward_cpu", [&]() {
+        // If indice_weights are not defined, then this accessor won't be
+        // used
         auto indice_weights_data = indice_weights.defined()
-            ?
-            // If indice_weights are not defined, then this accessor won't be
-            // used
-            indice_weights.accessor<scalar_t, 1>()
-            : host_weights.accessor<scalar_t, 1>(); // this is just to make
-                                                    // compiler happy
+            ? indice_weights.accessor<scalar_t, 1>()
+            : TensorAccessor<scalar_t, 1>(nullptr, nullptr, nullptr);
 
         auto grad_output_data = grad_output.accessor<scalar_t, 2>();
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
