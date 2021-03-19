@@ -245,7 +245,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         hash_size_cumsum = [0] + _cumsum(rows)
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
-        hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map]
+        # The last element is to easily access # of rows of each table by
+        # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
+        hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map] + [
+            hash_size_cumsum[-1]
+        ]
         self.register_buffer(
             "hash_size_cumsum",
             torch.tensor(
