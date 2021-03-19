@@ -3,6 +3,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import glob
 import os
 import shutil
 
@@ -28,6 +29,18 @@ OPTIMIZERS = [
     "partial_rowwise_lamb",
     "rowwise_adagrad",
     "sgd",
+]
+
+cpp_asmjit_files = glob.glob("../third_party/asmjit/src/asmjit/*/*.cpp")
+
+cpp_fbgemm_files = [
+    "../src/EmbeddingSpMDMAvx2.cc",
+    "../src/EmbeddingSpMDM.cc",
+    "../src/EmbeddingSpMDMNBit.cc",
+    "../src/RefImplementations.cc",
+    "../src/RowWiseSparseAdagradFused.cc",
+    "../src/SparseAdagrad.cc",
+    "../src/Utils.cc",
 ]
 
 cpp_cpu_output_files = (
@@ -109,6 +122,8 @@ setup(
                 os.path.join(cur_dir, build_codegen_path, "{}".format(f))
                 for f in cpp_cuda_output_files + cpp_cpu_output_files
             ]
+            + cpp_asmjit_files
+            + cpp_fbgemm_files
             + [
                 os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
@@ -125,6 +140,11 @@ setup(
                 cur_dir,
                 os.path.join(cur_dir, "include"),
                 os.path.join(cur_dir, "../include"),
+                os.path.join(cur_dir, "../src"),
+                os.path.join(cur_dir, "../third_party/asmjit/src"),
+                os.path.join(cur_dir, "../third_party/asmjit/src/core"),
+                os.path.join(cur_dir, "../third_party/asmjit/src/x86"),
+                os.path.join(cur_dir, "../third_party/cpuinfo/include"),
                 cub_include_path,
             ],
         )
