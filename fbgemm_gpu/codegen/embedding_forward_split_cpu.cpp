@@ -36,12 +36,40 @@ struct half2float16<at::Half> {
 
 } // namespace internal
 
+namespace {
+void report_error_(
+    int t,
+    int B,
+    int b_begin,
+    int b_end,
+    const int64_t* offsets_data,
+    const int64_t* indices_data,
+    int64_t hash_size) {
+  for (int b = b_begin; b < b_end; ++b) {
+    const auto pool_begin = offsets_data[t * B + b];
+    const auto pool_end = offsets_data[t * B + b + 1];
+    for (auto p = pool_begin; p < pool_end; ++p) {
+      auto idx = indices_data[p];
+      TORCH_CHECK(
+          0 <= idx && idx < hash_size,
+          "Index ",
+          p,
+          " is out of bouunds: ",
+          idx,
+          ", range 0 to ",
+          hash_size);
+    }
+  }
+}
+} // namespace
+
 template <typename weights_t, typename ind_weights_t, typename output_t>
 void split_embedding_forward_cpu_kernel(
     Tensor weights,
     Tensor weights_offsets,
     Tensor D_offsets,
     int64_t total_D,
+    Tensor hash_size_cumsum,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -62,6 +90,7 @@ void split_embedding_forward_cpu_kernel(
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
+  const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
   const auto offsets_data = offsets.data_ptr<int64_t>();
   const auto indices_data = indices.data_ptr<int64_t>();
 
@@ -86,9 +115,17 @@ void split_embedding_forward_cpu_kernel(
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
 
+      int64_t hash_size;
+      int t_temp = t + 1;
+      do {
+        hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
+        ++t_temp;
+      } while (hash_size == 0);
+
       int b_begin = (t == t_begin) ? tb_begin % B : 0;
       int b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
 
+      bool success = true;
       if (use_fbgemm) {
         using fbgemm_weight_t =
             typename ::internal::half2float16<weights_t>::type;
@@ -104,12 +141,11 @@ void split_embedding_forward_cpu_kernel(
             /*use_offsets=*/true,
             output_stride);
         auto offsets_begin_ptr = offsets_data + t * B + b_begin;
-        kernel(
+        auto indices_size = offsets_data[t * B + b_end] - *offsets_begin_ptr;
+        success = kernel(
             b_end - b_begin,
-            offsets_data[t * B + b_end] - *offsets_begin_ptr,
-            // TODO: this ellides array out of bound checking.
-            // Should pass hash_size_cumsum to do this.
-            /*data_size=*/std::numeric_limits<int64_t>::max(),
+            indices_size,
+            hash_size,
             reinterpret_cast<const fbgemm_weight_t*>(
                 weights_data + table_begin),
             indices_data + *offsets_begin_ptr,
@@ -133,7 +169,12 @@ void split_embedding_forward_cpu_kernel(
               ? 1.0 / L
               : 1.0;
           for (auto p = pool_begin; p < pool_end; ++p) {
-            const int64_t embedding_begin = table_begin + indices_data[p] * D;
+            int64_t idx = indices_data[p];
+            if (idx < 0 || idx >= hash_size) {
+              success = false;
+              break;
+            }
+            const int64_t embedding_begin = table_begin + idx * D;
             for (int64_t d = 0; d < D; ++d) {
               output_data[b * output_stride + D_begin + d] += scale_factor *
                   (indice_weights.defined()
@@ -144,8 +185,16 @@ void split_embedding_forward_cpu_kernel(
                              weights_data[embedding_begin + d]));
             }
           }
+          if (!success) {
+            break;
+          }
         } // for each b
-      }
+      } // !use_fbgemm
+
+      if (!success) {
+        report_error_(
+            t, B, b_begin, b_end, offsets_data, indices_data, hash_size);
+      } // !success
     } // for each t
   }); // parallel for
 }
@@ -155,6 +204,7 @@ Tensor split_embedding_codegen_forward_cpu(
     Tensor weights_offsets,
     Tensor D_offsets,
     int64_t total_D,
+    Tensor hash_size_cumsum,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -185,6 +235,7 @@ Tensor split_embedding_codegen_forward_cpu(
             weights_offsets,
             D_offsets,
             total_D,
+            hash_size_cumsum,
             indices,
             offsets,
             pooling_mode,

@@ -75,6 +75,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         weights_offsets,
         D_offsets,
         total_D,
+        hash_size_cumsum,
         indices,
         offsets,
         pooling_mode,
