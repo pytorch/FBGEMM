@@ -159,15 +159,12 @@ void split_embedding_forward_cpu_kernel(
                 typename ::internal::double2float<output_t>::type*>(
                 output_data + b_begin * output_stride + D_begin));
       } else {
+        output_t output_buf[D];
         for (int b = b_begin; b < b_end; ++b) {
           const auto pool_begin = offsets_data[t * B + b];
           const auto pool_end = offsets_data[t * B + b + 1];
           const auto L = pool_end - pool_begin;
-          const double scale_factor =
-              // NOTE: MEAN pooling will not work with indice_weights!
-              (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
-              ? 1.0 / L
-              : 1.0;
+          memset(output_buf, 0, D * sizeof(output_t));
           for (auto p = pool_begin; p < pool_end; ++p) {
             int64_t idx = indices_data[p];
             if (idx < 0 || idx >= hash_size) {
@@ -176,7 +173,7 @@ void split_embedding_forward_cpu_kernel(
             }
             const int64_t embedding_begin = table_begin + idx * D;
             for (int64_t d = 0; d < D; ++d) {
-              output_data[b * output_stride + D_begin + d] += scale_factor *
+              output_buf[d] +=
                   (indice_weights.defined()
                        ? static_cast<output_t>(
                              weights_data[embedding_begin + d]) *
@@ -184,6 +181,15 @@ void split_embedding_forward_cpu_kernel(
                        : static_cast<output_t>(
                              weights_data[embedding_begin + d]));
             }
+          }
+          const double scale_factor =
+              // NOTE: MEAN pooling will not work with indice_weights!
+              (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+              ? 1.0 / L
+              : 1.0;
+          for (int d = 0; d < D; ++d) {
+            output_data[b * output_stride + D_begin + d] =
+                scale_factor * output_buf[d];
           }
           if (!success) {
             break;
@@ -217,9 +223,9 @@ Tensor split_embedding_codegen_forward_cpu(
 
   Tensor output;
   if (weights.scalar_type() == at::kHalf) {
-    output = zeros({B, total_D}, weights.options().dtype(at::kFloat));
+    output = empty({B, total_D}, weights.options().dtype(at::kFloat));
   } else {
-    output = zeros({B, total_D}, weights.options());
+    output = empty({B, total_D}, weights.options());
   }
 
   // It is assumed that the indice_weights will always be float
