@@ -173,7 +173,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_precision: SparseType = SparseType.FP32,
         fp16: bool = False,
         weights_precision: SparseType = SparseType.FP32,
-        enforce_hbm: bool = False, # place all weights/momentums in HBM when using cache
+        enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
         # General Optimizer args
         stochastic_rounding: bool = False,
@@ -212,10 +212,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # add placeholder require_grad param tensor to enable autograd with int8 weights
         self.placeholder_autograd_tensor = nn.Parameter(
-                torch.zeros(
-                    0, device=self.current_device, dtype=torch.float
-                )
-            )
+            torch.zeros(0, device=self.current_device, dtype=torch.float)
+        )
 
         self.int8_emb_row_dim_offset = INT8_EMB_ROW_DIM_OFFSET
 
@@ -234,7 +232,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
         cached_dims = [
-            embedding_spec[1] for embedding_spec in embedding_specs
+            embedding_spec[1]
+            for embedding_spec in embedding_specs
             if embedding_spec[2] == EmbeddingLocation.MANAGED_CACHING
         ]
         self.max_D_cache = max(cached_dims) if len(cached_dims) > 0 else 0
@@ -254,7 +253,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ),
         )
         weight_split = construct_split_state(
-            embedding_specs, rowwise=False, cacheable=True, precision=weights_precision,
+            embedding_specs,
+            rowwise=False,
+            cacheable=True,
+            precision=weights_precision,
         )
         table_embedding_dtype = torch.float32
         if weights_precision == SparseType.FP16:
@@ -270,16 +272,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if self.use_cpu:
-        # Construct optimizer states
+            # Construct optimizer states
             assert optimizer in (
-                #OptimType.ADAM,
+                # OptimType.ADAM,
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
-                #OptimType.LAMB,
-                #OptimType.LARS_SGD,
-                #OptimType.PARTIAL_ROWWISE_ADAM,
-                #OptimType.PARTIAL_ROWWISE_LAMB,
+                # OptimType.LAMB,
+                # OptimType.LARS_SGD,
+                # OptimType.PARTIAL_ROWWISE_ADAM,
+                # OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.SGD,
             ), f"Optimizer {optimizer} is not supported in cpu mode."
         else:
@@ -332,11 +334,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         else:
             # NOTE: make TorchScript work!
-            self.register_buffer("momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum1_placements", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum1_offsets", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer(
+                "momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_placements",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum1_offsets",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
         if optimizer in (
             OptimType.ADAM,
             OptimType.PARTIAL_ROWWISE_ADAM,
@@ -356,12 +372,28 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.register_buffer("iter", torch.tensor([0], dtype=torch.int64))
         else:
             # NOTE: make TorchScript work!
-            self.register_buffer("momentum2_dev", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum2_host", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum2_uvm", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum2_placements", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("momentum2_offsets", torch.tensor([0], dtype=torch.int64), persistent=False)
-            self.register_buffer("iter", torch.tensor([0], dtype=torch.int64), persistent=False)
+            self.register_buffer(
+                "momentum2_dev", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum2_host", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum2_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum2_placements",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum2_offsets",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "iter", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
 
         cache_state = construct_cache_state(embedding_specs, self.feature_table_map)
         if cache_precision == SparseType.FP32:
@@ -581,7 +613,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.weights_precision == SparseType.INT8:
             # TODO: add in-place FloatToFused8BitRowwiseQuantized conversion
             for emb in splits:
-                assert len(emb.shape) == 2, "Int8 embedding only supported for 2D weight tensors."
+                assert (
+                    len(emb.shape) == 2
+                ), "Int8 embedding only supported for 2D weight tensors."
                 shape = [emb.shape[0], emb.shape[1] - self.int8_emb_row_dim_offset]
                 tmp_emb = torch.zeros(shape, device=self.current_device)
                 tmp_emb.uniform_(min_val, max_val)
@@ -801,17 +835,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if enforce_hbm:
                 self.register_buffer(
                     f"{prefix}_uvm",
-                    torch.zeros(split.uvm_size, device=self.current_device, dtype=dtype),
+                    torch.zeros(
+                        split.uvm_size, device=self.current_device, dtype=dtype
+                    ),
                 )
             else:
                 self.register_buffer(
                     f"{prefix}_uvm",
-                    torch.zeros(split.uvm_size, out=torch.ops.fb.new_managed_tensor(
-                        torch.zeros(
-                            1, device=self.current_device, dtype=dtype
+                    torch.zeros(
+                        split.uvm_size,
+                        out=torch.ops.fb.new_managed_tensor(
+                            torch.zeros(1, device=self.current_device, dtype=dtype),
+                            [split.uvm_size],
                         ),
-                        [split.uvm_size],
-                    )),
+                    ),
                 )
         else:
             self.register_buffer(
@@ -1023,9 +1060,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
-        weights_offsets = [0] + _cumsum(
-            [row * dim for (row, dim) in embedding_specs]
-        )
+        weights_offsets = [0] + _cumsum([row * dim for (row, dim) in embedding_specs])
         self.weights = nn.Parameter(
             torch.randn(
                 weights_offsets[-1],
