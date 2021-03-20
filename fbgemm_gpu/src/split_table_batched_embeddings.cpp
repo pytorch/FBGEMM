@@ -16,7 +16,6 @@ int64_t host_lxu_cache_slot(int64_t h_in, int64_t C);
 // Linearize the indices of all tables to make it be unique
 Tensor linearize_cache_indices_cuda(
     Tensor cache_hash_size_cumsum,
-    int64_t total_cache_hash_size,
     Tensor indices,
     Tensor offsets);
 
@@ -74,7 +73,7 @@ namespace {
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "linearize_cache_indices(Tensor cache_hash_size_cumsum, int total_cache_hash_size, Tensor indices, Tensor offsets) -> Tensor");
+      "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets) -> Tensor");
   m.impl(
       "linearize_cache_indices",
       torch::dispatch(
