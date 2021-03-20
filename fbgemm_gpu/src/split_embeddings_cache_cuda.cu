@@ -187,12 +187,12 @@ void lxu_cache_flush_cuda(
 __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
         cache_hash_size_cumsum,
-    int64_t total_cache_hash_size,
     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> indices,
     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> offsets,
     PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
         linear_cache_indices) {
-  int32_t T = cache_hash_size_cumsum.size(0);
+  int32_t T = cache_hash_size_cumsum.size(0) - 1;
+  int64_t total_cache_hash_size = cache_hash_size_cumsum[T];
   int32_t B = (offsets.size(0) - 1) / T;
   int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t b = b_t % B;
@@ -224,13 +224,12 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
 
 Tensor linearize_cache_indices_cuda(
     Tensor cache_hash_size_cumsum,
-    int64_t total_cache_hash_size,
     Tensor indices,
     Tensor offsets) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cache_hash_size_cumsum.get_device());
 
-  auto T = cache_hash_size_cumsum.size(0);
+  auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
   // offsets = [B x T  + 1]
   auto B = (offsets.size(0) - 1) / T;
@@ -243,7 +242,6 @@ Tensor linearize_cache_indices_cuda(
       0,
       at::cuda::getCurrentCUDAStream()>>>(
       cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      total_cache_hash_size,
       indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
       offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
       linear_cache_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>());

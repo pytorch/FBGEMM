@@ -83,7 +83,7 @@ __global__ void linearize_index_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> infos,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices) {
-  int32_t T = hash_size_cumsum.size(0);
+  int32_t T = hash_size_cumsum.size(0) - 1;
   int32_t B = (offsets.size(0) - 1) / T;
   int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t b = b_t % B;
