@@ -16,6 +16,7 @@ at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights_offsets,
     at::Tensor D_offsets,
     int64_t total_D,
+    at::Tensor hash_size_cumsum,
     at::Tensor indices,
     at::Tensor offsets,
     int64_t pooling_mode,
