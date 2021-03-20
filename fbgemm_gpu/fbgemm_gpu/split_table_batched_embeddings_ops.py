@@ -111,6 +111,7 @@ def construct_split_state(
 
 @dataclass
 class CacheState:
+    # T + 1 elements and cache_hash_size_cumsum[-1] == total_cache_hash_size
     cache_hash_size_cumsum: List[int]
     cache_index_table_map: List[int]
     total_cache_hash_size: int
@@ -138,6 +139,7 @@ def construct_cache_state(
             cache_hash_size_cumsum.append(_cache_hash_size_cumsum[t_])
         else:
             cache_hash_size_cumsum.append(-1)
+    cache_hash_size_cumsum.append(total_cache_hash_size)
     s = CacheState(
         cache_hash_size_cumsum=cache_hash_size_cumsum,
         cache_index_table_map=cache_index_table_map,
@@ -245,7 +247,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         hash_size_cumsum = [0] + _cumsum(rows)
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
-        hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map]
+        # The last element is to easily access # of rows of each table by
+        # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
+        hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map] + [
+            hash_size_cumsum[-1]
+        ]
         self.register_buffer(
             "hash_size_cumsum",
             torch.tensor(
@@ -557,7 +563,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_cache_indices = torch.ops.fb.linearize_cache_indices(
             # pyre-fixme[16]
             self.cache_hash_size_cumsum,
-            self.total_cache_hash_size,
             indices,
             offsets,
         )
@@ -1053,7 +1058,11 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         hash_size_cumsum = [0] + _cumsum(rows)
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
-        hash_size_cumsum = [hash_size_cumsum[t] for t in feature_table_map]
+        # The last element is to easily access # of rows of each table by
+        # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
+        hash_size_cumsum = [hash_size_cumsum[t] for t in feature_table_map] + [
+            hash_size_cumsum[-1]
+        ]
         self.register_buffer(
             "hash_size_cumsum",
             torch.tensor(
