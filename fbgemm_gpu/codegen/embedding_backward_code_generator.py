@@ -405,7 +405,9 @@ def sgd():
 
 def approx_sgd():
     split_weight_update = """
-      // approx_sgd not supported for GPU
+      // approx_sgd not supported for GPU.
+      // Just do the same thing as exact sgd to avoid unused variable warning.
+      weight_new.fma_(grad, -learning_rate);
     """
     split_weight_update_cpu = """
       host_weights_data[embedding_begin + d] += learning_rate * grad_val;
