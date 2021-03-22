@@ -56,7 +56,8 @@ class GenRowWiseSparseAdagradFused {
           int block_size,
           int prefetch,
           bool use_offsets,
-          bool use_stochastic_rounding);
+          bool use_stochastic_rounding,
+          int grad_stride);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -70,7 +71,7 @@ class GenRowWiseSparseAdagradFused {
   // avx2 mask array, embedding dimension (block size), prefetch distance,
   // use_offsets and use_stochastic_rouding switch
   static CodeCache<
-      tuple<const int*, int, int, bool, bool>,
+      tuple<const int*, int, int, bool, bool, int>,
       typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           jit_sparse_adagrad_kernel>
       codeCache_; ///< JIT Code Cache for reuse.
@@ -90,7 +91,7 @@ template <
     typename dataType,
     inst_set_t instSet>
 CodeCache<
-    tuple<const int*, int, int, bool, bool>,
+    tuple<const int*, int, int, bool, bool, int>,
     typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         jit_sparse_adagrad_kernel>
     GenRowWiseSparseAdagradFused<indxType, offsetType, dataType, instSet>::
@@ -109,9 +110,15 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             int block_size,
             int prefetch,
             bool use_offsets,
-            bool use_stochastic_rounding) {
-  tuple<const int*, int, int, bool, bool> kernelSig = make_tuple(
-      mask_avx2, block_size, prefetch, use_offsets, use_stochastic_rounding);
+            bool use_stochastic_rounding,
+            int grad_stride) {
+  tuple<const int*, int, int, bool, bool, int> kernelSig = make_tuple(
+      mask_avx2,
+      block_size,
+      prefetch,
+      use_offsets,
+      use_stochastic_rounding,
+      grad_stride);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -699,7 +706,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->bind(LoopDataIndexEnd);
 
         a->add(lengths, static_cast<asmjit::Imm>(sizeof(offsetType)));
-        a->add(g, static_cast<asmjit::Imm>(block_size * sizeof(float)));
+        a->add(g, static_cast<asmjit::Imm>(grad_stride * sizeof(float)));
 
         a->jmp(LoopRangeIndexBegin);
         a->bind(LoopRangeIndexEnd);
@@ -800,9 +807,13 @@ GenerateRowWiseSparseAdaGradFused(
     int block_size, // number of parameters per row
     int prefetch,
     bool use_offsets,
-    bool use_stochastic_rounding) {
+    bool use_stochastic_rounding,
+    int grad_stride) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (grad_stride == -1) {
+    grad_stride = block_size;
   }
 
   // Use avx512 only for fp16 + stochastic rounding
@@ -815,7 +826,12 @@ GenerateRowWiseSparseAdaGradFused(
         inst_set_t::avx512>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
-        nullptr, block_size, prefetch, use_offsets, use_stochastic_rounding);
+        nullptr,
+        block_size,
+        prefetch,
+        use_offsets,
+        use_stochastic_rounding,
+        grad_stride);
     const auto lambda_func = [=](int64_t output_size,
                                  int64_t index_size,
                                  int64_t data_size,
@@ -858,7 +874,8 @@ GenerateRowWiseSparseAdaGradFused(
         block_size,
         prefetch,
         use_offsets,
-        use_stochastic_rounding);
+        use_stochastic_rounding,
+        grad_stride);
     const auto lambda_func = [=](int64_t output_size,
                                  int64_t index_size,
                                  int64_t data_size,
@@ -913,7 +930,8 @@ GenerateRowWiseSparseAdaGradFused(
           epsilon,
           lr,
           use_offsets,
-          use_stochastic_rounding);
+          use_stochastic_rounding,
+          grad_stride);
     };
   }
 }
@@ -924,7 +942,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int64_t, int64_t, float>::Type
@@ -932,7 +951,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int32_t, int32_t, float>::Type
@@ -940,7 +960,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int32_t, int64_t, float>::Type
@@ -948,7 +969,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int64_t, int32_t, float16>::Type
@@ -956,7 +978,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int64_t, int64_t, float16>::Type
@@ -964,7 +987,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int32_t, int32_t, float16>::Type
@@ -972,7 +996,8 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 template FBGEMM_API
     typename RowWiseSparseAdaGradFusedSignature<int32_t, int64_t, float16>::Type
@@ -980,6 +1005,7 @@ template FBGEMM_API
         int block_size, // number of parameters per row
         int prefetch,
         bool use_offsets,
-        bool use_stochastic_rounding);
+        bool use_stochastic_rounding,
+        int grad_stride);
 
 } // namespace fbgemm
