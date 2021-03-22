@@ -69,7 +69,6 @@ else()
   if(NOT COMPILER_SUPPORTS_AVX512)
     message(FATAL_ERROR "A compiler with AVX512 support is required.")
   endif()
-  # string(REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
 
 #We should default to a Release build
