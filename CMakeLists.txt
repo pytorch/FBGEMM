@@ -69,6 +69,7 @@ else()
   if(NOT COMPILER_SUPPORTS_AVX512)
     message(FATAL_ERROR "A compiler with AVX512 support is required.")
   endif()
+  # string(REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
 
 #We should default to a Release build
@@ -123,8 +124,16 @@ set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_VISIBILITY_PRESET hidden)
 
 if (NOT MSVC)
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-m64" "-mavx2" "-mfma" "-masm=intel" "-mf16c")
+  # '-march=native' makes avx2 assembly generation fail on AVX512 CPUs with gcc 9.3+
+  if (CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.2)
+    message(WARNING "When built with gcc 9.3+, '-march=native' should be disabled.")
+    target_compile_options(fbgemm_avx2 PRIVATE
+      "-m64" "-mavx2" "-mfma" "-masm=intel" "-mf16c" "-march=x86-64")
+  else()
+    target_compile_options(fbgemm_avx2 PRIVATE
+      "-m64" "-mavx2" "-mfma" "-masm=intel" "-mf16c")
+  endif()
+
   target_compile_options(fbgemm_avx512 PRIVATE
     "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
     "-mavx512vl" "-masm=intel" "-mf16c")
