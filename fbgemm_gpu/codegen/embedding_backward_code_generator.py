@@ -410,7 +410,7 @@ def approx_sgd():
       weight_new.fma_(grad, -learning_rate);
     """
     split_weight_update_cpu = """
-      host_weights_data[embedding_begin + d] += learning_rate * grad_val;
+      host_weights_data[embedding_begin + d] -= learning_rate * grad_val;
     """
 
     generate(

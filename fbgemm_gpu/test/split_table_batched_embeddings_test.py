@@ -456,6 +456,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        exact=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -478,12 +479,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments,
         pooling_mode,
         use_cpu,
+        exact,
     ):
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
+        # GPU only does exact sgd
+        assume(use_cpu or exact)
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -591,7 +595,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
-            optimizer=OptimType.EXACT_SGD,
+            optimizer=OptimType.EXACT_SGD if exact else OptimType.SGD,
             feature_table_map=feature_table_map,
             learning_rate=0.05,
             weights_precision=weights_precision,
