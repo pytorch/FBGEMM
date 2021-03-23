@@ -821,9 +821,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
         for t in range(T):
-            ref_optimizer_state = bs[t].weight.grad.float().to_dense().pow(2)
+            ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
             torch.testing.assert_allclose(
-                split_optimizer_states[t].float(),
+                split_optimizer_states[t].float().cpu(),
                 ref_optimizer_state.mean(dim=1) if row_wise else ref_optimizer_state,
                 atol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
                 rtol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
@@ -831,16 +831,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             # optimizer_state = squares (no row-wise) or sum squares (row-wise)
             torch.testing.assert_allclose(
-                cc.split_embedding_weights()[t].float(),
+                cc.split_embedding_weights()[t].float().cpu(),
                 torch.addcdiv(
-                    bs[t].weight.float(),
+                    bs[t].weight.float().cpu(),
                     value=-lr,
-                    tensor1=bs[t].weight.grad.float().to_dense(),
+                    tensor1=bs[t].weight.grad.float().cpu().to_dense(),
                     tensor2=split_optimizer_states[t]
                     .float()
                     .sqrt_()
                     .add_(eps)
-                    .view(Es[t], 1 if row_wise else Ds[t]),
+                    .view(Es[t], 1 if row_wise else Ds[t])
+                    .cpu(),
                 ),
                 atol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
                 rtol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
@@ -1003,7 +1004,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        stochastic_rounding=st.booleans(),
         weighted=st.booleans(),
         mixed=st.booleans(),
         optimizer=st.sampled_from(
@@ -1034,7 +1034,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B,
         log_E,
         L,
-        stochastic_rounding,
         weighted,
         mixed,
         optimizer,
@@ -1163,7 +1162,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             optimizer=optimizer,
-            stochastic_rounding=stochastic_rounding,
             pooling_mode=pooling_mode,
             **optimizer_kwargs,
         )
@@ -1191,16 +1189,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             for t in range(T):
                 (m1,) = split_optimizer_states[t]
+                # to_dense in GPU is non-deterministic due to atmomics used in
+                # coalescing and floating point non-associativity.
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 m1_ref = (
-                    bs[t].weight.grad.to_dense().pow(2)
+                    dense_cpu_grad.pow(2)
                     if not rowwise
-                    else bs[t].weight.grad.to_dense().pow(2).mean(dim=1)
+                    else dense_cpu_grad.pow(2).mean(dim=1)
                 )
                 torch.testing.assert_allclose(
-                    m1.float(), m1_ref.float(), atol=1.0e-4, rtol=1.0e-4
+                    m1.float().cpu(), m1_ref.float(), atol=1.0e-4, rtol=1.0e-4
                 )
                 weights_new = split_weights[t]
-                weights_ref = bs[t].weight - lr * bs[t].weight.grad.to_dense() / (
+                weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / (
                     torch.sqrt(
                         m1_ref if not rowwise else m1_ref.view(m1_ref.numel(), 1)
                     )
@@ -1208,21 +1209,29 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 # TODO: why is tolerance off here?
                 torch.testing.assert_allclose(
-                    weights_new.float(), weights_ref.float(), atol=1.0e-2, rtol=1.0e-2
+                    weights_new.float().cpu(),
+                    weights_ref.float(),
+                    atol=1.0e-2,
+                    rtol=1.0e-2,
                 )
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
             for t in range(T):
                 (m1, m2) = split_optimizer_states[t]
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 m2_ref = (
-                    bs[t].weight.grad.to_dense().pow(2)
+                    dense_cpu_grad.pow(2)
                     if not rowwise
-                    else bs[t].weight.grad.to_dense().pow(2).mean(dim=1)
+                    else dense_cpu_grad.pow(2).mean(dim=1)
                 ) * (1.0 - beta2)
-                torch.testing.assert_allclose(m2, m2_ref, atol=1.0e-4, rtol=1.0e-4)
-                m1_ref = bs[t].weight.grad.to_dense() * (1.0 - beta1)
-                torch.testing.assert_allclose(m1, m1_ref, atol=1.0e-4, rtol=1.0e-4)
+                torch.testing.assert_allclose(
+                    m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4
+                )
+                m1_ref = dense_cpu_grad * (1.0 - beta1)
+                torch.testing.assert_allclose(
+                    m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
+                )
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1230,16 +1239,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 weights_new = split_weights[t]
                 weights_ref = (
                     torch.addcdiv(
-                        bs[t].weight,
+                        bs[t].weight.cpu(),
                         value=-lr,
                         tensor1=m_hat_t,
                         tensor2=v_hat_t.sqrt_().add_(eps),
                     )
-                    - lr * weight_decay * bs[t].weight
+                    - lr * weight_decay * bs[t].weight.cpu()
                 )
                 torch.testing.assert_allclose(
-                    weights_new.index_select(dim=0, index=x[t].view(-1)),
-                    weights_ref.index_select(dim=0, index=x[t].view(-1)),
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-3,
                     rtol=1.0e-3,
                 )
@@ -1248,29 +1257,34 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_LAMB
             for t in range(T):
                 (m1, m2) = split_optimizer_states[t]
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 m2_ref = (
-                    bs[t].weight.grad.to_dense().pow(2)
+                    dense_cpu_grad.pow(2)
                     if not rowwise
-                    else bs[t].weight.grad.to_dense().pow(2).mean(dim=1)
+                    else dense_cpu_grad.pow(2).mean(dim=1)
                 ) * (1.0 - beta2)
-                torch.testing.assert_allclose(m2, m2_ref, atol=1.0e-4, rtol=1.0e-4)
-                m1_ref = bs[t].weight.grad.to_dense() * (1.0 - beta1)
-                torch.testing.assert_allclose(m1, m1_ref, atol=1.0e-4, rtol=1.0e-4)
+                torch.testing.assert_allclose(
+                    m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4
+                )
+                m1_ref = dense_cpu_grad * (1.0 - beta1)
+                torch.testing.assert_allclose(
+                    m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
+                )
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
                 m_hat_t = m1_ref / (1 - beta1 ** iter_)
                 rtw = (m_hat_t / (torch.sqrt(v_hat_t) + eps)) + weight_decay * bs[
                     t
-                ].weight
+                ].weight.cpu()
                 true_ratio = torch.linalg.norm(bs[t].weight, dim=1, ord=2).view(
                     m1.shape[0], 1
-                ) / torch.linalg.norm(rtw, dim=1, ord=2).view(m1.shape[0], 1)
+                ).cpu() / torch.linalg.norm(rtw, dim=1, ord=2).view(m1.shape[0], 1)
                 weights_new = split_weights[t]
-                weights_ref = bs[t].weight - lr * true_ratio * rtw
+                weights_ref = bs[t].weight.cpu() - lr * true_ratio * rtw
                 torch.testing.assert_allclose(
-                    weights_new.index_select(dim=0, index=x[t].view(-1)),
-                    weights_ref.index_select(dim=0, index=x[t].view(-1)),
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-3,
                     rtol=1.0e-3,
                 )
@@ -1278,30 +1292,33 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if optimizer == OptimType.LARS_SGD:
             for t in range(T):
                 (m1,) = split_optimizer_states[t]
-                weight_norm = torch.linalg.norm(bs[t].weight, dim=1, ord=2).view(
+                weight_norm = (
+                    torch.linalg.norm(bs[t].weight, dim=1, ord=2)
+                    .view(m1.shape[0], 1)
+                    .cpu()
+                )
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                grad_norm = torch.linalg.norm(dense_cpu_grad, dim=1, ord=2).view(
                     m1.shape[0], 1
                 )
-                grad_norm = torch.linalg.norm(
-                    bs[t].weight.grad.to_dense(), dim=1, ord=2
-                ).view(m1.shape[0], 1)
                 adjusted_lr = (
                     lr * eta * weight_norm / (grad_norm + weight_decay * weight_norm)
                 )
                 m1_ref = adjusted_lr * (
-                    bs[t].weight.grad.to_dense() + weight_decay * bs[t].weight
+                    dense_cpu_grad + weight_decay * bs[t].weight.cpu()
                 )
 
                 torch.testing.assert_allclose(
-                    m1.index_select(dim=0, index=x[t].view(-1)),
-                    m1_ref.index_select(dim=0, index=x[t].view(-1)),
+                    m1.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    m1_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
                     rtol=1.0e-4,
                 )
                 weights_new = split_weights[t]
-                weights_ref = bs[t].weight - m1_ref
+                weights_ref = bs[t].weight.cpu() - m1_ref
                 torch.testing.assert_allclose(
-                    weights_new.index_select(dim=0, index=x[t].view(-1)),
-                    weights_ref.index_select(dim=0, index=x[t].view(-1)),
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
                     rtol=1.0e-4,
                 )
