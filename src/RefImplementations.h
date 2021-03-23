@@ -360,6 +360,7 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     float lr,
     bool use_offsets = true,
     bool use_stochastic_rounding = true, // For DataType=float16
-    int emu_vector_size = 8);
+    int emu_vector_size = 8,
+    std::int64_t grad_stride = -1);
 
 } // namespace fbgemm

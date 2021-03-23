@@ -1593,7 +1593,12 @@ int rowwise_sparse_adagrad_fused_ref(
     float lr,
     bool use_offsets,
     bool use_stochastic_rounding,
-    int emu_vector_size) {
+    int emu_vector_size,
+    int64_t grad_stride) {
+  if (grad_stride == -1) {
+    grad_stride = block_size;
+  }
+
   constexpr bool isFloat16w = std::is_same<float16, DataType>::value;
   // Local random buffer to emulate SIMD vector
   // R: generated 32bit base random numbers
@@ -1614,7 +1619,7 @@ int rowwise_sparse_adagrad_fused_ref(
     if (current + len > index_size) {
       return false;
     }
-    const float* g_ = g + m * block_size;
+    const float* g_ = g + m * grad_stride;
     // Note the following code assumes fbgemm will generate AVX2 code for
     // horizontal reduction, which is OK for now because fbgemm always uses AVX2
     // for SparseAdagrad due to its performance is bounded by memory bandwidth
@@ -1889,7 +1894,8 @@ template FBGEMM_API int rowwise_sparse_adagrad_ref(
       float lr,                                                    \
       bool use_offsets,                                            \
       bool use_stochastic_rounding,                                \
-      int emu_vector_size);
+      int emu_vector_size,                                         \
+      int64_t grad_stride);
 
 #define INSTANTIATE_SPMDM_OFFSET_T(DATA_TYPE, INDEX_TYPE) \
   INSTANTIATE_SPMDM_BASE(DATA_TYPE, INDEX_TYPE, int32_t)  \
