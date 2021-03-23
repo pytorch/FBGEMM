@@ -384,6 +384,46 @@ def rowwise_adagrad():
     )
 
 
+def approx_rowwise_adagrad():
+    split_weight_update = """
+      weight_new.fma_(grad, -multiplier);
+      assert(false); // approx rowwise AdaGrad is not supported on GPU
+    """
+    split_precomputation = """
+    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    #pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+    g_local_sum_square += grad_sum[i].acc.x * grad_sum[i].acc.x +
+        grad_sum[i].acc.y * grad_sum[i].acc.y +
+        grad_sum[i].acc.z * grad_sum[i].acc.z +
+        grad_sum[i].acc.w * grad_sum[i].acc.w;
+    }
+    const acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+
+    acc_type<cache_t, true> multiplier;
+    if (threadIdx.x == 0) {
+        acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+    }
+    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
+    """
+    split_weight_update_cpu = ""  # will use FBGEMM CPU JIT'ed kernel
+
+    generate(
+        optimizer="approx_rowwise_adagrad",
+        args=make_args(
+            [(TENSOR, "momentum1"), (FLOAT, "eps"), (FLOAT, "learning_rate")]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+
 def sgd():
     split_weight_update = """
       weight_new.fma_(grad, -learning_rate);
@@ -408,6 +448,7 @@ def approx_sgd():
       // approx_sgd not supported for GPU.
       // Just do the same thing as exact sgd to avoid unused variable warning.
       weight_new.fma_(grad, -learning_rate);
+      assert(false); // approx SGD is not supported on GPU
     """
     split_weight_update_cpu = """
       host_weights_data[embedding_begin + d] -= learning_rate * grad_val;
@@ -556,8 +597,7 @@ def partial_rowwise_lamb():
     split_weight_update = """
       weight_new.fma_(grad, -learning_rate * true_ratio);
     """
-    split_weight_update_cpu = ""  #TODO
-
+    split_weight_update_cpu = ""  # TODO
 
     generate(
         optimizer="partial_rowwise_lamb",
@@ -607,7 +647,7 @@ def adam():
       weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.z / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.z);
       weight_new.acc.w -= learning_rate * (m_t.acc.w / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.w / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.w);
     """
-    split_weight_update_cpu = ""  #TODO
+    split_weight_update_cpu = ""  # TODO
 
     generate(
         optimizer="adam",
@@ -793,6 +833,7 @@ def emb_codegen(install_dir=None, is_fbcode=True):
     args.is_fbcode = is_fbcode
     adagrad()
     adam()
+    approx_rowwise_adagrad()
     approx_sgd()
     backward_indices()
     backward_dense()

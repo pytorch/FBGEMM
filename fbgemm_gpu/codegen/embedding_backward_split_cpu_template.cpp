@@ -129,9 +129,9 @@ using namespace at;
 
 
   return;
-  {% endif %}
 
-  {% if dense %}
+  {% else %}
+
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
 
