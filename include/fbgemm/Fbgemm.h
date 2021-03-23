@@ -568,6 +568,91 @@ class FBGEMM_API PackWeightMatrixForGConv {
 };
 
 /**
+ * @brief Matrix packed for asft 1D group convolution.
+ *        The source matrix is already quantized. Default accumulation
+ *        type is int32.
+ */
+template <typename T, typename accT = std::int32_t>
+class FBGEMM_API PackWeightMatrixFor1DConv {
+ public:
+  using This = PackWeightMatrixFor1DConv<T, accT>;
+  using inpType = T;
+  using accType = accT;
+
+  PackWeightMatrixFor1DConv() = delete; // no default constructor
+
+  /**
+   * @param pmat if nullptr, a buffer is allocated and owned by this class.
+   */
+  PackWeightMatrixFor1DConv(
+      matrix_op_t trans,
+      const conv_param_t<1>& conv_param,
+      const inpType* sdata,
+      inpType* pdata = nullptr);
+
+  int getRegNumForConv1D();
+
+  /**
+   * @brief Packs a block of source matrix into pmat buffer.
+   */
+  void pack();
+
+  /**
+   * @brief Unpacks a pmat buffer into source matrix.
+   */
+  void unpack(T* origin_buf);
+
+  /**
+   * @brief Return packed data
+   */
+  inpType* getBuf() {
+    return pdata_;
+  }
+
+  ~PackWeightMatrixFor1DConv() {
+    if (bufAllocatedHere_) {
+      fbgemmAlignedFree(pdata_);
+    }
+  }
+
+ private:
+  matrix_op_t trans_;
+  const conv_param_t<1> conv_param_;
+  const T* sdata_;
+  T* pdata_;
+  bool bufAllocatedHere_;
+
+  inst_set_t isa_;
+
+  int vsize_;
+  int vsize4_;
+  int nreg_;
+  int bsize_;
+  int nblock_;
+  int G_;
+  int OC_per_G_;
+  int IC_per_G_;
+  int paddedOCPerG_;
+  int paddedICPerG_;
+
+
+  /**
+   * @brief Internal function performing both pack & unpack
+   */
+  void pack_unpack_(const T* src, T* dst, bool ispack);
+
+  /**
+   * @brief Get the index of the unpacked data
+   */
+  int unpacked_index_(int g, int s, int c, int k, bool tr);
+
+  /**
+   * @brief Get the index of the packed data
+   */
+  int packed_index_(int g, int s, int c, int k, int b, int bs);
+};
+
+/**
  * @brief A container class to keep packed weight tensor for convolution.
  *        The source tensor should already be quantized.
  *
@@ -610,6 +695,11 @@ class FBGEMM_API PackWeightsForConv {
     return W_pointwise_packed_;
   }
 
+  std::shared_ptr<PackWeightMatrixFor1DConv<T, accT>>
+  getPackedWFor1d() {
+    return W_fast1d_packed_;
+  }
+
   int inputChannels() {
     return conv_param_.IC;
   }
@@ -647,6 +737,9 @@ class FBGEMM_API PackWeightsForConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   // Packed weights if we use im2col based convolution implementation
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
+  // Packed weights for fast1d
+  std::shared_ptr<PackWeightMatrixFor1DConv<T, accT>>
+      W_fast1d_packed_;
   // Packed weights if we use depthwise convolution implementation
   std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
@@ -1415,6 +1508,13 @@ FBGEMM_API int rowOffsetBufferSizeGConv(
     const conv_param_t<SPATIAL_DIM>& conv_param);
 
 /**
+ * @return Size of row offset buffer in number of elements needed for
+ * fbgemmFast1DConv
+ */
+FBGEMM_API int rowOffsetBufferSize1DConv(
+    const conv_param_t<1>& conv_param);
+
+/**
  * @brief Perform depthwise separable convolution
  */
 template <
@@ -1450,9 +1550,31 @@ template <int SPATIAL_DIM>
 FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
 
 /**
+ * @brief Is this 1D convolution optimized?
+ */
+template <int SPATIAL_DIM, typename ACC_T = std::int32_t>
+FBGEMM_API bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
+
+/**
  * @brief Are we running on a fbgemm supported cpu?
  */
 FBGEMM_API bool fbgemmSupportedCPU();
+
+/**
+ * @brief Compute 1D conv
+ */
+template <typename processOutputType>
+FBGEMM_API int fbgemmFast1DConv(
+    const conv_param_t<1>& conv_p,
+    const std::uint8_t* activations,
+    PackWeightMatrixFor1DConv<std::int8_t, std::int32_t>&
+        packed_weights,
+    std::uint8_t* out,
+    std::int32_t* outBuffer,
+    processOutputType& outProcess,
+    int thread_id,
+    int num_threads,
+    const BlockingFactors* blocking_params = nullptr);
 
 /**
  * @brief Performs convolution using fastest path available.

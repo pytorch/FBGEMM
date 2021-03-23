@@ -203,6 +203,8 @@ TEST_P(uniConvTest, packingTest) {
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWFor1d(), nullptr)
+          << "1D packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
       break;
@@ -214,6 +216,8 @@ TEST_P(uniConvTest, packingTest) {
           << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWFor1d(), nullptr)
+          << "1D packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix is null";
       break;
@@ -222,14 +226,26 @@ TEST_P(uniConvTest, packingTest) {
       ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
-          << "depthwise packed matrix should null";
+          << "depthwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWFor1d(), nullptr)
+          << "1D packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix is null";
       break;
     }
     case optimized_conv_t::fastpath1d: {
+      ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "Groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWFor1d(), nullptr)
+          << "1D packed matrix is null";
       break;
     }
     case optimized_conv_t::im2col: {

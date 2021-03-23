@@ -9,6 +9,7 @@
 #include <cassert>
 #include <iomanip>
 #include <numeric>
+
 #include "./RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
 
@@ -34,6 +35,7 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
         64,
         conv_param_.G * kernel_prod * (conv_param_.OC / conv_param_.G) *
             paddedICPerG * sizeof(T)));
+
   } else {
     bufAllocatedHere_ = false;
     pdata_ = pdata;
@@ -53,17 +55,17 @@ int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::numOfGroupsTogether(
   int IC_per_G = conv_param.IC / conv_param.G;
   if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
     // TODO: change to avx512 when avx512 support is available
-    return std::max(
+    return std::min(std::max(
         simd_info<inst_set_t::avx512>::WIDTH_BYTES / OC_per_G /
             std::max(IC_per_G, 4),
-        1);
+        1), conv_param.G);
   } else {
     // avx2
     // e.g., IC_per_G == 4, we need to work on 2 groups at a time
-    return std::max(
+    return std::min(std::max(
         simd_info<inst_set_t::avx2>::WIDTH_BYTES / OC_per_G /
             std::max(IC_per_G, 4),
-        1);
+        1), conv_param.G);
   }
   return 1;
 }
