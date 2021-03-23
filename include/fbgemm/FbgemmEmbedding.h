@@ -74,7 +74,7 @@ FBGEMM_API
         bool use_offsets = true);
 
 /**
- * @param output_stride If not -1, output_stride is not same as block_size
+ * @param output_stride If -1, output_stride is same as block_size
  */
 template <
     typename InType,
@@ -222,6 +222,9 @@ class RowWiseSparseAdaGradFusedSignature {
       float lr)>;
 };
 
+/**
+ * @param grad_stride If -1, grad_stride is same as block size
+ */
 template <
     typename IndexType,
     typename OffsetType = std::int32_t,
@@ -234,7 +237,8 @@ GenerateRowWiseSparseAdaGradFused(
     int block_size, // number of parameters per row
     int prefetch = 16,
     bool use_offsets = true,
-    bool use_stochastic_rounding = true);
+    bool use_stochastic_rounding = true,
+    int grad_stride = -1);
 
 namespace internal {
 // Specialization for block size 1 internally called by GenerateEmbeddingSpMDM

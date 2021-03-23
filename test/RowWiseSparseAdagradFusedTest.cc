@@ -51,10 +51,15 @@ vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 
-class RowWiseSparseAdagradFusedTest
-    : public testing::TestWithParam<
-          tuple<bool, bool, bool, bool, int, bool, EmbeddingSpMDMCornerCase>> {
-};
+class RowWiseSparseAdagradFusedTest : public testing::TestWithParam<tuple<
+                                          bool,
+                                          bool,
+                                          bool,
+                                          bool,
+                                          int,
+                                          bool,
+                                          EmbeddingSpMDMCornerCase,
+                                          bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -71,12 +76,13 @@ INSTANTIATE_TEST_CASE_P(
             NONE,
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
-            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
+        ::testing::Bool())); // grad_stride != block_size
 
 TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isWeightFp16, useStochasticRounding, isIndex64b, isOffset64b,
-      use_offsets;
+      use_offsets, use_grad_stride;
   int prefetch;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isWeightFp16,
@@ -85,7 +91,8 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
       isOffset64b,
       prefetch,
       use_offsets,
-      corner_case) = GetParam();
+      corner_case,
+      use_grad_stride) = GetParam();
 
   if (!isWeightFp16 && useStochasticRounding) {
     // stochastic rounding makes sense only for fp16 weight
@@ -102,10 +109,12 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
     int num_rows = input[1];
     int embedding_dim = input[2];
     int average_len = input[3];
+    int grad_stride = use_grad_stride ? embedding_dim * 2 + 3 : -1;
 
     // Create embedding table
     vector<float> w(num_rows * embedding_dim), w_ref(num_rows * embedding_dim),
-        h(num_rows), h_ref(num_rows), g(batch_size * embedding_dim);
+        h(num_rows), h_ref(num_rows),
+        g(batch_size * (use_grad_stride ? grad_stride : embedding_dim));
     vector<float16> w_fp16(w.size()), w_fp16_ref(w.size());
     default_random_engine generator;
     uniform_real_distribution<float> values_gen(0, 2);
@@ -160,14 +169,19 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         lr,                                               \
         use_offsets,                                      \
         useStochasticRounding,                            \
-        vlen);                                            \
+        vlen,                                             \
+        grad_stride);                                     \
   } while (0)
 
 #define JIT(WeightType, IndexType, OffsetType, Weights, Indices, Offsets)     \
   do {                                                                        \
     auto kernel =                                                             \
         GenerateRowWiseSparseAdaGradFused<IndexType, OffsetType, WeightType>( \
-            embedding_dim, prefetch, use_offsets, useStochasticRounding);     \
+            embedding_dim,                                                    \
+            prefetch,                                                         \
+            use_offsets,                                                      \
+            useStochasticRounding,                                            \
+            grad_stride);                                                     \
     success = kernel(                                                         \
         batch_size,                                                           \
         lengths_sum,                                                          \
