@@ -280,14 +280,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.use_cpu:
             # Construct optimizer states
             assert optimizer in (
-                # OptimType.ADAM,
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
-                # OptimType.LAMB,
-                # OptimType.LARS_SGD,
-                # OptimType.PARTIAL_ROWWISE_ADAM,
-                # OptimType.PARTIAL_ROWWISE_LAMB,
+                OptimType.ROWWISE_ADAGRAD,
                 OptimType.SGD,
             ), f"Optimizer {optimizer} is not supported in cpu mode."
         else:
@@ -320,25 +316,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if optimizer in (
-            OptimType.ADAM,
-            OptimType.EXACT_ADAGRAD,
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.LAMB,
-            OptimType.LARS_SGD,
-            OptimType.PARTIAL_ROWWISE_ADAM,
-            OptimType.PARTIAL_ROWWISE_LAMB,
+            OptimType.SGD,
+            OptimType.EXACT_SGD,
         ):
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=optimizer == OptimType.EXACT_ROWWISE_ADAGRAD,
-                    cacheable=False,
-                ),
-                prefix="momentum1",
-                dtype=torch.float32,
-                enforce_hbm=enforce_hbm,
-            )
-        else:
             # NOTE: make TorchScript work!
             self.register_buffer(
                 "momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False
@@ -358,6 +338,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "momentum1_offsets",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
+            )
+        else:
+            self._apply_split(
+                construct_split_state(
+                    embedding_specs,
+                    rowwise=optimizer
+                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD],
+                    cacheable=False,
+                ),
+                prefix="momentum1",
+                dtype=torch.float32,
+                enforce_hbm=enforce_hbm,
             )
         if optimizer in (
             OptimType.ADAM,
@@ -499,7 +491,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.optimizer == OptimType.EXACT_SGD:
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
         elif self.optimizer == OptimType.SGD:
-            assert self.use_cpu, "Approx SGD is only support in cpu mode"
+            assert self.use_cpu, "Approx SGD is only supported in CPU mode"
             return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
@@ -520,6 +512,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             return invokers.lookup_rowwise_adagrad.invoke(
+                common_args, self.optimizer_args, momentum1
+            )
+        if self.optimizer == OptimType.ROWWISE_ADAGRAD:
+            assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
+            return invokers.lookup_approx_rowwise_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
 
@@ -671,7 +668,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Get the optimizer state dict that matches the OSS Pytorch optims
         TODO: populate the supported list of optimizers
         """
-        if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+        if (
+            self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            or self.optimizer == OptimType.ROWWISE_ADAGRAD
+        ):
             list_of_state_dict = [
                 {"sum": _sum[0]} for _sum in self.split_optimizer_states()
             ]
@@ -717,14 +717,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return splits
 
         states: List[List[torch.Tensor]] = []
-        if self.optimizer in (
-            OptimType.ADAM,
-            OptimType.EXACT_ADAGRAD,
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.LAMB,
-            OptimType.LARS_SGD,
-            OptimType.PARTIAL_ROWWISE_ADAM,
-            OptimType.PARTIAL_ROWWISE_LAMB,
+        if self.optimizer not in (
+            OptimType.SGD,
+            OptimType.EXACT_SGD,
         ):
             states.append(
                 get_optimizer_states(
@@ -736,7 +731,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.momentum1_physical_offsets,
                     # pyre-fixme[16]
                     self.momentum1_physical_placements,
-                    rowwise=self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD,
+                    rowwise=self.optimizer
+                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD],
                 )
             )
         if self.optimizer in (

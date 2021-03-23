@@ -649,6 +649,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        exact=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -673,10 +674,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm,
         pooling_mode,
         use_cpu,
+        exact,
     ):
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
-        exact = True  # Only exact sparse optimizers are supported
+        # Approx AdaGrad only works with row_wise on CPU
+        assume((use_cpu and row_wise) or exact)
 
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -790,12 +793,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         lr = 0.5
         eps = 0.2
 
+        optimizer = (
+            (OptimType.EXACT_ROWWISE_ADAGRAD if exact else OptimType.ROWWISE_ADAGRAD)
+            if row_wise
+            else OptimType.EXACT_ADAGRAD
+        )
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             feature_table_map=feature_table_map,
-            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD
-            if row_wise
-            else OptimType.EXACT_ADAGRAD,
+            optimizer=optimizer,
             learning_rate=lr,
             eps=eps,
             weights_precision=weights_precision,
@@ -853,9 +859,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)],
             feature_table_map=feature_table_map,
-            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD
-            if row_wise
-            else OptimType.EXACT_ADAGRAD,
+            optimizer=optimizer,
             learning_rate=0.0,
             eps=eps,
             weights_precision=weights_precision,

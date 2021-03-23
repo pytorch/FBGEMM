@@ -23,6 +23,7 @@ class EmbOptimType(enum.Enum):
     LARS_SGD = "lars_sgd"
     PARTIAL_ROWWISE_ADAM = "partial_row_wise_adam"
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
+    ROWWISE_ADAGRAD = "row_wise_adagrad"
 
     def __str__(self):
         return self.value

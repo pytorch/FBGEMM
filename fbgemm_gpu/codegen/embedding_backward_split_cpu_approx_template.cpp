@@ -10,6 +10,7 @@
 #include <ATen/ATen.h>
 
 #include "codegen/embedding_forward_split_cpu.h"
+#include "fbgemm/FbgemmEmbedding.h"
 
 using namespace at;
 
@@ -43,8 +44,7 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto offsets_data = offsets.accessor<int64_t, 1>();
-  const auto indices_data = indices.accessor<int64_t, 1>();
+  const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
   {%if "momentum1_offsets" in args.split_function_arg_names %}
   const auto momentum1_offsets_data = momentum1_offsets.accessor<int64_t, 1>();
   {% endif %}
@@ -53,6 +53,73 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
   {% endif %}
 
   TORCH_CHECK(host_weights.dim() == 1);
+
+  {% if optimizer == "approx_rowwise_adagrad" %}
+
+  // TODO: fp16
+  bool use_fbgemm =
+      (host_weights.scalar_type() == ScalarType::Float/* ||
+       host_weights.scalar_type() == ScalarType::Half*/) &&
+      grad_output.scalar_type() == ScalarType::Float;
+  if (use_fbgemm) {
+    auto grad_stride = grad_output.size(1);
+    float* host_weights_data = host_weights.data_ptr<float>();
+    float* momentum1_data = momentum1_host.data_ptr<float>();
+    const float* grad_output_data = grad_output.data_ptr<float>();
+    const int64_t* offsets_data = offsets.data_ptr<int64_t>();
+    const int64_t* indices_data = indices.data_ptr<int64_t>();
+
+    at::parallel_for(0, T * B, 0, [&](int64_t tb_begin, int64_t tb_end) {
+      int t_begin = tb_begin / B;
+      int t_end = (tb_end + B - 1) / B;
+      for (int t = t_begin; t < t_end; ++t) {
+        auto D_begin = D_offsets_data[t];
+        auto D = D_offsets_data[t + 1] - D_offsets_data[t];
+        auto table_begin = weights_offsets_data[t];
+        auto momentum_begin = momentum1_offsets_data[t];
+
+        int64_t hash_size;
+        int t_temp = t + 1;
+        do {
+          hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
+          ++t_temp;
+        } while (hash_size == 0);
+
+        int b_begin = (t == t_begin) ? tb_begin % B : 0;
+        int b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+
+        auto kernel =
+            fbgemm::GenerateRowWiseSparseAdaGradFused<int64_t, int64_t, float>(
+                D,
+                /*prefetch=*/16,
+                /*use_offsets=*/true,
+                /*use_stochastic_round=*/true,
+                /*grad_stride=*/grad_stride);
+        auto offsets_begin_ptr = offsets_data + t * B + b_begin;
+        auto index_size = offsets_data[t * B + b_end] - *offsets_begin_ptr;
+        bool success = kernel(
+            b_end - b_begin,
+            index_size,
+            hash_size,
+            reinterpret_cast<float*>(host_weights_data + table_begin),
+            reinterpret_cast<const float*>(
+                grad_output_data + b_begin * grad_stride + D_begin),
+            reinterpret_cast<float*>(momentum1_data + momentum_begin),
+            indices_data + *offsets_begin_ptr,
+            offsets_begin_ptr,
+            eps,
+            // fbgemm follows caffe2 convention of negative learning rate
+            -learning_rate);
+        TORCH_CHECK(success); // TODO more friendly error msg
+      }
+    }); // parallel_for
+    return;
+  } // use_fbgemm
+
+  {% endif %}
+
+  const auto offsets_data = offsets.accessor<int64_t, 1>();
+  const auto indices_data = indices.accessor<int64_t, 1>();
 
   AT_DISPATCH_FLOATING_TYPES(
       grad_output.scalar_type(), "split_embedding_backward_cpu", [&]() {
@@ -95,12 +162,12 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
                                : grad_output_data[b][D_begin + d]);
                         {{ split_weight_update_cpu }};
                       }
-                    }
-                  }
-                });
-              }
-            });
-      });
+                    } // for each p
+                  } // for each b
+                }); // parallel for B
+              } // for each t
+            }); // dispatch host_weights.scalar_type()
+      }); // dispatch grad_output.scalar_type()
 
   return;
 }
