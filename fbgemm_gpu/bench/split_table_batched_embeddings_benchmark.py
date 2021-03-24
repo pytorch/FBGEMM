@@ -627,7 +627,7 @@ def cache(  # noqa C901
             (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
-        emb.forward(indices.long(), offsets.long(), prefetch=False)
+        emb.forward(indices.long(), offsets.long())
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -645,7 +645,7 @@ def cache(  # noqa C901
         requests,
         lambda indices, offsets, indices_weights: emb.prefetch(indices, offsets),
         lambda indices, offsets, indices_weights: emb.forward(
-            indices, offsets, indices_weights, prefetch=False
+            indices, offsets, indices_weights
         ).backward(grad_output),
     )
     e2e_time = prefetch_time + forward_backward_time

@@ -161,6 +161,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     optimizer_args: invokers.lookup_args.OptimizerArgs
     lxu_cache_locations_list: List[Tensor]
     lxu_cache_locations_empty: Tensor
+    timesteps_prefetched: List[int]
 
     def __init__(  # noqa C901
         self,
@@ -446,13 +447,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
-        prefetch: bool = True,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
         self.step += 1
-        if prefetch:
+
+        if len(self.timesteps_prefetched) == 0:
             self.prefetch(indices, offsets)
 
+        self.timesteps_prefetched.pop(0)
         lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
@@ -552,6 +554,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
     def prefetch(self, indices: Tensor, offsets: Tensor):
+        self.timestep += 1
+        self.timesteps_prefetched.append(self.timestep)
         # pyre-fixme[16]
         if not self.lxu_cache_weights.numel():
             return
@@ -564,7 +568,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets,
         )
         if self.cache_algorithm == CacheAlgorithm.LRU:
-            self.timestep += 1
             torch.ops.fb.lru_cache_populate(
                 # pyre-fixme[16]
                 self.weights_uvm,
@@ -868,6 +871,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ):
         self.cache_algorithm = cache_algorithm
         self.timestep = 1
+        self.timesteps_prefetched = []
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
         self.lxu_cache_locations_list = []
