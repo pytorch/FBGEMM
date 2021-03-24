@@ -25,6 +25,7 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __str__(self):
         return self.value
 
@@ -35,6 +36,7 @@ class SparseType(enum.Enum):
     FP16 = "fp16"
     INT8 = "int8"
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __str__(self):
         return self.value
 
