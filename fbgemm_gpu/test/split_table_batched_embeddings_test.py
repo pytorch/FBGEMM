@@ -34,12 +34,15 @@ def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.T
     )
 
 
-def to_device(t: torch.Tensor, use_cpu: bool):
+def to_device(t: torch.Tensor, use_cpu: bool) -> torch.Tensor:
     return t.cpu() if use_cpu else t.cuda()
 
 
+# pyre-fixme[3]: Return annotation cannot be `Any`.
 def b_indices(
-    b: Callable, x: torch.Tensor, per_sample_weights=None, use_cpu=False
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    # pyre-fixme[2]: Parameter must be annotated.
+    b: Callable, x: torch.Tensor, per_sample_weights=None, use_cpu: bool=False
 ) -> Any:
     (indices, offsets) = get_offsets_from_dense(x)
     return b(
@@ -50,7 +53,7 @@ def b_indices(
 
 
 def get_table_batched_offsets_from_dense(
-    merged_indices: torch.Tensor, use_cpu=False
+    merged_indices: torch.Tensor, use_cpu: bool=False
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     (T, B, L) = merged_indices.size()
     lengths = np.ones((T, B)) * L
@@ -134,6 +137,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
+    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -142,19 +148,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_forward(
         self,
-        T,
-        D,
-        B,
-        log_E,
-        L,
-        weights_precision,
-        weighted,
-        mixed,
-        use_cache,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_algorithm,
+        # pyre-fixme[2]: Parameter must be annotated.
         pooling_mode,
-        use_cpu,
-    ):
+        use_cpu: bool,
+    ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
@@ -230,9 +238,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
+            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
+                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -259,6 +269,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = torch.jit.script(cc)
 
         for t in range(T):
+            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
@@ -290,6 +301,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
+    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=10,
@@ -298,18 +312,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_backward_dense(
         self,
-        T,
-        D,
-        B,
-        log_E,
-        L,
-        weights_precision,
-        weighted,
-        mixed,
-        long_segments,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        long_segments: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         pooling_mode,
-        use_cpu,
-    ):
+        use_cpu: bool,
+    ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -373,9 +388,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
+            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
+                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -383,6 +400,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         gos = [torch.randn_like(f) for f in fs]
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
+        # pyre-fixme[16]: `Tensor` has no attribute `weight`.
         grad_weights = torch.cat([b.weight.grad.view(-1) for b in bs])
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
@@ -426,6 +444,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
         )
 
+        # pyre-fixme[16]: `DenseTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `double`.
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
@@ -458,6 +478,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
+    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -466,21 +489,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_backward_sgd(  # noqa C901
         self,
-        T,
-        D,
-        B,
-        log_E,
-        L,
-        weights_precision,
-        weighted,
-        mixed,
-        use_cache,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_algorithm,
-        long_segments,
+        long_segments: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         pooling_mode,
-        use_cpu,
-        exact,
-    ):
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
@@ -552,6 +577,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         feature_table_map = list(range(T))
         table_to_replicate = T // 2
+        # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
         bs.insert(table_to_replicate, bs[table_to_replicate])
         feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -579,9 +605,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
+            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
+                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -591,6 +619,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # do SGD update
         lr = 0.05
         del bs[table_to_replicate]
+        # pyre-fixme[16]: `Tensor` has no attribute `weight`.
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
@@ -622,6 +651,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             torch.testing.assert_allclose(
                 cc.split_embedding_weights()[t],
+                # pyre-fixme[16]: `float` has no attribute `half`.
                 new_weights[t].half()
                 if weights_precision == SparseType.FP16 and not use_cpu
                 else new_weights[t],
@@ -651,6 +681,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
+    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -659,23 +692,25 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_backward_adagrad(  # noqa C901
         self,
-        T,
-        D,
-        B,
-        log_E,
-        L,
-        D_gradcheck,
-        weights_precision,
-        stochastic_rounding,
-        weighted,
-        row_wise,
-        mixed,
-        use_cache,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_algorithm,
+        # pyre-fixme[2]: Parameter must be annotated.
         pooling_mode,
-        use_cpu,
-        exact,
-    ):
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
         # Approx AdaGrad only works with row_wise on CPU
@@ -758,6 +793,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             # autograd with shared embedding only works for exact
             table_to_replicate = T // 2
+            # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -780,9 +816,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
+            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
+                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -812,6 +850,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             del bs[table_to_replicate]
         for t in range(T):
+            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
@@ -869,6 +908,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `double`.
             cc = cc.double()
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
@@ -891,6 +932,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             param.requires_grad = False
         y = cc(indices, offsets, per_sample_weights)
         y.sum().backward()
+        # pyre-fixme[16]: `Tensor` has no attribute `grad`.
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
         T_ = len(xws)
         feature_requires_grad = to_device(
@@ -920,6 +962,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
+    #  5)` to decorator factory `hypothesis.given`.
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=64),
@@ -932,7 +977,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_cache_pipeline(self, T, D, B, log_E, L, mixed, cache_algorithm):
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_cache_pipeline(self, T: int, D: int, B: int, log_E: int, L: int, mixed: bool, cache_algorithm) -> None:
         iters = 3
         E = int(10 ** log_E)
         D = D * 4
@@ -1025,6 +1071,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
+    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -1033,18 +1082,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_backward_optimizers(  # noqa C901
         self,
-        T,
-        D,
-        B,
-        log_E,
-        L,
-        weighted,
-        mixed,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         optimizer,
-        long_segments,
+        long_segments: bool,
+        # pyre-fixme[2]: Parameter must be annotated.
         pooling_mode,
-        use_cpu,
-    ):
+        use_cpu: bool,
+    ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
         assume(
@@ -1122,9 +1173,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         fs = (
+            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
+                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -1167,10 +1220,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             optimizer=optimizer,
             pooling_mode=pooling_mode,
+            # pyre-fixme[6]: Expected `CacheAlgorithm` for 5th param but got `float`.
             **optimizer_kwargs,
         )
 
         for t in range(T):
+            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
@@ -1213,7 +1268,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 # TODO: why is tolerance off here?
                 torch.testing.assert_allclose(
+                    # pyre-fixme[16]: `float` has no attribute `float`.
                     weights_new.float().cpu(),
+                    # pyre-fixme[16]: `float` has no attribute `float`.
                     weights_ref.float(),
                     atol=1.0e-2,
                     rtol=1.0e-2,
@@ -1236,6 +1293,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
+                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                #  attribute `iter`.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1288,6 +1347,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 weights_ref = bs[t].weight.cpu() - lr * true_ratio * rtw
                 torch.testing.assert_allclose(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    # pyre-fixme[16]: `float` has no attribute `index_select`.
                     weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-3,
                     rtol=1.0e-3,
@@ -1330,21 +1390,29 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class CUMemTest(unittest.TestCase):
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.lists(hypothesis.strategies.integers($parameter$min_value
+    #  = 1, $parameter$max_value = 8), $parameter$min_size = 1, $parameter$max_size =
+    #  4)` to decorator factory `hypothesis.given`.
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_is_uvm_tensor(self, sizes):
+    def test_is_uvm_tensor(self, sizes: List[int]) -> None:
         uvm_t = torch.ops.fb.new_managed_tensor(
             torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
         )
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.lists(hypothesis.strategies.integers($parameter$min_value
+    #  = 1, $parameter$max_value = 8), $parameter$min_size = 1, $parameter$max_size =
+    #  4)` to decorator factory `hypothesis.given`.
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_to_cpu(self, sizes):
+    def test_uvm_to_cpu(self, sizes: List[int]) -> None:
         uvm_t = torch.ops.fb.new_managed_tensor(
             torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
         )
