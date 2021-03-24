@@ -23,6 +23,8 @@ with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
 OPTIMIZERS = [
     "adagrad",
     "adam",
+    "approx_rowwise_adagrad",
+    "approx_sgd",
     "lamb",
     "lars_sgd",
     "partial_rowwise_adam",
