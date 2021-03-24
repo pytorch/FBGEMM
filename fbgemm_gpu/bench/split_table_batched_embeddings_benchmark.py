@@ -13,10 +13,11 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
+from typing import Dict
 
 logging.basicConfig(level=logging.DEBUG)
 
-PRECISION_SIZE_MULTIPLIER = {
+PRECISION_SIZE_MULTIPLIER: Dict[SparseType, int] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.INT8: 1,
@@ -98,8 +99,9 @@ def generate_requests(
 
 def benchmark_requests(
     requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
     f: Callable,
-):
+) -> float:
     torch.cuda.synchronize()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -113,9 +115,11 @@ def benchmark_requests(
 
 def benchmark_pipelined_requests(
     requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
     f: Callable,
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
     g: Callable,
-):
+) -> Tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
         (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
@@ -150,7 +154,7 @@ def benchmark_pipelined_requests(
 
 
 @click.group()
-def cli():
+def cli() -> None:
     pass
 
 

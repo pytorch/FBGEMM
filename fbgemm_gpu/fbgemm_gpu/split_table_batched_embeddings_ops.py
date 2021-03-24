@@ -8,8 +8,8 @@
 import enum
 import logging
 from dataclasses import dataclass
+from itertools import accumulate
 from math import log2
-from numbers import Number
 from typing import Dict, List, Optional, Tuple
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -54,15 +54,6 @@ class SplitState:
     uvm_size: int
     placements: List[EmbeddingLocation]
     offsets: List[int]
-
-
-def _cumsum(arr: List[Number]):
-    ret: List[Number] = []
-    curr = 0
-    for el in arr:
-        curr += el
-        ret.append(curr)
-    return ret
 
 
 def construct_split_state(
@@ -190,12 +181,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
         pooling_mode: PoolingMode = PoolingMode.SUM,
-    ):
+    ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
-        self.dummy_tensor = torch.tensor(0)
+        self.dummy_tensor: Tensor = torch.tensor(0)
 
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
@@ -205,10 +196,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert all(
             cd == compute_devices[0] for cd in compute_devices
         ), "Heterogenous compute_devices are NOT supported!"
-        self.use_cpu = all(cd == ComputeDevice.CPU for cd in compute_devices)
+        self.use_cpu: bool = all(cd == ComputeDevice.CPU for cd in compute_devices)
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        # pyre-fixme[4]: Attribute must be annotated.
         self.current_device = (
             torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
@@ -218,8 +210,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(0, device=self.current_device, dtype=torch.float)
         )
 
+        # pyre-fixme[4]: Attribute must be annotated.
         self.int8_emb_row_dim_offset = INT8_EMB_ROW_DIM_OFFSET
 
+        # pyre-fixme[4]: Attribute must be annotated.
         self.feature_table_map = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
@@ -231,14 +225,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert all(table_has_feature), "Each table must have at least one feature!"
 
         D_offsets = [dims[t] for t in self.feature_table_map]
-        D_offsets = [0] + _cumsum(D_offsets)
+        D_offsets = [0] + list(accumulate(D_offsets))
+        # pyre-fixme[4]: Attribute must be annotated.
         self.total_D = D_offsets[-1]
+        # pyre-fixme[4]: Attribute must be annotated.
         self.max_D = max(dims)
         cached_dims = [
             embedding_spec[1]
             for embedding_spec in embedding_specs
             if embedding_spec[2] == EmbeddingLocation.MANAGED_CACHING
         ]
+        # pyre-fixme[4]: Attribute must be annotated.
         self.max_D_cache = max(cached_dims) if len(cached_dims) > 0 else 0
 
         self.register_buffer(
@@ -246,7 +243,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
 
-        hash_size_cumsum = [0] + _cumsum(rows)
+        hash_size_cumsum = [0] + list(accumulate(rows))
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
         # The last element is to easily access # of rows of each table by
         # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
@@ -321,20 +318,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.EXACT_SGD,
         ):
             # NOTE: make TorchScript work!
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_placements",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_offsets",
                 torch.tensor([0], dtype=torch.int64),
@@ -371,25 +373,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.register_buffer("iter", torch.tensor([0], dtype=torch.int64))
         else:
             # NOTE: make TorchScript work!
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_dev", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_host", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_placements",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_offsets",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "iter", torch.tensor([0], dtype=torch.int64), persistent=False
             )
@@ -417,6 +425,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step = 0
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def get_states(self, prefix):
         if not hasattr(self, f"{prefix}_physical_placements"):
             return None
@@ -433,6 +443,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(offsets, dtype=torch.int64),
         )
 
+    # pyre-fixme[3]: Return type must be annotated.
     def get_all_states(self):
         all_states = []
         for prefix in ["weights", "momentum1", "momentum2"]:
@@ -461,7 +472,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else self.lxu_cache_locations_list.pop(0)
         )
         common_args = invokers.lookup_args.CommonArgs(
-            # pyre-fixme[16]
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             # pyre-fixme[16]
             dev_weights=self.weights_dev,
@@ -497,10 +507,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum1_dev`.
             dev=self.momentum1_dev,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum1_host`.
             host=self.momentum1_host,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum1_uvm`.
             uvm=self.momentum1_uvm,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum1_offsets`.
             offsets=self.momentum1_offsets,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum1_placements`.
             placements=self.momentum1_placements,
         )
 
@@ -523,13 +543,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         momentum2 = invokers.lookup_args.Momentum(
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum2_dev`.
             dev=self.momentum2_dev,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum2_host`.
             host=self.momentum2_host,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum2_uvm`.
             uvm=self.momentum2_uvm,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum2_offsets`.
             offsets=self.momentum2_offsets,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `momentum2_placements`.
             placements=self.momentum2_placements,
         )
         # Ensure iter is always on CPU so the increment doesn't synchronize.
+        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `iter`.
         if self.iter.is_cuda:
             self.iter = self.iter.cpu()
         self.iter[0] += 1
@@ -553,7 +585,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
-    def prefetch(self, indices: Tensor, offsets: Tensor):
+    def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
         # pyre-fixme[16]
@@ -613,7 +645,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
-    def init_embedding_weights_uniform(self, min_val, max_val):
+    def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
         splits = self.split_embedding_weights()
         if self.weights_precision == SparseType.INT8:
             # TODO: add in-place FloatToFused8BitRowwiseQuantized conversion
@@ -630,8 +662,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for param in splits:
                 param.uniform_(min_val, max_val)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of the decorator
+    #  `torch.jit.export`.
     @torch.jit.export
-    def split_embedding_weights(self):
+    def split_embedding_weights(self) -> List[Tensor]:
         """
         Returns a list of weights, split by table
         """
@@ -639,13 +673,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
             if self.weights_precision == SparseType.INT8:
                 dim += self.int8_emb_row_dim_offset
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `weights_physical_placements`.
             placement = self.weights_physical_placements[t]
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `weights_physical_offsets`.
             offset = self.weights_physical_offsets[t]
             if placement == EmbeddingLocation.DEVICE.value:
+                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                #  attribute `weights_dev`.
                 weights = self.weights_dev
             elif placement == EmbeddingLocation.HOST.value:
+                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                #  attribute `weights_host`.
                 weights = self.weights_host
             else:
+                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                #  attribute `weights_uvm`.
                 weights = self.weights_uvm
             splits.append(
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
@@ -694,11 +738,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
 
         def get_optimizer_states(
+            # pyre-fixme[2]: Parameter must be annotated.
             state_dev,
+            # pyre-fixme[2]: Parameter must be annotated.
             state_host,
+            # pyre-fixme[2]: Parameter must be annotated.
             state_uvm,
+            # pyre-fixme[2]: Parameter must be annotated.
             state_offsets,
+            # pyre-fixme[2]: Parameter must be annotated.
             state_placements,
+            # pyre-fixme[2]: Parameter must be annotated.
             rowwise,
         ) -> List[torch.Tensor]:
             splits = []
@@ -726,8 +776,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum1_dev`.
                     self.momentum1_dev,
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum1_host`.
                     self.momentum1_host,
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum1_uvm`.
                     self.momentum1_uvm,
                     # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen`
                     # has no attribute `momentum1_physical_offsets`.
@@ -746,8 +802,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum2_dev`.
                     self.momentum2_dev,
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum2_host`.
                     self.momentum2_host,
+                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+                    #  attribute `momentum2_uvm`.
                     self.momentum2_uvm,
                     # pyre-fixme[16]
                     self.momentum2_physical_offsets,
@@ -779,23 +841,41 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
         return 0.0
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of the decorator
+    #  `torch.jit.export`.
     @torch.jit.export
-    def flush(self):
+    def flush(self) -> None:
+        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `lxu_cache_weights`.
         if not self.lxu_cache_weights.numel():
             return
         torch.ops.fb.lxu_cache_flush(
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `weights_uvm`.
             self.weights_uvm,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `cache_hash_size_cumsum`.
             self.cache_hash_size_cumsum,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `cache_index_table_map`.
             self.cache_index_table_map,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `weights_offsets`.
             self.weights_offsets,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `D_offsets`.
             self.D_offsets,
             self.total_D,
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `lxu_cache_state`.
             self.lxu_cache_state,
             self.lxu_cache_weights,
             self.stochastic_rounding,
         )
 
-    def _apply_split(self, split, prefix, dtype, enforce_hbm=False):
+    # pyre-fixme[2]: Parameter must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
+    def _apply_split(self, split, prefix, dtype: torch.dtype, enforce_hbm: bool = False) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
         setattr(self, f"{prefix}_physical_offsets", split.offsets)
 
@@ -862,13 +942,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def _apply_cache_state(
         self,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_state,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_algorithm,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_load_factor,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_sets,
+        # pyre-fixme[2]: Parameter must be annotated.
         cache_reserved_memory,
-        dtype,
-    ):
+        dtype: torch.dtype,
+    ) -> None:
         self.cache_algorithm = cache_algorithm
         self.timestep = 1
         self.timesteps_prefetched = []
@@ -886,26 +971,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(0, 0, device=self.current_device, dtype=dtype),
             )
             # NOTE: make TorchScript work!
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "cache_hash_size_cumsum",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "total_cache_hash_size",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "cache_index_table_map",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "lxu_cache_state",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "lxu_state",
                 torch.tensor([0], dtype=torch.int64),
@@ -981,6 +1071,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
+            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
@@ -1027,11 +1118,12 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_table_map: Optional[List[int]] = None,  # [T]
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
-    ):  # noqa C901  # tuple of (rows, dims,)
+    ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
         self.pooling_mode = pooling_mode
 
+        # pyre-fixme[4]: Attribute must be annotated.
         self.current_device = (
             torch.device("cpu") if use_cpu else torch.cuda.current_device()
         )
@@ -1047,7 +1139,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         T = len(feature_table_map)
         assert T_ <= T
         D_offsets = [dims[t] for t in feature_table_map]
-        D_offsets = [0] + _cumsum(D_offsets)
+        D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
         self.register_buffer(
@@ -1056,7 +1148,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert self.D_offsets.numel() == T + 1
 
-        hash_size_cumsum = [0] + _cumsum(rows)
+        hash_size_cumsum = [0] + list(accumulate(rows))
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
         # The last element is to easily access # of rows of each table by
         # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
@@ -1069,7 +1161,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
-        weights_offsets = [0] + _cumsum([row * dim for (row, dim) in embedding_specs])
+        weights_offsets = [0] + list(accumulate([row * dim for (row, dim) in embedding_specs]))
         self.weights = nn.Parameter(
             torch.randn(
                 weights_offsets[-1],
@@ -1094,6 +1186,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 row for (row, _) in embedding_specs[:t]
             )
 
+        # pyre-fixme[4]: Attribute must be annotated.
         self.weights_physical_offsets = weights_offsets
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
         self.register_buffer(
@@ -1126,8 +1219,10 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             feature_requires_grad=feature_requires_grad,
         )
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of the decorator
+    #  `torch.jit.export`.
     @torch.jit.export
-    def split_embedding_weights(self):
+    def split_embedding_weights(self) -> List[Tensor]:
         """
         Returns a list of weights, split by table
         """
@@ -1139,7 +1234,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         return splits
 
-    def init_embedding_weights_uniform(self, min_val, max_val):
+    def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
         splits = self.split_embedding_weights()
         for param in splits:
             param.uniform_(min_val, max_val)
