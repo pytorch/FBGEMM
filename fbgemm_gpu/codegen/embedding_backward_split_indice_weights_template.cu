@@ -197,9 +197,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     const auto B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK(B >= 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
     auto grad_indice_weights = empty_like(indices, indices.options().dtype(grad_output.dtype()));
+    if (B == 0) {
+      return grad_indice_weights;
+    }
     feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : empty({0}, indices.options().dtype(kInt));
     {% if not dense %}
     DISPATCH_EMB_CACHE_TYPES(

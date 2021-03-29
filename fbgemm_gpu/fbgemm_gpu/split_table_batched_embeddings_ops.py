@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
@@ -45,6 +45,7 @@ class CacheAlgorithm(enum.Enum):
 class PoolingMode(enum.IntEnum):
     SUM = 0
     MEAN = 1
+    NONE = 2
 
 
 @dataclass
@@ -873,9 +874,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.stochastic_rounding,
         )
 
-    # pyre-fixme[2]: Parameter must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def _apply_split(self, split, prefix, dtype: torch.dtype, enforce_hbm: bool = False) -> None:
+    def _apply_split(
+        self,
+        split: SplitState,
+        prefix: str,
+        dtype: torch.dtype,
+        enforce_hbm: bool = False,
+    ) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
         setattr(self, f"{prefix}_physical_offsets", split.offsets)
 
@@ -1161,7 +1166,9 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
-        weights_offsets = [0] + list(accumulate([row * dim for (row, dim) in embedding_specs]))
+        weights_offsets = [0] + list(
+            accumulate([row * dim for (row, dim) in embedding_specs])
+        )
         self.weights = nn.Parameter(
             torch.randn(
                 weights_offsets[-1],
@@ -1238,3 +1245,83 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         splits = self.split_embedding_weights()
         for param in splits:
             param.uniform_(min_val, max_val)
+
+
+class SingleEmbeddingCodegen(SplitTableBatchedEmbeddingBagsCodegen):
+    """
+    This class wraps around SplitTableBatchedEmbeddingBagsCodegen to get
+    single embedding op: nn.EmbeddingBag(sparse=True)
+    """
+
+    def __init__(
+        self,
+        **kwargs: Any,
+    ) -> None:
+        # assert T == 1
+        assert "embedding_specs" in kwargs
+        assert len(kwargs["embedding_specs"]) == 1
+        super(SingleEmbeddingCodegen, self).__init__(
+            # super().__init__(
+            **kwargs,
+        )
+
+    # @torch.jit.ignore
+    def forward(
+        self,
+        indices: Tensor,
+        offsets: Optional[Tensor] = None,
+        per_sample_weights: Optional[Tensor] = None,
+        feature_requires_grad: Optional[Tensor] = None,
+    ) -> Tensor:
+        offsets = torch.arange(
+            0,
+            indices.numel() + 1,
+            device=indices.device,
+            dtype=torch.int64,
+        )
+        return super(SingleEmbeddingCodegen, self).forward(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad,
+        )
+
+
+class DenseSingleEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
+    """
+    This class wraps around DenseTableBatchedEmbeddingBagsCodegen to get
+    single embedding op, nn.EmbeddingBag(sparse=False)
+    """
+
+    def __init__(
+        self,
+        **kwargs: Any,
+    ) -> None:
+        # assert T == 1
+        assert "embedding_specs" in kwargs
+        assert len(kwargs["embedding_specs"]) == 1
+        super(DenseSingleEmbeddingCodegen, self).__init__(
+            # super().__init__(
+            **kwargs,
+        )
+
+    # @torch.jit.ignore
+    def forward(
+        self,
+        indices: Tensor,
+        offsets: Optional[Tensor] = None,
+        per_sample_weights: Optional[Tensor] = None,
+        feature_requires_grad: Optional[Tensor] = None,
+    ) -> Tensor:
+        offsets = torch.arange(
+            0,
+            indices.numel() + 1,
+            device=indices.device,
+            dtype=torch.int64,
+        )
+        return super(DenseSingleEmbeddingCodegen, self).forward(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad,
+        )
