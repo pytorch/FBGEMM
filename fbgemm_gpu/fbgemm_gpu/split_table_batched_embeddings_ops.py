@@ -165,7 +165,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
-        fp16: bool = False,
         weights_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
