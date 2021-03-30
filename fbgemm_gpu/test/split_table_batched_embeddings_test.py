@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# pyre-ignore-all-errors[56]
+
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -103,20 +105,17 @@ def generate_requests(
             ]
             all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
 
-    rs = [
-        get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-        + (
-            torch.randn(
-                T * B * L,
-                device=torch.cuda.current_device(),
-                dtype=torch.float16 if weights_precision else torch.float32,
-            )
-            if weighted
-            else None,
+    rs = []
+    for it in range(iters):
+        weight_tensor = None if not weighted else torch.randn(
+            T * B * L,
+            device=torch.cuda.current_device(),
+            dtype=torch.float16 if weights_precision else torch.float32,
         )
-        for it in range(iters)
-    ]
-    # pyre-fixme[7]
+        rs.append(
+            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
+            + (weight_tensor,)
+        )
     return rs
 
 
@@ -137,9 +136,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -157,10 +153,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        cache_algorithm,
-        # pyre-fixme[2]: Parameter must be annotated.
-        pooling_mode,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
@@ -301,9 +295,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=10,
@@ -321,8 +312,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         long_segments: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        pooling_mode,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
@@ -478,9 +468,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -498,11 +485,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        cache_algorithm,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         long_segments: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        pooling_mode,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
     ) -> None:
@@ -681,9 +666,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -704,10 +686,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        cache_algorithm,
-        # pyre-fixme[2]: Parameter must be annotated.
-        pooling_mode,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
     ) -> None:
@@ -962,9 +942,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
-    #  5)` to decorator factory `hypothesis.given`.
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=64),
@@ -977,8 +954,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    # pyre-fixme[2]: Parameter must be annotated.
-    def test_cache_pipeline(self, T: int, D: int, B: int, log_E: int, L: int, mixed: bool, cache_algorithm) -> None:
+    def test_cache_pipeline(self, T: int, D: int, B: int, log_E: int, L: int, mixed: bool, cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm) -> None:
         iters = 3
         E = int(10 ** log_E)
         D = D * 4
@@ -1071,9 +1047,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
@@ -1089,11 +1062,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L: int,
         weighted: bool,
         mixed: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        optimizer,
+        optimizer: OptimType,
         long_segments: bool,
-        # pyre-fixme[2]: Parameter must be annotated.
-        pooling_mode,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
@@ -1388,10 +1359,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class CUMemTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.lists(hypothesis.strategies.integers($parameter$min_value
-    #  = 1, $parameter$max_value = 8), $parameter$min_size = 1, $parameter$max_size =
-    #  4)` to decorator factory `hypothesis.given`.
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
@@ -1402,10 +1369,6 @@ class CUMemTest(unittest.TestCase):
         )
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.lists(hypothesis.strategies.integers($parameter$min_value
-    #  = 1, $parameter$max_value = 8), $parameter$min_size = 1, $parameter$max_size =
-    #  4)` to decorator factory `hypothesis.given`.
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )

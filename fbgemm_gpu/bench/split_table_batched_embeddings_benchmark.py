@@ -78,22 +78,19 @@ def generate_requests(
             ]
             all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
 
-    rs = [
-        get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-        + (
-            torch.randn(
-                T * B * L,
-                device=torch.cuda.current_device(),
-                dtype=torch.float16
-                if weights_precision == SparseType.FP16
-                else torch.float32,
-            )
-            if weighted
-            else None,
+    rs = []
+    for it in range(iters):
+        weights_tensor = None if not weighted else torch.randn(
+            T * B * L,
+            device=torch.cuda.current_device(),
+            dtype=torch.float16
+            if weights_precision == SparseType.FP16
+            else torch.float32,
         )
-        for it in range(iters)
-    ]
-    # pyre-fixme[7]
+        rs.append(
+            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
+            + (weights_tensor,)
+        )
     return rs
 
 
@@ -441,8 +438,11 @@ def uvm(
         indices = torch.cat([rs_uvm[0], rs_gpu[0]])
         lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
         offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
-        # pyre-fixme[6]
-        per_sample_weights = torch.cat([rs_uvm[2], rs_gpu[2]]) if weighted else None
+        per_sample_weights = None
+        if weighted:
+            assert rs_uvm[2] is not None
+            assert rs_gpu[2] is not None
+            per_sample_weights = torch.cat([rs_uvm[2], rs_gpu[2]])
         requests.append((indices, offsets, per_sample_weights))
 
     # forward
@@ -624,7 +624,8 @@ def cache(  # noqa C901
     exchanged_cache_lines = []
     NOT_FOUND = -1
     for indices, offsets, _ in requests:
-        # pyre-fixme[16]
+        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `lxu_cache_state`.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
