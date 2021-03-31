@@ -440,6 +440,20 @@ TEST(QuantizeTest, cornerCases) {
   EXPECT_EQ(dst_int16[1], -32768);
 }
 
+TEST(QuantizeTestQParams, chooseQParamsSymmetric) {
+  // Test that symmetric quantization of weights set zero point exactly to 0.
+  float min = -1.6165;
+  float max = 0.5685;
+  int32_t qmin = -128;
+  int32_t qmax = 127;
+
+  bool preserve_sparsity = true;
+
+  TensorQuantizationParams result = ChooseQuantizationParams(min, max, qmin, qmax, preserve_sparsity);
+  EXPECT_FLOAT_EQ(result.scale, 0.012628906);
+  EXPECT_EQ(result.zero_point, 0);
+}
+
 template <typename T>
 void runFusedQuantizeDequantizeTests(
     const vector<float>& src,
