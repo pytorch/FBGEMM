@@ -101,11 +101,12 @@ TensorQuantizationParams ChooseQuantizationParams(
       ? zero_point_from_min
       : zero_point_from_max;
 
-  // for symmetric quantization (preserve_sparsity == true), we force zero_point
+  // Note: preserve_sparsity here means symmetric quantization.
+  // for symmetric quantization, we force zero_point
   // to be a middle value between qmin and qmax.
   // If either min or max is 0, then we just use 0 as zero_point.
   if (min < 0 && max > 0 && preserve_sparsity) {
-    initial_zero_point = (qmin + qmax) / 2 + 1;
+    initial_zero_point = static_cast<double>(qmin + qmax) / 2;
   }
 
   // Now we need to nudge the zero point to be an integer
