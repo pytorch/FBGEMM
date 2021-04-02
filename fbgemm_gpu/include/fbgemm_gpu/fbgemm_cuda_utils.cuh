@@ -361,6 +361,23 @@ stochastic_rounding_scalar(float x, uint32_t random_value) {
   return __float2half_rz(x + assmeble_float);
 }
 
+
+static DEVICE_INLINE uint8_t
+stochastic_rounding_scalar_uint8(float x, uint32_t random_bits) {
+  typedef union {
+    uint32_t I;
+    float F;
+  } fint32;
+
+  fint32 noise;
+  noise.F = 1;
+  noise.I = (noise.I & 0x7F800000) | (random_bits & 0x007FFFFF);
+  // noise.F in [1, 2]
+  noise.F = noise.F - 1.5;
+  // noise.F in [-0.5, 0.5]
+  return std::lrintf(x + noise.F);
+}
+
 // This is a simple xorshift* RNG with 64 bits of state (vs 384 bits of state
 // for curandStatePhilox4_32_10)
 struct StochasticRoundingRNGState {
@@ -457,7 +474,12 @@ DEVICE_INLINE void stochastic_rounding_vector(
     Vec4T<float> value,
     StochasticRoundingRNGState& state,
     float2 qparams) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
+  uint4 random_bits = stochastic_rounding_rand4(&state);
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = stochastic_rounding_scalar_uint8((value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8((value.acc.y - qparams.y) * inv_scale, random_bits.y);
+  output[2] = stochastic_rounding_scalar_uint8((value.acc.z - qparams.y) * inv_scale, random_bits.z);
+  output[3] = stochastic_rounding_scalar_uint8((value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
 template <>
@@ -466,7 +488,12 @@ DEVICE_INLINE void stochastic_rounding_vector(
     Vec4T<at::Half> value,
     StochasticRoundingRNGState& state,
     float2 qparams) {
-  CUDA_KERNEL_ASSERT(false); // not yet implemented
+  uint4 random_bits = stochastic_rounding_rand4(&state);
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = stochastic_rounding_scalar_uint8((value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8((value.acc.y - qparams.y) * inv_scale, random_bits.y);
+  output[2] = stochastic_rounding_scalar_uint8((value.acc.z - qparams.y) * inv_scale, random_bits.z);
+  output[3] = stochastic_rounding_scalar_uint8((value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
 // begin nearest rounding and store implementations
@@ -507,9 +534,9 @@ DEVICE_INLINE void quantize_store(
     StochasticRoundingRNGState* state,
     float2 qparams) {
   if (!state) {
-    nearest_rounding_vector(output, value, qparams);
+    nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
   } else {
-    stochastic_rounding_vector(output, value, *state, qparams);
+    stochastic_rounding_vector<dst_t, src_t>(output, value, *state, qparams);
   }
 }
 
