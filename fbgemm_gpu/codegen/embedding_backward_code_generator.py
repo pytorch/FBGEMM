@@ -47,40 +47,50 @@ def _arg_constructor(
     return (
         f"{name}.packed_accessor{precision}<{type}, 1, RestrictPtrTraits>()"
         if gpu
-        else f"auto {name}_accessor = {name}.accessor<{type}, 1>()"
+        else f"{name}.accessor<{type}, 1>()"
     )
 
 
-def _arg(type: str, name: str, precision: int = 32) -> str:
-    return f"PackedTensorAccessor{precision}<{type}, 1, RestrictPtrTraits> {name}"
+def _arg(type: str, name: str, gpu: bool = True, precision: int = 32) -> str:
+    return (
+        f"PackedTensorAccessor{precision}<{type}, 1, RestrictPtrTraits> {name}"
+        if gpu
+        else f"TensorAccessor<{type}, 1> {name}"
+    )
 
 
-def acc_cache_tensor_arg_constructor(name: str) -> str:
-    return _arg_constructor("acc_type<cache_t, true>", name, precision=64)
+def acc_cache_tensor_arg_constructor(name: str, gpu: bool = True) -> str:
+    return _arg_constructor(
+        "acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
+        name,
+        gpu=gpu,
+        precision=64,
+    )
 
 
-def acc_cache_tensor_arg(name: str) -> str:
-    return _arg("acc_type<cache_t, true>", name, precision=64)
+def acc_cache_tensor_arg(name: str, gpu: bool = True) -> str:
+    return _arg(
+        "acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
+        name,
+        gpu=gpu,
+        precision=64,
+    )
 
 
 def long_tensor_arg_constructor(name: str, gpu: bool = True) -> str:
     return _arg_constructor("int64_t", name, gpu=gpu)
 
 
-def long_tensor_arg(name: str) -> str:
-    return _arg("int64_t", name)
+def long_tensor_arg(name: str, gpu: bool = True) -> str:
+    return _arg("int64_t", name, gpu=gpu)
 
 
 def int_tensor_arg_constructor(name: str, gpu: bool = True) -> str:
     return _arg_constructor("int32_t", name, gpu=gpu)
 
 
-def int_tensor_arg(name: str) -> str:
-    return _arg("int32_t", name)
-
-
-def host_accessor_constructor(name: str) -> str:
-    return _arg_constructor("acc_type<scalar_t, true>", name, gpu=False)
+def int_tensor_arg(name: str, gpu: bool = True) -> str:
+    return _arg("int32_t", name, gpu=gpu)
 
 
 def tensor_arg(name: str) -> str:
@@ -158,7 +168,8 @@ def generate(**kwargs: Any) -> None:
 class Args:
     split_kernel_args: List[str]
     split_kernel_arg_constructors: List[str]
-    split_host_accessor_constructors: List[str]
+    split_cpu_kernel_args: List[str]
+    split_cpu_kernel_arg_constructors: List[str]
     split_function_args: List[str]
     split_saved_tensors: List[str]
     split_tensors: List[str]
@@ -190,13 +201,22 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_host_accessor_constructor(ty: int, name: str) -> str:
+    def make_cpu_kernel_arg(ty: int, name: str) -> str:
         return {
-            TENSOR: host_accessor_constructor,
+            TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
+            INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
+            LONG_TENSOR: lambda x: long_tensor_arg(x, gpu=False),
+            INT: int64_arg,
+            FLOAT: float_arg,
+        }[ty](name)
+
+    def make_cpu_kernel_arg_constructor(ty: int, name: str) -> str:
+        return {
+            TENSOR: lambda x: acc_cache_tensor_arg_constructor(x, gpu=False),
             INT_TENSOR: lambda x: int_tensor_arg_constructor(x, gpu=False),
             LONG_TENSOR: lambda x: long_tensor_arg_constructor(x, gpu=False),
-            INT: lambda x: "",
-            FLOAT: lambda x: "",
+            INT: lambda x: x,
+            FLOAT: lambda x: x,
         }[ty](name)
 
     def make_function_arg(ty: int, name: str) -> str:
@@ -228,8 +248,11 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             split_kernel_arg_constructors=[
                 make_kernel_arg_constructor(ty, name) for (ty, name) in split_arg_spec
             ],
-            split_host_accessor_constructors=[
-                make_host_accessor_constructor(ty, name)
+            split_cpu_kernel_args=[
+                make_cpu_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+            ],
+            split_cpu_kernel_arg_constructors=[
+                make_cpu_kernel_arg_constructor(ty, name)
                 for (ty, name) in split_arg_spec
             ],
             split_function_args=[
@@ -301,11 +324,11 @@ def adagrad() -> None:
     """
     split_weight_update_cpu = """
       for (int64_t d = 0; d < D; ++d) {
-        momentum1_host_accessor[embedding_begin + d] +=
+        momentum1_host[embedding_begin + d] +=
             grad_buffer[d] * grad_buffer[d];
         host_weights_data[embedding_begin + d] -=
             learning_rate * grad_buffer[d] /
-            (sqrt(momentum1_host_accessor[embedding_begin + d]) + eps);
+            (sqrt(momentum1_host[embedding_begin + d]) + eps);
       }
     """
 
@@ -374,8 +397,8 @@ def rowwise_adagrad() -> None:
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host_accessor[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
-        momentum1_host_accessor[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
+        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
+        momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
         acc_type<scalar_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
