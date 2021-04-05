@@ -8,6 +8,7 @@
 #include <tuple>
 
 #include <ATen/ATen.h>
+#include <ATen/AccumulateType.h>
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
@@ -56,11 +57,13 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   {% if optimizer == "approx_rowwise_adagrad" %}
 
-  // TODO: fp16
+  // TODO: fp16 and weighted
   bool use_fbgemm =
       (host_weights.scalar_type() == ScalarType::Float/* ||
        host_weights.scalar_type() == ScalarType::Half*/) &&
-      grad_output.scalar_type() == ScalarType::Float;
+      grad_output.scalar_type() == ScalarType::Float &&
+      !indice_weights.defined() && pooling_mode == SUM;
+
   if (use_fbgemm) {
     auto grad_stride = grad_output.size(1);
     float* host_weights_data = host_weights.data_ptr<float>();
@@ -134,9 +137,12 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
             host_weights.scalar_type(),
             "split_embedding_backward_cpu_inner",
             [&]() {
+              {{ args.split_host_accessor_constructors | join("; ") }}
+
               auto host_weights_data = host_weights.accessor<scalar_t, 1>();
 
               for (int64_t t = 0; t < T; ++t) {
+                int feature_begin = t; // to conform interface with exact
                 const auto D_begin = D_offsets_data[t];
                 const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
                 const auto table_begin = weights_offsets_data[t];
@@ -152,16 +158,17 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
                       ? 1.0 / L
                       : 1.0;
                     for (auto p = pool_begin; p < pool_end; ++p) {
-                      const int64_t embedding_begin =
-                        table_begin + indices_data[p] * D;
+                      auto idx = indices_data[p];
+                      const int64_t embedding_begin = table_begin + idx * D;
+                      scalar_t grad_buffer[D];
                       for (int64_t d = 0; d < D; ++d) {
-                        auto grad_val = scale_factor *
+                        grad_buffer[d] = scale_factor *
                           (indice_weights.defined()
                                ? grad_output_data[b][D_begin + d] *
                                    indice_weights_data[p]
                                : grad_output_data[b][D_begin + d]);
-                        {{ split_weight_update_cpu }};
                       }
+                      {{ split_weight_update_cpu }};
                     } // for each p
                   } // for each b
                 }); // parallel for B

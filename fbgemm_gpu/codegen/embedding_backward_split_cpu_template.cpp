@@ -109,8 +109,8 @@ using namespace at;
           grad_t grad_buffer[D];
           for (int c = table_ptr[t]; c < table_ptr[t + 1]; ++c) {
             memset(grad_buffer, 0, D * sizeof(grad_t));
-            const int64_t embedding_begin =
-                table_begin + batched_csc.column_indices[c] * D;
+            auto idx = batched_csc.column_indices[c];
+            const int64_t embedding_begin = table_begin + idx * D;
             for (int r = column_ptr[c]; r < column_ptr[c + 1]; ++r) {
               int f_times_b = batched_csc.row_indices[r];
               int feature = f_times_b / B;
@@ -180,18 +180,9 @@ using namespace at;
                 }
               }
             }
-
-          int64_t embedding_end =
-              t == T - 1 ? host_weights.numel() : weights_offsets_data[t + 1];
-          for (int64_t embedding_begin = table_begin;
-               embedding_begin < embedding_end;
-               embedding_begin += D) {
-            const grad_t* grad_buf = grad_data + embedding_begin;
-            {{ split_weight_update_cpu }}
           }
-        }
-        });
-      });
+        }); // parallel_for
+      }); // dispatch host_weights.scalar_type()
 
   return grad;
   {% endif %}

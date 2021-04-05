@@ -43,8 +43,11 @@ def to_device(t: torch.Tensor, use_cpu: bool) -> torch.Tensor:
 # pyre-fixme[3]: Return annotation cannot be `Any`.
 def b_indices(
     # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    b: Callable,
+    x: torch.Tensor,
     # pyre-fixme[2]: Parameter must be annotated.
-    b: Callable, x: torch.Tensor, per_sample_weights=None, use_cpu: bool=False
+    per_sample_weights=None,
+    use_cpu: bool = False,
 ) -> Any:
     (indices, offsets) = get_offsets_from_dense(x)
     return b(
@@ -55,7 +58,7 @@ def b_indices(
 
 
 def get_table_batched_offsets_from_dense(
-    merged_indices: torch.Tensor, use_cpu: bool=False
+    merged_indices: torch.Tensor, use_cpu: bool = False
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     (T, B, L) = merged_indices.size()
     lengths = np.ones((T, B)) * L
@@ -107,10 +110,14 @@ def generate_requests(
 
     rs = []
     for it in range(iters):
-        weight_tensor = None if not weighted else torch.randn(
-            T * B * L,
-            device=torch.cuda.current_device(),
-            dtype=torch.float16 if weights_precision else torch.float32,
+        weight_tensor = (
+            None
+            if not weighted
+            else torch.randn(
+                T * B * L,
+                device=torch.cuda.current_device(),
+                dtype=torch.float16 if weights_precision else torch.float32,
+            )
         )
         rs.append(
             get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
@@ -497,7 +504,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not use_cpu or T * B * L * D <= 2048)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
         # GPU only does exact sgd
-        assume(use_cpu or exact)
+        assume((use_cpu and not long_segments) or exact)
 
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -561,15 +568,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
-        table_to_replicate = T // 2
-        # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
-        bs.insert(table_to_replicate, bs[table_to_replicate])
-        feature_table_map.insert(table_to_replicate, table_to_replicate)
+        if exact:
+            table_to_replicate = T // 2
+            # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
+            bs.insert(table_to_replicate, bs[table_to_replicate])
+            feature_table_map.insert(table_to_replicate, table_to_replicate)
 
         xs = [
             to_device(
                 torch.from_numpy(
-                    np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
+                    np.random.choice(range(Es[t]), size=(B, L), replace=exact).astype(
                         np.int64
                     )
                 ),
@@ -603,7 +611,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
         lr = 0.05
-        del bs[table_to_replicate]
+        if exact:
+            del bs[table_to_replicate]
         # pyre-fixme[16]: `Tensor` has no attribute `weight`.
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
@@ -954,7 +963,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_cache_pipeline(self, T: int, D: int, B: int, log_E: int, L: int, mixed: bool, cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm) -> None:
+    def test_cache_pipeline(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        mixed: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+    ) -> None:
         iters = 3
         E = int(10 ** log_E)
         D = D * 4
