@@ -41,7 +41,9 @@ def write(filename: str, s: str) -> None:
         f.write(s)
 
 
-def _arg_constructor(type: str, name: str, gpu: bool = True, precision: int = 32) -> str:
+def _arg_constructor(
+    type: str, name: str, gpu: bool = True, precision: int = 32
+) -> str:
     return (
         f"{name}.packed_accessor{precision}<{type}, 1, RestrictPtrTraits>()"
         if gpu
@@ -165,10 +167,11 @@ class Args:
     split_function_schemas: List[str]
     split_variables: List[str]
 
+
 TENSOR, INT_TENSOR, LONG_TENSOR, INT, FLOAT = range(5)
 
 
-def make_args(arg_spec: List[Tuple[int,str]]) -> Dict[str, Any]:
+def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
     def make_kernel_arg(ty: int, name: str) -> str:
         return {
             TENSOR: acc_cache_tensor_arg,
@@ -317,7 +320,7 @@ def adagrad() -> None:
     )
 
 
-def table_info_precomputation(momentum_prefix: str="momentum1") -> str:
+def table_info_precomputation(momentum_prefix: str = "momentum1") -> str:
     template = """
       // table_begin -> (E, D, {momentum_prefix}_row_begin).
       std::map<int64_t, std::tuple<int64_t, int64_t, int64_t>> table_info_map;
@@ -366,14 +369,14 @@ def rowwise_adagrad() -> None:
     multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
     """
     split_weight_update_cpu = """
-        grad_t g_local_sum_square = 0.0;
+        acc_type<scalar_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        grad_t new_sum_square_grads = momentum1_host_accessor[momentum1_offsets_data[feature_begin] + batched_csc.column_indices[c]] + g_avg_square;
-        momentum1_host_accessor[momentum1_offsets_data[feature_begin] + batched_csc.column_indices[c]] = new_sum_square_grads;
-        grad_t multiplier;
+        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host_accessor[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
+        momentum1_host_accessor[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
+        acc_type<scalar_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
@@ -390,35 +393,11 @@ def rowwise_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
-
-def approx_rowwise_adagrad() -> None:
-    split_weight_update = """
+    approx_split_weight_update = """
+      // dummy computation to avoid unused variable warning
       weight_new.fma_(grad, -multiplier);
       assert(false); // approx rowwise AdaGrad is not supported on GPU
     """
-    split_precomputation = """
-    acc_type<cache_t, true> g_local_sum_square = 0.0;
-    #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-        ++i) {
-    g_local_sum_square += grad_sum[i].acc.x * grad_sum[i].acc.x +
-        grad_sum[i].acc.y * grad_sum[i].acc.y +
-        grad_sum[i].acc.z * grad_sum[i].acc.z +
-        grad_sum[i].acc.w * grad_sum[i].acc.w;
-    }
-    const acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
-
-    acc_type<cache_t, true> multiplier;
-    if (threadIdx.x == 0) {
-        acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
-        momentum1[idx] = new_sum_square_grads;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-    }
-    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
-    """
-    split_weight_update_cpu = ""  # will use FBGEMM CPU JIT'ed kernel
 
     generate(
         optimizer="approx_rowwise_adagrad",
@@ -426,7 +405,7 @@ def approx_rowwise_adagrad() -> None:
             [(TENSOR, "momentum1"), (FLOAT, "eps"), (FLOAT, "learning_rate")]
         ),
         split_precomputation=split_precomputation,
-        split_weight_update=split_weight_update,
+        split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
@@ -449,23 +428,18 @@ def sgd() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
-
-def approx_sgd() -> None:
-    split_weight_update = """
+    approx_split_weight_update = """
       // approx_sgd not supported for GPU.
       // Just do the same thing as exact sgd to avoid unused variable warning.
       weight_new.fma_(grad, -learning_rate);
       assert(false); // approx SGD is not supported on GPU
-    """
-    split_weight_update_cpu = """
-      host_weights_data[embedding_begin + d] -= learning_rate * grad_val;
     """
 
     generate(
         optimizer="approx_sgd",
         args=make_args([(FLOAT, "learning_rate")]),
         split_precomputation="",
-        split_weight_update=split_weight_update,
+        split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
@@ -834,14 +808,12 @@ def gen__init__py() -> None:
     write("__init__.py", src_py)
 
 
-def emb_codegen(install_dir: Optional[str] = None, is_fbcode: bool=True) -> None:
+def emb_codegen(install_dir: Optional[str] = None, is_fbcode: bool = True) -> None:
     if install_dir is not None and len(install_dir) != 0:
         args.install_dir = install_dir
     args.is_fbcode = is_fbcode
     adagrad()
     adam()
-    approx_rowwise_adagrad()
-    approx_sgd()
     backward_indices()
     backward_dense()
     forward_split()
