@@ -51,9 +51,9 @@ void batched_csr2csc(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int num_tables, // number of tables, not number of features
     int B,
-    const int64_t* batched_csr_offsets,
-    const int64_t* batched_csr_indices,
-    const scalar_t* batched_csr_weights,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset);
 } // namespace internal

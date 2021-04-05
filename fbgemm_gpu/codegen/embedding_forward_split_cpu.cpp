@@ -81,18 +81,18 @@ void split_embedding_forward_cpu_kernel(
   int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B > 0);
 
-  offsets.contiguous();
-  indices.contiguous();
-  weights.contiguous();
+  TORCH_CHECK(weights.is_contiguous());
+  indices = indices.contiguous();
+  offsets = offsets.contiguous();
   if (indice_weights.defined()) {
-    indice_weights.contiguous();
+    indice_weights = indice_weights.contiguous();
   }
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
-  const auto offsets_data = offsets.data_ptr<int64_t>();
   const auto indices_data = indices.data_ptr<int64_t>();
+  const auto offsets_data = offsets.data_ptr<int64_t>();
+  const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
   const auto weights_data = weights.data_ptr<weights_t>();
   // If indice_weights not defined, then this accessor won't be used.
@@ -344,16 +344,17 @@ void batched_csr2csc(
     int num_tables, // number of tables, not number of features
     int B,
     // TODO: use accessor for the following 3 parameters
-    const int64_t* batched_csr_offsets,
-    const int64_t* batched_csr_indices,
-    const scalar_t* batched_csr_weights,
+    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const TensorAccessor<scalar_t, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset) {
   batched_csc.num_tables = num_tables;
   batched_csc.table_ptr.resize(num_tables + 1);
   int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B];
   batched_csc.row_indices.resize(nnz);
-  if (batched_csr_weights || pooling_mode == MEAN) {
+  bool has_weights = batched_csr_weights.data() != nullptr;
+  if (has_weights || pooling_mode == MEAN) {
     batched_csc.weights.resize(nnz);
   }
 
@@ -372,13 +373,11 @@ void batched_csr2csc(
         int64_t L = pool_end - pool_begin;
         // MEAN pooling will not work with indice_weights!
         double scale_factor =
-            (pooling_mode == MEAN && !batched_csr_weights && L > 0) ? 1.0 / L
-                                                                    : 1.0;
+            (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
         for (int64_t p = pool_begin; p < pool_end; ++p) {
           non_empty_columns[batched_csr_indices[p]].emplace_back(
               feature * B + b,
-              scale_factor *
-                  (batched_csr_weights ? batched_csr_weights[p] : 1.0f));
+              scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
         }
       }
     } // for each feature
@@ -408,9 +407,9 @@ template void batched_csr2csc<float>(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int T,
     int B,
-    const int64_t* batched_csr_offsets,
-    const int64_t* batched_csr_indices,
-    const float* batched_csr_weights,
+    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const TensorAccessor<float, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset);
 
@@ -418,9 +417,9 @@ template void batched_csr2csc<double>(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int T,
     int B,
-    const int64_t* batched_csr_offsets,
-    const int64_t* batched_csr_indices,
-    const double* batched_csr_weights,
+    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const TensorAccessor<double, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset);
 

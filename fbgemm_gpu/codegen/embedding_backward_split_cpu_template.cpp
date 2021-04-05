@@ -42,9 +42,11 @@ void split_embedding_backward_exact_cpu_kernel(
       batched_csc,
       num_tables,
       B,
-      offsets.data_ptr<int64_t>(),
-      indices.data_ptr<int64_t>(),
-      indice_weights.defined() ? indice_weights.data_ptr<grad_t>() : nullptr,
+      offsets.accessor<int64_t, 1>(),
+      indices.accessor<int64_t, 1>(),
+      indice_weights.defined()
+          ? indice_weights.accessor<grad_t, 1>()
+          : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
       pooling_mode,
       table_to_feature_offset);
   std::vector<int>& table_ptr = batched_csc.table_ptr;
@@ -197,10 +199,6 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   {% if "momentum2_offsets" in args.split_function_arg_names %}
   const auto momentum2_offsets_data = momentum2_offsets.accessor<int64_t, 1>();
   {% endif %}
-
-  offsets.contiguous();
-  indices.contiguous();
-  indice_weights.contiguous();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
