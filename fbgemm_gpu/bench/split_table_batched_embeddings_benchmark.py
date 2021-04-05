@@ -277,7 +277,7 @@ def device(  # noqa C901
         f"{nparams * param_size_multiplier / 1.0e9: .2f}GB"
     )
     logging.info(
-        f"Accessed weights per batch: {B * T * L * D * param_size_multiplier / 1.0e6: .2f}MB"
+        f"Accessed weights per batch: {B * sum(Ds) * L * param_size_multiplier / 1.0e6: .2f}MB"
     )
 
     requests = generate_requests(
@@ -305,7 +305,7 @@ def device(  # noqa C901
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -481,7 +481,7 @@ def uvm(
     logging.info(
         f"GPU Forward, B: {B}, "
         f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {param_size_multiplier * B * sum(Ds[T_uvm:]) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -495,8 +495,8 @@ def uvm(
     )
     logging.info(
         f"UVM Forward, B: {B}, "
-        f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"E: {E}, T: {T_uvm}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {param_size_multiplier * B * sum(Ds[:T_uvm]) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -510,8 +510,8 @@ def uvm(
     )
     logging.info(
         f"Mixed Forward, B: {B}, "
-        f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * T_gpu * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
