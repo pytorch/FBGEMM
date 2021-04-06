@@ -346,53 +346,127 @@ void batched_csr2csc(
     const int* table_to_feature_offset) {
   batched_csc.num_tables = num_tables;
   batched_csc.table_ptr.resize(num_tables + 1);
-  int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B];
+  int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B] -
+      batched_csr_offsets[table_to_feature_offset[0] * B];
   batched_csc.row_indices.resize(nnz);
   bool has_weights = batched_csr_weights.data() != nullptr;
   if (has_weights || pooling_mode == MEAN) {
     batched_csc.weights.resize(nnz);
   }
 
-  batched_csc.table_ptr.push_back(0);
-  batched_csc.column_ptr.push_back(0);
+  batched_csc.table_ptr[0] = 0;
+  batched_csc.column_segment_ptr.push_back(0);
   int column_ptr_curr = 0;
   for (int t = 0; t < num_tables; ++t) {
-    std::unordered_map<int64_t, std::vector<std::pair<int, scalar_t>>>
-        non_empty_columns;
-    for (int feature = table_to_feature_offset[t];
-         feature < table_to_feature_offset[t + 1];
-         ++feature) {
-      for (int b = 0; b < B; ++b) {
-        int64_t pool_begin = batched_csr_offsets[feature * B + b];
-        int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
-        int64_t L = pool_end - pool_begin;
-        // MEAN pooling will not work with indice_weights!
-        double scale_factor =
-            (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
-        for (int64_t p = pool_begin; p < pool_end; ++p) {
-          non_empty_columns[batched_csr_indices[p]].emplace_back(
-              feature * B + b,
-              scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
-        }
-      }
-    } // for each feature
+    int num_non_empty_segments = 0;
+    if (batched_csc.weights.empty()) {
+      std::unordered_map<int64_t, std::vector<std::vector<int>>>
+          non_empty_columns;
+      int f_begin = table_to_feature_offset[t];
+      int f_end = table_to_feature_offset[t + 1];
 
-    batched_csc.table_ptr[t + 1] =
-        batched_csc.table_ptr[t] + non_empty_columns.size();
-    batched_csc.column_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
-    batched_csc.column_indices.reserve(batched_csc.table_ptr[t + 1]);
-    for (auto const& column : non_empty_columns) {
-      batched_csc.column_ptr.push_back(column_ptr_curr + column.second.size());
-      batched_csc.column_indices.push_back(column.first);
-
-      for (auto const& non_zero : column.second) {
-        batched_csc.row_indices[column_ptr_curr] = non_zero.first;
-        if (!batched_csc.weights.empty()) {
-          batched_csc.weights[column_ptr_curr] = non_zero.second;
+      for (int feature = f_begin; feature < f_end; ++feature) {
+        for (int b = 0; b < B; ++b) {
+          int64_t pool_begin = batched_csr_offsets[feature * B + b];
+          int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
+          for (int64_t p = pool_begin; p < pool_end; ++p) {
+            auto itr = non_empty_columns.find(batched_csr_indices[p]);
+            if (itr == non_empty_columns.end()) {
+              itr = non_empty_columns
+                        .emplace(
+                            batched_csr_indices[p],
+                            std::vector<std::vector<int>>(f_end - f_begin))
+                        .first;
+            }
+            if (itr->second[feature - f_begin].empty()) {
+              ++num_non_empty_segments;
+            }
+            itr->second[feature - f_begin].push_back(b);
+          }
         }
-        ++column_ptr_curr;
-      }
-    }
+      } // for each feature
+
+      batched_csc.table_ptr[t + 1] =
+          batched_csc.table_ptr[t] + num_non_empty_segments;
+      batched_csc.column_segment_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
+      batched_csc.column_segment_indices.reserve(batched_csc.table_ptr[t + 1]);
+      batched_csc.column_segment_ids.reserve(batched_csc.table_ptr[t + 1]);
+      for (auto const& column : non_empty_columns) {
+        int feature = f_begin;
+        for (auto const& column_segment : column.second) {
+          if (!column_segment.empty()) {
+            batched_csc.column_segment_ptr.push_back(
+                column_ptr_curr + column_segment.size());
+            batched_csc.column_segment_indices.push_back(column.first);
+            batched_csc.column_segment_ids.push_back(feature - f_begin);
+            memcpy(
+                &batched_csc.row_indices[column_ptr_curr],
+                column_segment.data(),
+                column_segment.size() * sizeof(int));
+            column_ptr_curr += column_segment.size();
+          }
+          ++feature;
+        } // for each column segment
+      } // for each column
+    } else {
+      // !batched_csc.weights.empty()
+      std::unordered_map<
+          int64_t,
+          std::vector<std::vector<std::pair<int, scalar_t>>>>
+          non_empty_columns;
+      int f_begin = table_to_feature_offset[t];
+      int f_end = table_to_feature_offset[t + 1];
+      for (int feature = f_begin; feature < f_end; ++feature) {
+        for (int b = 0; b < B; ++b) {
+          int64_t pool_begin = batched_csr_offsets[feature * B + b];
+          int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
+          int64_t L = pool_end - pool_begin;
+          // MEAN pooling will not work with indice_weights!
+          double scale_factor =
+              (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
+          for (int64_t p = pool_begin; p < pool_end; ++p) {
+            auto itr = non_empty_columns.find(batched_csr_indices[p]);
+            if (itr == non_empty_columns.end()) {
+              itr = non_empty_columns
+                        .emplace(
+                            batched_csr_indices[p],
+                            std::vector<std::vector<std::pair<int, scalar_t>>>(
+                                f_end - f_begin))
+                        .first;
+            }
+            if (itr->second[feature - f_begin].empty()) {
+              ++num_non_empty_segments;
+            }
+            itr->second[feature - f_begin].emplace_back(
+                b,
+                scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
+          }
+        }
+      } // for each feature
+
+      batched_csc.table_ptr[t + 1] =
+          batched_csc.table_ptr[t] + num_non_empty_segments;
+      batched_csc.column_segment_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
+      batched_csc.column_segment_indices.reserve(batched_csc.table_ptr[t + 1]);
+      batched_csc.column_segment_ids.reserve(batched_csc.table_ptr[t + 1]);
+      for (auto const& column : non_empty_columns) {
+        int feature = f_begin;
+        for (auto const& column_segment : column.second) {
+          if (!column_segment.empty()) {
+            batched_csc.column_segment_ptr.push_back(
+                column_ptr_curr + column_segment.size());
+            batched_csc.column_segment_indices.push_back(column.first);
+            batched_csc.column_segment_ids.push_back(feature - f_begin);
+            for (auto const& non_zero : column_segment) {
+              batched_csc.row_indices[column_ptr_curr] = non_zero.first;
+              batched_csc.weights[column_ptr_curr] = non_zero.second;
+              ++column_ptr_curr;
+            }
+          }
+          ++feature;
+        } // for each column segment
+      } // for each column
+    } // !batched_csc.weights.empty()
   } // for each matrix (table)
 
   assert(column_ptr_curr == nnz);

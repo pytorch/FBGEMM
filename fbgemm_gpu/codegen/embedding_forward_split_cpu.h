@@ -38,10 +38,14 @@ struct BatchedHyperCompressedSparseColumn {
   int num_tables; // # of matrices (or tables)
   // pointers to the beginning of each table in column_ptr (length T + 1)
   std::vector<int> table_ptr;
-  // pointers to the beginning of each column in row_indices
+  // pointers to the beginning of each column segment in row_indices
   // (length table_ptr[T] + 1)
-  std::vector<int> column_ptr;
-  std::vector<int64_t> column_indices; // length table_ptr[T]
+  // For a shared table, a column can have multiple segments, each for a
+  // feature sharing the table. In this case, the segments will have the
+  // same column_segment_indices but different column_segment_ids.
+  std::vector<int> column_segment_ptr;
+  std::vector<int64_t> column_segment_indices; // length table_ptr[T]
+  std::vector<int64_t> column_segment_ids; // length table_ptr[T]
   std::vector<int> row_indices; // length column_ptr[table_ptr[T]]
   std::vector<float> weights; // length column_ptr[table_ptr[T]]
 };
