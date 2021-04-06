@@ -27,6 +27,10 @@ MAX_PREFETCH_DEPTH = 100
 INT8_EMB_ROW_DIM_OFFSET = 8
 
 
+class DoesNotHavePrefix(Exception):
+    pass
+
+
 class EmbeddingLocation(enum.IntEnum):
     DEVICE = 0
     MANAGED = 1
@@ -420,10 +424,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step = 0
 
-    # pyre-fixme[3]: Return type must be annotated.
-    def get_states(self, prefix: str):
+    def get_states(self, prefix: str) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         if not hasattr(self, f"{prefix}_physical_placements"):
-            return None
+            raise DoesNotHavePrefix()
         dev_param = getattr(self, f"{prefix}_dev")
         host_param = getattr(self, f"{prefix}_host")
         uvm_param = getattr(self, f"{prefix}_uvm")
@@ -437,14 +440,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(offsets, dtype=torch.int64),
         )
 
-    # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
-    #  `typing.List` to avoid runtime subscripting errors.
-    def get_all_states(self) -> List:
+    def get_all_states(self) -> List[Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]]:
         all_states = []
         for prefix in ["weights", "momentum1", "momentum2"]:
-            states = self.get_states(prefix)
-            if states:
-                all_states.append(states)
+            try:
+                all_states.append(self.get_states(prefix))
+            except DoesNotHavePrefix:
+                pass
         return all_states
 
     def forward(
@@ -741,16 +743,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
 
         def get_optimizer_states(
-            # pyre-fixme[2]: Parameter must be annotated.
-            state_dev,
-            # pyre-fixme[2]: Parameter must be annotated.
-            state_host,
-            # pyre-fixme[2]: Parameter must be annotated.
-            state_uvm,
-            # pyre-fixme[2]: Parameter must be annotated.
-            state_offsets,
-            # pyre-fixme[2]: Parameter must be annotated.
-            state_placements,
+            state_dev: Tensor,
+            state_host: Tensor,
+            state_uvm: Tensor,
+            state_offsets: Tensor,
+            state_placements: Tensor,
             rowwise: bool,
         ) -> List[torch.Tensor]:
             splits = []
@@ -872,9 +869,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.stochastic_rounding,
         )
 
-    # pyre-fixme[2]: Parameter must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def _apply_split(self, split, prefix, dtype: torch.dtype, enforce_hbm: bool = False) -> None:
+    def _apply_split(self, split: SplitState, prefix: str, dtype: torch.dtype, enforce_hbm: bool = False) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
         setattr(self, f"{prefix}_physical_offsets", split.offsets)
 
@@ -1184,8 +1179,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 row for (row, _) in embedding_specs[:t]
             )
 
-        # pyre-fixme[4]: Attribute must be annotated.
-        self.weights_physical_offsets = weights_offsets
+        self.weights_physical_offsets: List[int] = weights_offsets
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
         self.register_buffer(
             "weights_offsets",

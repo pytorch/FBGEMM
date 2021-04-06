@@ -9,17 +9,33 @@
 
 import copy
 import unittest
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, TypeVar
 
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
+from torch import Tensor
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 
 
 MAX_EXAMPLES = 40
+Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
+
+
+def b_indices(
+    b: torch.nn.EmbeddingBag,
+    x: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor] = None,
+    use_cpu: bool = False
+) -> torch.Tensor:
+    (indices, offsets) = get_offsets_from_dense(x)
+    return b(
+        to_device(indices, use_cpu),
+        to_device(offsets, use_cpu),
+        per_sample_weights=per_sample_weights,
+    )
 
 
 def div_round_up(a: int, b: int) -> int:
@@ -35,8 +51,9 @@ def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.T
         ),
     )
 
-
-def to_device(t: torch.Tensor, use_cpu: bool) -> torch.Tensor:
+def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
+    # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
+    #  torch.nn.EmbeddingBag]`.
     return t.cpu() if use_cpu else t.cuda()
 
 
@@ -239,11 +256,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -270,7 +285,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = torch.jit.script(cc)
 
         for t in range(T):
-            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
@@ -385,11 +399,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -397,7 +409,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         gos = [torch.randn_like(f) for f in fs]
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
-        # pyre-fixme[16]: `Tensor` has no attribute `weight`.
         grad_weights = torch.cat([b.weight.grad.view(-1) for b in bs])
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
@@ -570,7 +581,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         feature_table_map = list(range(T))
         if exact:
             table_to_replicate = T // 2
-            # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -598,11 +608,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -613,7 +621,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         lr = 0.05
         if exact:
             del bs[table_to_replicate]
-        # pyre-fixme[16]: `Tensor` has no attribute `weight`.
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
         cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
@@ -782,7 +789,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             # autograd with shared embedding only works for exact
             table_to_replicate = T // 2
-            # pyre-fixme[6]: Expected `HalfTensor` for 2nd param but got `Tensor`.
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -805,11 +811,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -839,7 +843,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             del bs[table_to_replicate]
         for t in range(T):
-            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
@@ -1162,11 +1165,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         fs = (
-            # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                # pyre-fixme[6]: Expected `(...) -> Any` for 1st param but got `Tensor`.
                 b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
@@ -1214,7 +1215,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         for t in range(T):
-            # pyre-fixme[16]: `Tensor` has no attribute `weight`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
