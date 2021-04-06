@@ -18,6 +18,12 @@ enum EmbeddingSpMDMCornerCase {
   UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM,
 };
 
+enum EmbeddingSpMDMWeightChoice {
+  UNWEIGHTED,
+  WEIGHTED,
+  POSITIONAL_WEIGHTED,
+};
+
 /**
  * @return lengths_sum
  */

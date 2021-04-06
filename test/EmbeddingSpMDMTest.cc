@@ -46,12 +46,12 @@ class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
                                bool,
                                bool,
                                bool,
-                               bool,
                                int,
-                               bool,
+                               EmbeddingSpMDMWeightChoice,
                                bool,
                                bool,
                                EmbeddingSpMDMCornerCase,
+                               bool,
                                bool>> {};
 }; // namespace
 
@@ -64,9 +64,11 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // is fp16
         ::testing::Bool(), // isIndex64b
         ::testing::Bool(), // isOffset64b
-        ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(), // use_weight
+        ::testing::Values(
+            UNWEIGHTED,
+            WEIGHTED,
+            POSITIONAL_WEIGHTED), // use_weight
         ::testing::Bool(), // normalize_by_lengths
         ::testing::Bool(), // use_offsets
         ::testing::Values(
@@ -74,27 +76,33 @@ INSTANTIATE_TEST_CASE_P(
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
-        ::testing::Bool())); // output_stride != block_size
+        ::testing::Bool(), // output_stride != block_size
+        ::testing::Bool())); // input_stride != block_size
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isFp16, isIndex64b, isOffset64b, is_wt_positional, use_weight,
-      normalize_by_lengths, use_offsets, use_output_stride;
+      normalize_by_lengths, use_offsets, use_output_stride, use_input_stride;
   int prefetch;
+  EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
       isIndex64b,
       isOffset64b,
-      is_wt_positional,
       prefetch,
-      use_weight,
+      weight_choice,
       normalize_by_lengths,
       use_offsets,
       corner_case,
-      use_output_stride) = GetParam();
+      use_output_stride,
+      use_input_stride) = GetParam();
+  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  use_weight = weight_choice != UNWEIGHTED;
+
   if (corner_case != NONE) {
     // Check corner case only for subset of tests.
-    if (isFp16 || normalize_by_lengths || use_output_stride) {
+    if (isFp16 || normalize_by_lengths || use_output_stride ||
+        use_input_stride) {
       return;
     }
   }
@@ -109,13 +117,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     int embedding_dim = input[2];
     int average_len = input[3];
     int output_stride = use_output_stride ? embedding_dim * 2 + 3 : -1;
+    int input_stride = use_input_stride ? embedding_dim * 2 + 3 : -1;
 
     // Create embedding table
-    vector<float> embedding_table(num_rows * embedding_dim);
+    vector<float> embedding_table(
+        num_rows * (use_input_stride ? input_stride : embedding_dim));
     default_random_engine generator;
     normal_distribution<float> embedding_distribution;
-    for (int i = 0; i < embedding_table.size(); ++i) {
-      embedding_table[i] = embedding_distribution(generator);
+    for (int i = 0; i < num_rows; ++i) {
+      for (int j = 0; j < embedding_dim; ++j) {
+        embedding_table
+            [i * (use_input_stride ? input_stride : embedding_dim) + j] =
+                embedding_distribution(generator);
+      }
     }
     vector<float16> embedding_table_fp16;
     if (isFp16) {
@@ -172,17 +186,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
           auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float16, int64_t, int64_t>(
+              GenerateEmbeddingSpMDMWithStrides<float16, int64_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
                   prefetch,
                   is_wt_positional,
                   use_offsets,
-                  output_stride);
+                  output_stride,
+                  input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -206,17 +222,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
           auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float, int64_t, int64_t>(
+              GenerateEmbeddingSpMDMWithStrides<float, int64_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
                   prefetch,
                   is_wt_positional,
                   use_offsets,
-                  output_stride);
+                  output_stride,
+                  input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -242,17 +260,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
           auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float16, int32_t, int64_t>(
+              GenerateEmbeddingSpMDMWithStrides<float16, int32_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
                   prefetch,
                   is_wt_positional,
                   use_offsets,
-                  output_stride);
+                  output_stride,
+                  input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -276,17 +296,19 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
           auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float, int32_t, int64_t>(
+              GenerateEmbeddingSpMDMWithStrides<float, int32_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
                   prefetch,
                   is_wt_positional,
                   use_offsets,
-                  output_stride);
+                  output_stride,
+                  input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -314,17 +336,18 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
-          auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float16, int64_t>(
-                  embedding_dim,
-                  use_weight,
-                  normalize_by_lengths,
-                  prefetch,
-                  is_wt_positional,
-                  use_offsets,
-                  output_stride);
+          auto kernel = GenerateEmbeddingSpMDMWithStrides<float16, int64_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets,
+              output_stride,
+              input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -348,16 +371,18 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
-          auto kernel = GenerateEmbeddingSpMDMWithOutputStride<float, int64_t>(
+          auto kernel = GenerateEmbeddingSpMDMWithStrides<float, int64_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
               prefetch,
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -383,17 +408,18 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
-          auto kernel =
-              GenerateEmbeddingSpMDMWithOutputStride<float16, int32_t>(
-                  embedding_dim,
-                  use_weight,
-                  normalize_by_lengths,
-                  prefetch,
-                  is_wt_positional,
-                  use_offsets,
-                  output_stride);
+          auto kernel = GenerateEmbeddingSpMDMWithStrides<float16, int32_t>(
+              embedding_dim,
+              use_weight,
+              normalize_by_lengths,
+              prefetch,
+              is_wt_positional,
+              use_offsets,
+              output_stride,
+              input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -417,16 +443,18 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
               output_ref.data(),
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
 
-          auto kernel = GenerateEmbeddingSpMDMWithOutputStride<float, int32_t>(
+          auto kernel = GenerateEmbeddingSpMDMWithStrides<float, int32_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
               prefetch,
               is_wt_positional,
               use_offsets,
-              output_stride);
+              output_stride,
+              input_stride);
           success = kernel(
               batch_size,
               lengths_sum,
@@ -465,19 +493,22 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isFp16, isIndex64b, isOffset64b, is_wt_positional, use_weight,
       normalize_by_lengths, use_offsets;
-  bool use_output_stride; // not used
+  bool use_output_stride, use_input_stride; // not used
   int prefetch;
+  EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isFp16,
       isIndex64b,
       isOffset64b,
-      is_wt_positional,
       prefetch,
-      use_weight,
+      weight_choice,
       normalize_by_lengths,
       use_offsets,
       corner_case,
-      use_output_stride) = GetParam();
+      use_output_stride,
+      use_input_stride) = GetParam();
+  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  use_weight = weight_choice != UNWEIGHTED;
 
   constexpr float sparsity = 0.7;
 
