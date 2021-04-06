@@ -20,6 +20,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -43,8 +44,8 @@ def get_device() -> torch.device:
 # Merged indices with shape (T, B, L) -> (flattened indices with shape
 # (T * B * L), offsets with shape (T * B + 1))
 def get_table_batched_offsets_from_dense(
-    merged_indices: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    merged_indices: Tensor,
+) -> Tuple[Tensor, Tensor]:
     (T, B, L) = merged_indices.size()
     lengths = np.ones((T, B)) * L
     flat_lengths = lengths.flatten()
@@ -67,7 +68,7 @@ def generate_requests(
     alpha: float = 1.0,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
-) -> List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]:
+) -> List[Tuple[Tensor, Tensor, Optional[Tensor]]]:
     if alpha <= 1.0:
         all_indices = torch.randint(
             low=0,
@@ -111,9 +112,8 @@ def generate_requests(
 
 
 def benchmark_requests(
-    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    f: Callable,
+    requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
+    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
 ) -> float:
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -123,7 +123,7 @@ def benchmark_requests(
     else:
         start_time = time.time()
     for (indices, offsets, weights) in requests:
-        f(indices, offsets, weights)
+        func(indices, offsets, weights)
     if torch.cuda.is_available():
         end_event.record()
         torch.cuda.synchronize()
@@ -133,11 +133,9 @@ def benchmark_requests(
 
 
 def benchmark_pipelined_requests(
-    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    f: Callable,
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    g: Callable,
+    requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
+    func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
+    func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
 ) -> Tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
@@ -152,10 +150,10 @@ def benchmark_pipelined_requests(
         requests, start_events, end_events
     ):
         start_event[0].record()
-        f(indices, offsets, indices_weights)
+        func1(indices, offsets, indices_weights)
         end_event[0].record()
         start_event[1].record()
-        g(indices, offsets, indices_weights)
+        func2(indices, offsets, indices_weights)
         end_event[1].record()
     torch.cuda.synchronize()
     return (
