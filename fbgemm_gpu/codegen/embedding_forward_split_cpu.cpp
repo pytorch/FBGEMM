@@ -107,24 +107,19 @@ void split_embedding_forward_cpu_kernel(
   constexpr bool use_fbgemm = std::is_same<weights_t, float>::value ||
       std::is_same<weights_t, at::Half>::value;
 
-  at::parallel_for(0, T * B, 0, [&](int64_t tb_begin, int64_t tb_end) {
-    int t_begin = tb_begin / B;
-    int t_end = (tb_end + B - 1) / B;
-    for (int t = t_begin; t < t_end; ++t) {
-      const auto D_begin = D_offsets_data[t];
-      const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
-      const auto table_begin = weights_offsets_data[t];
+  for (int t = 0; t < T; ++t) {
+    const auto D_begin = D_offsets_data[t];
+    const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
+    const auto table_begin = weights_offsets_data[t];
 
-      int64_t hash_size;
-      int t_temp = t + 1;
-      do {
-        hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
-        ++t_temp;
-      } while (hash_size == 0);
+    int64_t hash_size;
+    int t_temp = t + 1;
+    do {
+      hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
+      ++t_temp;
+    } while (hash_size == 0);
 
-      int b_begin = (t == t_begin) ? tb_begin % B : 0;
-      int b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
-
+    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
       bool success = true;
       if (use_fbgemm) {
         using fbgemm_weight_t =
@@ -201,8 +196,8 @@ void split_embedding_forward_cpu_kernel(
         report_error_(
             t, B, b_begin, b_end, offsets_data, indices_data, hash_size);
       } // !success
-    } // for each t
-  }); // parallel for
+    }); // parallel for
+  } // for each t
 }
 
 Tensor split_embedding_codegen_forward_cpu(
@@ -273,8 +268,8 @@ void split_embedding_grad_indice_weights_cpu_kernel(
   const auto offsets_data = offsets.accessor<int64_t, 1>();
   const auto indices_data = indices.accessor<int64_t, 1>();
 
-  auto weights_data = weights.accessor<weights_t, 1>();
-  auto grad_output_data = grad_output.accessor<grad_t, 2>();
+  const auto weights_data = weights.accessor<weights_t, 1>();
+  const auto grad_output_data = grad_output.accessor<grad_t, 2>();
   auto grad_indice_weights_data = grad_indice_weights.accessor<grad_t, 1>();
   for (int64_t t = 0; t < T; ++t) {
     if (feature_requires_grad.defined() &&
