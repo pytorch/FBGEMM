@@ -175,7 +175,9 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
             eps,
             // fbgemm follows caffe2 convention of negative learning rate
             -learning_rate);
-        TORCH_CHECK(success); // TODO more friendly error msg
+        // TODO: more friendly error msg.
+        // See report_error_ in embedding_forward_split_cpu.cpp
+        TORCH_CHECK(success);
       }
     }); // parallel_for
     return;
