@@ -40,9 +40,9 @@ template <typename inType, typename indxType, typename offsetType>
 class ReturnFunctionSignature<inType, indxType, offsetType, false> {
  public:
   using jit_embedding_kernel = bool (*)(
-      std::int64_t output_size,
-      std::int64_t index_size,
-      std::int64_t data_size,
+      int64_t output_size,
+      int64_t index_size,
+      int64_t data_size,
       const inType* input,
       const indxType* indices,
       const offsetType* offsets_or_lengths,
@@ -55,8 +55,8 @@ template <typename inType, typename indxType, typename offsetType>
 class ReturnFunctionSignature<inType, indxType, offsetType, true> {
  public:
   using jit_embedding_kernel = bool (*)(
-      std::int64_t output_size,
-      std::int64_t index_size,
+      int64_t output_size,
+      int64_t index_size,
       int64_t uncompressed_data_size,
       // int64_t compressed_data_size,
       const inType* input,
@@ -64,7 +64,7 @@ class ReturnFunctionSignature<inType, indxType, offsetType, true> {
       const offsetType* offsets_or_lengths,
       const float* weights,
       float* out,
-      const std::int32_t* compressed_indices_table,
+      const int32_t* compressed_indices_table,
       const int* mask);
 };
 
@@ -89,7 +89,8 @@ class GenEmbeddingSpMDMLookup {
       bool normalize_by_lengths,
       int prefetch,
       bool use_offsets,
-      int output_stride);
+      int output_stride,
+      int input_stride);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -104,9 +105,9 @@ class GenEmbeddingSpMDMLookup {
 
   // The hash depends on embedding dimension (block size), weighted sls,
   // positional weights, normalize by lenths, prefetch distance, use_offsets,
-  // and output_stride
+  // output_stride, and input_stride
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int, bool, int>,
+      std::tuple<int, bool, bool, bool, int, bool, int, int>,
       typename ReturnFunctionSignature<
           inType,
           indxType,
@@ -135,7 +136,7 @@ template <
     inst_set_t instSet,
     bool ROWWISE_SPARSE>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool, int>,
+    std::tuple<int, bool, bool, bool, int, bool, int, int>,
     typename ReturnFunctionSignature<
         inType,
         indxType,
@@ -167,15 +168,18 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
         bool normalize_by_lengths,
         int prefetch,
         bool use_offsets,
-        int output_stride) {
-  std::tuple<int, bool, bool, bool, int, bool, int> kernelSig = std::make_tuple(
-      block_size,
-      has_weight,
-      is_weight_positional,
-      normalize_by_lengths,
-      prefetch,
-      use_offsets,
-      output_stride);
+        int output_stride,
+        int input_stride) {
+  std::tuple<int, bool, bool, bool, int, bool, int, int> kernelSig =
+      std::make_tuple(
+          block_size,
+          has_weight,
+          is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
+          use_offsets,
+          output_stride,
+          input_stride);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -184,12 +188,12 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
                 indxType,
                 offsetType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
-        bool is8bit = std::is_same<inType, std::uint8_t>::value;
+        bool is8bit = std::is_same<inType, uint8_t>::value;
         bool is16bit = std::is_same<inType, float16>::value;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+        bool areIndices64b = std::is_same<indxType, int64_t>::value;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -260,24 +264,24 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
           func.init(
               asmjit::FuncSignatureT<
                   bool,
-                  std::int64_t, // output_size
-                  std::int64_t, // index_size
-                  std::int64_t, // uncompressed_data_size
+                  int64_t, // output_size
+                  int64_t, // index_size
+                  int64_t, // uncompressed_data_size
                   const inType*, // input uint8_t or float
                   const indxType*, // indices
                   const offsetType*, // offsets or lengths
                   const float*, // weights
                   float*, // out
-                  const std::int32_t*, // compressed_indices_table and then mask
+                  const int32_t*, // compressed_indices_table and then mask
                   const int*>(asmjit::CallConv::kIdHost),
               a->environment());
         } else {
           func.init(
               asmjit::FuncSignatureT<
                   bool,
-                  std::int64_t, // output_size
-                  std::int64_t, // index_size
-                  std::int64_t, // data_size
+                  int64_t, // output_size
+                  int64_t, // index_size
+                  int64_t, // data_size
                   const inType*, // input uint8_t or float
                   const indxType*, // indices
                   const offsetType*, // offsets or lengths
@@ -520,9 +524,7 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
                     2)); // use of 2 is to multiply by 4
           }
 
-          int fused_block_size = is8bit
-              ? block_size * sizeof(uint8_t) + 2 * sizeof(float)
-              : block_size * sizeof(inType);
+          int fused_block_size = input_stride * sizeof(inType);
 
           if (pref_dist) {
             asmjit::Label pref_dist_reset_start = a->newLabel();
@@ -832,28 +834,38 @@ GenEmbeddingSpMDMLookup<inType, indxType, offsetType, instSet, ROWWISE_SPARSE>::
 
 template <typename inType, typename indxType, typename offsetType>
 typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType>::Type
-GenerateEmbeddingSpMDMWithOutputStride(
-    const std::int64_t block_size,
+GenerateEmbeddingSpMDMWithStrides(
+    const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
     bool is_weight_positional,
     bool use_offsets,
-    std::int64_t output_stride /*=-1*/) {
+    int64_t output_stride /*=-1*/,
+    int64_t input_stride /*=-1*/) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if (output_stride == -1) {
     output_stride = block_size;
   }
+  if (input_stride == -1) {
+    if (std::is_same<inType, uint8_t>::value) {
+      const auto scale_bias_offset = 2 * sizeof(float);
+      input_stride = block_size + scale_bias_offset;
+    } else {
+      input_stride = block_size;
+    }
+  }
   const inst_set_t isa = fbgemmInstructionSet();
   if ((std::is_same<inType, float>::value ||
        std::is_same<inType, float16>::value) &&
-      block_size == 1 && isYmm(isa) && output_stride == block_size) {
+      block_size == 1 && isYmm(isa) && output_stride == block_size &&
+      input_stride == block_size) {
     return
-        [=](std::int64_t output_size,
-            std::int64_t index_size,
-            std::int64_t data_size,
+        [=](int64_t output_size,
+            int64_t index_size,
+            int64_t data_size,
             const inType* input,
             const indxType* indices,
             const offsetType* offsets_or_lengths,
@@ -886,10 +898,11 @@ GenerateEmbeddingSpMDMWithOutputStride(
         normalize_by_lengths,
         prefetch,
         use_offsets,
-        output_stride);
-    return [=](std::int64_t output_size,
-               std::int64_t index_size,
-               std::int64_t data_size,
+        output_stride,
+        input_stride);
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
                const inType* input,
                const indxType* indices,
                const offsetType* offsets_or_lengths,
@@ -920,10 +933,11 @@ GenerateEmbeddingSpMDMWithOutputStride(
         normalize_by_lengths,
         prefetch,
         use_offsets,
-        output_stride);
-    return [=](std::int64_t output_size,
-               std::int64_t index_size,
-               std::int64_t data_size,
+        output_stride,
+        input_stride);
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
                const inType* input,
                const indxType* indices,
                const offsetType* offsets_or_lengths,
@@ -944,9 +958,9 @@ GenerateEmbeddingSpMDMWithOutputStride(
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
-    return [=](std::int64_t output_size,
-               std::int64_t index_size,
-               std::int64_t data_size,
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
                const inType* input,
                const indxType* indices,
                const offsetType* offsets_or_lengths,
@@ -964,7 +978,8 @@ GenerateEmbeddingSpMDMWithOutputStride(
           normalize_by_lengths,
           out,
           is_weight_positional,
-          output_stride);
+          output_stride,
+          input_stride);
     };
   }
 }
@@ -972,20 +987,21 @@ GenerateEmbeddingSpMDMWithOutputStride(
 template <typename inType, typename indxType, typename offsetType>
 typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType>::Type
 GenerateEmbeddingSpMDM(
-    const std::int64_t block_size,
+    const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
     bool is_weight_positional,
     bool use_offsets) {
-  return GenerateEmbeddingSpMDMWithOutputStride<inType, indxType, offsetType>(
+  return GenerateEmbeddingSpMDMWithStrides<inType, indxType, offsetType>(
       block_size,
       has_weight,
       normalize_by_lengths,
       prefetch,
       is_weight_positional,
       use_offsets,
-      /*output_stride=*/-1);
+      /*output_stride=*/-1,
+      /*input_stride=*/-1);
 }
 
 template <typename inType, typename indxType, typename offsetType>
@@ -1003,6 +1019,11 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  int64_t input_stride = block_size;
+  if (std::is_same<inType, uint8_t>::value) {
+    const auto scale_bias_offset = 2 * sizeof(float);
+    input_stride = block_size + scale_bias_offset;
+  }
   inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
     static GenEmbeddingSpMDMLookup<
@@ -1019,16 +1040,17 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         normalize_by_lengths,
         prefetch,
         use_offsets,
-        /*output_stride=*/block_size);
-    return [=](std::int64_t output_size,
-               std::int64_t index_size,
-               std::int64_t uncompressed_data_size,
+        /*output_stride=*/block_size,
+        input_stride);
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t uncompressed_data_size,
                const inType* input,
                const indxType* indices,
                const offsetType* offsets_or_lengths,
                const float* weights,
                float* out,
-               const std::int32_t* compressed_indices_table) {
+               const int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -1056,16 +1078,17 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         normalize_by_lengths,
         prefetch,
         use_offsets,
-        /*output_stride=*/block_size);
-    return [=](std::int64_t output_size,
-               std::int64_t index_size,
-               std::int64_t uncompressed_data_size,
+        /*output_stride=*/block_size,
+        input_stride);
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t uncompressed_data_size,
                const inType* input,
                const indxType* indices,
                const offsetType* offsets_or_lengths,
                const float* weights,
                float* out,
-               const std::int32_t* compressed_indices_table) {
+               const int32_t* compressed_indices_table) {
       return original_func(
           output_size,
           index_size,
@@ -1091,7 +1114,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             const offsetType* offsets_or_lengths,
             const float* weights, // optional, can be null for non-weighted sum
             float* out,
-            const std::int32_t* compressed_indices_table) {
+            const int32_t* compressed_indices_table) {
           return EmbeddingSpMDMRowWiseSparse_ref(
               block_size,
               output_size,
@@ -1111,56 +1134,57 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   }
 }
 
-#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)            \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<               \
-      IN_TYPE,                                                              \
-      INDEX_TYPE,                                                           \
-      OFFSET_TYPE>::Type                                                    \
-  GenerateEmbeddingSpMDMWithOutputStride<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>( \
-      const std::int64_t block_size,                                        \
-      bool has_weight,                                                      \
-      bool normalize_by_lengths,                                            \
-      int prefetch,                                                         \
-      bool is_weight_positional,                                            \
-      bool use_offsets,                                                     \
-      std::int64_t output_stride);                                          \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<               \
-      IN_TYPE,                                                              \
-      INDEX_TYPE,                                                           \
-      OFFSET_TYPE>::Type                                                    \
-  GenerateEmbeddingSpMDM<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(                 \
-      const std::int64_t block_size,                                        \
-      bool has_weight,                                                      \
-      bool normalize_by_lengths,                                            \
-      int prefetch,                                                         \
-      bool is_weight_positional,                                            \
-      bool use_offsets);                                                    \
-  template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<  \
-      IN_TYPE,                                                              \
-      INDEX_TYPE,                                                           \
-      OFFSET_TYPE>::Type                                                    \
-  GenerateEmbeddingSpMDMRowWiseSparse<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(    \
-      const std::int64_t block_size,                                        \
-      bool has_weight,                                                      \
-      bool normalize_by_lengths,                                            \
-      int prefetch,                                                         \
-      bool is_weight_positional,                                            \
+#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)           \
+  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE>::Type                                                   \
+  GenerateEmbeddingSpMDMWithStrides<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(     \
+      const int64_t block_size,                                            \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
+      bool use_offsets,                                                    \
+      int64_t output_stride,                                               \
+      int64_t input_stride);                                               \
+  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE>::Type                                                   \
+  GenerateEmbeddingSpMDM<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(                \
+      const int64_t block_size,                                            \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
+      bool use_offsets);                                                   \
+  template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE>::Type                                                   \
+  GenerateEmbeddingSpMDMRowWiseSparse<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(   \
+      const int64_t block_size,                                            \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
       bool use_offsets);
 
 #define INSTANTIATE_SPMDM_NAME(IN_TYPE, INDEX_TYPE, OFFSET_TYPE) \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
-#define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)     \
-  INSTANTIATE_SPMDM_NAME(IN_TYPE, INDEX_TYPE, std::int32_t) \
-  INSTANTIATE_SPMDM_NAME(IN_TYPE, INDEX_TYPE, std::int64_t)
+#define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE) \
+  INSTANTIATE_SPMDM_NAME(IN_TYPE, INDEX_TYPE, int32_t)  \
+  INSTANTIATE_SPMDM_NAME(IN_TYPE, INDEX_TYPE, int64_t)
 
-#define INSTANTIATE_SPMDM_INDEX_T(IN_TYPE)          \
-  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int32_t) \
-  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int64_t)
+#define INSTANTIATE_SPMDM_INDEX_T(IN_TYPE)     \
+  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, int32_t) \
+  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, int64_t)
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
-INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
+INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 
 #undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T

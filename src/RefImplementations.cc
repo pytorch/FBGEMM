@@ -1098,7 +1098,8 @@ bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional,
     bool use_offsets,
-    int64_t output_stride /*=-1*/) {
+    int64_t output_stride /*=-1*/,
+    int64_t input_stride /*=-1*/) {
   bool is8bit = is_same<InType, uint8_t>::value;
   if (output_stride == -1) {
     output_stride = block_size;
@@ -1107,8 +1108,10 @@ bool EmbeddingSpMDM_ref(
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
-    const auto scale_bias_offset = 2 * sizeof(float);
-    const int64_t fused_block_size = block_size + scale_bias_offset;
+    if (input_stride == -1) {
+      const auto scale_bias_offset = 2 * sizeof(float);
+      input_stride = block_size + scale_bias_offset;
+    }
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
@@ -1124,7 +1127,7 @@ bool EmbeddingSpMDM_ref(
         }
 
         const float* scale_bias = reinterpret_cast<const float*>(
-            input + fused_block_size * idx + block_size);
+            input + input_stride * idx + block_size);
 
         float weight = 1.0f;
         if (weights) {
@@ -1135,7 +1138,7 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           out[j] =
-              std::fma(scale, input[fused_block_size * idx + j], out[j] + bias);
+              std::fma(scale, input[input_stride * idx + j], out[j] + bias);
         }
 
         ++current;
@@ -1150,6 +1153,10 @@ bool EmbeddingSpMDM_ref(
     }
     return current == index_size;
   } else {
+    if (input_stride == -1) {
+      input_stride = block_size;
+    }
+
     // Reference implementation of FP32 SLS
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -1171,7 +1178,7 @@ bool EmbeddingSpMDM_ref(
         }
 
         for (int j = 0; j < block_size; ++j) {
-          const InType* inptr = input + block_size * idx + j;
+          const InType* inptr = input + input_stride * idx + j;
           out[j] = std::fma(
               w,
               is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
@@ -1750,6 +1757,7 @@ template FBGEMM_API void transposeConvWeights(
       float* out,                                                \
       bool is_weight_positional,                                 \
       bool use_offsets,                                          \
+      int64_t input_stride,                                      \
       int64_t output_stride);                                    \
   template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(      \
       const int64_t block_size,                                  \

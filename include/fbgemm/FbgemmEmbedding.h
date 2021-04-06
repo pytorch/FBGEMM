@@ -75,6 +75,7 @@ FBGEMM_API
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
+ * @param input_stride If -1, input_stride is same as block_size
  */
 template <
     typename InType,
@@ -82,14 +83,15 @@ template <
     typename OffsetType = std::int32_t>
 FBGEMM_API
     typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
-    GenerateEmbeddingSpMDMWithOutputStride(
+    GenerateEmbeddingSpMDMWithStrides(
         const std::int64_t block_size,
         bool has_weight,
         bool normalize_by_lengths,
         int prefetch = 16,
         bool is_weight_positional = false,
         bool use_offsets = true,
-        std::int64_t output_stride = -1);
+        std::int64_t output_stride = -1,
+        std::int64_t input_stride = -1);
 
 /**
  * @tparam IndexType can be int32_t or int64_t

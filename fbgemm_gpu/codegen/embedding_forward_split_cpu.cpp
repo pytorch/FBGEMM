@@ -129,7 +129,7 @@ void split_embedding_forward_cpu_kernel(
       if (use_fbgemm) {
         using fbgemm_weight_t =
             typename ::internal::half2float16<weights_t>::type;
-        auto kernel = fbgemm::GenerateEmbeddingSpMDMWithOutputStride<
+        auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
             fbgemm_weight_t,
             /*IndexType=*/int64_t,
             /*OffsetType=*/int64_t>(
