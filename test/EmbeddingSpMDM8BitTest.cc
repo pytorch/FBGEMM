@@ -51,9 +51,8 @@ namespace {
 class Fused8BitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 bool,
                                                 bool,
-                                                bool,
                                                 int,
-                                                bool,
+                                                EmbeddingSpMDMWeightChoice,
                                                 bool,
                                                 bool,
                                                 EmbeddingSpMDMCornerCase>> {};
@@ -65,9 +64,11 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::Bool(), // isIndex64b
         ::testing::Bool(), // isOffset64b
-        ::testing::Bool(), // is_wt_positional
         ::testing::ValuesIn(prefetch_distances),
-        ::testing::Bool(), // use_weight
+        ::testing::Values(
+            UNWEIGHTED,
+            WEIGHTED,
+            POSITIONAL_WEIGHTED), // use_weight
         ::testing::Bool(), // normalize_by_lengths
         ::testing::Bool(), // use_offsets
         ::testing::Values(
@@ -81,15 +82,17 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
       normalize_by_lengths, use_offsets;
   int prefetch;
+  EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isIndex64b,
       isOffset64b,
-      is_wt_positional,
       prefetch,
-      use_weight,
+      weight_choice,
       normalize_by_lengths,
       use_offsets,
       corner_case) = GetParam();
+  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  use_weight = weight_choice != UNWEIGHTED;
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -297,15 +300,17 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
       normalize_by_lengths, use_offsets;
   int prefetch;
+  EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isIndex64b,
       isOffset64b,
-      is_wt_positional,
       prefetch,
-      use_weight,
+      weight_choice,
       normalize_by_lengths,
       use_offsets,
       corner_case) = GetParam();
+  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  use_weight = weight_choice != UNWEIGHTED;
 
   constexpr float sparsity = 0.7;
 

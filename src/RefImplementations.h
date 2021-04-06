@@ -231,7 +231,8 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     float* out,
     bool is_weight_positional = false,
     bool use_offsets = true,
-    std::int64_t output_stride = -1);
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1);
 
 template <typename IndexType = std::int64_t, typename OffsetType = std::int32_t>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
