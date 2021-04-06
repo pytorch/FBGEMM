@@ -37,7 +37,7 @@ def div_round_up(a: int, b: int) -> int:
 
 def get_device() -> torch.device:
     return (
-        torch.cuda.current_device if torch.cuda.is_available() else torch.device("cpu")
+        torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
     )
 
 
