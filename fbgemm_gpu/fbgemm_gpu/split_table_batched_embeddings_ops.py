@@ -936,8 +936,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def _apply_cache_state(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
-        cache_state,
+        cache_state: CacheState,
         cache_algorithm: CacheAlgorithm,
         cache_load_factor: float,
         cache_sets: int,
