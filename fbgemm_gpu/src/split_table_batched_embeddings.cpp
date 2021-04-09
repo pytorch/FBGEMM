@@ -96,7 +96,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "lxu_cache_lookup",
       torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(lxu_cache_lookup_cuda)));
   m.def(
-      "lxu_cache_flush(Tensor uvm_weights, Tensor cache_hash_size_cumsum, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor lxu_cache_state, Tensor lxu_cache_weights, bool stochastic_rounding) -> ()");
+      "lxu_cache_flush(Tensor(a!) uvm_weights, Tensor cache_hash_size_cumsum, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor(b!) lxu_cache_state, Tensor(c!) lxu_cache_weights, bool stochastic_rounding) -> ()");
   m.impl(
       "lxu_cache_flush",
       torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(lxu_cache_flush_cuda)));
