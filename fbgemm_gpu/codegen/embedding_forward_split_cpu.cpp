@@ -7,6 +7,9 @@
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
+#ifdef FBCODE_CAFFE2
+#include "folly/container/F14Map.h"
+#endif
 
 #include <ATen/AccumulateType.h>
 
@@ -360,7 +363,11 @@ void batched_csr2csc(
   for (int t = 0; t < num_tables; ++t) {
     int num_non_empty_segments = 0;
     if (batched_csc.weights.empty()) {
+#ifdef FBCODE_CAFFE2
+      folly::F14FastMap<int64_t, std::vector<std::vector<int>>>
+#else
       std::unordered_map<int64_t, std::vector<std::vector<int>>>
+#endif
           non_empty_columns;
       int f_begin = table_to_feature_offset[t];
       int f_end = table_to_feature_offset[t + 1];
@@ -410,7 +417,11 @@ void batched_csr2csc(
       } // for each column
     } else {
       // !batched_csc.weights.empty()
+#ifdef FBCODE_CAFFE2
+      folly::F14FastMap<
+#else
       std::unordered_map<
+#endif
           int64_t,
           std::vector<std::vector<std::pair<int, scalar_t>>>>
           non_empty_columns;
