@@ -53,6 +53,9 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
       break;
     }
     case optimized_conv_t::fastpath1d: {
+      W_fast1d_packed_ =
+          std::make_shared<PackWeightMatrixFor1DConv<T, accT>>(
+              matrix_op_t::Transpose, (const conv_param_t<1> &)conv_p, sdata, nullptr);
       break;
     }
     case optimized_conv_t::im2col: {
@@ -85,6 +88,8 @@ void PackWeightsForConv<SPATIAL_DIM, T, accT>::unpack(T* origin_buf) {
     W_im2col_packed_->unpack(origin_buf);
   } else if (W_pointwise_packed_) {
     W_pointwise_packed_->unpack(origin_buf);
+  } else if (W_fast1d_packed_) {
+    W_fast1d_packed_->unpack(origin_buf);
   } else {
     assert(false && "At least one packed weights object should exist");
   }

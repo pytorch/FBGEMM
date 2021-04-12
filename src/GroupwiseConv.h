@@ -326,4 +326,17 @@ template <int SPATIAL_DIM, inst_set_t INST_SET>
 CodeCache<kernel_sig_t, jit_conv_kernel_fp>
     GenConvKernelBase<SPATIAL_DIM, INST_SET>::codeCache_;
 
+template <typename processOutputType, typename outT, typename inT>
+FBGEMM_API void dispatchOutputProcessing(
+    const processOutputType& outProcess,
+    int32_t* rowOffsetBuf,
+    outT* out,
+    const inT* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in,
+    int groups,
+    int C_per_G,
+    std::true_type);
+
 } // namespace fbgemm

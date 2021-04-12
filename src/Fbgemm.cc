@@ -255,6 +255,43 @@ template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<1>& conv_p);
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
+template <int SPATIAL_DIM, typename ACC_T>
+bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+
+  // coming up
+  const inst_set_t isa = fbgemmInstructionSet();
+  if (isa == inst_set_t::avx2) {
+    return false;
+  }
+
+  if (SPATIAL_DIM == 1) {
+    // auto areEqual = [](int a, int b) { return a == b; };
+    return
+      std::is_same<ACC_T, std::int32_t>::value &&
+      //std::all_of(
+      //    conv_p.pad.begin(),
+      //    conv_p.pad.end(),
+      //    std::bind(areEqual, std::placeholders::_1, 1)) &&
+      (conv_p.IC % conv_p.G == 0) &&
+      (conv_p.OC % conv_p.G == 0) &&
+      ((conv_p.pad[0] == 1 && conv_p.pad[1] == 1) ||
+       (conv_p.pad[0] == 0 && conv_p.pad[1] == 0)) &&
+      (conv_p.stride[0] == 1) &&
+      (conv_p.dilation[0] == 1) &&
+      (conv_p.transposed == false);
+  } else {
+    return false;
+  }
+}
+template FBGEMM_API bool take1DFastPath<1, std::int32_t>(const conv_param_t<1>& conv_p);
+template FBGEMM_API bool take1DFastPath<2, std::int32_t>(const conv_param_t<2>& conv_p);
+template FBGEMM_API bool take1DFastPath<3, std::int32_t>(const conv_param_t<3>& conv_p);
+
+template FBGEMM_API bool take1DFastPath<1, short>(const conv_param_t<1>& conv_p);
+template FBGEMM_API bool take1DFastPath<2, short>(const conv_param_t<2>& conv_p);
+template FBGEMM_API bool take1DFastPath<3, short>(const conv_param_t<3>& conv_p);
+
+
 bool fbgemmSupportedCPU() {
   return (cpuinfo_initialize() && fbgemmHasAvx2Support());
 }

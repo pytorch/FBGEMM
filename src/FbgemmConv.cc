@@ -62,10 +62,10 @@ bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       !conv_p.transposed;
 }
 
-template <int SPATIAL_DIM>
-bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
-  return false && !conv_p.transposed;
-}
+//template <int SPATIAL_DIM>
+//bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+//  return false && !conv_p.transposed;
+//}
 
 template <int SPATIAL_DIM, typename ACC_T>
 optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
@@ -75,7 +75,7 @@ optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
     return optimized_conv_t::groupwise;
   } else if (takePointWiseFastPath<SPATIAL_DIM>(conv_p)) {
     return optimized_conv_t::pointwise;
-  } else if (take1DFastPath<SPATIAL_DIM>(conv_p)) {
+  } else if (take1DFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     return optimized_conv_t::fastpath1d;
   } else {
     return optimized_conv_t::im2col;
@@ -310,7 +310,25 @@ int fbgemmConv(
       break;
     }
     case optimized_conv_t::fastpath1d: {
+
+      std::vector<int32_t> row_offset_buf(
+          rowOffsetBufferSize1DConv((const conv_param_t<1>&)conv_p));
+      outProcess.setRowOffsets(row_offset_buf.data());
+      // handle everything in fastpath1D function
+      // const conv_param_t<1>& conv_p;
+
+      fbgemmFast1DConv(
+          (const conv_param_t<1>&) conv_p,
+          activations,
+          *(packed_weights.getPackedWFor1d()),
+          out,
+          outBuffer,
+          outProcess,
+          thread_id,
+          num_threads,
+          blocking_params);
       break;
+
     }
     case optimized_conv_t::im2col: {
       // All other convolutions go through im2col-based implementation

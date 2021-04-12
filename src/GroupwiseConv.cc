@@ -908,6 +908,7 @@ void dispatchOutputProcessing(
       outProcess.getActWScale()};
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
+//    if (false) {
       if (C_per_G == 2) {
         if (a_zero_point == 0) {
           if (b_symmetric) {
