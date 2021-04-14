@@ -163,6 +163,7 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel1(
 // (sparse_feature is partitioned continuously along the sparse dimension into
 // my_size blocks)
 template <
+    bool sequence,
     bool has_weight,
     bool bucketize_pos,
     typename index_t,
@@ -178,7 +179,8 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ new_offsets_data,
     index_t* __restrict__ new_indices_data,
     scalar_t* __restrict__ new_weights_data,
-    index_t* __restrict__ new_pos_data) {
+    index_t* __restrict__ new_pos_data,
+    index_t* __restrict__ unbucketize_permute_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
@@ -193,6 +195,9 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
       index_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
+      if (sequence) {
+          unbucketize_permute_data[i] = pos;
+      }
       if (has_weight) {
         new_weights_data[pos] = weights_data[i];
       }
@@ -287,15 +292,15 @@ __global__ void permute_lengths_kernel(
   }
 }
 
+// Kernel for permuting the indices and weights. Used for permutation of table-wise partitioned sequence embeddings
 
-// Kernel for permuting the indices and weights. Used for permutation of sparse
-// features.
 template <typename index_t, typename scalar_t>
 __global__ void permute_embeddings_kernel(
     int32_t len,
     int32_t T,
     int32_t B,
     const scalar_t* __restrict__ embeddings,
+    // bag level permute
     const int32_t* __restrict__ permute,
     const index_t* __restrict__ input_offsets,
     const index_t* __restrict__ output_offsets,
