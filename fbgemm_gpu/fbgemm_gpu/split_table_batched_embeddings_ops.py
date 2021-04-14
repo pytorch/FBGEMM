@@ -709,8 +709,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.ignore
     def get_optimizer_buffer(self, state: str) -> torch.Tensor:
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-        #  attribute `named_buffers`.
         for name, buffer in self.named_buffers():
             if name == state:
                 return buffer
