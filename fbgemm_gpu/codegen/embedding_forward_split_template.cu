@@ -210,7 +210,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK(B >= 0);
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(total_D % 4 == 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
@@ -219,6 +219,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
         output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else {
         output = empty({B, total_D}, dev_weights.options());
+    }
+    if (B == 0) {
+        return output;
     }
 
     {% if not dense %}
