@@ -1103,6 +1103,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
     """
+
     weights: Tensor
     weights_offsets: Tensor
     D_offsets: Tensor
@@ -1241,7 +1242,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
 class SequenceEmbeddingCodegen(SplitTableBatchedEmbeddingBagsCodegen):
     """
     This class wraps around SplitTableBatchedEmbeddingBagsCodegen to get
-    sequence embedding op: nn.EmbeddingBag(sparse=True)
+    sequence embedding op: nn.Embedding(sparse=True)
     """
 
     def __init__(
@@ -1280,7 +1281,7 @@ class SequenceEmbeddingCodegen(SplitTableBatchedEmbeddingBagsCodegen):
 class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
     """
     This class wraps around DenseTableBatchedEmbeddingBagsCodegen to get
-    sequence embedding op, nn.EmbeddingBag(sparse=False)
+    sequence embedding op, nn.Embedding(sparse=False)
     """
 
     def __init__(
@@ -1314,3 +1315,177 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
             per_sample_weights,
             feature_requires_grad,
         )
+
+
+class BatchedSequenceEmbeddingCodeGen(nn.Module):
+    """
+    Table-batched version of nn.Embedding(sparse=True)
+    """
+
+    def __init__(
+        self,
+        embedding_specs: List[
+            Tuple[int, int, EmbeddingLocation, ComputeDevice]
+        ],  # tuple of (rows, dims, placements, compute_devices)
+        feature_table_map: Optional[List[int]] = None,  # [T]
+        optimizer: OptimType = OptimType.EXACT_SGD,
+        learning_rate: float = 0.1,
+        eps: float = 1e-4,
+        weights_precision: SparseType = SparseType.FP32,
+        enforce_hbm: bool = False,
+        stochastic_rounding: bool = False,
+        gradient_clipping: bool = False,
+        max_gradient: float = 1.0,
+        cache_algorithm: CacheAlgorithm = CacheAlgorithm.LFU,
+        cache_load_factor: float = 0.1,
+    ) -> None:
+        super().__init__()
+        feature_table_map = (
+            feature_table_map
+            if feature_table_map is not None
+            else list(range(len(embedding_specs)))
+        )
+        emb_module_list = []
+        num_feature_list = []
+        for idx, embedding_spec in enumerate(embedding_specs):
+            emb_module = SequenceEmbeddingCodegen(
+                embedding_specs=[embedding_spec],
+                feature_table_map=[0] * feature_table_map.count(idx),
+                optimizer=optimizer,
+                learning_rate=learning_rate,
+                eps=eps,
+                pooling_mode=PoolingMode.NONE,
+                weights_precision=weights_precision,
+                enforce_hbm=enforce_hbm,
+                stochastic_rounding=stochastic_rounding,
+                gradient_clipping=gradient_clipping,
+                max_gradient=max_gradient,
+                cache_algorithm=cache_algorithm,
+                cache_load_factor=cache_load_factor,
+            )
+            emb_module_list.append(emb_module)
+            num_feature_list.append(feature_table_map.count(idx))
+
+        self.emb_modules: torch.nn.ModuleList[
+            SequenceEmbeddingCodegen
+        ] = torch.nn.ModuleList(emb_module_list)
+        self.num_feature_list: List[int] = num_feature_list
+
+    def forward(self, indices_list: List[torch.Tensor]) -> Tensor:
+        pooled_embeddings: List[torch.Tensor] = []
+        i_feat = 0
+        for (
+            emb_module,
+            num_feature,
+        ) in zip(self.emb_modules, self.num_feature_list):
+            for _ in range(num_feature):
+                pooled_embeddings.append(
+                    emb_module(
+                        indices=indices_list[i_feat],
+                    ).view(-1)
+                )
+                i_feat += 1
+        if len(pooled_embeddings) == 1:
+            return pooled_embeddings[0]
+        else:
+            return torch.cat(pooled_embeddings)
+
+    @torch.jit.export
+    def split_embedding_weights(self) -> List[nn.Parameter]:
+        params: List[nn.Parameter] = []
+        for emb_module in self.emb_modules:
+            params.extend(emb_module.split_embedding_weights())
+        return params
+
+    def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
+        splits = self.split_embedding_weights()
+        for param in splits:
+            param.uniform_(min_val, max_val)
+
+    @torch.jit.export
+    def set_learning_rate(self, lr: float) -> None:
+        """
+        Sets the learning rate.
+        """
+        for emb_module in self.emb_modules:
+            emb_module.set_learning_rate(lr)
+
+    @torch.jit.ignore
+    def split_optimizer_states(self) -> List[Tuple[torch.Tensor]]:
+        """
+        Returns a list of states, split by table
+        """
+        states: List[Tuple[torch.Tensor]] = []
+        for emb_module in self.emb_modules:
+            states.extend(emb_module.split_optimizer_states())
+        return states
+
+    @torch.jit.export
+    def flush(self) -> None:
+        for emb_module in self.emb_modules:
+            emb_module.flush()
+
+
+class BatchedDenseSequenceEmbeddingCodeGen(nn.Module):
+    """
+    Table-batched version of nn.Embedding(sparse=False)
+    """
+
+    def __init__(
+        self,
+        embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
+        feature_table_map: Optional[List[int]] = None,  # [T]
+        use_cpu: bool = False,
+    ) -> None:
+        super().__init__()
+        feature_table_map = (
+            feature_table_map
+            if feature_table_map is not None
+            else list(range(len(embedding_specs)))
+        )
+        emb_module_list = []
+        num_feature_list = []
+        for idx, embedding_spec in enumerate(embedding_specs):
+            emb_module = DenseSequenceEmbeddingCodegen(
+                embedding_specs=[embedding_spec],
+                feature_table_map=[0] * feature_table_map.count(idx),
+                use_cpu=use_cpu,
+            )
+            emb_module_list.append(emb_module)
+            num_feature_list.append(feature_table_map.count(idx))
+
+        self.emb_modules: torch.nn.ModuleList[
+            DenseSequenceEmbeddingCodegen
+        ] = torch.nn.ModuleList(emb_module_list)
+        self.num_feature_list: List[int] = num_feature_list
+
+    def forward(self, indices_list: List[torch.Tensor]) -> Tensor:
+        pooled_embeddings: List[torch.Tensor] = []
+        i_feat = 0
+        for (
+            emb_module,
+            num_feature,
+        ) in zip(self.emb_modules, self.num_feature_list):
+            for _ in range(num_feature):
+                pooled_embeddings.append(
+                    emb_module(
+                        indices=indices_list[i_feat],
+                    ).view(-1)
+                )
+                i_feat += 1
+        if len(pooled_embeddings) == 1:
+            return pooled_embeddings[0]
+        else:
+            return torch.cat(pooled_embeddings)
+
+    @torch.jit.export
+    def split_embedding_weights(self) -> List[nn.Parameter]:
+        params: List[nn.Parameter] = []
+        for emb_module in self.emb_modules:
+            params.extend(emb_module.split_embedding_weights())
+        return params
+
+    def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
+        splits = self.split_embedding_weights()
+        for param in splits:
+            param.uniform_(min_val, max_val)
