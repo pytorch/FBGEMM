@@ -37,7 +37,9 @@ def div_round_up(a: int, b: int) -> int:
 
 def get_device() -> torch.device:
     return (
-        torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
+        torch.cuda.current_device()
+        if torch.cuda.is_available()
+        else torch.device("cpu")
     )
 
 
@@ -94,15 +96,7 @@ def generate_requests(
     rs = []
     for it in range(iters):
         weights_tensor = (
-            None
-            if not weighted
-            else torch.randn(
-                T * B * L,
-                device=get_device(),
-                dtype=torch.float16
-                if weights_precision == SparseType.FP16
-                else torch.float32,
-            )
+            None if not weighted else torch.randn(T * B * L, device=get_device())
         )
         rs.append(
             get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
@@ -365,7 +359,9 @@ def uvm(
     T = num_tables
     T_uvm = uvm_tables
     assert T_uvm <= T
-    assert T_uvm > 0, f"T_uvm specified {T_uvm} <= 0. If not testing UVM, please use device benchmark."
+    assert (
+        T_uvm > 0
+    ), f"T_uvm specified {T_uvm} <= 0. If not testing UVM, please use device benchmark."
     T_gpu = T - T_uvm
     L_uvm = uvm_bag_size
 
@@ -485,7 +481,9 @@ def uvm(
             if weighted:
                 assert (this_rs_uvm_weights := rs_uvm[2]) is not None
                 assert (this_rs_gpu_weights := rs_gpu[2]) is not None
-                per_sample_weights = torch.cat([this_rs_uvm_weights, this_rs_gpu_weights])
+                per_sample_weights = torch.cat(
+                    [this_rs_uvm_weights, this_rs_gpu_weights]
+                )
             requests.append((indices, offsets, per_sample_weights))
 
         # forward
@@ -504,7 +502,6 @@ def uvm(
             f"BW: {param_size_multiplier * B * sum(Ds[T_uvm:]) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
             f"T: {time_per_iter * 1.0e6:.0f}us"
         )
-
 
         time_per_iter = benchmark_requests(
             requests,
