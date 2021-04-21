@@ -108,28 +108,38 @@ def generate_requests(
 def benchmark_requests(
     requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    flush_gpu_cache_size_mb: int = 0,
 ) -> float:
+    total_time = 0.0
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
     else:
         start_time = time.time()
     for (indices, offsets, weights) in requests:
+        if torch.cuda.is_available():
+            if flush_gpu_cache_size_mb:
+                _ = torch.rand(flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+                torch.cuda.synchronize()
+            start_event.record()
+        else:
+            start_time = time.time()
         func(indices, offsets, weights)
-    if torch.cuda.is_available():
-        end_event.record()
-        torch.cuda.synchronize()
-        return (start_event.elapsed_time(end_event) * 1.0e-3) / len(requests)
-    else:
-        return (time.time() - start_time) / len(requests)
+        if torch.cuda.is_available():
+            end_event.record()
+            torch.cuda.synchronize()
+            total_time += start_event.elapsed_time(end_event) * 1.0e-3
+        else:
+            total_time += time.time() - start_time
+    return total_time / len(requests)
 
 
 def benchmark_pipelined_requests(
     requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
     func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
+    flush_gpu_cache_size_mb: int = 0,
 ) -> Tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
@@ -143,6 +153,9 @@ def benchmark_pipelined_requests(
     for ((indices, offsets, indices_weights), start_event, end_event) in zip(
         requests, start_events, end_events
     ):
+        if flush_gpu_cache_size_mb:
+            _ = torch.rand(flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+            torch.cuda.synchronize()
         start_event[0].record()
         func1(indices, offsets, indices_weights)
         end_event[0].record()
@@ -185,6 +198,7 @@ def cli() -> None:
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--flush-gpu-cache-size-mb", default=0)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -201,6 +215,7 @@ def device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
+    flush_gpu_cache_size_mb: int,
 ) -> None:
     np.random.seed(42)
     B = batch_size
@@ -293,6 +308,7 @@ def device(  # noqa C901
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
         ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     logging.info(
         f"Forward, B: {B}, "
@@ -311,6 +327,7 @@ def device(  # noqa C901
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
         ).backward(grad_output),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     logging.info(
         f"ForwardBackward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
@@ -334,6 +351,7 @@ def device(  # noqa C901
 @click.option("--uvm-tables", default=1)
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
+@click.option("--flush-gpu-cache-size-mb", default=0)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -349,6 +367,7 @@ def uvm(
     uvm_tables: int,
     uvm_bag_size: int,
     weighted: bool,
+    flush_gpu_cache_size_mb: int,
 ) -> None:
 
     np.random.seed(42)
@@ -463,11 +482,12 @@ def uvm(
             offsets.long(),
             per_sample_weights,
         ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     logging.info(
         f"UVM Forward, B: {B}, "
-        f"E: {E}, T: {T_uvm}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * sum(Ds[:T_uvm]) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
+        f"BW: {param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -494,6 +514,7 @@ def uvm(
                 offsets.long(),
                 per_sample_weights,
             ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
 
         logging.info(
@@ -510,6 +531,7 @@ def uvm(
                 offsets.long(),
                 per_sample_weights,
             ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
         logging.info(
             f"Mixed Forward, B: {B}, "
@@ -535,6 +557,7 @@ def uvm(
 @click.option("--num-tables", default=32)
 @click.option("--reuse", default=0.1)
 @click.option("--weighted", is_flag=True, default=False)
+@click.option("--flush-gpu-cache-size-mb", default=0)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -551,6 +574,7 @@ def cache(  # noqa C901
     num_tables: int,
     reuse: float,
     weighted: bool,
+    flush_gpu_cache_size_mb: int,
 ) -> None:
     np.random.seed(42)
 
@@ -630,6 +654,7 @@ def cache(  # noqa C901
         lambda indices, offsets, per_sample_weights: emb_nc(
             indices.long(), offsets.long(), per_sample_weights
         ).backward(grad_output),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     logging.info(
         f"ForwardBackward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
@@ -673,6 +698,7 @@ def cache(  # noqa C901
         lambda indices, offsets, indices_weights: emb.forward(
             indices, offsets, indices_weights
         ).backward(grad_output),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     e2e_time = prefetch_time + forward_backward_time
 
