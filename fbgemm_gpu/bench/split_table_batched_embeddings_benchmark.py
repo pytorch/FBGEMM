@@ -670,11 +670,14 @@ def cache(  # noqa C901
     exchanged_cache_lines = []
     NOT_FOUND = -1
     for indices, offsets, _ in requests:
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_state`.
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.clone)[[Named(self,
+        #  Variable[torch._TTensor (bound to Tensor)])], Variable[torch._TTensor (bound
+        #  to Tensor)]], Tensor], Tensor, torch.nn.Module]` is not a function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
+            # pyre-fixme[16]: `bool` has no attribute `sum`.
             (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())

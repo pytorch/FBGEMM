@@ -452,8 +452,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
         )
 
-        # pyre-fixme[16]: `DenseTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `double`.
+        # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
@@ -900,8 +899,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `double`.
+            # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
             cc = cc.double()
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
@@ -1280,8 +1278,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `iter`.
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
+                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1320,6 +1320,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
+                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
