@@ -470,31 +470,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         common_args = invokers.lookup_args.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_dev`.
+            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
+            #  nn.Module]`.
             dev_weights=self.weights_dev,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_host`.
             host_weights=self.weights_host,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_uvm`.
             uvm_weights=self.weights_uvm,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `lxu_cache_weights`.
             lxu_cache_weights=self.lxu_cache_weights,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_placements`.
             weights_placements=self.weights_placements,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_offsets`.
             weights_offsets=self.weights_offsets,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `D_offsets`.
             D_offsets=self.D_offsets,
             total_D=self.total_D,
             max_D=self.max_D,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `hash_size_cumsum`.
             hash_size_cumsum=self.hash_size_cumsum,
             total_hash_size_bits=self.total_hash_size_bits,
             indices=indices,
@@ -512,20 +498,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum1_dev`.
+            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
+            #  nn.Module]`.
             dev=self.momentum1_dev,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum1_host`.
             host=self.momentum1_host,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum1_uvm`.
             uvm=self.momentum1_uvm,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum1_offsets`.
             offsets=self.momentum1_offsets,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum1_placements`.
             placements=self.momentum1_placements,
         )
 
@@ -548,43 +526,59 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         momentum2 = invokers.lookup_args.Momentum(
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum2_dev`.
+            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
+            #  nn.Module]`.
             dev=self.momentum2_dev,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum2_host`.
             host=self.momentum2_host,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum2_uvm`.
             uvm=self.momentum2_uvm,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum2_offsets`.
             offsets=self.momentum2_offsets,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `momentum2_placements`.
             placements=self.momentum2_placements,
         )
         # Ensure iter is always on CPU so the increment doesn't synchronize.
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `iter`.
         if self.iter.is_cuda:
+            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
+            #  attribute `iter`.
             self.iter = self.iter.cpu()
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self, Tensor),
+        #  Named(item, typing.Any)], typing.Any], Tensor], Tensor, nn.Module]` is not a
+        #  function.
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__setitem__)[[Named(self, Tensor),
+        #  Named(item, typing.Any), Named(other, typing.Any)], None], Tensor], Tensor,
+        #  nn.Module]` is not a function.
         self.iter[0] += 1
 
         if self.optimizer == OptimType.ADAM:
             return invokers.lookup_adam.invoke(
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
+                #  not a function.
                 common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
             return invokers.lookup_partial_rowwise_adam.invoke(
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
+                #  not a function.
                 common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.LAMB:
             return invokers.lookup_lamb.invoke(
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
+                #  not a function.
                 common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
             return invokers.lookup_partial_rowwise_lamb.invoke(
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
+                #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
+                #  not a function.
                 common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
             )
 
@@ -593,43 +587,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_weights`.
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
 
         (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fb.linearize_cache_indices(
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `cache_hash_size_cumsum`.
             self.cache_hash_size_cumsum,
             indices,
             offsets,
         )
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fb.lru_cache_populate(
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `weights_uvm`.
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `cache_index_table_map`.
                 self.cache_index_table_map,
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `weights_offsets`.
                 self.weights_offsets,
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `D_offsets`.
                 self.D_offsets,
                 linear_cache_indices,
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `lxu_cache_state`.
                 self.lxu_cache_state,
                 self.lxu_cache_weights,
                 self.timestep,
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `lxu_state`.
                 self.lxu_state,
                 self.stochastic_rounding,
             )
@@ -684,25 +665,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
             if self.weights_precision == SparseType.INT8:
                 dim += self.int8_emb_row_dim_offset
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_physical_placements`.
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+            #  nn.Module]` is not a function.
             placement = self.weights_physical_placements[t]
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_physical_offsets`.
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+            #  nn.Module]` is not a function.
             offset = self.weights_physical_offsets[t]
             if placement == EmbeddingLocation.DEVICE.value:
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `weights_dev`.
                 weights = self.weights_dev
             elif placement == EmbeddingLocation.HOST.value:
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `weights_host`.
                 weights = self.weights_host
             else:
-                # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                #  attribute `weights_uvm`.
                 weights = self.weights_uvm
             splits.append(
+                # pyre-fixme[29]:
+                #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self,
+                #  Tensor)], Tensor], Tensor], Tensor, nn.Module]` is not a function.
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
         return splits
@@ -773,20 +755,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum1_dev`.
+                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
+                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_dev,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum1_host`.
                     self.momentum1_host,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum1_uvm`.
                     self.momentum1_uvm,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen`
-                    # has no attribute `momentum1_physical_offsets`.
                     self.momentum1_physical_offsets,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum1_physical_placements`.
                     self.momentum1_physical_placements,
                     rowwise=self.optimizer
                     in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD],
@@ -800,20 +774,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum2_dev`.
+                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
+                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_dev,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum2_host`.
                     self.momentum2_host,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum2_uvm`.
                     self.momentum2_uvm,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum2_physical_offsets`.
                     self.momentum2_physical_offsets,
-                    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-                    #  attribute `momentum2_physical_placements`.
                     self.momentum2_physical_placements,
                     rowwise=self.optimizer
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
@@ -839,29 +805,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def flush(self) -> None:
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_weights`.
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
         torch.ops.fb.lxu_cache_flush(
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_uvm`.
             self.weights_uvm,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `cache_hash_size_cumsum`.
             self.cache_hash_size_cumsum,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `cache_index_table_map`.
             self.cache_index_table_map,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `weights_offsets`.
             self.weights_offsets,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `D_offsets`.
             self.D_offsets,
             self.total_D,
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
-            #  attribute `lxu_cache_state`.
             self.lxu_cache_state,
             self.lxu_cache_weights,
             self.stochastic_rounding,
@@ -1074,15 +1029,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_weights`.
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
         # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
         #  `lxu_cache_state`.
         self.lxu_cache_state.fill_(-1)
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_state`.
         self.lxu_state.fill_(0)
         self.timestep = 1
 
