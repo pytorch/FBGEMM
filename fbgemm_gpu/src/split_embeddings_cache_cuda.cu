@@ -233,9 +233,12 @@ Tensor linearize_cache_indices_cuda(
   TORCH_CHECK(T > 0);
   // offsets = [B x T  + 1]
   auto B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B > 0);
+  TORCH_CHECK(B >= 0);
 
   auto linear_cache_indices = at::empty_like(indices);
+  if (B == 0) {
+    return linear_cache_indices;
+  }
   linearize_cache_indices_kernel<<<
       div_round_up(B * T, kMaxThreads),
       kMaxThreads,

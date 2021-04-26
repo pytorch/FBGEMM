@@ -9,7 +9,7 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 
-enum PoolingMode { SUM = 0, MEAN = 1 };
+enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
 
 at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights,

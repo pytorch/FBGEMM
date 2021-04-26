@@ -633,14 +633,6 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
     {{ args.split_function_args | join(", ") }}) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
-    int32_t T = D_offsets.numel() - 1;
-    TORCH_CHECK(T > 0);
-    // offsets = [B x T  + 1]
-    const auto B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
-    auto BT_block_size = kMaxThreads / kWarpSize;
-    TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
-    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
     {% if dense %}
     auto grad_dev_weights = zeros_like(dev_weights);
@@ -650,6 +642,15 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
     if (indices.numel() == 0) {
         return {{ "grad_dev_weights" if dense else "" }};
     }
+
+    int32_t T = D_offsets.numel() - 1;
+    TORCH_CHECK(T > 0);
+    // offsets = [B x T  + 1]
+    const auto B = (offsets.size(0) - 1) / T;
+    TORCH_CHECK(B > 0);
+    auto BT_block_size = kMaxThreads / kWarpSize;
+    TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
+    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
     auto infos = at::empty_like(indices, indices.options().dtype(kInt));
     auto infos_sorted = at::empty_like(infos);
