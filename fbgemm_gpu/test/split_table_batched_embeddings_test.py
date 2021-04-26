@@ -57,16 +57,16 @@ def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
     return t.cpu() if use_cpu else t.cuda()
 
 
-# pyre-fixme[3]: Return annotation cannot be `Any`.
 def b_indices(
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    b: Callable,
+    b: Callable[..., torch.Tensor],
     x: torch.Tensor,
-    # pyre-fixme[2]: Parameter must be annotated.
-    per_sample_weights=None,
+    per_sample_weights: Optional[torch.Tensor]=None,
     use_cpu: bool = False,
-) -> Any:
+    do_pooling: bool=True,
+) -> torch.Tensor:
     (indices, offsets) = get_offsets_from_dense(x)
+    if not do_pooling:
+        offsets = torch.arange(0, indices.numel(), device=indices.device, dtype=offsets.dtype)
     return b(
         to_device(indices, use_cpu),
         to_device(offsets, use_cpu),
@@ -157,7 +157,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(
@@ -191,11 +197,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        mode = (
-            "sum"
-            if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            else "mean"
-        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+            T = 1  # PoolingMode.None only works for T = 1
+            emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -240,9 +254,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
         bs = [
-            to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
-            for (E, D) in zip(Es, Ds)
-        ]
+                to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
+                for (E, D) in zip(Es, Ds)
+            ]
+
         if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             bs = [b.half() for b in bs]
@@ -256,16 +271,28 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [
+                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                for (b, x) in zip(bs, xs)
+            ]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(
+                    b,
+                    x,
+                    per_sample_weights=xw.view(-1),
+                    use_cpu=use_cpu,
+                    do_pooling=do_pooling,
+                )
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
-        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        if do_pooling:
+            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        else:
+            f = torch.cat([f.view(-1) for f in fs], dim=0)
 
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+        cc = emb_op(
             embedding_specs=[
                 (
                     E,
@@ -281,8 +308,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
         )
-        # NOTE: test TorchScript-compatible!
-        cc = torch.jit.script(cc)
+        if do_pooling:
+            # NOTE: test TorchScript-compatible!
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
@@ -291,17 +319,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+        if not do_pooling:
+            offsets = None
         fc2 = (
             cc(indices, offsets)
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
+        if not do_pooling:
+            fc2 = fc2.view(-1)
         torch.testing.assert_allclose(
             fc2.float(),
             f.float(),
             atol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
+
 
     @given(
         T=st.integers(min_value=1, max_value=3),
@@ -313,7 +346,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         mixed=st.booleans(),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(
@@ -345,11 +384,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         assume(not (use_cpu and weights_precision == SparseType.FP16))
 
-        mode = (
-            "sum"
-            if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            else "mean"
-        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+            T = 1  # PoolingMode.None only works for T = 1
+            # emb_op = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen
+            emb_op = split_table_batched_embeddings_ops.DenseSequenceEmbeddingCodegen
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -399,10 +447,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
@@ -413,15 +461,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
 
-        cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
-            [(E, D) for (E, D) in zip(Es, Ds)],
+        cc = emb_op(
+            embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
         )
         if weights_precision == SparseType.FP16 and not use_cpu:
             cc = cc.half()
-        # NOTE: test TorchScript-compatible!
-        cc = torch.jit.script(cc)
+        if do_pooling:
+            # NOTE: test TorchScript-compatible!
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
@@ -435,15 +484,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+
+        if do_pooling:
+            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        else:
+            f = torch.cat(fs, dim=1)
+
         torch.testing.assert_allclose(
             fc2.float(),
             f.float(),
             atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
-
-        goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+        if do_pooling:
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+        else:
+            goc = torch.cat(gos, dim=1).contiguous()
         fc2.backward(goc)
         torch.testing.assert_allclose(
             cc.weights.grad,
@@ -481,7 +537,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
@@ -520,11 +582,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        mode = (
-            "sum"
-            if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            else "mean"
-        )
+
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+            T = 1  # PoolingMode.None only works for T = 1
+            emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -607,10 +678,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
@@ -622,8 +693,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             del bs[table_to_replicate]
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
+        cc = emb_op(
+            embedding_specs=[(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             optimizer=OptimType.EXACT_SGD if exact else OptimType.SGD,
             feature_table_map=feature_table_map,
             learning_rate=0.05,
@@ -644,7 +715,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+        if do_pooling:
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+        else:
+            goc = torch.cat(gos, dim=1).contiguous()
         fc2.backward(goc)
         if use_cache:
             cc.flush()
@@ -677,7 +751,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         exact=st.booleans(),
     )
@@ -720,11 +800,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        mode = (
-            "sum"
-            if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            else "mean"
-        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+            T = 1  # PoolingMode.None only works for T = 1
+            emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
 
         # stochastic rounding only implemented for rowwise
         assume(not stochastic_rounding or row_wise)
@@ -810,10 +898,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xws = [xw.half() for xw in xws]
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
@@ -828,8 +916,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if row_wise
             else OptimType.EXACT_ADAGRAD
         )
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
+        cc = emb_op(
+            embedding_specs=[(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             feature_table_map=feature_table_map,
             optimizer=optimizer,
             learning_rate=lr,
@@ -853,7 +941,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        fc2.backward(torch.cat([go.view(B, -1) for go in gos], dim=1))
+        if do_pooling:
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+        else:
+            goc = torch.cat(gos, dim=1).contiguous()
+        fc2.backward(goc)
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
         for t in range(T):
@@ -886,8 +978,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             D_gradcheck = (D_gradcheck + 15) // 16 * 4
         else:
             D_gradcheck = D_gradcheck * 4
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)],
+        cc = emb_op(
+            embedding_specs=[(E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)],
             feature_table_map=feature_table_map,
             optimizer=optimizer,
             learning_rate=0.0,
@@ -1063,7 +1155,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(split_table_batched_embeddings_ops.PoolingMode),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(
@@ -1103,11 +1201,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        mode = (
-            "sum"
-            if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            else "mean"
-        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+            emb_op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+            T = 1  # PoolingMode.None only works for T = 1
+            emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -1163,10 +1269,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
@@ -1204,8 +1310,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             optimizer_kwargs["momentum"] = momentum
             optimizer_kwargs["eta"] = eta
 
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
+        cc = emb_op(
+            embedding_specs=[(E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)],
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             # pyre-fixme[6]: Expected `CacheAlgorithm` for 5th param but got `float`.
@@ -1224,7 +1330,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        fc2.backward(torch.cat([go.view(B, -1) for go in gos], dim=1))
+        if do_pooling:
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+        else:
+            goc = torch.cat(gos, dim=1).contiguous()
+        fc2.backward(goc)
         cc.flush()
 
         split_optimizer_states = cc.split_optimizer_states()
