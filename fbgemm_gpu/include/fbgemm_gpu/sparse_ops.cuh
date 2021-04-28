@@ -240,7 +240,7 @@ __global__ void _segment_sum_csr_cuda_kernel(
 }
 
 // Kernel for permuting the indices and weights. Used for permutation of sparse
-// features.
+// features
 template <bool has_weight, typename index_t, typename scalar_t>
 __global__ void permute_indices_weights_kernel(
     int32_t len,
@@ -275,20 +275,39 @@ __global__ void permute_indices_weights_kernel(
   }
 }
 
-// Kernel for permuting the lengths. Used for permutation of sparse features.
-template <typename index_t>
-__global__ void permute_lengths_kernel(
+// Kernel for permuting the indices and weights. Used for permutation of sparse
+// data
+template <bool has_weight, typename offsets_t, typename indices_t, typename weights_t>
+__global__ void permute_data_kernel(
+    int32_t len,
     int32_t T,
     int32_t B,
-    const index_t* __restrict__ lengths,
+    const indices_t* __restrict__ indices,
+    const weights_t* __restrict__ weights,
     const int32_t* __restrict__ permute,
-    index_t* __restrict__ permuted_lengths) {
-  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  const int stride = gridDim.x * blockDim.x;
+    const offsets_t* __restrict__ input_offsets,
+    const offsets_t* __restrict__ output_offsets,
+    indices_t* __restrict__ permuted_indices,
+    weights_t* __restrict__ permuted_weights) {
+  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const int stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
     int32_t b = b_t % B;
     int32_t t = b_t / B;
-    permuted_lengths[b_t] = lengths[permute[t] * B + b];
+    offsets_t output_start = output_offsets[b_t];
+    offsets_t segment_length;
+    if (b_t == B * T - 1) {
+      segment_length = len - output_offsets[b_t];
+    } else {
+      segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
+    }
+    offsets_t input_start = input_offsets[permute[t] * B + b];
+    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+      permuted_indices[output_start + i] = indices[input_start + i];
+      if (has_weight) {
+        permuted_weights[output_start + i] = weights[input_start + i];
+      }
+    }
   }
 }
 
@@ -323,6 +342,25 @@ __global__ void permute_embeddings_kernel(
     }
   }
 }
+
+// Kernel for permuting the lengths. Used for permutation of sparse features.
+template <typename index_t>
+__global__ void permute_lengths_kernel(
+    int32_t T,
+    int32_t B,
+    const index_t* __restrict__ lengths,
+    const int32_t* __restrict__ permute,
+    index_t* __restrict__ permuted_lengths) {
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+    int32_t b = b_t % B;
+    int32_t t = b_t / B;
+    permuted_lengths[b_t] = lengths[permute[t] * B + b];
+  }
+}
+
+
 
 // Construct the 1D offset (T * B + 1, the global offset starts at 0 from Table
 // 0) from 2D batched offsets for each table (T * B, in each table, the offsets
