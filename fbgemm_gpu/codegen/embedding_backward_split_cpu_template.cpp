@@ -282,7 +282,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B > 0);
+  TORCH_CHECK(B >= 0);
 
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
