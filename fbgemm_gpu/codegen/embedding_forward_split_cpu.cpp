@@ -82,7 +82,7 @@ void split_embedding_forward_cpu_kernel(
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B > 0);
+  TORCH_CHECK(B >= 0);
 
   TORCH_CHECK(weights.is_contiguous());
   indices = indices.contiguous();
@@ -217,7 +217,7 @@ Tensor split_embedding_codegen_forward_cpu(
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B > 0);
+  TORCH_CHECK(B >= 0);
 
   Tensor output;
   if (weights.scalar_type() == at::kHalf) {

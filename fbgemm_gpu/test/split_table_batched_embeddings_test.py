@@ -9,7 +9,7 @@
 
 import copy
 import unittest
-from typing import Any, Callable, List, Optional, Tuple, TypeVar
+from typing import Callable, List, Optional, Tuple, TypeVar
 
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
@@ -22,20 +22,6 @@ from torch import Tensor
 
 MAX_EXAMPLES = 40
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
-
-
-def b_indices(
-    b: torch.nn.EmbeddingBag,
-    x: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor] = None,
-    use_cpu: bool = False,
-) -> torch.Tensor:
-    (indices, offsets) = get_offsets_from_dense(x)
-    return b(
-        to_device(indices, use_cpu),
-        to_device(offsets, use_cpu),
-        per_sample_weights=per_sample_weights,
-    )
 
 
 def div_round_up(a: int, b: int) -> int:
