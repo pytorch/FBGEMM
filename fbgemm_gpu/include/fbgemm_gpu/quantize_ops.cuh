@@ -9,9 +9,19 @@
 #include <cuda.h>
 #include <thrust/device_ptr.h>
 #include <thrust/extrema.h>
+#include <math_constants.h>
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define QUANTIZE_OPS_MIN(a, b) ((a) < (b) ? (a) : (b))
+
+template <typename T>
+__device__ inline __attribute__((always_inline)) T quantize_ops_shfl_xor(const T val, int laneMask, int width) {
+#if CUDA_VERSION >= 9000
+  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
+#else
+  return __shfl_xor(val, laneMask, width);
+#endif
+}
 
 __global__ void _get_8bit_qparam_cuda_kernel(
     const float* __restrict__ input,
@@ -19,30 +29,53 @@ __global__ void _get_8bit_qparam_cuda_kernel(
     int ncols,
     uint8_t* __restrict__ output,
     float* __restrict__ range_list) {
-  int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  int output_columns = ncols_aligned + 2 * sizeof(float);
+  const int row = (int)blockIdx.x * blockDim.y + threadIdx.y;
 
+  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int output_columns = ncols_aligned + 2 * sizeof(float);
+
+  // starting values for future reductions
+  float minimum_element = CUDART_INF_F;
+  float maximum_element = -CUDART_INF_F;
+
+  // always a power of 2 up to size 32. Multiple rows can share the same warp when
+  // smaller than 32.
+  const int lane_width = blockDim.x;
+
+  // March warp-wise through the row, doing thread local min and max reductions.
+  // This loop will only execute once when ncol <= 32
   if (row < nrows) {
-    const float* input_row = input + row * ncols;
-    float* output_row_qparams =
-        reinterpret_cast<float*>(output + row * output_columns + ncols_aligned);
+    const float* const input_row = input + row * ncols;
 
-    // Option 1: CUB:
-    // https://nvlabs.github.io/cub/structcub_1_1_device_reduce.html, search
-    // max-reduction
-    // Option 2: thrust
-    // TODO: Benchmark CUB vs. thrust
-    float minimum_element =
-        *thrust::min_element(thrust::device, input_row, input_row + ncols);
-    float maximum_element =
-        *thrust::max_element(thrust::device, input_row, input_row + ncols);
-    float range = maximum_element - minimum_element;
-
-    output_row_qparams[0] = range / 255.0f;
-    output_row_qparams[1] = minimum_element;
-    range_list[row] = range;
+    for (int col = threadIdx.x; col < ncols; col += lane_width) {
+      // Get thread-local minmax. These are the smallest min and max ever seen
+      // by this thread.
+      minimum_element = fminf(minimum_element, input_row[col]);
+      maximum_element = fmaxf(maximum_element, input_row[col]);
+    }
   }
+
+  // Perform warp-wide min and max reductions. All threads in the warp participate,
+  // even if they aren't assigned to a row, since we can't assume the existence of
+  // the `*_sync` warp primitives with support for masking.
+  for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
+    minimum_element = fminf(minimum_element, quantize_ops_shfl_xor(minimum_element, offset, lane_width));
+    maximum_element = fmaxf(maximum_element, quantize_ops_shfl_xor(maximum_element, offset, lane_width));
+  }
+
+  // only the leading thread in the warp is needed to return the final result in output.
+  // Additionally, threads mapped to non-existent rows do not write to the output array.
+  if (threadIdx.x != 0 || row >= nrows) {
+    return;
+  }
+
+  const float range = maximum_element - minimum_element;
+  float* const output_row_qparams =
+      reinterpret_cast<float*>(output + row * output_columns + ncols_aligned);
+
+  output_row_qparams[0] = range / 255.0f;
+  output_row_qparams[1] = minimum_element;
+  range_list[row] = range;
 }
 
 __global__ void _compute_8bit_quantize_cuda_kernel(
