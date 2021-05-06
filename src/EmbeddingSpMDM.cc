@@ -978,6 +978,7 @@ GenerateEmbeddingSpMDMWithStrides(
           normalize_by_lengths,
           out,
           is_weight_positional,
+          use_offsets,
           output_stride,
           input_stride);
     };
