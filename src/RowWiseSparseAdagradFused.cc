@@ -931,6 +931,7 @@ GenerateRowWiseSparseAdaGradFused(
           lr,
           use_offsets,
           use_stochastic_rounding,
+          /*emu_vector_size=*/8,
           grad_stride);
     };
   }
