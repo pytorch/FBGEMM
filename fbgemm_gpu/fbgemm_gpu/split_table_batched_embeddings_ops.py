@@ -552,35 +552,51 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.ADAM:
             return invokers.lookup_adam.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                momentum2,
                 # pyre-fixme[29]:
                 #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
                 #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
                 #  not a function.
-                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                self.iter.item(),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
             return invokers.lookup_partial_rowwise_adam.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                momentum2,
                 # pyre-fixme[29]:
                 #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
                 #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
                 #  not a function.
-                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                self.iter.item(),
             )
         if self.optimizer == OptimType.LAMB:
             return invokers.lookup_lamb.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                momentum2,
                 # pyre-fixme[29]:
                 #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
                 #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
                 #  not a function.
-                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                self.iter.item(),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
             return invokers.lookup_partial_rowwise_lamb.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
+                momentum2,
                 # pyre-fixme[29]:
                 #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
                 #  Tensor)], typing.Union[float, int]], Tensor], Tensor, nn.Module]` is
                 #  not a function.
-                common_args, self.optimizer_args, momentum1, momentum2, self.iter.item()
+                self.iter.item(),
             )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
@@ -1055,6 +1071,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
     """
+
     weights: Tensor
     weights_offsets: Tensor
     D_offsets: Tensor
