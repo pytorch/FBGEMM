@@ -23,6 +23,9 @@ from torch import Tensor
 MAX_EXAMPLES = 40
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+
 
 def div_round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
@@ -139,7 +142,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weights_precision=st.sampled_from(
+            [SparseType.INT8, SparseType.FP16, SparseType.FP32]
+        ),
         weighted=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
@@ -250,6 +255,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
+        if weights_precision == SparseType.INT8:
+            for t in range(T):
+                bs[t].weight.data.copy_(
+                    torch.ops.fb.Fused8BitRowwiseQuantizedToFloat(
+                        torch.ops.fb.FloatToFused8BitRowwiseQuantized(bs[t].weight.data)
+                    )
+                )
 
         if weights_precision == SparseType.FP16 and not use_cpu:
             # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
@@ -306,7 +318,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cc = torch.jit.script(cc)
 
         for t in range(T):
-            cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
+            cc.split_embedding_weights()[t].data.copy_(
+                bs[t].weight
+                if weights_precision != SparseType.INT8
+                else torch.ops.fb.FloatToFused8BitRowwiseQuantized(bs[t].weight)
+            )
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)

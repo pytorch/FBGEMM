@@ -15,30 +15,6 @@
 
 using namespace at;
 
-namespace internal {
-// A helper trait to handle that fbgemm doesn't support double precision
-template <typename T>
-struct double2float {
-  using type = T;
-};
-
-template <>
-struct double2float<double> {
-  using type = float;
-};
-
-template <typename T>
-struct half2float16 {
-  using type = T;
-};
-
-template <>
-struct half2float16<at::Half> {
-  using type = fbgemm::float16;
-};
-
-} // namespace internal
-
 namespace {
 void report_error_(
     int t,
@@ -108,7 +84,8 @@ void split_embedding_forward_cpu_kernel(
   auto output_stride = output.size(1);
 
   constexpr bool use_fbgemm = std::is_same<weights_t, float>::value ||
-      std::is_same<weights_t, at::Half>::value;
+      std::is_same<weights_t, at::Half>::value ||
+      std::is_same<weights_t, uint8_t>::value;
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
     for (int t = 0; t < T; ++t) {
@@ -125,8 +102,10 @@ void split_embedding_forward_cpu_kernel(
 
       bool success = true;
       if (use_fbgemm) {
-        using fbgemm_weight_t =
-            typename ::internal::half2float16<weights_t>::type;
+        using fbgemm_weight_t = typename std::conditional<
+            std::is_same<weights_t, at::Half>::value,
+            fbgemm::float16,
+            weights_t>::type;
         auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
             fbgemm_weight_t,
             /*IndexType=*/int64_t,
@@ -149,12 +128,10 @@ void split_embedding_forward_cpu_kernel(
             indices_data + *offsets_begin_ptr,
             offsets_begin_ptr,
             indice_weights.defined()
-                ? reinterpret_cast<const typename ::internal::double2float<
-                      ind_weights_t>::type*>(
+                ? reinterpret_cast<const float*>(
                       indice_weights_data + *offsets_begin_ptr)
                 : nullptr,
-            reinterpret_cast<
-                typename ::internal::double2float<output_t>::type*>(
+            reinterpret_cast<float*>(
                 output_data + b_begin * output_stride + D_begin));
       } else {
         output_t output_buf[D];
@@ -220,7 +197,8 @@ Tensor split_embedding_codegen_forward_cpu(
   TORCH_CHECK(B >= 0);
 
   Tensor output;
-  if (weights.scalar_type() == at::kHalf) {
+  if (weights.scalar_type() == at::kHalf ||
+      weights.scalar_type() == ScalarType::Byte) {
     output = empty({B, total_D}, weights.options().dtype(at::kFloat));
   } else {
     output = empty({B, total_D}, weights.options());
@@ -229,12 +207,17 @@ Tensor split_embedding_codegen_forward_cpu(
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      weights.scalar_type(), "split_embedding_cpu_forward", [&]() {
-        split_embedding_forward_cpu_kernel<
-            scalar_t,
-            acc_type<scalar_t, true>,
-            acc_type<scalar_t, true>>(
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      ScalarType::Half,
+      ScalarType::Byte,
+      weights.scalar_type(),
+      "split_embedding_cpu_forward",
+      [&]() {
+        using output_t = std::conditional<
+            std::is_same<scalar_t, double>::value,
+            double,
+            float>::type;
+        split_embedding_forward_cpu_kernel<scalar_t, output_t, output_t>(
             weights,
             weights_offsets,
             D_offsets,
