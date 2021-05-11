@@ -6,6 +6,7 @@
 import glob
 import os
 import shutil
+import sysconfig
 
 from codegen.embedding_backward_code_generator import emb_codegen
 from setuptools import setup
@@ -19,6 +20,9 @@ py_path = "python"
 # Get the long description from the relevant file
 with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
+
+extra_compile_args = sysconfig.get_config_var("CFLAGS").split()
+extra_compile_args += ["-mavx2", "-mf16c", "-mfma"]
 
 OPTIMIZERS = [
     "adagrad",
@@ -39,6 +43,8 @@ cpp_fbgemm_files = [
     "../src/EmbeddingSpMDMAvx2.cc",
     "../src/EmbeddingSpMDM.cc",
     "../src/EmbeddingSpMDMNBit.cc",
+    "../src/QuantUtils.cc",
+    "../src/QuantUtilsAvx2.cc",
     "../src/RefImplementations.cc",
     "../src/RowWiseSparseAdagradFused.cc",
     "../src/SparseAdagrad.cc",
@@ -135,9 +141,10 @@ setup(
                 os.path.join(cur_dir, "src/cumem_utils.cu"),
                 os.path.join(cur_dir, "src/cumem_utils_host.cpp"),
                 os.path.join(cur_dir, "src/quantize_wrappers.cu"),
-                os.path.join(cur_dir, "src/quantize_ops_host.cpp"),
-                os.path.join(cur_dir, "src/quantize_ops.cpp"),
-                os.path.join(cur_dir, "src/sparse_ops_host.cpp"),
+                os.path.join(cur_dir, "src/quantize_ops_cpu.cpp"),
+                os.path.join(cur_dir, "src/quantize_ops_gpu.cpp"),
+                os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
+                os.path.join(cur_dir, "src/sparse_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops.cu"),
             ],
             include_dirs=[
@@ -151,6 +158,7 @@ setup(
                 os.path.join(cur_dir, "../third_party/cpuinfo/include"),
                 cub_include_path,
             ],
+            extra_compile_args={"cxx": extra_compile_args},
         )
     ],
     cmdclass={"build_ext": FBGEMM_GPU_BuildExtension},
