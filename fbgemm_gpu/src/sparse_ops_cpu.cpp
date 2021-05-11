@@ -4,15 +4,11 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
-#include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-
 #include <ATen/ATen.h>
-#include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
-
 #include "ATen/Parallel.h"
+
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace at {
 
@@ -26,7 +22,11 @@ constexpr int FALSE_SHARING_PAD = 16;
 
 // NOTE : _permute_indices_weights_kernel_cpu and _permute_lengths_cpu_kernel
 // have to use the same grain size for consistent partitioning across threads.
-template <bool has_weight, typename offsets_t, typename indices_t, typename weights_t>
+template <
+    bool has_weight,
+    typename offsets_t,
+    typename indices_t,
+    typename weights_t>
 void _permute_indices_weights_kernel_cpu(
     const int32_t T,
     const int32_t B,
@@ -157,7 +157,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   // the data to permute over can be less or more with or without
   // repetitions
   const auto T = permute.numel();
-  const auto B = lengths.view({ lengths.sizes()[0], -1 }).sizes()[1];
+  const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
@@ -192,45 +192,53 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
       input_offsets.scalar_type(), "permute_indices_weights_kernel_1", ([&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES(
-          indices.scalar_type(), "permute_indices_weights_kernel_2", ([&] {
-            using indices_t = scalar_t;
-            AT_DISPATCH_FLOATING_TYPES(
-                weights.has_value() ? weights.value().scalar_type()
-                                    : ScalarType::Float,
-                "permute_indices_weights_kernel_3",
-                ([&] {
-                  using weights_t = scalar_t;
-                  if (weights.has_value()) {
-                    const auto weights_value_contig =
-                        weights.value().expect_contiguous();
-                    permuted_weights =
-                        at::empty(permuted_lengths_sum, weights.value().options());
-                    _permute_indices_weights_kernel_cpu<true, index_t, indices_t, weights_t>(
-                        T,
-                        B,
-                        indices_contig->data_ptr<indices_t>(),
-                        weights_value_contig->data_ptr<weights_t>(),
-                        permute_contig->data_ptr<int32_t>(),
-                        input_offsets.data_ptr<offsets_t>(),
-                        output_offsets_per_thread_cumsum.data(),
-                        permuted_indices.data_ptr<indices_t>(),
-                        permuted_weights.data_ptr<weights_t>(),
-                        permuted_lengths.data_ptr<offsets_t>());
-                  } else {
-                    _permute_indices_weights_kernel_cpu<false, index_t, indices_t, weights_t>(
-                        T,
-                        B,
-                        indices_contig->data_ptr<indices_t>(),
-                        nullptr,
-                        permute_contig->data_ptr<int32_t>(),
-                        input_offsets.data_ptr<offsets_t>(),
-                        output_offsets_per_thread_cumsum.data(),
-                        permuted_indices.data_ptr<indices_t>(),
-                        nullptr,
-                        permuted_lengths.data_ptr<offsets_t>());
-                  }
-            })); // for each weights_t
-          })); // for each indices_t
+            indices.scalar_type(), "permute_indices_weights_kernel_2", ([&] {
+              using indices_t = scalar_t;
+              AT_DISPATCH_FLOATING_TYPES(
+                  weights.has_value() ? weights.value().scalar_type()
+                                      : ScalarType::Float,
+                  "permute_indices_weights_kernel_3",
+                  ([&] {
+                    using weights_t = scalar_t;
+                    if (weights.has_value()) {
+                      const auto weights_value_contig =
+                          weights.value().expect_contiguous();
+                      permuted_weights = at::empty(
+                          permuted_lengths_sum, weights.value().options());
+                      _permute_indices_weights_kernel_cpu<
+                          true,
+                          index_t,
+                          indices_t,
+                          weights_t>(
+                          T,
+                          B,
+                          indices_contig->data_ptr<indices_t>(),
+                          weights_value_contig->data_ptr<weights_t>(),
+                          permute_contig->data_ptr<int32_t>(),
+                          input_offsets.data_ptr<offsets_t>(),
+                          output_offsets_per_thread_cumsum.data(),
+                          permuted_indices.data_ptr<indices_t>(),
+                          permuted_weights.data_ptr<weights_t>(),
+                          permuted_lengths.data_ptr<offsets_t>());
+                    } else {
+                      _permute_indices_weights_kernel_cpu<
+                          false,
+                          index_t,
+                          indices_t,
+                          weights_t>(
+                          T,
+                          B,
+                          indices_contig->data_ptr<indices_t>(),
+                          nullptr,
+                          permute_contig->data_ptr<int32_t>(),
+                          input_offsets.data_ptr<offsets_t>(),
+                          output_offsets_per_thread_cumsum.data(),
+                          permuted_indices.data_ptr<indices_t>(),
+                          nullptr,
+                          permuted_lengths.data_ptr<offsets_t>());
+                    }
+                  })); // for each weights_t
+            })); // for each indices_t
       })); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
@@ -245,10 +253,4 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 
 TORCH_LIBRARY_IMPL(fb, CPU, m) {
   m.impl("permute_sparse_data", at::permute_sparse_data_cpu);
-}
-
-TORCH_LIBRARY_IMPL(fb, CUDA, m) {
-  DISPATCH_TO_CUDA(
-      "asynchronous_exclusive_cumsum", at::asynchronous_exclusive_cumsum);
-  DISPATCH_TO_CUDA("permute_sparse_data", at::permute_sparse_data_cuda);
 }
