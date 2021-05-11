@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -174,6 +175,160 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
             })); // for each indices_t
       })); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
+}
+
+at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input) {
+  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const auto input_sizes = input.sizes();
+  const auto last_dim = input_sizes.size() - 1;
+  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int ncols = input_sizes[last_dim];
+  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int output_columns = ncols_aligned + 2 * sizeof(float);
+
+  // Global memory instructions support reading or writing words of size equal
+  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
+  // data residing in global memory compiles to a single global memory
+  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
+  // bytes and the data is naturally aligned (i.e., its address is a multiple of
+  // that size).
+  auto output_dims = input_sizes.vec();
+  output_dims[last_dim] = output_columns;
+  auto output = at::empty(
+      output_dims, // 4 = sizeof(float)
+      input.options().dtype(at::kByte));
+
+  if (nrows == 0 || ncols == 0) {
+    return output;
+  }
+
+  constexpr int threads_per_block = 256;
+  const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
+  // think unsigned as we use 0, 255
+
+  if (nrows <= 20) {
+    _float_to_fused8bitrowwise_cuda_kernel<<<
+        num_blocks,
+        threads_per_block,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        input.data_ptr<float>(), nrows, ncols, output.data_ptr<std::uint8_t>());
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    // range_tensor is used to store the range for each embedding row.
+    // We save range/255.0f as row scale, and use 255.0f / (range + kEpsilon) to
+    // quantize. This will guarantee the numerical match but bring some perf
+    // regression.
+    auto range_tensor = at::empty({nrows}, input.options().dtype(at::kFloat));
+
+    {
+      // we need a blockDim.x that is a power of 2 no larger than the warp size
+      // of 32
+
+      int blockDim_x = 1;
+      if (ncols > 16) {
+        // max warp size
+        blockDim_x = 32;
+      } else {
+        while (blockDim_x < ncols) {
+          blockDim_x <<= 1;
+        }
+      }
+
+      const int rows_per_block = threads_per_block / blockDim_x;
+      const auto num_blocks_warp =
+          cuda_calc_xblock_count(nrows, rows_per_block);
+
+      _get_8bit_qparam_cuda_kernel<<<
+          num_blocks_warp,
+          dim3(blockDim_x, rows_per_block),
+          0,
+          at::cuda::getCurrentCUDAStream()>>>(
+          input.data_ptr<float>(),
+          nrows,
+          ncols,
+          output.data_ptr<std::uint8_t>(),
+          range_tensor.data_ptr<float>());
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+
+    {
+      const int blockDim_x = std::min(ncols, threads_per_block);
+      dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+      const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
+      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+      dim3 gridDim(gridDim_x, gridDim_y);
+
+      _compute_8bit_quantize_cuda_kernel<<<
+          gridDim,
+          blockDim,
+          0,
+          at::cuda::getCurrentCUDAStream()>>>(
+          input.data_ptr<float>(),
+          range_tensor.data_ptr<float>(),
+          nrows,
+          ncols,
+          output.data_ptr<std::uint8_t>());
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+  }
+
+  return output;
+}
+
+at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
+  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const auto input_sizes = input.sizes();
+  const auto last_dim = input_sizes.size() - 1;
+  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int ncols = input_sizes[last_dim];
+  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int output_columns = ncols_aligned - 2 * sizeof(float);
+
+  // Global memory instructions support reading or writing words of size equal
+  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
+  // data residing in global memory compiles to a single global memory
+  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
+  // bytes and the data is naturally aligned (i.e., its address is a multiple of
+  // that size).
+  auto output_dims = input_sizes.vec();
+  output_dims[last_dim] = output_columns;
+  auto output = at::empty(
+      output_dims, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat));
+
+  if (nrows == 0 || output_columns == 0) {
+    return output;
+  }
+
+  constexpr int threads_per_block = 256;
+
+  const int blockDim_x = std::min(threads_per_block, output_columns);
+  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+
+  const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
+  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+  dim3 gridDim(gridDim_x, gridDim_y);
+
+  _fused8bitrowwise_to_float_cuda_kernel<<<
+      gridDim,
+      blockDim,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      input.data_ptr<std::uint8_t>(), nrows, ncols, output.data_ptr<float>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return output;
 }
 
 } // namespace at
