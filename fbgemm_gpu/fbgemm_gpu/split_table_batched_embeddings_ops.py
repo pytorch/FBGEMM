@@ -870,15 +870,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.host_size > 0:
-            setattr(
-                self,
-                f"{prefix}_host",
-                nn.Parameter(
+            if dtype == torch.uint8:
+                self.register_buffer(
+                    f"{prefix}_host",
                     torch.zeros(
                         split.host_size, device=self.current_device, dtype=dtype
-                    )
-                ),
-            )
+                    ),
+                )
+            else:
+                setattr(
+                    self,
+                    f"{prefix}_host",
+                    nn.Parameter(
+                        torch.zeros(
+                            split.host_size, device=self.current_device, dtype=dtype
+                        )
+                    ),
+                )
         else:
             self.register_buffer(
                 f"{prefix}_host",
