@@ -53,6 +53,8 @@ cpp_fbgemm_files = [
 
 cpp_cpu_output_files = (
     [
+        "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp",
+        "gen_embedding_forward_quantized_weighted_codegen_cpu.cpp",
         "gen_embedding_backward_dense_split_cpu.cpp",
     ]
     + [
@@ -67,10 +69,12 @@ cpp_cpu_output_files = (
 
 cpp_cuda_output_files = (
     [
-        "gen_embedding_forward_split_weighted_codegen_cuda.cu",
-        "gen_embedding_forward_split_unweighted_codegen_cuda.cu",
         "gen_embedding_forward_dense_weighted_codegen_cuda.cu",
         "gen_embedding_forward_dense_unweighted_codegen_cuda.cu",
+        "gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu",
+        "gen_embedding_forward_quantized_split_weighted_codegen_cuda.cu",
+        "gen_embedding_forward_split_weighted_codegen_cuda.cu",
+        "gen_embedding_forward_split_unweighted_codegen_cuda.cu",
         "gen_embedding_backward_split_indice_weights_codegen_cuda.cu",
         "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu",
         "gen_embedding_backward_dense_split_unweighted_cuda.cu",
@@ -134,6 +138,8 @@ setup(
             + cpp_fbgemm_files
             + [
                 os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_forward_quantized_host.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host.cpp"),
                 os.path.join(cur_dir, "src/split_embeddings_cache_cuda.cu"),

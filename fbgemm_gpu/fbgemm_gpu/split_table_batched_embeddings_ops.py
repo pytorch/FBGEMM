@@ -1291,3 +1291,211 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
             per_sample_weights,
             feature_requires_grad,
         )
+
+class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
+    """
+    Table-batched version of nn.EmbeddingBag(sparse=False)
+    """
+
+    def __init__(
+        self,
+        embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
+        feature_table_map: Optional[List[int]] = None,  # [T]
+        index_remapping: Optional[List[Tensor]] = None,
+        pooling_mode: PoolingMode = PoolingMode.SUM,
+        use_cpu: bool = False,
+    ) -> None:  # noqa C901  # tuple of (rows, dims,)
+        super(Int4TableBatchedEmbeddingBagsCodegen, self).__init__()
+        import numpy as np
+
+        self.use_cpu = use_cpu
+        current_device = torch.device("cpu") if use_cpu else torch.cuda.current_device()
+
+        self.pooling_mode = pooling_mode
+
+        self.embedding_specs = embedding_specs
+        (rows, dims) = zip(*embedding_specs)
+        T_ = len(self.embedding_specs)
+        assert T_ > 0
+        for dim in dims:
+            assert dim % 8 == 0
+            if (dim // 2 + 4) % 32 != 0:
+                logging.warning(
+                    f"Int4Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
+                )
+
+        feature_table_map = (
+            feature_table_map if feature_table_map is not None else list(range(T_))
+        )
+        T = len(feature_table_map)
+        assert T_ <= T
+        D_offsets = [dims[t] for t in feature_table_map]
+        D_offsets = [0] + np.cumsum(D_offsets).tolist()
+        # pyre-fixme[4]: Attribute must be annotated.
+        self.total_D = D_offsets[-1]
+        # pyre-fixme[4]: Attribute must be annotated.
+        self.max_D = max(dims)
+        self.register_buffer(
+            "D_offsets",
+            torch.tensor(D_offsets, device=current_device, dtype=torch.int32),
+        )
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        assert self.D_offsets.numel() == T + 1
+
+        def align_to_32_b(a: int) -> int:
+            # align to sector boundary
+            return ((a + (32 - 1)) // 32) * 32
+
+        weights_offsets = [0] + np.cumsum(
+            [align_to_32_b(row * (dim // 2 + 4)) for (row, dim) in embedding_specs]
+        ).tolist()
+
+        self.register_buffer(
+            "weights",
+            torch.randint(
+                0,
+                255,
+                size=(weights_offsets[-1],),
+                dtype=torch.uint8,
+                device=current_device,
+            ),
+        )
+
+        for feature in range(T):
+            t = feature_table_map[feature]
+            row, dim = embedding_specs[t]
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+            #  nn.Module]` is not a function.
+            assert self.weights[
+                weights_offsets[t] : weights_offsets[t + 1]
+            ].numel() == align_to_32_b(row * (dim // 2 + 4))
+
+        weights_offsets = [weights_offsets[t] for t in feature_table_map]
+
+        self.register_buffer(
+            "weights_offsets",
+            torch.tensor(weights_offsets, device=current_device, dtype=torch.int64),
+        )
+
+        if index_remapping:
+            # pyre-fixme[4]: Attribute must be annotated.
+            self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+
+            if not use_cpu:
+                # TODO: tune this?
+                LOAD_FACTOR = 0.5
+                def div_round_up(a: int, b: int) -> int:
+                    return int((a + b - 1) // b) * b
+
+                capacity = div_round_up(int(sum(rows) * 1.0 / LOAD_FACTOR), 32)
+                hash_table = torch.empty(
+                    (capacity, 3),
+                    dtype=torch.int32,
+                )
+                hash_table[:, :] = -1
+                # TODO: handle feature remapping!!! Are these physical or virtual tables?
+                feature_rows = [rows[t] for t in feature_table_map]
+                assert len(feature_rows) == len(index_remapping)
+                for row, index_map in zip(feature_rows, index_remapping):
+                    assert row == index_map.numel()
+                indices = torch.cat(index_remapping, dim=0).int()
+                dense_indices = torch.cat(
+                    [torch.arange(row) for row in feature_rows], dim=0
+                ).int()
+                offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
+                torch.ops.fb.pruned_hashmap_insert(
+                    indices, dense_indices, offsets, hash_table, T
+                )
+                self.register_buffer(
+                    "index_remapping_hash_table_gpu", hash_table.to(current_device)
+                )
+            else:
+                # TODO: handle feature remapping!!! Are these physical or virtual tables?
+                feature_rows = [rows[t] for t in feature_table_map]
+                assert len(feature_rows) == len(index_remapping)
+                for row, index_map in zip(feature_rows, index_remapping):
+                    assert row == index_map.numel()
+                indices = torch.cat(index_remapping, dim=0).int()
+                dense_indices = torch.cat(
+                    [torch.arange(row) for row in feature_rows], dim=0
+                ).int()
+                offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
+                self.index_remapping_hash_table_cpu.insert(
+                    indices, dense_indices, offsets, T
+                )
+                self.register_buffer(
+                    "index_remapping_hash_table_gpu", torch.empty(0)
+                )
+
+        else:
+            # pyre-fixme[4]: Attribute must be annotated.
+            self.index_remapping_hash_table_gpu = None
+            self.index_remapping_hash_table_cpu = None
+    def forward(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+        feature_requires_grad: Optional[Tensor] = None,
+    ) -> Tensor:
+        if self.index_remapping_hash_table_cpu is not None:
+            if not self.use_cpu:
+                # Convert from raw indices to pruned indices
+                indices = torch.ops.fb.pruned_hashmap_lookup(
+                    indices,
+                    offsets,
+                    self.index_remapping_hash_table_gpu,
+                    # pyre-fixme[29]:
+                    #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self,
+                    #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
+                    self.D_offsets.numel() - 1,
+                )
+            else:
+                indices = self.index_remapping_hash_table_cpu.lookup(
+                    # pyre-fixme[29]:
+                    #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self,
+                    #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
+                    indices, offsets, self.D_offsets.numel() - 1
+                )
+        return torch.ops.fb.int4_split_embedding_codegen_lookup_function(
+            dev_weights=self.weights,
+            weights_offsets=self.weights_offsets,
+            D_offsets=self.D_offsets,
+            total_D=self.total_D,
+            max_D=self.max_D,
+            indices=indices,
+            offsets=offsets,
+            pooling_mode=self.pooling_mode,
+            indice_weights=per_sample_weights,
+        )
+
+    @torch.jit.export
+    def split_embedding_weights(self) -> List[Tuple[Tensor, Tensor]]:
+        """
+        Returns a list of weights, split by table
+        """
+        splits: List[Tuple[Tensor, Tensor]] = []
+        for t, (rows, dim) in enumerate(self.embedding_specs):
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+            #  nn.Module]` is not a function.
+            offset = self.weights_offsets[t]
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self, Tensor)],
+            #  Tensor], Tensor], Tensor, nn.Module]` is not a function.
+            weights_shifts = self.weights.detach()[
+                offset : offset + rows * (dim // 2 + 4)
+            ].view(rows, dim // 2 + 4)
+
+            splits.append(
+                (
+                    weights_shifts[:, 4:],
+                    weights_shifts[:, :4],
+                )
+            )
+        return splits
