@@ -19,6 +19,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     OptimType,
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
+    Int4TableBatchedEmbeddingBagsCodegen,
 )
 from torch import Tensor
 
@@ -714,6 +715,327 @@ def cache(  # noqa C901
         f"Tfwdbwd: {forward_backward_time * 1.0e6:.0f}us, "
         f"{3 * param_size_multiplier * B * sum(Ds) * L / forward_backward_time / 1.0e9: .2f} GB/s, "
         f"Te2e: {e2e_time * 1.0e6:.0f}us, "
+    )
+
+
+def benchmark_cpu_requests(
+    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+) -> float:
+    import time
+
+    start_time = time.perf_counter()
+    for (indices, offsets, weights) in requests:
+        func(indices, offsets, weights)
+    end_time = time.perf_counter()
+    return (end_time - start_time) / len(requests)
+
+
+@cli.command()
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim", default=128)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--stoc", is_flag=True, default=False)
+@click.option("--iters", default=100)
+@click.option("--managed", default="device")
+@click.option("--mixed", is_flag=True, default=False)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=32)
+@click.option("--reuse", default=0.0)
+@click.option("--row-wise/--no-row-wise", default=True)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--int4", is_flag=True, default=False)
+@click.option("--index-remapping", is_flag=True, default=False)
+def cpu(  # noqa C901
+    alpha: float,
+    bag_size: int,
+    batch_size: int,
+    embedding_dim: int,
+    weights_precision: SparseType,
+    stoc: bool,
+    iters: int,
+    managed: str,
+    mixed: bool,
+    num_embeddings: int,
+    num_tables: int,
+    reuse: float,
+    row_wise: bool,
+    weighted: bool,
+    weighted_num_requires_grad: Optional[int],
+    int4: bool,
+    index_remapping: bool,
+) -> None:
+    assert int4
+    np.random.seed(42)
+    B = batch_size
+    D = embedding_dim
+    L = bag_size
+    E = num_embeddings
+    T = num_tables
+    if weighted_num_requires_grad:
+        assert weighted_num_requires_grad <= T
+        weighted_requires_grad_tables = np.random.choice(
+            T, replace=False, size=(weighted_num_requires_grad,)
+        ).tolist()
+        feature_requires_grad = (
+            torch.tensor(
+                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
+            )
+            .cuda()
+            .int()
+        )
+    else:
+        feature_requires_grad = None
+    if mixed:
+        Ds = [
+            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        D = np.average(Ds)
+    else:
+        Ds = [D] * T
+
+    emb = Int4TableBatchedEmbeddingBagsCodegen(
+        [(E, d) for d in Ds],
+        use_cpu=True,
+        index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
+    ).cpu()
+
+    nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
+    logging.info(
+        f"Int4 Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
+        f"{nparams / 1.0e9: .2f}GB"
+    )
+    logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weights_precision=weights_precision,
+        weighted=weighted,
+    )
+
+    requests = [
+        (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
+    ]
+
+    # forward
+    time_per_iter = benchmark_cpu_requests(
+        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+        #  Optional[Tensor]]]`.
+        requests,
+        lambda indices, offsets, per_sample_weights: emb.forward(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+    )
+
+    logging.info(
+        f"Int4 Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim", default=128)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--stoc", is_flag=True, default=False)
+@click.option("--iters", default=100)
+@click.option("--managed", default="device")
+@click.option("--mixed", is_flag=True, default=False)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=32)
+@click.option("--reuse", default=0.0)
+@click.option("--row-wise/--no-row-wise", default=True)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--index-remapping", is_flag=True, default=False)
+def int4_device(  # noqa C901
+    alpha: float,
+    bag_size: int,
+    batch_size: int,
+    embedding_dim: int,
+    weights_precision: SparseType,
+    stoc: bool,
+    iters: int,
+    managed: str,
+    mixed: bool,
+    num_embeddings: int,
+    num_tables: int,
+    reuse: float,
+    row_wise: bool,
+    weighted: bool,
+    weighted_num_requires_grad: Optional[int],
+    index_remapping: bool,
+) -> None:
+    np.random.seed(42)
+    B = batch_size
+    D = embedding_dim
+    L = bag_size
+    E = num_embeddings
+    T = num_tables
+    if weighted_num_requires_grad:
+        assert weighted_num_requires_grad <= T
+        weighted_requires_grad_tables = np.random.choice(
+            T, replace=False, size=(weighted_num_requires_grad,)
+        ).tolist()
+        feature_requires_grad = (
+            torch.tensor(
+                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
+            )
+            .cuda()
+            .int()
+        )
+    else:
+        feature_requires_grad = None
+    if mixed:
+        Ds = [
+            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        D = np.average(Ds)
+    else:
+        Ds = [D] * T
+
+    emb = Int4TableBatchedEmbeddingBagsCodegen(
+        [(E, d) for d in Ds],
+        index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
+    ).cuda()
+
+    nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
+    logging.info(
+        f"Int4 Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
+        f"{nparams / 1.0e9: .2f}GB"
+    )
+    logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weights_precision=weights_precision,
+        weighted=weighted,
+    )
+    requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+
+    # TODO: multiple or single?
+    requests = [requests[0] for _ in requests]
+    # forward
+    time_per_iter = benchmark_requests(
+        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+        #  Optional[Tensor]]]`.
+        requests,
+        lambda indices, offsets, per_sample_weights: emb.forward(
+            indices.int(),
+            offsets.int(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+    )
+
+    logging.info(
+        f"Int4 Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=2048)
+@click.option("--iters", default=10)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=100)
+@click.option("--load-factor", default=0.75)
+@click.option("--hit-rate", default=0.9)
+
+def hashtable(  # noqa C901
+    bag_size: int,
+    batch_size: int,
+    iters: int,
+    num_embeddings: int,
+    num_tables: int,
+    load_factor: float,
+    hit_rate: float,
+) -> None:
+    B = batch_size
+    T = num_tables
+    L = bag_size
+    E = num_embeddings
+    np.random.seed(42)
+    if hit_rate == 1.0:
+        chosen_indices = torch.cat(
+            [torch.arange(E) for _ in range(T)], dim=0
+        ).int()
+    else:
+        chosen_indices = torch.randint(low=0, high=int(E * 1.0 / hit_rate), size=(E * T,)).view(-1).int()
+    dense_indices = torch.cat(
+        [torch.arange(E) for _ in range(T)], dim=0
+    ).int()
+    offsets = torch.tensor([E * t for t in range(T + 1)]).int()
+    assert offsets[-1] == chosen_indices.numel()
+    assert offsets.numel() == T + 1
+    assert (offsets.numel() - 1) // T == 1
+    capacity = div_round_up(int(dense_indices.numel() * 1.0 / load_factor), 32)
+    hash_table = torch.zeros(
+        (capacity, 3),
+        dtype=torch.int32,
+    )
+    assert hash_table.numel() * 4 < 2 ** 32
+    # initialize
+    hash_table[:, :] = -1
+    torch.ops.fb.pruned_hashmap_insert(chosen_indices, dense_indices, offsets, hash_table, T)
+
+    hash_table = hash_table.cuda()
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+    )
+    requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
+
+    empirical_hit_rate = np.mean([torch.ops.fb.pruned_hashmap_lookup(
+            indices.cuda().int(), offsets.cuda().int(), hash_table.cuda().contiguous(), T
+    ).ne(-1).sum().item() / indices.numel() for indices, offsets, _ in requests])
+
+
+    time_per_iter = benchmark_requests(
+        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+        #  Optional[Tensor]]]`.
+        requests,
+        lambda indices, offsets, _: torch.ops.fb.pruned_hashmap_lookup(
+            indices.cuda().int(), offsets.cuda().int().contiguous(), hash_table.cuda().int().contiguous(), T
+        ),
+    )
+
+    logging.info(
+        f"100% hit: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / capacity * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
     )
 
 

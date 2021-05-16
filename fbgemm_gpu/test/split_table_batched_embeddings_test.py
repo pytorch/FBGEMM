@@ -1556,6 +1556,224 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-4,
                 )
 
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            ]
+        ),
+        cpu=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_4b_forward(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        cpu: bool,
+    ) -> None:
+        assume(
+            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
+            or not weighted
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+
+        E = int(10 ** log_E)
+        D = div_round_up(D, 8)
+        if not mixed:
+            Ds = [D] * T
+            Es = [int(1e4)] * T
+        else:
+            Ds = [
+                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
+                for _ in range(T)
+            ]
+            Ds = [min(D, 128) for D in Ds]
+            Es = [
+                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
+            ]
+        bs = [
+            torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True).cuda()
+            for (E, D) in zip(Es, Ds)
+        ]
+
+        xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
+        xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+        xws_acc_type = copy.deepcopy(xws)
+
+        cc = split_table_batched_embeddings_ops.Int4TableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            pooling_mode=pooling_mode,
+            index_remapping=[torch.arange(E) for E in Es],
+            use_cpu=cpu,
+        )
+        for t in range(T):
+            (weights, scale_shift) = cc.split_embedding_weights()[t]
+            # weights.zero_()
+            (E, R) = scale_shift.shape
+            assert R == 4
+            scale_shift[:, :] = torch.tensor(
+                # should use a random # for test coverage ??
+                # np.random.rand(E, 2).astype(np.float16).view(np.uint8)
+                np.ones((E, 2))
+                .astype(np.float16)
+                .view(np.uint8)
+            )
+
+        for t in range(T):
+            (weights, scale_shift) = cc.split_embedding_weights()[t]
+            # pyre-fixme[35]: Target cannot be annotated.
+            # pyre-fixme[11]: Annotation `array` is not defined as a type.
+            scale_shift: np.array = (
+                scale_shift.cpu()
+                .contiguous()
+                .numpy()
+                .view(np.float16)
+                .astype(np.float32)
+            )
+            np.testing.assert_allclose(scale_shift, np.ones_like(scale_shift))
+            weights = weights.contiguous().cpu().numpy()
+            (E, D_2) = weights.shape
+            D = D_2 * 2
+
+            # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
+            # pyre-fixme[53]: Captured variable `weights` is not annotated.
+            def comp(i: int) -> np.array:
+                subs = weights.view(np.uint16) >> (i * 4)
+                sub_mask = subs & 0xF
+                result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
+                    -1, 1
+                ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
+                    np.float32
+                )
+                return result.astype(np.float16).astype(np.float32)
+
+            comps = [comp(i) for i in range(4)]
+            comps = np.stack(comps)
+            comps = comps.transpose(1, 2, 0)
+            comps = comps.reshape(E, D)
+            bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+        (indices, offsets) = get_table_batched_offsets_from_dense(x, False)
+        if not cpu:
+            fc2 = (
+                cc(indices.int(), offsets.int())
+                if not weighted
+                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1))
+            )
+        else:
+            cc = cc.cpu()
+            indices, offsets = indices.cpu(), offsets.cpu()
+            fc2 = (
+                cc(indices.int(), offsets.int())
+                if not weighted
+                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
+            )
+
+        fs = (
+            [b_indices(b, x, use_cpu=False) for (b, x) in zip(bs, xs)]
+            if not weighted
+            else [
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=False)
+                for (b, x, xw) in zip(bs, xs, xws)
+            ]
+        )
+        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        torch.testing.assert_allclose(
+            fc2.float().cpu(),
+            f.float().cpu(),
+            atol=1.0e-1,
+            rtol=1.0e-1,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        B=st.integers(min_value=1, max_value=128),
+        L=st.integers(min_value=0, max_value=20),
+        use_cpu=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_4b_forward_pruning(
+        self,
+        T: int,
+        B: int,
+        L: int,
+        use_cpu: bool,
+    ) -> None:
+
+        indices = torch.randint(low=0, high=int(1e9), size=(T, B, L)).view(-1).int()
+        dense_indices = (
+            torch.randint(low=0, high=int(1e5), size=(T, B, L)).view(-1).int()
+        )
+        offsets = torch.tensor([L * b_t for b_t in range(B * T + 1)]).int()
+
+        def next_power_of_2(x: int) -> int:
+            return 1 if x == 0 else 2 ** (x - 1).bit_length()
+
+        capacity = next_power_of_2(int(indices.numel() * 2) + 1)
+        if not use_cpu:
+            hash_table = torch.empty(
+                (capacity, 3),
+                dtype=torch.int32,
+            )
+            # initialize
+            hash_table[:, :] = -1
+            torch.ops.fb.pruned_hashmap_insert(
+                indices, dense_indices, offsets, hash_table, T
+            )
+            (indices, dense_indices, offsets, hash_table) = (
+                indices.cuda(),
+                dense_indices.cuda(),
+                offsets.cuda(),
+                hash_table.cuda(),
+            )
+            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+                indices, offsets, hash_table, T
+            )
+        else:
+            index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+            index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T)
+            dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
+
+        torch.testing.assert_allclose(dense_indices, dense_indices_)
+
+        # value that does not exist
+        indices[:] = int(1e9) + 1
+        if not use_cpu:
+            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+                indices, offsets, hash_table, T
+            )
+        else:
+            dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
+
+        # pyre-fixme[16]: `IntTensor` has no attribute `fill_`.
+        torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class CUMemTest(unittest.TestCase):

@@ -804,6 +804,20 @@ def forward_split() -> None:
     src_cu = template.render(weighted=True, dense=True)
     write("gen_embedding_forward_dense_weighted_codegen_cuda.cu", src_cu)
 
+def forward_quantized() -> None:
+    template = env.get_template("embedding_forward_quantized_split_template.cu")
+
+    src_cu = template.render(weighted=False)
+    write("gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu", src_cu)
+    src_cu = template.render(weighted=True)
+    write("gen_embedding_forward_quantized_split_weighted_codegen_cuda.cu", src_cu)
+
+    template = env.get_template("embedding_forward_quantized_cpu_template.cpp")
+    src_cu = template.render(weighted=False)
+    write("gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp", src_cu)
+    src_cu = template.render(weighted=True)
+    write("gen_embedding_forward_quantized_weighted_codegen_cpu.cpp", src_cu)
+
 
 def backward_indices() -> None:
     template = env.get_template("embedding_backward_split_indice_weights_template.cu")
@@ -839,6 +853,7 @@ def emb_codegen(install_dir: Optional[str] = None, is_fbcode: bool = True) -> No
     adam()
     backward_indices()
     backward_dense()
+    forward_quantized()
     forward_split()
     lamb()
     lars_sgd()
