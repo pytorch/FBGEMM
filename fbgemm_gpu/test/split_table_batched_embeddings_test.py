@@ -23,9 +23,6 @@ from torch import Tensor
 MAX_EXAMPLES = 40
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-
 
 def div_round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
