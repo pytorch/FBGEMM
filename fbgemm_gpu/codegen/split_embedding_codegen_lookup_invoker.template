@@ -13,6 +13,8 @@ from .lookup_args import *
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 torch.ops.load_library(
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
 )
