@@ -246,7 +246,6 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
 } // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
   m.def(
       "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
 }

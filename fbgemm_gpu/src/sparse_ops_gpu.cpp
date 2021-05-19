@@ -13,7 +13,5 @@
 #include <torch/library.h>
 
 TORCH_LIBRARY_IMPL(fb, CUDA, m) {
-  DISPATCH_TO_CUDA(
-      "asynchronous_exclusive_cumsum", at::asynchronous_exclusive_cumsum);
   DISPATCH_TO_CUDA("permute_sparse_data", at::permute_sparse_data_cuda);
 }
