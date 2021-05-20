@@ -145,7 +145,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights) {
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -185,9 +186,14 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
             output_offsets_per_thread_cumsum.data());
       })); // for each scalar_t
 
-  auto permuted_lengths_sum =
-      output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
-  permuted_indices = at::empty(permuted_lengths_sum, indices.options());
+  int64_t permuted_indices_size = 0;
+  if (permuted_lengths_sum.has_value()) {
+    permuted_indices_size = permuted_lengths_sum.value();
+  } else {
+    permuted_indices_size =
+        output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
+  }
+  permuted_indices = at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_indices_weights_kernel_1", ([&] {
         using offsets_t = index_t;
@@ -204,7 +210,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
                       const auto weights_value_contig =
                           weights.value().expect_contiguous();
                       permuted_weights = at::empty(
-                          permuted_lengths_sum, weights.value().options());
+                          permuted_indices_size, weights.value().options());
                       _permute_indices_weights_kernel_cpu<
                           true,
                           index_t,
@@ -247,7 +253,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
 }
 
 TORCH_LIBRARY_IMPL(fb, CPU, m) {
