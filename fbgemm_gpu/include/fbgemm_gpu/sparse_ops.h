@@ -18,13 +18,15 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights);
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
 
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights);
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);

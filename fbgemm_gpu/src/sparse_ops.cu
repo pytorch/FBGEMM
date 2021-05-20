@@ -60,7 +60,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights) {
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CUDA_GPU(permute);
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(indices);
@@ -105,23 +106,17 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum(lengths_contig);
   const auto output_offsets = asynchronous_exclusive_cumsum(permuted_lengths);
-  int64_t permuted_lengths_sum = indices.numel();
-
-  /* TODO: Remove the condition protecting the slow path because even when the
-   * condition below is true permuted_lengths.sum() could still be needed. For
-   * instance if there are three features with indices `[0, 1, 2]`, `permute`
-   * can be `[0, 1, 1]` for which permuted lengths sum would be needed to create
-   * permuted_{indices, weights} and `permuted_lengths_sum = indices.numel() or
-   * weights.numdel() would be incorrect.
-   */
-  if (T_ != T) {
-    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
+  int64_t permuted_indices_size = 0;
+  if (permuted_lengths_sum.has_value()) {
+    permuted_indices_size = permuted_lengths_sum.value();
+  } else {
+    permuted_indices_size = permuted_lengths.sum().item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
   dim3 threads_2(32, BT_blocks);
   const auto blocks_2 = cuda_calc_xblock_count(B * T, BT_blocks);
-  permuted_indices = at::empty(permuted_lengths_sum, indices.options());
+  permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
@@ -133,7 +128,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                 const Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
-                    at::empty(permuted_lengths_sum, weights_value.options());
+                    at::empty(permuted_indices_size, weights_value.options());
                 AT_DISPATCH_FLOATING_TYPES(
                     weights_value.scalar_type(), "permute_data_kernel_3", ([&] {
                       using weights_t = scalar_t;
@@ -142,7 +137,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                              threads_2,
                              0,
                              at::cuda::getCurrentCUDAStream()>>>(
-                              permuted_lengths_sum,
+                              permuted_indices_size,
                               T,
                               B,
                               indices_contig.data_ptr<indices_t>(),
@@ -160,7 +155,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                        threads_2,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        permuted_lengths_sum,
+                        permuted_indices_size,
                         T,
                         B,
                         indices_contig.data_ptr<indices_t>(),
