@@ -730,7 +730,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ],
             optimizer=OptimType.EXACT_SGD if exact else OptimType.SGD,
             feature_table_map=feature_table_map,
-            learning_rate=0.05,
+            learning_rate=lr,
             weights_precision=weights_precision,
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,

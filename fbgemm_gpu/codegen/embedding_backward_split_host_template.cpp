@@ -128,7 +128,6 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets, D_offsets, hash_size_cumsum,
         indices, offsets, indice_weights.value_or(Tensor()), feature_requires_grad.value_or(Tensor()), lxu_cache_locations, {{ args.split_saved_tensors | join(", ") }} });
 
-    ctx->saved_data["total_D"] = total_D;
     ctx->saved_data["max_D"] = max_D;
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["pooling_mode"] = pooling_mode;
@@ -173,7 +172,6 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     auto {{ tensor }} = *savedItr++;
     {% endfor %}
 
-    auto total_D = ctx->saved_data["total_D"].toInt();
     auto max_D = ctx->saved_data["max_D"].toInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
