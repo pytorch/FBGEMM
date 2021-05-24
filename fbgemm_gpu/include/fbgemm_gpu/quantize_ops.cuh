@@ -23,7 +23,7 @@ __device__ inline __attribute__((always_inline)) T quantize_ops_shfl_xor(const T
 #endif
 }
 
-__global__ void _get_8bit_qparam_cuda_kernel(
+__global__ inline void _get_8bit_qparam_cuda_kernel(
     const float* __restrict__ input,
     int nrows,
     int ncols,
@@ -78,7 +78,7 @@ __global__ void _get_8bit_qparam_cuda_kernel(
   range_list[row] = range;
 }
 
-__global__ void _compute_8bit_quantize_cuda_kernel(
+__global__ inline void _compute_8bit_quantize_cuda_kernel(
     const float* const __restrict__ input,
     const float* const __restrict__ range_list,
     const int nrows,
@@ -110,7 +110,7 @@ __global__ void _compute_8bit_quantize_cuda_kernel(
 }
 
 // FP32 -> Fused 8-bit rowwise kernel
-__global__ void _float_to_fused8bitrowwise_cuda_kernel(
+__global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     const float* __restrict__ input,
     int nrows,
     int ncols,
@@ -145,7 +145,7 @@ __global__ void _float_to_fused8bitrowwise_cuda_kernel(
 }
 
 // Fused 8-bit rowwise -> FP32 kernel
-__global__ void _fused8bitrowwise_to_float_cuda_kernel(
+__global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     const std::uint8_t* const __restrict__ input,
     const int nrows,
     const int ncols,
@@ -169,7 +169,7 @@ __global__ void _fused8bitrowwise_to_float_cuda_kernel(
 }
 
 // Fake 8-bit quantize kernel: FP32 -> UINT8 rowwise -> FP32
-__global__ void _fake_8bit_quantize_cuda_kernel(
+__global__ inline void _fake_8bit_quantize_cuda_kernel(
     const float* __restrict__ input,
     int nrows,
     int ncols,
@@ -197,7 +197,7 @@ __global__ void _fake_8bit_quantize_cuda_kernel(
 }
 
 // FP32 -> Fused 4/2-bit rowwise kernel
-__global__ void _float_to_fusednbitrowwise_cuda_kernel(
+__global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
     int bit_rate,
     const float* __restrict__ input,
     int nrows,
@@ -259,7 +259,7 @@ __global__ void _float_to_fusednbitrowwise_cuda_kernel(
 }
 
 // Fused 4/2-bit rowwise -> FP32 kernel
-__global__ void _fusednbitrowwise_to_float_cuda_kernel(
+__global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
     const int bit_rate,
     const std::uint8_t* input,
     const int nrows,
@@ -290,7 +290,7 @@ __global__ void _fusednbitrowwise_to_float_cuda_kernel(
 }
 
 // FP32 -> BF16 kernel
-__global__ void _float_to_bfloat16_cuda_kernel(
+__global__ inline void _float_to_bfloat16_cuda_kernel(
     const float* __restrict__ input,
     const int nrows,
     const int ncols,
@@ -312,7 +312,7 @@ __global__ void _float_to_bfloat16_cuda_kernel(
 }
 
 // BF16 -> FP32 kernel
-__global__ void _bfloat16_to_float_cuda_kernel(
+__global__ inline void _bfloat16_to_float_cuda_kernel(
     const uint16_t* __restrict__ input,
     const int nrows,
     const int ncols,
@@ -340,7 +340,7 @@ typedef union {
 
 // TODO: add a flag later to control whether underflow
 // flushes to 0 or clips to smallest denorm number.
-__device__ uint8_t float_to_hfp8(
+__device__ inline uint8_t float_to_hfp8(
     float val_fp,
     int ebits,
     int mbits,
@@ -399,7 +399,7 @@ __device__ uint8_t float_to_hfp8(
   return bfp8_val;
 }
 
-__device__ float
+__device__ inline float
 hfp8_to_float(uint8_t hfp8_val, int ebits, int mbits, int bias) {
   fint32 val_out, sign, multiplier;
 
@@ -429,7 +429,7 @@ hfp8_to_float(uint8_t hfp8_val, int ebits, int mbits, int bias) {
   return val_out.F;
 }
 
-__global__ void _float_to_hfp8_cuda_kernel(
+__global__ inline void _float_to_hfp8_cuda_kernel(
     const float* __restrict__ input,
     const int nrows,
     const int ncols,
@@ -452,7 +452,7 @@ __global__ void _float_to_hfp8_cuda_kernel(
   }
 }
 
-__global__ void _hfp8_to_float_cuda_kernel(
+__global__ inline void _hfp8_to_float_cuda_kernel(
     const uint8_t* __restrict__ input,
     const int nrows,
     const int ncols,
