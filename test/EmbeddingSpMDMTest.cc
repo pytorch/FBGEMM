@@ -86,9 +86,9 @@ INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     IndexRemapTest,
     ::testing::Combine(
-        ::testing::ValuesIn({2, 5, 10}), // batch size
-        ::testing::ValuesIn({50, 100, 1000}), // number of rows
-        ::testing::ValuesIn({5, 16}), // avg len
+        ::testing::ValuesIn({1, 2, 5, 10}), // batch size
+        ::testing::ValuesIn({1, 50, 100, 1000}), // number of rows
+        ::testing::ValuesIn({1, 5, 16}), // avg len
         ::testing::Bool(), // is index 64 bit?
         ::testing::Bool())); // per sample weights?
 
@@ -993,7 +993,6 @@ TEST_P(IndexRemapTest, basicTest) {
           out_offsets_32_ref.data(),
           out_weights_ref.data());
     } else {
-      cout << "no weights:";
       compressed_indices_remap<int32_t>(
           offset_numel,
           indices_32.data(),
@@ -1017,13 +1016,26 @@ TEST_P(IndexRemapTest, basicTest) {
   }
 
   if (isIndex64b) {
-    EXPECT_EQ(out_indices, out_indices_ref) << "indices don't match";
+    EXPECT_EQ(out_offsets, out_offsets_ref) << "offsets don't match";
+    for (int i = 0; i < out_offsets[offset_numel - 1]; ++i) {
+      EXPECT_EQ(out_indices[i], out_indices_ref[i])
+          << "indices don't match at " << i;
+    }
   } else {
-    EXPECT_EQ(out_indices_32, out_indices_32_ref) << "indices don't match";
+    EXPECT_EQ(out_offsets_32, out_offsets_32_ref) << "offsets don't match";
+    for (int i = 0; i < out_offsets_32[offset_numel - 1]; ++i) {
+      EXPECT_EQ(out_indices_32[i], out_indices_32_ref[i])
+          << "indices don't match at " << i;
+    }
   }
-  EXPECT_EQ(out_offsets_32, out_offsets_32_ref) << "offsets don't match";
+
   if (per_sample_weights) {
-    EXPECT_EQ(out_weights, out_weights_ref) << "weights don't match";
+    size_t len = isIndex64b ? out_offsets[offset_numel - 1]
+                            : out_offsets_32[offset_numel - 1];
+
+    for (int i = 0; i < len; ++i) {
+      EXPECT_EQ(out_weights[i], out_weights_ref[i])
+          << "weights don't match at" << i;
+    }
   }
-  // EXPECT_TRUE(false);
 }
