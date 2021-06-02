@@ -520,7 +520,7 @@ void ToFusedNBitRowwiseQuantizedSBHalfRef(
     // NOTE: this can be optimized, however we don't care much about performance for
     // reference implementation.
     for (std::size_t col = 0; col < input_columns; ++col) {
-      if constexpr (std::is_same<InputType, float>()) {
+      if (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
