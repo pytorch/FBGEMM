@@ -7,6 +7,7 @@
 #include <limits>
 #include "./FbgemmBuild.h"
 #include "./QuantUtilsAvx2.h"
+#include "./Types.h"
 #include "./Utils.h"
 
 namespace fbgemm {
@@ -154,7 +155,9 @@ void Dequantize(
 }
 
 template <typename T>
-float FusedQuantizeDequantize(float src, const TensorQuantizationParams& qparams) {
+float FusedQuantizeDequantize(
+    float src,
+    const TensorQuantizationParams& qparams) {
   T q = Quantize<T, false>(
       src, qparams.zero_point, qparams.scale, qparams.precision);
   return Dequantize<T>(q, qparams);
@@ -257,10 +260,30 @@ FBGEMM_API void Requantize(
  * the row itself (fused) at the end.
  *
  * @param bit_rate can be 2, 4, or 8
+ * TODO(T91361248): deprecate and replace with
+ * ToFusedNBitRowwiseQuantizedSBHalf.
  */
 FBGEMM_API void FloatToFusedNBitRowwiseQuantizedSBHalf(
     int bit_rate,
     const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output);
+
+/**
+ * Convert float (fp32 or fp16) inputs to rowwise quantized outputs.
+ * bitrate specifies the number of bits in quantized output.
+ * Scale and Bias are in fp16. Each row's Scale and Bias are stored in
+ * the row itself (fused) at the end.
+ *
+ * @param bit_rate can be 2, 4, or 8
+ * TODO(T91361248): rename as FloatToFusedNBitRowwiseQuantizedSBHalf after
+ * deprecating the old version.
+ */
+template <typename InputType>
+FBGEMM_API void ToFusedNBitRowwiseQuantizedSBHalf(
+    int bit_rate,
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output);
@@ -312,12 +335,13 @@ FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloat(
     float* output);
 
 /**
- * Same as FloatToFusedNBitRowwiseQuantizedSBHalf but unoptimized.
+ * Same as ToFusedNBitRowwiseQuantizedSBHalf but unoptimized.
  * This should not be called directly except in testing.
  */
-FBGEMM_API void FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+template <typename InputType>
+FBGEMM_API void ToFusedNBitRowwiseQuantizedSBHalfRef(
     int bit_rate,
-    const float* input,
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output);
