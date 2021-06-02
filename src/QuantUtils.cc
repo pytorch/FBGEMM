@@ -1,4 +1,8 @@
 #define FBGEMM_EXPORTS
+#include <algorithm>
+#include <iterator>
+#include <numeric>
+#include <type_traits>
 
 #include "fbgemm/QuantUtils.h"
 
@@ -12,8 +16,9 @@ namespace fbgemm {
 
 using namespace std;
 
-// Use fp16_min as the small scale cutoff because we don't want to use scales in fp16 subnormal range.
-// This is to be consistent with Glow and FakeLowP implementation for NNPI.
+// Use fp16_min as the small scale cutoff because we don't want to use scales in
+// fp16 subnormal range. This is to be consistent with Glow and FakeLowP
+// implementation for NNPI.
 constexpr float SMALL_SCALE_THRESHOLD = 6.1e-5f;
 
 float TensorQuantizationParams::Min() const {
@@ -255,7 +260,7 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
       /* fast path  */                                                  \
       FusedQuantizeDequantizeAvx2<T>(                                   \
           &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
-    } else if (noise_ratio <= 0.0f) {                                      \
+    } else if (noise_ratio <= 0.0f) {                                   \
       for (std::size_t i = i_begin; i < i_end; ++i) {                   \
         dst[i] = FusedQuantizeDequantize<T>(src[i], qparams);           \
       }                                                                 \
@@ -490,28 +495,44 @@ FBGEMM_API void RequantizeFixedPoint<uint8_t>(
   }
 }
 
-void FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+template <typename InputType>
+void ToFusedNBitRowwiseQuantizedSBHalfRef(
     int bit_rate,
-    const float* input,
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
+  static_assert(
+      std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
+      "Only float and float16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   int output_columns =
       (input_columns + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(float16);
+  std::vector<float> input_row_float(input_columns);
   for (std::size_t row = 0; row < input_rows; ++row) {
-    const float* input_row = input + row * input_columns;
+    const InputType* input_row = input + row * input_columns;
     std::uint8_t* output_row = output + row * output_columns;
     float16* output_row_scale_bias = reinterpret_cast<float16*>(
         output_row +
         (input_columns + num_elem_per_byte - 1) / num_elem_per_byte);
 
-    float minimum_element =
-        *std::min_element(input_row, input_row + input_columns);
-    float maximum_element =
-        *std::max_element(input_row, input_row + input_columns);
+    // NOTE: this can be optimized, however we don't care much about performance for
+    // reference implementation.
+    for (std::size_t col = 0; col < input_columns; ++col) {
+      if constexpr (std::is_same<InputType, float>()) {
+        input_row_float[col] = input_row[col];
+      } else {
+        input_row_float[col] = cpu_half2float(input_row[col]);
+      }
+    }
 
+    float minimum_element =
+        *std::min_element(input_row_float.begin(), input_row_float.end());
+    float maximum_element =
+        *std::max_element(input_row_float.begin(), input_row_float.end());
+    // Truncate since bias will be represented by fp16. Keep higher precision
+    // max untouched.
     float16 minimum_element_fp16 = cpu_float2half_rn(minimum_element);
     minimum_element = cpu_half2float(minimum_element_fp16);
     const float range = maximum_element - minimum_element;
@@ -533,7 +554,7 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfRef(
     output_row_scale_bias[0] = cpu_float2half_rn(scale);
     output_row_scale_bias[1] = minimum_element_fp16;
     for (std::size_t col = 0; col < input_columns; ++col) {
-      float X = input_row[col];
+      float X = input_row_float[col];
       std::uint8_t quantized = std::max(
           0,
           std::min<int>(
@@ -549,9 +570,10 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfRef(
   }
 }
 
-void FloatToFusedNBitRowwiseQuantizedSBHalf(
+template <typename InputType>
+void ToFusedNBitRowwiseQuantizedSBHalf(
     int bit_rate,
-    const float* input,
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
@@ -566,25 +588,35 @@ void FloatToFusedNBitRowwiseQuantizedSBHalf(
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
     switch (bit_rate) {
       case 2:
-        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<2>(
+        ToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 2>(
             input, input_rows, input_columns, output);
         break;
       case 4:
-        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<4>(
+        ToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 4>(
             input, input_rows, input_columns, output);
         break;
       case 8:
-        FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<8>(
+        ToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 8>(
             input, input_rows, input_columns, output);
         break;
       default:
-        FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+        ToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
             bit_rate, input, input_rows, input_columns, output);
     }
   } else {
-    FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+    ToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
         bit_rate, input, input_rows, input_columns, output);
   }
+}
+
+void FloatToFusedNBitRowwiseQuantizedSBHalf(
+    int bit_rate,
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  ToFusedNBitRowwiseQuantizedSBHalf<float>(
+      bit_rate, input, input_rows, input_columns, output);
 }
 
 void FloatToFused8BitRowwiseQuantizedSBFloatRef(
@@ -722,5 +754,24 @@ void Fused8BitRowwiseQuantizedSBFloatToFloat(
         input, input_rows, input_columns, output);
   }
 }
+
+#define INSTANTIATE_QuantizationFunctions(type)                        \
+  template FBGEMM_API void ToFusedNBitRowwiseQuantizedSBHalfRef<type>( \
+      int bit_rate,                                                    \
+      const type* input,                                               \
+      int input_rows,                                                  \
+      int input_columns,                                               \
+      std::uint8_t* output);                                           \
+  template FBGEMM_API void ToFusedNBitRowwiseQuantizedSBHalf<type>(    \
+      int bit_rate,                                                    \
+      const type* input,                                               \
+      int input_rows,                                                  \
+      int input_columns,                                               \
+      std::uint8_t* output);
+
+INSTANTIATE_QuantizationFunctions(float)
+INSTANTIATE_QuantizationFunctions(float16)
+
+#undef INSTANTIATE_QuantizationFunctions
 
 } // namespace fbgemm
