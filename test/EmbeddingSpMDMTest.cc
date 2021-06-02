@@ -53,6 +53,9 @@ class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
                                EmbeddingSpMDMCornerCase,
                                bool,
                                bool>> {};
+
+class IndexRemapTest
+    : public testing::TestWithParam<tuple<int, int, int, bool, bool>> {};
 }; // namespace
 
 vector<int> prefetch_distances = {0, 16, 1000000};
@@ -78,6 +81,16 @@ INSTANTIATE_TEST_CASE_P(
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
         ::testing::Bool(), // output_stride != block_size
         ::testing::Bool())); // input_stride != block_size
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    IndexRemapTest,
+    ::testing::Combine(
+        ::testing::ValuesIn({2, 5, 10}), // batch size
+        ::testing::ValuesIn({50, 100, 1000}), // number of rows
+        ::testing::ValuesIn({5, 16}), // avg len
+        ::testing::Bool(), // is index 64 bit?
+        ::testing::Bool())); // per sample weights?
 
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
@@ -865,4 +878,152 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
       }
     }
   } // end for input
+}
+
+TEST_P(IndexRemapTest, basicTest) {
+  int batch_size, num_rows, avg_len;
+  bool isIndex64b, per_sample_weights;
+  tie(batch_size, num_rows, avg_len, isIndex64b, per_sample_weights) =
+      GetParam();
+  constexpr float sparsity = 0.5;
+
+  vector<int64_t> lengths, offsets, indices;
+  vector<int32_t> lengths_32, offsets_32, indices_32;
+  vector<float> weights;
+  int lengths_sum = GenerateLengthsIndicesWeights(
+      lengths,
+      lengths_32,
+      offsets,
+      offsets_32,
+      indices,
+      indices_32,
+      weights,
+      batch_size,
+      num_rows,
+      64, // embedding_dim (not used)
+      avg_len, // average number of indices in a batch
+      EmbeddingSpMDMCornerCase::NONE);
+
+  // Create mapping table for rowwise sparsity
+  vector<int32_t> mapping_table;
+  int num_compressed_rows =
+      CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
+
+  // outputs
+  vector<int32_t> out_indices_32(indices_32.size(), 0);
+  vector<int32_t> out_offsets_32(offsets_32.size(), 0);
+  vector<float> out_weights(weights.size(), 0);
+
+  vector<int64_t> out_indices(indices.size(), 0);
+  vector<int64_t> out_offsets(offsets.size(), 0);
+
+  // reference outputs
+  vector<int32_t> out_indices_32_ref(indices_32.size(), 0);
+  vector<int32_t> out_offsets_32_ref(offsets_32.size(), 0);
+  vector<float> out_weights_ref(weights.size(), 0);
+
+  vector<int64_t> out_indices_ref(indices.size(), 0);
+  vector<int64_t> out_offsets_ref(offsets.size(), 0);
+
+  // number of elements in the offset array ( it's equal to batch_size + 1)
+  int offset_numel = offsets_32.size();
+
+  if (isIndex64b) {
+    if (per_sample_weights) {
+      compressed_indices_remap<int64_t>(
+          offset_numel,
+          indices.data(),
+          mapping_table.data(),
+          offsets.data(),
+          weights.data(),
+          out_indices.data(),
+          out_offsets.data(),
+          out_weights.data());
+
+      compressed_indices_remap_ref<int64_t>(
+          offset_numel,
+          indices.data(),
+          mapping_table.data(),
+          offsets.data(),
+          weights.data(),
+          out_indices_ref.data(),
+          out_offsets_ref.data(),
+          out_weights_ref.data());
+    } else {
+
+      compressed_indices_remap<int64_t>(
+          offset_numel,
+          indices.data(),
+          mapping_table.data(),
+          offsets.data(),
+          nullptr,
+          out_indices.data(),
+          out_offsets.data(),
+          nullptr);
+
+      compressed_indices_remap_ref<int64_t>(
+          offset_numel,
+          indices.data(),
+          mapping_table.data(),
+          offsets.data(),
+          nullptr,
+          out_indices_ref.data(),
+          out_offsets_ref.data(),
+          nullptr);
+    }
+  } else {
+    if (per_sample_weights) {
+      compressed_indices_remap<int32_t>(
+          offset_numel,
+          indices_32.data(),
+          mapping_table.data(),
+          offsets_32.data(),
+          weights.data(),
+          out_indices_32.data(),
+          out_offsets_32.data(),
+          out_weights.data());
+
+      compressed_indices_remap_ref<int32_t>(
+          offset_numel,
+          indices_32.data(),
+          mapping_table.data(),
+          offsets_32.data(),
+          weights.data(),
+          out_indices_32_ref.data(),
+          out_offsets_32_ref.data(),
+          out_weights_ref.data());
+    } else {
+      cout << "no weights:";
+      compressed_indices_remap<int32_t>(
+          offset_numel,
+          indices_32.data(),
+          mapping_table.data(),
+          offsets_32.data(),
+          nullptr,
+          out_indices_32.data(),
+          out_offsets_32.data(),
+          nullptr);
+
+      compressed_indices_remap_ref<int32_t>(
+          offset_numel,
+          indices_32.data(),
+          mapping_table.data(),
+          offsets_32.data(),
+          nullptr,
+          out_indices_32_ref.data(),
+          out_offsets_32_ref.data(),
+          nullptr);
+    }
+  }
+
+  if (isIndex64b) {
+    EXPECT_EQ(out_indices, out_indices_ref) << "indices don't match";
+  } else {
+    EXPECT_EQ(out_indices_32, out_indices_32_ref) << "indices don't match";
+  }
+  EXPECT_EQ(out_offsets_32, out_offsets_32_ref) << "offsets don't match";
+  if (per_sample_weights) {
+    EXPECT_EQ(out_weights, out_weights_ref) << "weights don't match";
+  }
+  // EXPECT_TRUE(false);
 }
