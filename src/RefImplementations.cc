@@ -1919,4 +1919,47 @@ INSTANTIATE_SPMDM_INDEX_T(float16)
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_BASE
 
+template <typename IndexType>
+FBGEMM_API void compressed_indices_remap_ref(
+    std::int32_t offsets_numel,
+    const IndexType* indices,
+    const int32_t* compressed_indices_mapping,
+    const IndexType* offsets,
+    const float* weights, // optional, can be null,
+    IndexType* out_indices,
+    IndexType* out_offsets,
+    float* out_weights) {
+  bool has_per_sample_weights = (weights != nullptr);
+  out_offsets[0] = offsets[0];
+  IndexType j = 0;
+  for (int i = 1; i < offsets_numel; i++) {
+    for (int32_t k = offsets[i - 1]; k < offsets[i]; k++) {
+      if (compressed_indices_mapping[indices[k]] != -1) {
+        out_indices[j] = compressed_indices_mapping[indices[k]];
+        if (has_per_sample_weights) {
+          out_weights[j] = weights[k];
+        }
+        j++;
+      }
+    }
+    out_offsets[i] = j;
+  }
+}
+
+#define INSTANTIATE_REMAP_BASE(INDEX_TYPE)               \
+  template FBGEMM_API void compressed_indices_remap_ref( \
+      std::int32_t offsets_numel,                        \
+      const INDEX_TYPE* indices,                         \
+      const int32_t* compressed_indices_mapping,         \
+      const INDEX_TYPE* offsets,                         \
+      const float* weights,                              \
+      INDEX_TYPE* out_indices,                           \
+      INDEX_TYPE* out_offsets,                           \
+      float* out_weights);
+
+INSTANTIATE_REMAP_BASE(int32_t);
+INSTANTIATE_REMAP_BASE(int64_t);
+
+#undef INSTANTIATE_REMAP_BASE
+
 } // namespace fbgemm
