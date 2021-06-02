@@ -6,13 +6,14 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
+#include "fbgemm/Types.h"
 #include <immintrin.h>
 #include <algorithm> //for std::min/std::max
-#include <cmath> //for nearbyint
-#include <limits> //for numeric_limits
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
+#include <cmath> //for nearbyint
 #include <cstring> //for memcpy
+#include <limits> //for numeric_limits
 #include "./MaskAvx2.h"
 
 namespace fbgemm {
@@ -184,12 +185,11 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
     __m256 transformed_v;
     if (noise_ratio > 0) {
       rand = Xor128() % 10;
-      if (rand < noise_ratio*10){
+      if (rand < noise_ratio * 10) {
         _mm256_storeu_ps(dst + i, src_v);
         continue;
       }
     }
-
 
     transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     // If the floating point value is greater than int32_max,
@@ -225,9 +225,9 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v;
 
-    if (noise_ratio > 0){
+    if (noise_ratio > 0) {
       rand = Xor128() % 10;
-      if (rand < noise_ratio*10){
+      if (rand < noise_ratio * 10) {
         _mm256_storeu_ps(dst + i, src_v);
         return;
       }
@@ -267,7 +267,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
       const float* src,                         \
       float* dst,                               \
       int len,                                  \
-      const TensorQuantizationParams& qparams, \
+      const TensorQuantizationParams& qparams,  \
       float noise_ratio);
 SPECIALIZE_FUSEDDQAVX2(uint8_t)
 SPECIALIZE_FUSEDDQAVX2(int8_t)
@@ -322,16 +322,17 @@ void RequantizeAvx2(
     const RequantizationParams& params) {
   int32_t Bq_zero_point[] = {0};
 
-  requantizationParams_t<> reqObj = {0, // Aq_zero_point
-                                     Bq_zero_point,
-                                     params.target_qparams.zero_point,
-                                     &params.real_multiplier,
-                                     nullptr, // row_offsets
-                                     nullptr, // col_offsets
-                                     nullptr, // bias
-                                     static_cast<std::uint32_t>(len), // ncols
-                                     1, // groups
-                                     nullptr}; // act_times_w_scale
+  requantizationParams_t<> reqObj = {
+      0, // Aq_zero_point
+      Bq_zero_point,
+      params.target_qparams.zero_point,
+      &params.real_multiplier,
+      nullptr, // row_offsets
+      nullptr, // col_offsets
+      nullptr, // bias
+      static_cast<std::uint32_t>(len), // ncols
+      1, // groups
+      nullptr}; // act_times_w_scale
   requantizeOutputProcessingAvx2<
       true, // A_SYMMETRIC
       true, // B_SYMMETRIC
@@ -1483,22 +1484,29 @@ static inline float halfToFloat(uint16_t val) {
 #endif
 }
 
-template <int BIT_RATE>
-void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
-    const float* input,
+template <typename InputType, int BIT_RATE>
+void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
-  __m256i permute_mask1_v =
-      _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
-
+  static_assert(
+      std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
+      "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
   int output_columns =
       (input_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE +
       2 * sizeof(std::uint16_t);
+
+  float* input_row_float_for_fp16;
+  if constexpr (std::is_same<InputType, float16>()) {
+    input_row_float_for_fp16 = static_cast<float*>(
+        fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
+  }
+
   for (std::size_t row = 0; row < input_rows; ++row) {
-    const float* input_row = input + row * input_columns;
+    const InputType* input_row = input + row * input_columns;
     std::uint8_t* output_row = output + row * output_columns;
     std::uint16_t* output_row_scale_bias = reinterpret_cast<std::uint16_t*>(
         output_row +
@@ -1508,9 +1516,19 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
     float maximum_element = -FLT_MAX;
     __m256 min_v = _mm256_set1_ps(minimum_element);
     __m256 max_v = _mm256_set1_ps(maximum_element);
+
     std::size_t col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
-      __m256 in_v = _mm256_loadu_ps(input_row + col);
+      __m256 in_v;
+      if constexpr (std::is_same<InputType, float>()) {
+        in_v = _mm256_loadu_ps(input_row + col);
+      } else {
+        __m128i in_half_v =
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(input_row + col));
+        in_v = _mm256_cvtph_ps(in_half_v);
+        _mm256_store_ps(input_row_float_for_fp16 + col, in_v);
+      }
+
       min_v = _mm256_min_ps(min_v, in_v);
       max_v = _mm256_max_ps(max_v, in_v);
     }
@@ -1521,9 +1539,24 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
       minimum_element = std::min(minimum_element, min_buf[i]);
       maximum_element = std::max(maximum_element, max_buf[i]);
     }
+
     for (; col < input_columns; ++col) {
-      minimum_element = std::min(minimum_element, input_row[col]);
-      maximum_element = std::max(maximum_element, input_row[col]);
+      if constexpr (std::is_same<InputType, float>()) {
+        minimum_element = std::min(minimum_element, input_row[col]);
+        maximum_element = std::max(maximum_element, input_row[col]);
+      } else {
+        float element = halfToFloat(input_row[col]);
+        input_row_float_for_fp16[col] = element;
+        minimum_element = std::min(minimum_element, element);
+        maximum_element = std::max(maximum_element, element);
+      }
+    }
+
+    const float* input_row_float;
+    if constexpr (std::is_same<InputType, float>()) {
+      input_row_float = input_row;
+    } else {
+      input_row_float = input_row_float_for_fp16;
     }
 
     output_row_scale_bias[1] = floatToHalf(minimum_element);
@@ -1547,24 +1580,27 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
 
     output_row_scale_bias[0] = floatToHalf(scale);
 
-    __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
-    min_v = _mm256_set1_ps(minimum_element);
-
     col = 0;
+    if constexpr (BIT_RATE == 2 || BIT_RATE == 4) {
+      __m256i permute_mask1_v =
+          _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
+      __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
+      min_v = _mm256_set1_ps(minimum_element);
 
-    if (BIT_RATE == 2 || BIT_RATE == 4) {
       for (; col + 4 * VLEN <= input_columns; col += 4 * VLEN) {
         __m256i x_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-            _mm256_sub_ps(_mm256_loadu_ps(input_row + col), min_v),
+            _mm256_sub_ps(_mm256_loadu_ps(input_row_float + col), min_v),
             inverse_scale_v));
         __m256i y_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + VLEN), min_v),
+            _mm256_sub_ps(_mm256_loadu_ps(input_row_float + col + VLEN), min_v),
             inverse_scale_v));
         __m256i z_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 2 * VLEN), min_v),
+            _mm256_sub_ps(
+                _mm256_loadu_ps(input_row_float + col + 2 * VLEN), min_v),
             inverse_scale_v));
         __m256i w_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-            _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 3 * VLEN), min_v),
+            _mm256_sub_ps(
+                _mm256_loadu_ps(input_row_float + col + 3 * VLEN), min_v),
             inverse_scale_v));
 
         // An instruction sequence to save 32 32-bit integers as 8-bit integers
@@ -1579,7 +1615,7 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
             xyzw_packed_v,
             _mm256_set1_epi8(static_cast<char>((1 << BIT_RATE) - 1)));
 
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           // pack into lower 8-bit of each 16-bit
           xyzw_packed_v = _mm256_and_si256(
               _mm256_or_si256(
@@ -1598,7 +1634,7 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
         }
 
         __m128i out_v;
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           // avx2 doesn't have _mm256_cvtepi16_epi8
           out_v = _mm_packus_epi16(
               _mm256_castsi256_si128(xyzw_packed_v),
@@ -1620,7 +1656,7 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
     }
 
     for (; col < input_columns; ++col) {
-      float X = input_row[col];
+      float X = input_row_float[col];
       std::uint8_t quantized = std::max(
           0,
           std::min<int>(
@@ -1634,31 +1670,33 @@ void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2(
       }
     }
   }
+
+  if constexpr (std::is_same<InputType, float16>()) {
+    fbgemmAlignedFree(input_row_float_for_fp16);
+  }
 }
 
-template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<2>(
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output);
+#define INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(type, bit_rate) \
+  template void ToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>(    \
+      const type* input,                                                  \
+      int input_rows,                                                     \
+      int input_columns,                                                  \
+      std::uint8_t* output);
 
-template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<4>(
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output);
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 2)
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 4)
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 8)
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 2)
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 4)
+INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 8)
 
-template void FloatToFusedNBitRowwiseQuantizedSBHalfAvx2<8>(
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output);
+#undef INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2
 
 void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output) {
+  const float* input,
+  int input_rows,
+  int input_columns,
+  std::uint8_t* output) {
   constexpr int VLEN = 8;
   constexpr float kEpsilon = 1e-8f;
 

@@ -189,6 +189,7 @@ template <typename T>
   bool match = true;
   std::stringstream ss;
   int ld = out_emb_cols + 2 * sizeof(T);
+
   if (res.size() == res_ref.size()) {
     for (int i = 0; i < out_rows; ++i) {
       if (!match) {
@@ -418,15 +419,16 @@ TEST(QuantizeTest, cornerCases) {
   EXPECT_EQ(dst_int8[1], -128);
 
   // Tests vectorized and remainder paths
-  std::vector<float> src2 = {3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38,
-                             -2.16845e+38,
-                             3.40282e+38};
+  std::vector<float> src2 = {
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38};
   std::vector<uint8_t> dst_uint8(src2.size());
   Quantize<uint8_t>(src2.data(), dst_uint8.data(), dst_uint8.size(), qparams);
   EXPECT_EQ(dst_uint8[0], 255);
@@ -449,7 +451,8 @@ TEST(QuantizeTestQParams, chooseQParamsSymmetric) {
 
   bool preserve_sparsity = true;
 
-  TensorQuantizationParams result = ChooseQuantizationParams(min, max, qmin, qmax, preserve_sparsity);
+  TensorQuantizationParams result =
+      ChooseQuantizationParams(min, max, qmin, qmax, preserve_sparsity);
   EXPECT_FLOAT_EQ(result.scale, 0.012628906);
   EXPECT_EQ(result.zero_point, 0);
 }
@@ -545,25 +548,27 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
   EXPECT_TRUE(floatCloseAll(dst_int8, ref));
 
   // Tests vectorized and remainder paths
-  vector<float> src2 = {3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38,
-                        -2.16845e+38,
-                        3.40282e+38};
+  vector<float> src2 = {
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38,
+      -2.16845e+38,
+      3.40282e+38};
 
-  vector<float> ref2 = {3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05,
-                        0,
-                        3.0398295e-05};
+  vector<float> ref2 = {
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05,
+      0,
+      3.0398295e-05};
 
   std::vector<float> dst_uint8(src2.size(), 0);
 
@@ -571,6 +576,70 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
       src2.data(), dst_uint8.data(), src2.size(), qparams);
 
   EXPECT_TRUE(floatCloseAll(dst_uint8, ref2));
+}
+
+// Parameter are bit_rate (i.e., the number of bits in quantized values).
+class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
+  protected:
+   EmbeddingQuantizeFixedNumberTest() {
+    float_test_input = {
+      1, 1, 1, 1,               // All the same. Range: 0, min: 1
+      -64, -2.75, 61.625, 191,  // Range: 255, min: -64. Picking 61.625 because it differs under FP16 (will become 61.5).
+    };
+    assert(float_test_input.size() == row * col);
+
+    float16_test_input.reserve(float_test_input.size());
+    std::transform(float_test_input.begin(), float_test_input.end(), float16_test_input.begin(),
+      [](float input) {return cpu_float2half_rn(input); }
+    );
+
+    // Results are hand calculated.
+    expected_output[8] = {
+      0, 0, 0, 0,       0x00, 0x3c, 0x00, 0x3c,   // Scale: 1, bias: 1
+      0, 61, 126, 255,  0x00, 0x3c, 0x00, 0xd4,   // Scale: 1, bias: -64
+    };
+    expected_output[4] = {
+      0x00, 0x00, 0x00, 0x3c, 0x00, 0x3c,    // 0, 0, 0, 0, Scale: 1, bias: 1
+      0x40, 0xf7, 0x40, 0x4c, 0x00, 0xd4,    // 0, 4, 7, 15, Scale: 17, bias: -64
+      0, 0, 0, 0                             // Padding
+    };
+    expected_output[2] = {
+      0b00000000, 0x00, 0x3c, 0x00, 0x3c,    // 0, 0, 0, 0, Scale: 1, bias: 1
+      0b11010100, 0x50, 0x55, 0x00, 0xd4,    // 0, 1, 1, 3, Scale: 85, bias: -64
+      0, 0, 0, 0, 0, 0                       // Padding
+    };
+  }
+
+  const int row = 2;
+  const int col = 4;
+  const int out_cols = col + 2 * sizeof(float16);
+  std::vector<float> float_test_input;
+  std::vector<float16> float16_test_input;
+  std::map</*bit_rate*/int, /*output*/std::vector<uint8_t>> expected_output;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    EmbeddingQuantizeFixedNumberTest,
+    ::testing::ValuesIn({2, 4, 8}));
+
+TEST_P(EmbeddingQuantizeFixedNumberTest, embeddingFloatToQuantizedSBHalfTest) {
+  const int bit_rate = GetParam();
+  vector<uint8_t> outVecTest(row * out_cols);
+
+  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+      bit_rate, float_test_input.data(), row, col, outVecTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
+  ToFusedNBitRowwiseQuantizedSBHalf<float>(
+      bit_rate, float_test_input.data(), row, col, outVecTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
+
+  ToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
+      bit_rate, float16_test_input.data(), row, col, outVecTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
+  ToFusedNBitRowwiseQuantizedSBHalf<float16>(
+      bit_rate, float16_test_input.data(), row, col, outVecTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
 }
 
 // Scale and bias are of type float16
@@ -600,11 +669,10 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   vector<uint8_t> outVecRef(outVecSize);
   vector<uint8_t> outVecTest(outVecSize);
 
-  FloatToFusedNBitRowwiseQuantizedSBHalfRef(
+  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
       bit_rate, inpVec.data(), rows, cols, outVecRef.data());
-  FloatToFusedNBitRowwiseQuantizedSBHalf(
+  ToFusedNBitRowwiseQuantizedSBHalf<float>(
       bit_rate, inpVec.data(), rows, cols, outVecTest.data());
-
   EXPECT_TRUE(
       isQEmbeddingClose<float16>(outVecRef, outVecTest, rows, out_emb_cols));
 
@@ -613,6 +681,27 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   FusedNBitRowwiseQuantizedSBHalfToFloat(
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutTest.data());
   EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
+
+
+  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+    return cpu_half2float(cpu_float2half_rn(disFP(gen)));
+  });
+  vector<float16> inpHalfVec(rows * cols);
+  std::transform(inpVec.begin(), inpVec.end(), inpHalfVec.begin(),
+    [](float input) {return cpu_float2half_rn(input); }
+  );
+  vector<uint8_t> outVecRefFromHalf(outVecSize);
+  vector<uint8_t> outVecTestFromHalf(outVecSize);
+  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+      bit_rate, inpVec.data(), rows, cols, outVecRef.data());
+  ToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
+      bit_rate, inpHalfVec.data(), rows, cols, outVecRefFromHalf.data());
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(outVecRefFromHalf, outVecRef, rows, out_emb_cols));
+  ToFusedNBitRowwiseQuantizedSBHalf<float16>(
+      bit_rate, inpHalfVec.data(), rows, cols, outVecTestFromHalf.data());
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(outVecRefFromHalf, outVecTestFromHalf, rows, out_emb_cols));
 }
 
 // Scale and bias are of type float
