@@ -1500,13 +1500,23 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
       2 * sizeof(std::uint16_t);
 
   float* input_row_float_for_fp16;
-  if constexpr (std::is_same<InputType, float16>()) {
+  if (std::is_same<InputType, float16>()) {
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
 
   for (std::size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
+    const float* input_row_float;
+    if (std::is_same<InputType, float>()) {
+      // NOTE: this reinterpret_cast is only to workaround c++
+      // type requirements -- `input_row` HAS to be float* type.
+      // Remove it and use constexpr when pytorch allows C++11.
+      input_row_float = reinterpret_cast<const float*>(input_row);
+    } else {
+      input_row_float = input_row_float_for_fp16;
+    }
+
     std::uint8_t* output_row = output + row * output_columns;
     std::uint16_t* output_row_scale_bias = reinterpret_cast<std::uint16_t*>(
         output_row +
@@ -1520,8 +1530,8 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     std::size_t col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v;
-      if constexpr (std::is_same<InputType, float>()) {
-        in_v = _mm256_loadu_ps(input_row + col);
+      if (std::is_same<InputType, float>()) {
+        in_v = _mm256_loadu_ps(input_row_float + col);
       } else {
         __m128i in_half_v =
             _mm_loadu_si128(reinterpret_cast<const __m128i*>(input_row + col));
@@ -1541,22 +1551,15 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     }
 
     for (; col < input_columns; ++col) {
-      if constexpr (std::is_same<InputType, float>()) {
-        minimum_element = std::min(minimum_element, input_row[col]);
-        maximum_element = std::max(maximum_element, input_row[col]);
+      if (std::is_same<InputType, float>()) {
+        minimum_element = std::min(minimum_element, input_row_float[col]);
+        maximum_element = std::max(maximum_element, input_row_float[col]);
       } else {
         float element = halfToFloat(input_row[col]);
         input_row_float_for_fp16[col] = element;
         minimum_element = std::min(minimum_element, element);
         maximum_element = std::max(maximum_element, element);
       }
-    }
-
-    const float* input_row_float;
-    if constexpr (std::is_same<InputType, float>()) {
-      input_row_float = input_row;
-    } else {
-      input_row_float = input_row_float_for_fp16;
     }
 
     output_row_scale_bias[1] = floatToHalf(minimum_element);
@@ -1581,7 +1584,7 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     output_row_scale_bias[0] = floatToHalf(scale);
 
     col = 0;
-    if constexpr (BIT_RATE == 2 || BIT_RATE == 4) {
+    if (BIT_RATE == 2 || BIT_RATE == 4) {
       __m256i permute_mask1_v =
           _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
       __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
@@ -1615,7 +1618,7 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
             xyzw_packed_v,
             _mm256_set1_epi8(static_cast<char>((1 << BIT_RATE) - 1)));
 
-        if constexpr (BIT_RATE == 4) {
+        if (BIT_RATE == 4) {
           // pack into lower 8-bit of each 16-bit
           xyzw_packed_v = _mm256_and_si256(
               _mm256_or_si256(
@@ -1634,7 +1637,7 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
         }
 
         __m128i out_v;
-        if constexpr (BIT_RATE == 4) {
+        if (BIT_RATE == 4) {
           // avx2 doesn't have _mm256_cvtepi16_epi8
           out_v = _mm_packus_epi16(
               _mm256_castsi256_si128(xyzw_packed_v),
@@ -1671,7 +1674,7 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     }
   }
 
-  if constexpr (std::is_same<InputType, float16>()) {
+  if (std::is_same<InputType, float16>()) {
     fbgemmAlignedFree(input_row_float_for_fp16);
   }
 }
