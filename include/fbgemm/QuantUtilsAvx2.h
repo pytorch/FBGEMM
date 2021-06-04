@@ -125,6 +125,8 @@ FBGEMM_API void requantizeForFloatAvx2(
     int ld_in,
     const requantizationForFloatParams_t& r);
 
+ // TODO(T91361248): after deprecating FloatToFusedNBitRowwiseQuantizedSBHalf,
+ // rename this one to FloatToFusedNBitRowwiseQuantizedSBHalfAvx2.
 template <typename InputType, int BIT_RATE>
 void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input,
@@ -138,12 +140,14 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
     int input_columns,
     std::uint8_t* output);
 
-template <int BIT_RATE>
-void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
+ // TODO(T91361248): after deprecating FusedNBitRowwiseQuantizedSBHalfToFloat,
+ // rename this one to FusedNBitRowwiseQuantizedSBHalfToFloatAvx2.
+template <typename OutputType, int BIT_RATE>
+void FusedNBitRowwiseQuantizedSBHalfAvx2(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output);
+    OutputType* output);
 
 void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
     const std::uint8_t* input,
