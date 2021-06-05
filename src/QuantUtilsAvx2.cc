@@ -6,7 +6,6 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
-#include "fbgemm/Types.h"
 #include <immintrin.h>
 #include <algorithm> //for std::min/std::max
 #include <cassert> //for assert
@@ -15,6 +14,7 @@
 #include <cstring> //for memcpy
 #include <limits> //for numeric_limits
 #include "./MaskAvx2.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 
@@ -1485,7 +1485,7 @@ static inline float halfToFloat(uint16_t val) {
 }
 
 template <typename InputType, int BIT_RATE>
-void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
+void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input,
     int input_rows,
     int input_columns,
@@ -1510,8 +1510,8 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const float* input_row_float;
     if (std::is_same<InputType, float>()) {
       // NOTE: this reinterpret_cast is only to workaround c++
-      // type requirements -- `input_row` HAS to be float* type.
-      // Remove it and use constexpr when pytorch allows C++11.
+      // type requirements -- it is not for fp16 case and `input_row` HAS to be
+      // float* type. Remove it and use constexpr when pytorch allows C++17.
       input_row_float = reinterpret_cast<const float*>(input_row);
     } else {
       input_row_float = input_row_float_for_fp16;
@@ -1679,27 +1679,11 @@ void ToFusedNBitRowwiseQuantizedSBHalfAvx2(
   }
 }
 
-#define INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(type, bit_rate) \
-  template void ToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>(    \
-      const type* input,                                                  \
-      int input_rows,                                                     \
-      int input_columns,                                                  \
-      std::uint8_t* output);
-
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 2)
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 4)
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float, 8)
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 2)
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 4)
-INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2(float16, 8)
-
-#undef INSTANTIATE_ToFusedNBitRowwiseQuantizedSBHalfAvx2
-
 void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
-  const float* input,
-  int input_rows,
-  int input_columns,
-  std::uint8_t* output) {
+    const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
   constexpr int VLEN = 8;
   constexpr float kEpsilon = 1e-8f;
 
@@ -1796,12 +1780,15 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
   }
 }
 
-template <int BIT_RATE>
-void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
+template <typename OutputType, int BIT_RATE>
+void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output) {
+    OutputType* output) {
+  static_assert(
+      std::is_same<OutputType, float>() || std::is_same<OutputType, float16>(),
+      "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
   int output_columns =
@@ -1814,31 +1801,57 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
   constexpr int NUM_ELEM_PER_32BIT = 32 / BIT_RATE;
   // multiply by 4 because we're handling 4 vlen per iteration
   constexpr int NUM_OF_32BIT_PER_VLOAD = VLEN * 4 / NUM_ELEM_PER_32BIT;
-  int remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
-      NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
-  __m128i vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
-      internal::avx2_ps_or_epi32_combined_mask + NUM_OF_32BIT_PER_VLOAD +
-      (NUM_OF_32BIT_PER_VLOAD - remainder_32bit_granularity) %
-          NUM_OF_32BIT_PER_VLOAD));
-  int remainder = output_columns % (4 * VLEN);
-  __m256i vmask_store0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_combined_mask +
-      (VLEN - std::min(output_columns % (4 * VLEN), VLEN) % (VLEN + 1))));
-  __m256i vmask_store1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_combined_mask +
-      (VLEN -
-       std::max(0, std::min(output_columns % (4 * VLEN) - VLEN, VLEN)) %
-           (VLEN + 1))));
-  __m256i vmask_store2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_combined_mask +
-      (VLEN -
-       std::max(0, std::min(output_columns % (4 * VLEN) - 2 * VLEN, VLEN)) %
-           (VLEN + 1))));
-  __m256i vmask_store3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-      internal::avx2_ps_or_epi32_combined_mask +
-      (VLEN -
-       std::max(0, std::min(output_columns % (4 * VLEN) - 3 * VLEN, VLEN)) %
-           (VLEN + 1))));
+
+  int remainder_32bit_granularity, remainder;
+  __m128i vmask_load;
+  __m256i vmask_store0, vmask_store1, vmask_store2, vmask_store3;
+  if (BIT_RATE == 4 || BIT_RATE == 2) {
+    remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
+        NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
+    vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
+        internal::avx2_ps_or_epi32_combined_mask + NUM_OF_32BIT_PER_VLOAD +
+        (NUM_OF_32BIT_PER_VLOAD - remainder_32bit_granularity) %
+            NUM_OF_32BIT_PER_VLOAD));
+    remainder = output_columns % (4 * VLEN);
+    int remainder_ratio = 1;
+    if (std::is_same<OutputType, float16>()) {
+      // For fp16 we only need half of the mask.
+      //
+      // For instance, if reminder is 2, for FP32 the masks are
+      // {-1, -1, 0, ..., 0}, {0, ..., 0}, {0, ..., 0}, {0, ..., 0}
+      // (8 32-bit integers for each mask)
+      // for FP16 we only need
+      // {-1, 0, 0, 0}, {0, ..., 0}, {0, ..., 0}, {0, ..., 0}
+      // (4 32-bit integers for each mask)
+      // since we reinterpret 2 FP16 numbers as one 32-bit number.
+      // NOTE: for bit_rate 4 or 2, reminders are always multiple of 2 or 4,
+      // so we do have to worry about odd number of FP16 numbers.
+      //
+      // Or, if reminder is 30, for FP32 the masks are
+      // {-1, ..., -1}, {-1, ..., -1}, {-1, ..., -1}, {-1, .., -1, 0, 0}
+      // for FP16 we only need
+      // {-1, ..., -1}, {-1, ..., -1}, {-1, ..., -1}, {-1, -1, -1, 0}
+      remainder_ratio = 2;
+    }
+    vmask_store0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_combined_mask +
+        (VLEN - std::min(remainder, VLEN) / remainder_ratio % (VLEN + 1))));
+    vmask_store1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_combined_mask +
+        (VLEN -
+         std::max(0, std::min(remainder - VLEN, VLEN) / remainder_ratio) %
+             (VLEN + 1))));
+    vmask_store2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_combined_mask +
+        (VLEN -
+         std::max(0, std::min(remainder - 2 * VLEN, VLEN) / remainder_ratio) %
+             (VLEN + 1))));
+    vmask_store3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_combined_mask +
+        (VLEN -
+         std::max(0, std::min(remainder - 3 * VLEN, VLEN) / remainder_ratio) %
+             (VLEN + 1))));
+  }
 
   for (std::size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
@@ -1847,7 +1860,14 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
         (output_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE);
     float scale = halfToFloat(input_row_scale_bias[0]);
     float bias = halfToFloat(input_row_scale_bias[1]);
-    float* output_row = output + row * output_columns;
+    OutputType* output_row = output + row * output_columns;
+    float* output_row_float;
+    if (std::is_same<OutputType, float>()) {
+      // NOTE: this reinterpret_cast is only to workaround c++
+      // type requirements -- it is not for fp16 case and `output_row` HAS to be
+      // float* type. Remove it and use constexpr when pytorch allows C++17.
+      output_row_float = reinterpret_cast<float*>(output_row);
+    }
 
     std::size_t col = 0;
     if (BIT_RATE == 4 || BIT_RATE == 2) {
@@ -1887,10 +1907,28 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
         vinq1 = _mm256_fmadd_ps(vscale, vinq1, vbias);
         vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
         vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
-        _mm256_storeu_ps(output_row + col, vinq0);
-        _mm256_storeu_ps(output_row + col + VLEN, vinq1);
-        _mm256_storeu_ps(output_row + col + 2 * VLEN, vinq2);
-        _mm256_storeu_ps(output_row + col + 3 * VLEN, vinq3);
+
+        if (std::is_same<OutputType, float>()) {
+          _mm256_storeu_ps(output_row_float + col, vinq0);
+          _mm256_storeu_ps(output_row_float + col + VLEN, vinq1);
+          _mm256_storeu_ps(output_row_float + col + 2 * VLEN, vinq2);
+          _mm256_storeu_ps(output_row_float + col + 3 * VLEN, vinq3);
+        } else {
+          constexpr int sae =
+              0; //_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+          _mm_storeu_si128(
+              reinterpret_cast<__m128i*>(output_row + col),
+              _mm256_cvtps_ph(vinq0, sae));
+          _mm_storeu_si128(
+              reinterpret_cast<__m128i*>(output_row + col + VLEN),
+              _mm256_cvtps_ph(vinq1, sae));
+          _mm_storeu_si128(
+              reinterpret_cast<__m128i*>(output_row + col + 2 * VLEN),
+              _mm256_cvtps_ph(vinq2, sae));
+          _mm_storeu_si128(
+              reinterpret_cast<__m128i*>(output_row + col + 3 * VLEN),
+              _mm256_cvtps_ph(vinq3, sae));
+        }
       }
 
       if (remainder) {
@@ -1929,39 +1967,50 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2(
         vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
         vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
 
-        _mm256_maskstore_ps(output_row + col, vmask_store0, vinq0);
-        _mm256_maskstore_ps(output_row + col + VLEN, vmask_store1, vinq1);
-        _mm256_maskstore_ps(output_row + col + 2 * VLEN, vmask_store2, vinq2);
-        _mm256_maskstore_ps(output_row + col + 3 * VLEN, vmask_store3, vinq3);
+        if (std::is_same<OutputType, float>()) {
+          _mm256_maskstore_ps(output_row_float + col, vmask_store0, vinq0);
+          _mm256_maskstore_ps(
+              output_row_float + col + VLEN, vmask_store1, vinq1);
+          _mm256_maskstore_ps(
+              output_row_float + col + 2 * VLEN, vmask_store2, vinq2);
+          _mm256_maskstore_ps(
+              output_row_float + col + 3 * VLEN, vmask_store3, vinq3);
+        } else {
+          constexpr int sae =
+              0; //_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col),
+              _mm256_castsi256_si128(vmask_store0),
+              _mm256_cvtps_ph(vinq0, sae));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + VLEN),
+              _mm256_castsi256_si128(vmask_store1),
+              _mm256_cvtps_ph(vinq1, sae));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + 2 * VLEN),
+              _mm256_castsi256_si128(vmask_store2),
+              _mm256_cvtps_ph(vinq2, sae));
+          _mm_maskstore_epi32(
+              reinterpret_cast<int*>(output_row + col + 3 * VLEN),
+              _mm256_castsi256_si128(vmask_store3),
+              _mm256_cvtps_ph(vinq3, sae));
+        }
       }
     } else {
       for (; col < output_columns; ++col) {
         std::uint8_t quantized = input_row[col / NUM_ELEM_PER_BYTE];
         quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
         quantized &= (1 << BIT_RATE) - 1;
-        output_row[col] = scale * quantized + bias;
+        float output_value = scale * quantized + bias;
+        if (std::is_same<OutputType, float>()) {
+          output_row[col] = output_value;
+        } else {
+          output_row[col] = cpu_float2half_rn(output_value);
+        }
       }
     }
   }
 }
-
-template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<2>(
-    const std::uint8_t* input,
-    int input_rows,
-    int input_columns,
-    float* output);
-
-template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<4>(
-    const std::uint8_t* input,
-    int input_rows,
-    int input_columns,
-    float* output);
-
-template void FusedNBitRowwiseQuantizedSBHalfToFloatAvx2<8>(
-    const std::uint8_t* input,
-    int input_rows,
-    int input_columns,
-    float* output);
 
 void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
     const std::uint8_t* input,
@@ -1995,5 +2044,30 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
     }
   }
 }
+
+#define INSTANTIATE_QuantizationAvx2Functions(type, bit_rate)       \
+  template void                                                     \
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>( \
+      const type* input,                                            \
+      int input_rows,                                               \
+      int input_columns,                                            \
+      std::uint8_t* output);                                        \
+  template void                                                     \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<type, bit_rate>( \
+      const std::uint8_t* input,                                    \
+      int input_rows,                                               \
+      int input_columns,                                            \
+      type* output);
+
+// clang-format off
+INSTANTIATE_QuantizationAvx2Functions(float, 2)
+INSTANTIATE_QuantizationAvx2Functions(float, 4)
+INSTANTIATE_QuantizationAvx2Functions(float, 8)
+INSTANTIATE_QuantizationAvx2Functions(float16, 2)
+INSTANTIATE_QuantizationAvx2Functions(float16, 4)
+INSTANTIATE_QuantizationAvx2Functions(float16, 8)
+// clang-format on
+
+#undef INSTANTIATE_QuantizationAvx2Functions
 
 } // namespace fbgemm

@@ -152,10 +152,13 @@ template <typename T>
     return ::testing::AssertionFailure() << " Quantized results do not match";
 }
 
+// atol: absolute tolerance. <=0 means do not consider atol.
+// rtol: relative tolerance. <=0 means do not consider rtol.
 ::testing::AssertionResult floatCloseAll(
     vector<float>& a,
     vector<float>& b,
-    float atol = std::numeric_limits<float>::epsilon()) {
+    float atol = std::numeric_limits<float>::epsilon(),
+    float rtol = 0) {
   std::stringstream ss;
   bool match = true;
   if (a.size() != b.size()) {
@@ -164,12 +167,36 @@ template <typename T>
   }
   if (match) {
     for (int i = 0; i < a.size(); i++) {
-      float absDiff = fabs(a[i] - b[i]);
-      if (absDiff > atol) {
-        ss << " mismatch at (" << i << ") " << endl;
-        ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
-        ss << "\t diff: " << absDiff << " > " << atol << endl;
-        match = false;
+      const bool consider_absDiff = atol > 0;
+      const bool consider_relDiff = rtol > 0 &&
+          fabs(a[i]) > std::numeric_limits<float>::epsilon() &&
+          fabs(b[i]) > std::numeric_limits<float>::epsilon();
+
+      const float absDiff = fabs(a[i] - b[i]);
+      const float relDiff = absDiff / fabs(a[i]);
+
+      if (consider_absDiff && consider_relDiff) {
+        if (absDiff > atol && relDiff > rtol) {
+          ss << " mismatch at (" << i << ") " << endl;
+          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
+          ss << "\t absolute diff: " << absDiff << " > " << atol << endl;
+          ss << "\t relative diff: " << relDiff << " > " << rtol << endl;
+          match = false;
+        }
+      } else if (consider_absDiff) {
+        if (absDiff > atol) {
+          ss << " mismatch at (" << i << ") " << endl;
+          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
+          ss << "\t absolute diff: " << absDiff << " > " << atol << endl;
+          match = false;
+        }
+      } else if (consider_relDiff) {
+        if (relDiff > rtol) {
+          ss << " mismatch at (" << i << ") " << endl;
+          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
+          ss << "\t relative diff: " << relDiff << " > " << rtol << endl;
+          match = false;
+        }
       }
     }
   }
@@ -178,6 +205,30 @@ template <typename T>
   else
     return ::testing::AssertionFailure()
         << " results do not match. " << ss.str();
+}
+
+::testing::AssertionResult floatCloseAll(
+    vector<float>& a,
+    vector<float16>& b,
+    float atol = std::numeric_limits<float>::epsilon(),
+    float rtol = 0) {
+  vector<float> b_float(b.size());
+  const auto transform = [](float16 input) { return cpu_half2float(input); };
+  std::transform(b.begin(), b.end(), b_float.begin(), transform);
+  return floatCloseAll(a, b_float, atol, rtol);
+}
+
+::testing::AssertionResult floatCloseAll(
+    vector<float16>& a,
+    vector<float16>& b,
+    float atol = std::numeric_limits<float>::epsilon(),
+    float rtol = 0) {
+  vector<float> a_float(a.size());
+  vector<float> b_float(b.size());
+  const auto transform = [](float16 input) { return cpu_half2float(input); };
+  std::transform(a.begin(), a.end(), a_float.begin(), transform);
+  std::transform(b.begin(), b.end(), b_float.begin(), transform);
+  return floatCloseAll(a_float, b_float, atol, rtol);
 }
 
 template <typename T>
@@ -580,8 +631,9 @@ TEST(FusedQuantizeDequantizeTest, cornerCases) {
 
 // Parameter are bit_rate (i.e., the number of bits in quantized values).
 class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
-  protected:
-   EmbeddingQuantizeFixedNumberTest() {
+ protected:
+  // clang-format off
+  EmbeddingQuantizeFixedNumberTest() {
     float_test_input = {
       1, 1, 1, 1,               // All the same. Range: 0, min: 1
       -64, -2.75, 61.625, 191,  // Range: 255, min: -64. Picking 61.625 because it differs under FP16 (will become 61.5).
@@ -589,9 +641,11 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
     assert(float_test_input.size() == row * col);
 
     float16_test_input.reserve(float_test_input.size());
-    std::transform(float_test_input.begin(), float_test_input.end(), float16_test_input.begin(),
-      [](float input) {return cpu_float2half_rn(input); }
-    );
+    std::transform(
+        float_test_input.begin(),
+        float_test_input.end(),
+        float16_test_input.begin(),
+        [](float input) { return cpu_float2half_rn(input); });
 
     // Results are hand calculated.
     expected_output[8] = {
@@ -609,13 +663,14 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
       0, 0, 0, 0, 0, 0                       // Padding
     };
   }
+  // clang-format on
 
   const int row = 2;
   const int col = 4;
   const int out_cols = col + 2 * sizeof(float16);
   std::vector<float> float_test_input;
   std::vector<float16> float16_test_input;
-  std::map</*bit_rate*/int, /*output*/std::vector<uint8_t>> expected_output;
+  std::map</*bit_rate*/ int, /*output*/ std::vector<uint8_t>> expected_output;
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -627,19 +682,23 @@ TEST_P(EmbeddingQuantizeFixedNumberTest, embeddingFloatToQuantizedSBHalfTest) {
   const int bit_rate = GetParam();
   vector<uint8_t> outVecTest(row * out_cols);
 
-  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
       bit_rate, float_test_input.data(), row, col, outVecTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
-  ToFusedNBitRowwiseQuantizedSBHalf<float>(
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      expected_output[bit_rate], outVecTest, row, col));
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
       bit_rate, float_test_input.data(), row, col, outVecTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      expected_output[bit_rate], outVecTest, row, col));
 
-  ToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
       bit_rate, float16_test_input.data(), row, col, outVecTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
-  ToFusedNBitRowwiseQuantizedSBHalf<float16>(
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      expected_output[bit_rate], outVecTest, row, col));
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
       bit_rate, float16_test_input.data(), row, col, outVecTest.data());
-  EXPECT_TRUE(isQEmbeddingClose<float16>(expected_output[bit_rate], outVecTest, row, col));
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      expected_output[bit_rate], outVecTest, row, col));
 }
 
 // Scale and bias are of type float16
@@ -669,39 +728,56 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   vector<uint8_t> outVecRef(outVecSize);
   vector<uint8_t> outVecTest(outVecSize);
 
-  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
       bit_rate, inpVec.data(), rows, cols, outVecRef.data());
-  ToFusedNBitRowwiseQuantizedSBHalf<float>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
       bit_rate, inpVec.data(), rows, cols, outVecTest.data());
   EXPECT_TRUE(
       isQEmbeddingClose<float16>(outVecRef, outVecTest, rows, out_emb_cols));
 
-  FusedNBitRowwiseQuantizedSBHalfToFloatRef(
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float>(
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutRef.data());
-  FusedNBitRowwiseQuantizedSBHalfToFloat(
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
       bit_rate, outVecTest.data(), rows, out_cols, dequantOutTest.data());
   EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
-
 
   generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
     return cpu_half2float(cpu_float2half_rn(disFP(gen)));
   });
   vector<float16> inpHalfVec(rows * cols);
-  std::transform(inpVec.begin(), inpVec.end(), inpHalfVec.begin(),
-    [](float input) {return cpu_float2half_rn(input); }
-  );
+  std::transform(
+      inpVec.begin(), inpVec.end(), inpHalfVec.begin(), [](float input) {
+        return cpu_float2half_rn(input);
+      });
   vector<uint8_t> outVecRefFromHalf(outVecSize);
   vector<uint8_t> outVecTestFromHalf(outVecSize);
-  ToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
       bit_rate, inpVec.data(), rows, cols, outVecRef.data());
-  ToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
       bit_rate, inpHalfVec.data(), rows, cols, outVecRefFromHalf.data());
-  EXPECT_TRUE(
-      isQEmbeddingClose<float16>(outVecRefFromHalf, outVecRef, rows, out_emb_cols));
-  ToFusedNBitRowwiseQuantizedSBHalf<float16>(
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      outVecRefFromHalf, outVecRef, rows, out_emb_cols));
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
       bit_rate, inpHalfVec.data(), rows, cols, outVecTestFromHalf.data());
-  EXPECT_TRUE(
-      isQEmbeddingClose<float16>(outVecRefFromHalf, outVecTestFromHalf, rows, out_emb_cols));
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      outVecRefFromHalf, outVecTestFromHalf, rows, out_emb_cols));
+
+  vector<float16> dequantOutHalfRef(rows * cols);
+  vector<float16> dequantOutHalfTest(rows * cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantOutRef.data());
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float16>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfRef.data());
+  constexpr int NumberOfFP16Matissa = 9;
+  EXPECT_TRUE(floatCloseAll(
+      dequantOutRef, dequantOutHalfRef, 1e-3, pow(2, NumberOfFP16Matissa)));
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float16>(
+      bit_rate, outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
+  EXPECT_TRUE(floatCloseAll(
+      dequantOutHalfRef,
+      dequantOutHalfTest,
+      1e-3,
+      pow(2, NumberOfFP16Matissa)));
 }
 
 // Scale and bias are of type float
