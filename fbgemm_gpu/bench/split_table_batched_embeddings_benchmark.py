@@ -19,7 +19,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     OptimType,
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
-    Int4TableBatchedEmbeddingBagsCodegen,
+    IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from torch import Tensor
 
@@ -799,8 +799,8 @@ def cpu(  # noqa C901
     else:
         Ds = [D] * T
 
-    emb = Int4TableBatchedEmbeddingBagsCodegen(
-        [(E, d) for d in Ds],
+    emb = IntNBitTableBatchedEmbeddingBagsCodegen(
+        [(E, d, SparseType.INT4) for d in Ds],
         use_cpu=True,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
@@ -823,12 +823,10 @@ def cpu(  # noqa C901
         weights_precision=weights_precision,
         weighted=weighted,
     )
-
     requests = [
         (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
     ]
 
-    # forward
     time_per_iter = benchmark_cpu_requests(
         # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
         #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
@@ -915,8 +913,8 @@ def int4_device(  # noqa C901
     else:
         Ds = [D] * T
 
-    emb = Int4TableBatchedEmbeddingBagsCodegen(
-        [(E, d) for d in Ds],
+    emb = IntNBitTableBatchedEmbeddingBagsCodegen(
+        [(E, d, SparseType.INT4) for d in Ds],
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cuda()
 

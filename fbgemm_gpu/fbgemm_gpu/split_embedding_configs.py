@@ -34,13 +34,24 @@ class SparseType(enum.Enum):
     FP32 = "fp32"
     FP16 = "fp16"
     INT8 = "int8"
+    INT4 = "int4"
+    INT2 = "int2"
 
     def __str__(self) -> str:
         return self.value
 
+    def as_int(self) -> int:
+        return {
+            SparseType.FP32: 0,
+            SparseType.FP16: 1,
+            SparseType.INT8: 2,
+            SparseType.INT4: 3,
+            SparseType.INT2: 4,
+        }[self]
 
 ELEMENT_SIZE: Dict[SparseType, int] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.INT8: 1,
+    # SparseType.INT4: 0.5,
 }

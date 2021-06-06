@@ -1567,6 +1567,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
             ]
         ),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+                SparseType.FP16,
+            ]
+        ),
+
         cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -1581,24 +1590,28 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         cpu: bool,
+        weights_ty: SparseType,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
+
         if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
             mode = "sum"
         elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
             mode = "mean"
 
         E = int(10 ** log_E)
-        D = div_round_up(D, 8)
+        D_alignment = 8 if not weights_ty == SparseType.INT2 else 16
+        D = div_round_up(D, D_alignment)
+
         if not mixed:
             Ds = [D] * T
             Es = [int(1e4)] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
+                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment)
                 for _ in range(T)
             ]
             Ds = [min(D, 128) for D in Ds]
@@ -1614,11 +1627,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        cc = split_table_batched_embeddings_ops.Int4TableBatchedEmbeddingBagsCodegen(
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     E,
                     D,
+                    weights_ty
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -1629,49 +1643,88 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
             # weights.zero_()
-            (E, R) = scale_shift.shape
-            assert R == 4
-            scale_shift[:, :] = torch.tensor(
-                # should use a random # for test coverage ??
-                # np.random.rand(E, 2).astype(np.float16).view(np.uint8)
-                np.ones((E, 2))
-                .astype(np.float16)
-                .view(np.uint8)
-            )
+            if scale_shift is not None:
+                (E, R) = scale_shift.shape
+                assert R == 4
+                scale_shift[:, :] = torch.tensor(
+                    # should use a random # for test coverage ??
+                    # np.random.rand(E, 2).astype(np.float16).view(np.uint8)
+                    np.ones((E, 2))
+                    .astype(np.float16)
+                    .view(np.uint8)
+                )
 
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
-            # pyre-fixme[35]: Target cannot be annotated.
-            # pyre-fixme[11]: Annotation `array` is not defined as a type.
-            scale_shift: np.array = (
-                scale_shift.cpu()
-                .contiguous()
-                .numpy()
-                .view(np.float16)
-                .astype(np.float32)
-            )
-            np.testing.assert_allclose(scale_shift, np.ones_like(scale_shift))
-            weights = weights.contiguous().cpu().numpy()
-            (E, D_2) = weights.shape
-            D = D_2 * 2
-
-            # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
-            # pyre-fixme[53]: Captured variable `weights` is not annotated.
-            def comp(i: int) -> np.array:
-                subs = weights.view(np.uint16) >> (i * 4)
-                sub_mask = subs & 0xF
-                result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
-                    -1, 1
-                ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
-                    np.float32
+            if scale_shift is not None:
+                # pyre-fixme[35]: Target cannot be annotated.
+                # pyre-fixme[11]: Annotation `array` is not defined as a type.
+                scale_shift: np.array = (
+                    scale_shift.cpu()
+                    .contiguous()
+                    .numpy()
+                    .view(np.float16)
+                    .astype(np.float32)
                 )
-                return result.astype(np.float16).astype(np.float32)
+                np.testing.assert_allclose(scale_shift, np.ones_like(scale_shift))
+            # weights.fill_(1)
+            np_weights = weights.contiguous().cpu().numpy()
 
-            comps = [comp(i) for i in range(4)]
-            comps = np.stack(comps)
-            comps = comps.transpose(1, 2, 0)
-            comps = comps.reshape(E, D)
-            bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+            if weights_ty == SparseType.INT4:
+                (E, D_2) = np_weights.shape
+                D = D_2 * 2
+
+                def comp(i: int) -> np.array:
+                    subs = np_weights.view(np.uint16) >> (i * 4)
+                    sub_mask = subs & 0xF
+                    result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
+                        -1, 1
+                    ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
+                        np.float32
+                    )
+                    return result.astype(np.float16).astype(np.float32)
+
+                comps = [comp(i) for i in range(4)]
+                comps = np.stack(comps)
+                comps = comps.transpose(1, 2, 0)
+                comps = comps.reshape(E, D)
+                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+
+            if weights_ty == SparseType.INT2:
+                (E, D_4) = np_weights.shape
+                D = D_4 * 4
+
+                # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
+                # pyre-fixme[53]: Captured variable `weights` is not annotated.
+                def comp(i: int) -> np.array:
+                    subs = np_weights.view(np.uint8) >> (i * 2)
+                    sub_mask = subs & 0x3
+                    result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
+                        -1, 1
+                    ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
+                        np.float32
+                    )
+                    return result.astype(np.float16).astype(np.float32)
+
+                comps = [comp(i) for i in range(4)]
+                comps = np.stack(comps)
+                comps = comps.transpose(1, 2, 0)
+                comps = comps.reshape(E, D)
+                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+
+
+            if weights_ty == SparseType.INT8:
+                (E, D) = np_weights.shape
+                comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
+                        -1, 1
+                ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
+                        np.float32
+                )
+                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+
+            if weights_ty == SparseType.FP16:
+                comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
+                weights.copy_(torch.tensor(comps))
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
