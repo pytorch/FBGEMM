@@ -19,57 +19,63 @@
 
 using namespace at;
 
-Tensor int4_split_embedding_codegen_forward_unweighted_cpu(
+Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
     Tensor weights_offsets,
+    Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_D,
+    int64_t max_effective_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
     int64_t unused);
 
-Tensor int4_split_embedding_codegen_forward_weighted_cpu(
+Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
     Tensor weights_offsets,
+    Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_D,
+    int64_t max_effective_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
     Tensor indice_weights,
     int64_t unused);
 
-Tensor int4_split_embedding_codegen_lookup_function_cpu(
+Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
     Tensor weights_offsets,
+    Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_D,
+    int64_t max_effective_D,
+    int64_t max_float16_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights) {
   if (!indice_weights) {
-    return int4_split_embedding_codegen_forward_unweighted_cpu(
+    return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
         weights_offsets,
+        weights_tys,
         D_offsets,
         total_D,
-        max_D,
+        max_effective_D,
         indices,
         offsets,
         pooling_mode,
         0);
   }
-  return int4_split_embedding_codegen_forward_weighted_cpu(
+  return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       dev_weights,
       weights_offsets,
+      weights_tys,
       D_offsets,
       total_D,
-      max_D,
+      max_effective_D,
       indices,
       offsets,
       pooling_mode,
@@ -92,10 +98,10 @@ Tensor pruned_hashmap_lookup_unweighted_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.impl(
-      "int4_split_embedding_codegen_lookup_function",
+      "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(
           c10::DispatchKey::CPU,
-          TORCH_FN(int4_split_embedding_codegen_lookup_function_cpu)));
+          TORCH_FN(int_nbit_split_embedding_codegen_lookup_function_cpu)));
 
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert

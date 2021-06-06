@@ -1292,20 +1292,38 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
             feature_requires_grad,
         )
 
-class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
+
+def row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+    return {
+        SparseType.FP16: dim * 2,
+        SparseType.INT8: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT4: dim // 2 + 4,
+        SparseType.INT2: dim // 4 + 4,
+    }[weight_ty]
+
+
+def effective_D(dim: int, weight_ty: SparseType) -> int:
+    return {
+        SparseType.FP16: dim,
+        SparseType.INT8: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT4: dim + 8,
+        SparseType.INT2: dim + 16,
+    }[weight_ty]
+
+class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
     """
 
     def __init__(
         self,
-        embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
+        embedding_specs: List[Tuple[int, int, SparseType]],  # tuple of (rows, dims, SparseType)
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
-        super(Int4TableBatchedEmbeddingBagsCodegen, self).__init__()
+        super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
         import numpy as np
 
         self.use_cpu = use_cpu
@@ -1314,15 +1332,43 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
 
         self.embedding_specs = embedding_specs
-        (rows, dims) = zip(*embedding_specs)
+        # (rows, dims, weights_tys, ) = zip(*embedding_specs)
+        # Pyre workaround
+        rows: List[int] = [e[0] for e in embedding_specs]
+        dims: List[int] = [e[1] for e in embedding_specs]
+        weights_tys: List[SparseType] = [e[2] for e in embedding_specs]
+
         T_ = len(self.embedding_specs)
+
         assert T_ > 0
-        for dim in dims:
-            assert dim % 8 == 0
-            if (dim // 2 + 4) % 32 != 0:
-                logging.warning(
-                    f"Int4Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
-                )
+        for (dim, weight_ty) in zip(dims, weights_tys):
+            if weight_ty == SparseType.FP16:
+                assert dim % 4 == 0
+                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
+                    logging.warning(
+                        f"{weight_ty} Embedding, dim={dim} is not 32-byte aligned"
+                    )
+
+            if weight_ty == SparseType.INT8:
+                assert dim % 8 == 0
+                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
+                    logging.warning(
+                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift and 4-byte padding is not 32-byte aligned"
+                    )
+
+            if weight_ty == SparseType.INT4:
+                assert dim % 8 == 0
+                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
+                    logging.warning(
+                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
+                    )
+
+            if weight_ty == SparseType.INT2:
+                assert dim % 16 == 0
+                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
+                    logging.warning(
+                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
+                    )
 
         feature_table_map = (
             feature_table_map if feature_table_map is not None else list(range(T_))
@@ -1331,10 +1377,16 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
         assert T_ <= T
         D_offsets = [dims[t] for t in feature_table_map]
         D_offsets = [0] + np.cumsum(D_offsets).tolist()
-        # pyre-fixme[4]: Attribute must be annotated.
-        self.total_D = D_offsets[-1]
-        # pyre-fixme[4]: Attribute must be annotated.
-        self.max_D = max(dims)
+        self.total_D: int = D_offsets[-1]
+        self.max_effective_D: int = max(
+            [effective_D(dim, weight_ty)
+            for dim, weight_ty in zip(dims, weights_tys)
+            if weight_ty != SparseType.FP16], default=0)
+        self.max_float16_D: int = max(
+            [effective_D(dim, weight_ty)
+            for dim, weight_ty in zip(dims, weights_tys)
+            if weight_ty == SparseType.FP16], default=0)
+
         self.register_buffer(
             "D_offsets",
             torch.tensor(D_offsets, device=current_device, dtype=torch.int32),
@@ -1344,14 +1396,13 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         assert self.D_offsets.numel() == T + 1
 
-        def align_to_32_b(a: int) -> int:
-            # align to sector boundary
-            return ((a + (32 - 1)) // 32) * 32
+        def align_to_cacheline(a: int) -> int:
+            # align each table to 128b cache line boundary.
+            return ((a + (128 - 1)) // 128) * 128
 
         weights_offsets = [0] + np.cumsum(
-            [align_to_32_b(row * (dim // 2 + 4)) for (row, dim) in embedding_specs]
+            [align_to_cacheline(row * row_size_in_bytes(dim, weight_ty)) for (row, dim, weight_ty) in embedding_specs]
         ).tolist()
-
         self.register_buffer(
             "weights",
             torch.randint(
@@ -1365,20 +1416,25 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
 
         for feature in range(T):
             t = feature_table_map[feature]
-            row, dim = embedding_specs[t]
+            row, dim, weight_ty = embedding_specs[t]
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
             #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
             #  nn.Module]` is not a function.
             assert self.weights[
                 weights_offsets[t] : weights_offsets[t + 1]
-            ].numel() == align_to_32_b(row * (dim // 2 + 4))
+            ].numel() == align_to_cacheline(row * row_size_in_bytes(dim, weight_ty))
 
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
+        weights_tys_int = [weights_tys[t].as_int() for t in feature_table_map]
 
         self.register_buffer(
             "weights_offsets",
             torch.tensor(weights_offsets, device=current_device, dtype=torch.int64),
+        )
+        self.register_buffer(
+            "weights_tys",
+            torch.tensor(weights_tys_int, device=current_device, dtype=torch.uint8),
         )
 
         if index_remapping:
@@ -1461,12 +1517,14 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
                     #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
                     indices, offsets, self.D_offsets.numel() - 1
                 )
-        return torch.ops.fb.int4_split_embedding_codegen_lookup_function(
+        return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights,
             weights_offsets=self.weights_offsets,
+            weights_tys=self.weights_tys,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
-            max_D=self.max_D,
+            max_effective_D=self.max_effective_D,
+            max_float16_D=self.max_float16_D,
             indices=indices,
             offsets=offsets,
             pooling_mode=self.pooling_mode,
@@ -1474,12 +1532,12 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @torch.jit.export
-    def split_embedding_weights(self) -> List[Tuple[Tensor, Tensor]]:
+    def split_embedding_weights(self) -> List[Tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         """
-        splits: List[Tuple[Tensor, Tensor]] = []
-        for t, (rows, dim) in enumerate(self.embedding_specs):
+        splits: List[Tuple[Tensor, Optional[Tensor]]] = []
+        for t, (rows, dim, weight_ty) in enumerate(self.embedding_specs):
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
             #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
@@ -1489,13 +1547,33 @@ class Int4TableBatchedEmbeddingBagsCodegen(nn.Module):
             #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self, Tensor)],
             #  Tensor], Tensor], Tensor, nn.Module]` is not a function.
             weights_shifts = self.weights.detach()[
-                offset : offset + rows * (dim // 2 + 4)
-            ].view(rows, dim // 2 + 4)
+                offset : offset + rows * row_size_in_bytes(dim, weight_ty)
+            ].view(rows, row_size_in_bytes(dim, weight_ty))
 
-            splits.append(
-                (
-                    weights_shifts[:, 4:],
-                    weights_shifts[:, :4],
+            if weight_ty in (SparseType.INT4, SparseType.INT2):
+                splits.append(
+                    (
+                        weights_shifts[:, 4:],
+                        weights_shifts[:, :4],
+                    )
                 )
-            )
+            elif weight_ty in (SparseType.INT8,):
+                # Note: we use a 4 byte scale shift (2xfp16),
+                # but then insert 4 bytes of padding to ensure that all
+                # rows are 8 byte aligned.
+                splits.append(
+                    (
+                        weights_shifts[:, 8:],
+                        weights_shifts[:, :4],
+                    )
+                )
+            else:
+                assert weight_ty in (SparseType.FP16,)
+                splits.append(
+                    (
+                        weights_shifts,
+                        None,
+                    )
+                )
+
         return splits

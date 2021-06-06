@@ -155,10 +155,138 @@ __forceinline__ __device__ half8  dequantize_int4(uint32_t packedVals, __half2 s
   return res;
 }
 
+__forceinline__ __device__ half8  dequantize_int2(uint16_t packedVals_, __half2 shift_scale) {
+  uint32_t packedVals = static_cast<uint32_t>(packedVals_);
+  half8 res;
+  res.vals[0].vals[0].x =
+      hbfe(packedVals, 0,
+           2);
+  res.vals[0].vals[0].y =
+      hbfe(packedVals, 2,
+           2);
+  res.vals[0].vals[1].x =
+      hbfe(packedVals, 4,
+           2);
+  res.vals[0].vals[1].y =
+      hbfe(packedVals, 6,
+           2);
+  res.vals[1].vals[0].x =
+      hbfe(packedVals, 8,
+           2);
+  res.vals[1].vals[0].y =
+      hbfe(packedVals, 10,
+           2);
+  res.vals[1].vals[1].x =
+      hbfe(packedVals, 12,
+           2);
+  res.vals[1].vals[1].y =
+      hbfe(packedVals, 14,
+           2);
+
+  res.vals[0].vals[0] =
+      hfma2(res.vals[0].vals[0], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[0].vals[1] =
+      hfma2(res.vals[0].vals[1], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[1].vals[0] =
+      hfma2(res.vals[1].vals[0], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[1].vals[1] =
+      hfma2(res.vals[1].vals[1], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  return res;
+}
+
+__forceinline__ __device__ half8  dequantize_int8(uint64_t packedVals, __half2 shift_scale) {
+  half8 res;
+  uint32_t packedVals_l = static_cast<uint32_t>(packedVals);
+  uint32_t packedVals_h = static_cast<uint32_t>(packedVals >> 32);
+
+  res.vals[0].vals[0].x =
+      hbfe(packedVals_l, 0,
+           8);
+  res.vals[0].vals[0].y =
+      hbfe(packedVals_l, 8,
+           8);
+  res.vals[0].vals[1].x =
+      hbfe(packedVals_l, 16,
+           8);
+  res.vals[0].vals[1].y =
+      hbfe(packedVals_l, 24,
+           8);
+  res.vals[1].vals[0].x =
+      hbfe(packedVals_h, 0,
+           8);
+  res.vals[1].vals[0].y =
+      hbfe(packedVals_h, 8,
+           8);
+  res.vals[1].vals[1].x =
+      hbfe(packedVals_h, 16,
+           8);
+  res.vals[1].vals[1].y =
+      hbfe(packedVals_h, 24,
+           8);
+
+  res.vals[0].vals[0] =
+      hfma2(res.vals[0].vals[0], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[0].vals[1] =
+      hfma2(res.vals[0].vals[1], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[1].vals[0] =
+      hfma2(res.vals[1].vals[0], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  res.vals[1].vals[1] =
+      hfma2(res.vals[1].vals[1], __half2(shift_scale.x, shift_scale.x),
+              __half2(shift_scale.y, shift_scale.y));
+  return res;
+}
+
 __forceinline__ __device__ float8 accumulate_packed_int4(float8 acc,
-                                                        uint32_t packedVals,
-                                                        __half2 shift_scale) {
+                                                         uint32_t packedVals,
+                                                         __half2 shift_scale) {
   half8 res = dequantize_int4(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0].vals[0]);
+  float2 v1 = __half22float2(res.vals[0].vals[1]);
+  float2 v2 = __half22float2(res.vals[1].vals[0]);
+  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  acc.vals[0].x += v0.x;
+  acc.vals[0].y += v0.y;
+  acc.vals[0].z += v1.x;
+  acc.vals[0].w += v1.y;
+  acc.vals[1].x += v2.x;
+  acc.vals[1].y += v2.y;
+  acc.vals[1].z += v3.x;
+  acc.vals[1].w += v3.y;
+  return acc;
+}
+
+__forceinline__ __device__ float8 accumulate_packed_int2(float8 acc,
+                                                         uint16_t packedVals,
+                                                         __half2 shift_scale) {
+  half8 res = dequantize_int2(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0].vals[0]);
+  float2 v1 = __half22float2(res.vals[0].vals[1]);
+  float2 v2 = __half22float2(res.vals[1].vals[0]);
+  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  acc.vals[0].x += v0.x;
+  acc.vals[0].y += v0.y;
+  acc.vals[0].z += v1.x;
+  acc.vals[0].w += v1.y;
+  acc.vals[1].x += v2.x;
+  acc.vals[1].y += v2.y;
+  acc.vals[1].z += v3.x;
+  acc.vals[1].w += v3.y;
+  return acc;
+}
+
+__forceinline__ __device__ float8 accumulate_packed_int8(float8 acc,
+                                                         uint64_t packedVals,
+                                                         __half2 shift_scale) {
+  half8 res = dequantize_int8(packedVals, shift_scale);
   // Accumulate in float32.
   float2 v0 = __half22float2(res.vals[0].vals[0]);
   float2 v1 = __half22float2(res.vals[0].vals[1]);
@@ -199,19 +327,92 @@ __forceinline__ __device__ float8 weighted_accumulate_packed_int4(float8 acc,
   return acc;
 }
 
+__forceinline__ __device__ float8 weighted_accumulate_packed_int2(float8 acc,
+                                                        uint16_t packedVals,
+                                                        __half2 shift_scale,
+                                                        float weight) {
+  half8 res = dequantize_int2(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0].vals[0]);
+  float2 v1 = __half22float2(res.vals[0].vals[1]);
+  float2 v2 = __half22float2(res.vals[1].vals[0]);
+  float2 v3 = __half22float2(res.vals[1].vals[1]);
+
+  acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
+  acc.vals[0].y = fmaf(v0.y, weight, acc.vals[0].y);
+  acc.vals[0].z = fmaf(v1.x, weight, acc.vals[0].z);
+  acc.vals[0].w = fmaf(v1.y, weight, acc.vals[0].w);
+
+  acc.vals[1].x = fmaf(v2.x, weight, acc.vals[1].x);
+  acc.vals[1].y = fmaf(v2.y, weight, acc.vals[1].y);
+  acc.vals[1].z = fmaf(v3.x, weight, acc.vals[1].z);
+  acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
+
+  return acc;
+}
+
+__forceinline__ __device__ float8 weighted_accumulate_packed_int8(float8 acc,
+                                                        uint64_t packedVals,
+                                                        __half2 shift_scale,
+                                                        float weight) {
+  half8 res = dequantize_int8(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0].vals[0]);
+  float2 v1 = __half22float2(res.vals[0].vals[1]);
+  float2 v2 = __half22float2(res.vals[1].vals[0]);
+  float2 v3 = __half22float2(res.vals[1].vals[1]);
+
+  acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
+  acc.vals[0].y = fmaf(v0.y, weight, acc.vals[0].y);
+  acc.vals[0].z = fmaf(v1.x, weight, acc.vals[0].z);
+  acc.vals[0].w = fmaf(v1.y, weight, acc.vals[0].w);
+
+  acc.vals[1].x = fmaf(v2.x, weight, acc.vals[1].x);
+  acc.vals[1].y = fmaf(v2.y, weight, acc.vals[1].y);
+  acc.vals[1].z = fmaf(v3.x, weight, acc.vals[1].z);
+  acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
+
+  return acc;
+}
+
 using namespace at;
 using namespace fbgemm_gpu;
 
-template<typename index_t, size_t kMaxVecsPerThread, size_t kThreadsPerRow>
+// Keep in sync with split_embedding_configs.py:SparseType
+enum class SparseType : uint8_t {
+    FP32 = 0,
+    FP16 = 1,
+    INT8 = 2,
+    INT4 = 3,
+    INT2 = 4,
+};
+
+__device__ inline int32_t row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::INT8) { return dim + 8; }
+    if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
+    if (weight_ty == SparseType::INT2) { return dim / 4 + 4; }
+    return 0;
+}
+
+// "Effective" number of elements in the row when we include the row-wise quantization parameters.
+__device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::INT8) { return dim + 8; }
+    if (weight_ty == SparseType::INT4) { return dim + 8; }
+    if (weight_ty == SparseType::INT2) { return dim + 16; }
+    return 0;
+}
+
+
+template<typename index_t, size_t kMaxVecsPerThread>
 __launch_bounds__(kForwardMaxThreads)
-__global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
+__global__ void float16_split_embedding_codegen_forward_{{ wdesc }}_kernel(
     const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-     const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
     const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
     int64_t pooling_mode,
-    int32_t max_D,
     {% if weighted %}
     PackedTensorAccessor32<float, 1, RestrictPtrTraits>
         indice_weights,
@@ -227,6 +428,104 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
     }
     int32_t t = b_t / B;
     int32_t b = b_t % B;
+    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+
+    if (weight_ty != SparseType::FP16) {
+        return;
+    }
+    int64_t weights_offset = weights_offsets[t];
+    int32_t D_start = D_offsets[t];
+    int32_t D_end = D_offsets[t + 1];
+    int32_t D = D_end - D_start;
+
+    int64_t indices_start = offsets[t * B + b];
+    int64_t indices_end = offsets[t * B + b + 1];
+    int32_t L = indices_end - indices_start;
+    const auto* __restrict__ weights = reinterpret_cast<const Half*>(&dev_weights[weights_offset]);
+
+
+    Vec4T<Half> accumulators[kMaxVecsPerThread];
+
+    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
+        int32_t l = l_start + threadIdx.x;
+        int64_t idx = l < L ? indices[indices_start + l] : 0;
+        {% if weighted %}
+        acc_type<Half, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
+        {% endif %}
+
+        for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+            int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
+
+            {% if weighted %}
+            acc_type<Half, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+            {% endif %}
+
+            // Handle pruned-out indices.
+            if (idx_j != -1) {
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                    ++i) {
+                    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+                    Vec4T<Half> weight(&weights[idx_j * D + d]);
+                    {% if weighted %}
+                    accumulators[i].fma_(weight, idx_weight_j);
+                    {% else %}
+                    accumulators[i].acc.x += weight.acc.x;
+                    accumulators[i].acc.y += weight.acc.y;
+                    accumulators[i].acc.z += weight.acc.z;
+                    accumulators[i].acc.w += weight.acc.w;
+                    {% endif %}
+                }
+            }
+        }
+    }
+#pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        if (pooling_mode == MEAN && L != 0) {
+            accumulators[i].acc.x /= L;
+            accumulators[i].acc.y /= L;
+            accumulators[i].acc.z /= L;
+            accumulators[i].acc.w /= L;
+        }
+        accumulators[i].store(&output[b][D_start + d]);
+    }
+}
+
+template<typename index_t, size_t kMaxVecsPerThread, size_t kThreadsPerRow>
+__launch_bounds__(kForwardMaxThreads)
+__global__ void int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel(
+    const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+    int64_t pooling_mode,
+    {% if weighted %}
+    PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+        indice_weights,
+    {% endif %}
+    PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+        output // [B][total_D],
+    ) {
+    int32_t B = output.size(0);
+    int32_t T = D_offsets.size(0) - 1;
+    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    if (b_t >= B * T) {
+        return;
+    }
+    int32_t t = b_t / B;
+    int32_t b = b_t % B;
+
+    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+    if (weight_ty == SparseType::FP16) {
+        return;
+    }
+
     constexpr int32_t kRowsPerWarp = 32 / kThreadsPerRow;
     const int32_t row_in_warp = threadIdx.y % kRowsPerWarp;
     uint32_t subwarp_mask;
@@ -240,14 +539,13 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
         subwarp_mask = uint32_t(0xFFFFFFFF) << row_in_warp;
     }
     int64_t weights_offset = weights_offsets[t];
-
     int32_t D_start = D_offsets[t];
     int32_t D_end = D_offsets[t + 1];
     int32_t D = D_end - D_start;
-    // 2 * 2 bytes = 8 extra elements for the full row in 4-bit precision.
-    int32_t D_total = D + 8;
-    // 0.5 bytes per D, plus 2 * 2 bytes for fp16 scale/shift.
-    const int32_t D_bytes = D / 2 + 4;
+
+    const int32_t D_total = padded_D(D, weight_ty);
+    const int32_t D_padding = D_total - D;
+    const int32_t D_bytes = row_size_in_bytes(D, weight_ty);
 
     int64_t indices_start = offsets[t * B + b];
     int64_t indices_end = offsets[t * B + b + 1];
@@ -280,7 +578,7 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
             const uint32_t *row_j2 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 2 + row_in_warp * kThreadsPerRow));
             const uint32_t *row_j3 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 3 + row_in_warp * kThreadsPerRow));
 
-            // scale and bias are at the biginning of each row.
+            // scale and bias are at the beginning of each row.
             // rationale: have scale/shift at start since these get loaded first
             // and then broadcasted around so it might speed up the first cache
             // miss.
@@ -296,50 +594,116 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
             float idx_weight_j3 = __shfl_sync(subwarp_mask, idx_weight, j + 3 + row_in_warp * kThreadsPerRow);
 
             {% endif %}
+
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
                 ++i) {
-                // Read the int4 values: note that first 8 Bytes will be ditched
-                // later: // We shift back by 8 elements to remove the first 8
-                // elements (which is garbage due to the scale/shift handling)
-                // int32_t d = 8 * kThreadsPerRow * i + threadIdx.x * 8 - 8;
-                // Reason: to avoid divergence the first thread in the warp
-                // computes garbage.
-                uint32_t v0 = row_j0 ? row_j0[kThreadsPerRow * i + threadIdx.x] : 0;
-                uint32_t v1 = row_j1 ? row_j1[kThreadsPerRow * i + threadIdx.x] : 0;
-                uint32_t v2 = row_j2 ? row_j2[kThreadsPerRow * i + threadIdx.x] : 0;
-                uint32_t v3 = row_j3 ? row_j3[kThreadsPerRow * i + threadIdx.x] : 0;
+                // Read the rowwise-quantized int values: note that first D_padding elements will be ditched later:
+                // Reason: to avoid divergence the first thread in the warp computes garbage.
+                if (weight_ty == SparseType::INT4) {
+                    uint32_t v0 = row_j0 ? reinterpret_cast<const uint32_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint32_t v1 = row_j1 ? reinterpret_cast<const uint32_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint32_t v2 = row_j2 ? reinterpret_cast<const uint32_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint32_t v3 = row_j3 ? reinterpret_cast<const uint32_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
 
-                {% if weighted %}
-                accumulators[i] = weighted_accumulate_packed_int4(
-                    accumulators[i], v0,
-                    shift_scale_j0, idx_weight_j0);
-                accumulators[i] = weighted_accumulate_packed_int4(
-                    accumulators[i], v1,
-                    shift_scale_j1, idx_weight_j1);
-                accumulators[i] = weighted_accumulate_packed_int4(
-                    accumulators[i], v2,
-                    shift_scale_j2, idx_weight_j2);
-                accumulators[i] = weighted_accumulate_packed_int4(
-                    accumulators[i], v3,
-                    shift_scale_j3, idx_weight_j3);
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int4(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j0);
+                    accumulators[i] = weighted_accumulate_packed_int4(
+                        accumulators[i], v1,
+                        shift_scale_j1, idx_weight_j1);
+                    accumulators[i] = weighted_accumulate_packed_int4(
+                        accumulators[i], v2,
+                        shift_scale_j2, idx_weight_j2);
+                    accumulators[i] = weighted_accumulate_packed_int4(
+                        accumulators[i], v3,
+                        shift_scale_j3, idx_weight_j3);
 
-                {% else %}
-                accumulators[i] = accumulate_packed_int4(
-                    accumulators[i], v0,
-                    shift_scale_j0);
-                accumulators[i] = accumulate_packed_int4(
-                    accumulators[i], v1,
-                    shift_scale_j1);
-                accumulators[i] = accumulate_packed_int4(
-                    accumulators[i], v2,
-                    shift_scale_j2);
-                accumulators[i] = accumulate_packed_int4(
-                    accumulators[i], v3,
-                    shift_scale_j3);
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int4(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    accumulators[i] = accumulate_packed_int4(
+                        accumulators[i], v1,
+                        shift_scale_j1);
+                    accumulators[i] = accumulate_packed_int4(
+                        accumulators[i], v2,
+                        shift_scale_j2);
+                    accumulators[i] = accumulate_packed_int4(
+                        accumulators[i], v3,
+                        shift_scale_j3);
+                    {% endif %}
+                } else if (weight_ty == SparseType::INT2) {
+                    uint16_t v0 = row_j0 ? reinterpret_cast<const uint16_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint16_t v1 = row_j1 ? reinterpret_cast<const uint16_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint16_t v2 = row_j2 ? reinterpret_cast<const uint16_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint16_t v3 = row_j3 ? reinterpret_cast<const uint16_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
 
-                {% endif %}
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int2(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j0);
+                    accumulators[i] = weighted_accumulate_packed_int2(
+                        accumulators[i], v1,
+                        shift_scale_j1, idx_weight_j1);
+                    accumulators[i] = weighted_accumulate_packed_int2(
+                        accumulators[i], v2,
+                        shift_scale_j2, idx_weight_j2);
+                    accumulators[i] = weighted_accumulate_packed_int2(
+                        accumulators[i], v3,
+                        shift_scale_j3, idx_weight_j3);
+
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int2(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    accumulators[i] = accumulate_packed_int2(
+                        accumulators[i], v1,
+                        shift_scale_j1);
+                    accumulators[i] = accumulate_packed_int2(
+                        accumulators[i], v2,
+                        shift_scale_j2);
+                    accumulators[i] = accumulate_packed_int2(
+                        accumulators[i], v3,
+                        shift_scale_j3);
+                    {% endif %}
+                } else if (weight_ty == SparseType::INT8) {
+                    uint64_t v0 = row_j0 ? reinterpret_cast<const uint64_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint64_t v1 = row_j1 ? reinterpret_cast<const uint64_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint64_t v2 = row_j2 ? reinterpret_cast<const uint64_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
+                    uint64_t v3 = row_j3 ? reinterpret_cast<const uint64_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
+
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int8(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j0);
+                    accumulators[i] = weighted_accumulate_packed_int8(
+                        accumulators[i], v1,
+                        shift_scale_j1, idx_weight_j1);
+                    accumulators[i] = weighted_accumulate_packed_int8(
+                        accumulators[i], v2,
+                        shift_scale_j2, idx_weight_j2);
+                    accumulators[i] = weighted_accumulate_packed_int8(
+                        accumulators[i], v3,
+                        shift_scale_j3, idx_weight_j3);
+
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int8(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    accumulators[i] = accumulate_packed_int8(
+                        accumulators[i], v1,
+                        shift_scale_j1);
+                    accumulators[i] = accumulate_packed_int8(
+                        accumulators[i], v2,
+                        shift_scale_j2);
+                    accumulators[i] = accumulate_packed_int8(
+                        accumulators[i], v3,
+                        shift_scale_j3);
+                    {% endif %}
+                }
             }
         }
         for (; j < JLim; ++j) {
@@ -353,17 +717,44 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
                 ++i) {
-                uint32_t v0 = row_j0 ? row_j0[kThreadsPerRow * i + threadIdx.x] : 0;
+                if (weight_ty == SparseType::INT4) {
+                    uint32_t v0 = row_j0 ? reinterpret_cast<const uint32_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
 
-                {% if weighted %}
-                accumulators[i] = weighted_accumulate_packed_int4(
-                    accumulators[i], v0,
-                    shift_scale_j0, idx_weight_j);
-                {% else %}
-                accumulators[i] = accumulate_packed_int4(
-                    accumulators[i], v0,
-                    shift_scale_j0);
-                {% endif %}
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int4(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j);
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int4(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    {% endif %}
+                } else if (weight_ty == SparseType::INT2) {
+                    uint16_t v0 = row_j0 ? reinterpret_cast<const uint16_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
+
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int2(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j);
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int2(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    {% endif %}
+                } else if (weight_ty == SparseType::INT8) {
+                    uint64_t v0 = row_j0 ? reinterpret_cast<const uint64_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
+
+                    {% if weighted %}
+                    accumulators[i] = weighted_accumulate_packed_int8(
+                        accumulators[i], v0,
+                        shift_scale_j0, idx_weight_j);
+                    {% else %}
+                    accumulators[i] = accumulate_packed_int8(
+                        accumulators[i], v0,
+                        shift_scale_j0);
+                    {% endif %}
+                }
+
             }
         }
     }
@@ -372,9 +763,9 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
         ++i) {
-        // We shift back by 8 elements to remove the first 8 elements (which is
+        // We shift back by a fixed number of elements to remove the first group of elements (which is
         // garbage due to the scale/shift handling)
-        int32_t d = 8 * kThreadsPerRow * i + threadIdx.x * 8 - 8;
+        int32_t d = 8 * kThreadsPerRow * i + threadIdx.x * 8 - D_padding;
         if (pooling_mode == MEAN && L != 0) {
             float inv_L = 1.0 / L;
             accumulators[i].vals[0].x *= inv_L;
@@ -392,12 +783,14 @@ __global__ void int4_split_embedding_codegen_forward_{{ wdesc }}_kernel(
     }
 }
 
-Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
+Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     Tensor dev_weights,
     Tensor weights_offsets,
+    Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_D,
+    int64_t max_effective_D,
+    int64_t max_float16_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -416,26 +809,55 @@ Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TORCH_CHECK(B > 0);
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(total_D % 4 == 0);
-    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
+    TORCH_CHECK(max_effective_D <= {{ max_embedding_dim }});
     auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
 
     int32_t kThreads = 128;
     using index_t = int32_t;
-    // AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int4_split_embedding_codegen_forward_", [&] () {
-    if (max_D + 8 <= 64) {
+
+    if (max_float16_D) {
+        [&](){
+            {% for kMaxVecsPerThread in range(1, 4) %}
+            if (max_float16_D <= {{ 128 * kMaxVecsPerThread }}) {
+                float16_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, {{ kMaxVecsPerThread }} ><<<
+                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                        dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
+                        weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                        weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
+                        D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                        indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+                        offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+                        pooling_mode,
+                        {% if weighted %}
+                        indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
+                        {% endif %}
+                        output.packed_accessor32<Half, 2, RestrictPtrTraits>()
+                    );
+                    return;
+            }
+            {% endfor %}
+            TORCH_CHECK(false, "Unhandled max_float16_D");
+        }();
+    }
+
+    // AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
+    if (max_effective_D <= 64) {
         constexpr size_t kThreadsPerRow = 8;
-        int4_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
+        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
             div_round_up((B * T), kThreads / kThreadsPerRow),
             dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
             weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
             D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             pooling_mode,
-            max_D,
             {% if weighted %}
             indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
             {% endif %}
@@ -445,20 +867,20 @@ Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         return output;
 
     }
-    if (max_D + 8 <= 128) {
+    if (max_effective_D <= 128) {
         constexpr size_t kThreadsPerRow = 16;
-        int4_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
+        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
             div_round_up((B * T), kThreads / kThreadsPerRow),
             dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
             weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
             D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             pooling_mode,
-            max_D,
             {% if weighted %}
             indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
             {% endif %}
@@ -468,20 +890,20 @@ Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         return output;
 
     }
-    if (max_D + 8 <= 256) {
+    if (max_effective_D <= 256) {
         constexpr size_t kThreadsPerRow = 32;
-        int4_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
+        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
             div_round_up((B * T), kThreads / kThreadsPerRow),
             dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
             weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
             D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             pooling_mode,
-            max_D,
             {% if weighted %}
             indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
             {% endif %}
@@ -490,20 +912,20 @@ Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         return output;
     }
-    if (max_D + 8 <= 512) {
+    if (max_effective_D <= 512) {
         constexpr size_t kThreadsPerRow = 32;
-        int4_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 2, kThreadsPerRow><<<
+        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 2, kThreadsPerRow><<<
             div_round_up((B * T), kThreads / kThreadsPerRow),
             dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
             weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
             D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             pooling_mode,
-            max_D,
             {% if weighted %}
             indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
             {% endif %}
@@ -513,7 +935,7 @@ Tensor int4_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         return output;
     }
 
-    TORCH_CHECK(false, "Unhandled max_D");
+    TORCH_CHECK(false, "Unhandled max_effective_D");
     return output;
 }
 
@@ -529,7 +951,7 @@ __device__ inline uint32_t pruned_hash_function(int32_t key, int32_t table) {
     return static_cast<uint32_t>(k >> 32);
 }
 
-__global__ void int4_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
+__global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> indices,
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> offsets,
     const PackedTensorAccessor64<int32_t, 2, RestrictPtrTraits> hash_table,
@@ -586,7 +1008,7 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
-    int4_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
+    int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
         div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
         dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
         0,
