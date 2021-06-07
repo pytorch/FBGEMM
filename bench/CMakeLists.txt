@@ -24,7 +24,9 @@ endif()
 #benchmarks
 macro(add_benchmark BENCHNAME)
   add_executable(${BENCHNAME} ${ARGN}
-    BenchUtils.cc ../test/QuantizationHelpers.cc)
+    BenchUtils.cc
+    ../test/QuantizationHelpers.cc
+    ../test/EmbeddingSpMDMTestUtils.cc)
   set_target_properties(${BENCHNAME} PROPERTIES
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
