@@ -364,4 +364,15 @@ FBGEMM_API int rowwise_sparse_adagrad_fused_ref(
     int emu_vector_size = 8,
     std::int64_t grad_stride = -1);
 
+template <typename IndexType>
+FBGEMM_API void compressed_indices_remap_ref(
+    std::int32_t offsets_len,
+    const IndexType* indices,
+    const int32_t* compressed_indices_mapping,
+    const IndexType* offsets,
+    const float* weights, // optional, can be null,
+    IndexType* out_indices,
+    IndexType* out_offsets,
+    float* out_weights);
+
 } // namespace fbgemm
