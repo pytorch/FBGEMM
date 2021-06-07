@@ -103,6 +103,7 @@ def get_fbgemm_avx512_srcs(msvc = False):
     return [
         #All the source files that use avx512 instructions statically
         "src/FbgemmBfloat16ConvertAvx512.cc",
+        "src/EmbeddingSpMDMAvx512.cc",
         "src/FbgemmFloat16ConvertAvx512.cc",
         "src/FbgemmSparseDenseAvx512.cc",
         "src/FbgemmSparseDenseInt8Avx512.cc",

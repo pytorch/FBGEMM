@@ -258,6 +258,28 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     bool is_weight_positional = false,
     bool use_offsets = true);
 
+template <typename IndexType, bool HAS_WEIGHTS>
+void compressed_indices_remap_avx512(
+    std::int32_t offsets_numel,
+    const IndexType* indices,
+    const int32_t* compressed_indices_mapping,
+    const IndexType* offsets,
+    const float* weights, // optional, can be null,
+    IndexType* out_indices,
+    IndexType* out_offsets,
+    float* out_weights);
+
 } // namespace internal
+
+template <typename IndexType>
+FBGEMM_API void compressed_indices_remap(
+    std::int32_t offsets_numel,
+    const IndexType* indices,
+    const int32_t* compressed_indices_mapping,
+    const IndexType* offsets,
+    const float* weights, // optional, can be null,
+    IndexType* out_indices,
+    IndexType* out_offsets,
+    float* out_weights);
 
 } // namespace fbgemm

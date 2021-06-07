@@ -1192,4 +1192,70 @@ INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 #undef INSTANTIATE_SPMDM_NAME
 #undef INSTANTIATE_SPMDM_BASE
 
+template <typename IndexType>
+void compressed_indices_remap(
+    std::int32_t offsets_len,
+    const IndexType* indices,
+    const int32_t* compressed_indices_mapping,
+    const IndexType* offsets,
+    const float* weights, // optional, can be null,
+    IndexType* out_indices,
+    IndexType* out_offsets,
+    float* out_weights) {
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+
+  const inst_set_t isa = fbgemmInstructionSet();
+  if (isZmm(isa)) {
+    if (weights == nullptr) {
+      internal::compressed_indices_remap_avx512<IndexType, false>(
+          offsets_len,
+          indices,
+          compressed_indices_mapping,
+          offsets,
+          weights,
+          out_indices,
+          out_offsets,
+          out_weights);
+    } else {
+      internal::compressed_indices_remap_avx512<IndexType, true>(
+          offsets_len,
+          indices,
+          compressed_indices_mapping,
+          offsets,
+          weights,
+          out_indices,
+          out_offsets,
+          out_weights);
+    }
+  } else {
+    compressed_indices_remap_ref<IndexType>(
+        offsets_len,
+        indices,
+        compressed_indices_mapping,
+        offsets,
+        weights,
+        out_indices,
+        out_offsets,
+        out_weights);
+  }
+}
+
+#define INSTANTIATE_REMAP_BASE(INDEX_TYPE)           \
+  template FBGEMM_API void compressed_indices_remap( \
+      std::int32_t offsets_numel,                    \
+      const INDEX_TYPE* indices,                     \
+      const int32_t* compressed_indices_mapping,     \
+      const INDEX_TYPE* offsets,                     \
+      const float* weights,                          \
+      INDEX_TYPE* out_indices,                       \
+      INDEX_TYPE* out_offsets,                       \
+      float* out_weights);
+
+INSTANTIATE_REMAP_BASE(int32_t);
+INSTANTIATE_REMAP_BASE(int64_t);
+
+#undef INSTANTIATE_REMAP_BASE
+
 } // namespace fbgemm
