@@ -1914,20 +1914,22 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
           _mm256_storeu_ps(output_row_float + col + 2 * VLEN, vinq2);
           _mm256_storeu_ps(output_row_float + col + 3 * VLEN, vinq3);
         } else {
-          constexpr int sae =
-              0; //_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col),
-              _mm256_cvtps_ph(vinq0, sae));
+              _mm256_cvtps_ph(
+                  vinq0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + VLEN),
-              _mm256_cvtps_ph(vinq1, sae));
+              _mm256_cvtps_ph(
+                  vinq1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + 2 * VLEN),
-              _mm256_cvtps_ph(vinq2, sae));
+              _mm256_cvtps_ph(
+                  vinq2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + 3 * VLEN),
-              _mm256_cvtps_ph(vinq3, sae));
+              _mm256_cvtps_ph(
+                  vinq3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
         }
       }
 
@@ -1976,24 +1978,26 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
           _mm256_maskstore_ps(
               output_row_float + col + 3 * VLEN, vmask_store3, vinq3);
         } else {
-          constexpr int sae =
-              0; //_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col),
               _mm256_castsi256_si128(vmask_store0),
-              _mm256_cvtps_ph(vinq0, sae));
+              _mm256_cvtps_ph(
+                  vinq0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + VLEN),
               _mm256_castsi256_si128(vmask_store1),
-              _mm256_cvtps_ph(vinq1, sae));
+              _mm256_cvtps_ph(
+                  vinq1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + 2 * VLEN),
               _mm256_castsi256_si128(vmask_store2),
-              _mm256_cvtps_ph(vinq2, sae));
+              _mm256_cvtps_ph(
+                  vinq2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + 3 * VLEN),
               _mm256_castsi256_si128(vmask_store3),
-              _mm256_cvtps_ph(vinq3, sae));
+              _mm256_cvtps_ph(
+                  vinq3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
         }
       }
     } else {
