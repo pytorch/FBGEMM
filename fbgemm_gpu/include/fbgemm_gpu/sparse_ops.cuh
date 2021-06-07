@@ -77,12 +77,14 @@ __global__ void _bucketize_sparse_features_cuda_kernel1(
     scalar_t* __restrict__ new_lengths_data) {
   int start_r = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
+  using uscalar_t = std::make_unsigned_t<scalar_t>;
   for (int r = start_r; r < lengths_size; r += stride) {
     scalar_t rowstart = (r == 0 ? 0 : offsets_data[r - 1]);
     scalar_t rowend = offsets_data[r];
     for (scalar_t i = rowstart; i < rowend; ++i) {
-      scalar_t idx = indices_data[i];
-      scalar_t p = idx % my_size;
+      // Need to handle negative indices if we use raw indices instead of hashed indices, convert to unsigned
+      uscalar_t idx = static_cast<uscalar_t>(indices_data[i]);
+      uscalar_t p = idx % my_size;
       new_lengths_data[p * lengths_size + r]++;
     }
   }
@@ -109,14 +111,16 @@ __global__ void _bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ new_pos_data) {
   int start_r = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
+  using uindex_t= std::make_unsigned_t<index_t>;
   for (int r = start_r; r < lengths_size; r += stride) {
     index_t rowstart = r == 0 ? 0 : offsets_data[r - 1];
     index_t rowend = offsets_data[r];
     for (index_t i = rowstart; i < rowend; ++i) {
-      index_t idx = indices_data[i];
-      index_t p = idx % my_size;
-      index_t new_idx = idx / my_size;
-      index_t pos = new_offsets_data[p * lengths_size + r];
+      // Need to handle negative indices if we use raw indices instead of hashed indices, convert to unsigned
+      uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      uindex_t p = idx % my_size;
+      uindex_t new_idx = idx / my_size;
+      uindex_t pos = new_offsets_data[p * lengths_size + r];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + r]++;
       if (has_weight) {
@@ -144,14 +148,21 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel1(
     index_t* __restrict__ new_lengths_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
+  using uindex_t= std::make_unsigned_t<index_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
     index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     index_t rowend = offsets_data[b_t];
     for (index_t i = rowstart; i < rowend; ++i) {
-      index_t idx = indices_data[i];
-      index_t p = idx / blk_size;
+      // We have use cases using none-hashed raw indices that can be either
+      // negative or larger than embedding table hash_size (blk_size *
+      // my_size). In cases of none-hashed indices we need to ensure
+      // bucketization can distribute them into different ranks and within
+      // range of blk_size, we expect the later embedding module to take care
+      // of hashing indices calculation.
+      uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
       new_lengths_data[p * lengths_size + b_t]++;
     }
   }
@@ -183,16 +194,23 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ unbucketize_permute_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
+  using uindex_t= std::make_unsigned_t<index_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
     index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     index_t rowend = offsets_data[b_t];
     for (index_t i = rowstart; i < rowend; ++i) {
-      index_t idx = indices_data[i];
-      index_t p = idx / blk_size;
-      index_t new_idx = idx % blk_size;
-      index_t pos = new_offsets_data[p * lengths_size + b_t];
+      // We have use cases using none-hashed raw indices that can be either
+      // negative or larger than embedding table hash_size (blk_size *
+      // my_size). In cases of none-hashed indices we need to ensure
+      // bucketization can distribute them into different ranks and within
+      // range of blk_size, we expect the later embedding module to take care
+      // of hashing indices calculation.
+      uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+      uindex_t new_idx = idx % blk_size;
+      uindex_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
       if (sequence) {
