@@ -24,6 +24,10 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+  GTogether_ = numOfGroupsTogether(conv_param_);
+  assert(
+      GTogether_ <= conv_param_.G &&
+      "Number of groups together smaller than total number of groups");
   if (!pdata) {
     bufAllocatedHere_ = true;
     int kernel_prod = std::accumulate(
@@ -32,17 +36,14 @@ PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::PackWeightMatrixForGConv(
     int paddedICPerG = ((conv_param_.IC / conv_param_.G) + 3) / 4 * 4;
     pdata_ = static_cast<T*>(fbgemmAlignedAlloc(
         64,
-        conv_param_.G * kernel_prod * (conv_param_.OC / conv_param_.G) *
-            paddedICPerG * sizeof(T)));
+        (conv_param_.G + GTogether_ - 1) / GTogether_ * GTogether_ *
+            kernel_prod * (conv_param_.OC / conv_param_.G) * paddedICPerG *
+            sizeof(T)));
   } else {
     bufAllocatedHere_ = false;
     pdata_ = pdata;
   }
 
-  GTogether_ = numOfGroupsTogether(conv_param_);
-  assert(
-      GTogether_ <= conv_param_.G &&
-      "Number of groups together smaller than total number of groups");
   pack();
 }
 
