@@ -180,14 +180,14 @@ static inline __m512i mask_mov(__m512i src, __mmask8 mask_rem_v, __m512i a) {
 template <
     typename T,
     typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
-static inline __m512i gather(__m512i indices, void const* addr) {
+static inline __m512i gather(__m512i indices, const int32_t* addr) {
   return _mm512_i32gather_epi32(indices, addr, 4);
 }
 
 template <
     typename T,
     typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
-static inline __m512i gather(__m512i indices, void const* addr) {
+static inline __m512i gather(__m512i indices, const int32_t* addr) {
   // ToDo: Change this _mm512_i64gather_epi64 once mapping table is 64-bit
   __m256i res_32 = _mm512_i64gather_epi32(indices, addr, 4);
   return _mm512_cvtepi32_epi64(res_32);
@@ -200,7 +200,7 @@ static inline __m512i mask_gather(
     __m512i src,
     __mmask16 mask_rem_v,
     __m512i indices,
-    void const* addr) {
+    const int32_t* addr) {
   return _mm512_mask_i32gather_epi32(src, mask_rem_v, indices, addr, 4);
 }
 
@@ -211,7 +211,7 @@ static inline __m512i mask_gather(
     __m512i src,
     __mmask8 mask_rem_v,
     __m512i indices,
-    void const* addr) {
+    const int32_t* addr) {
   // ToDo: Change this _mm512_mask_i64gather_epi64 once mapping table is 64-bit
   __m256i res_32 = _mm512_mask_i64gather_epi32(
       _mm512_castsi512_si256(src), mask_rem_v, indices, addr, 4);
@@ -346,17 +346,14 @@ static inline void compressed_indices_remap_avx512_helper(
     __m512i remapped_indices_v;
     if (USE_MASK) {
       remapped_indices_v = mask_gather<IndexType>(
-          zero_v,
-          mask_rem_v[i],
-          indices_v,
-          reinterpret_cast<void const*>(compressed_indices_mapping));
+          zero_v, mask_rem_v[i], indices_v, compressed_indices_mapping);
       // mov -1 to not used places in the vector
       remapped_indices_v =
           mask_mov<IndexType>(minus1_v, mask_rem_v[i], remapped_indices_v);
 
     } else {
-      remapped_indices_v = gather<IndexType>(
-          indices_v, reinterpret_cast<void const*>(compressed_indices_mapping));
+      remapped_indices_v =
+          gather<IndexType>(indices_v, compressed_indices_mapping);
     }
 
     typename reg_t<IndexType>::w_reg_t weights_v;
