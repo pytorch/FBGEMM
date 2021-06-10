@@ -1679,8 +1679,9 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
   }
 }
 
-void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
-    const float* input,
+template <typename InputType>
+void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
@@ -1701,8 +1702,22 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
 
   int output_columns = input_columns + 2 * sizeof(float);
+  float* input_row_float_for_fp16;
+  if (std::is_same<InputType, float16>()) {
+    input_row_float_for_fp16 = static_cast<float*>(
+        fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
+  }
   for (std::size_t row = 0; row < input_rows; ++row) {
-    const float* input_row = input + row * input_columns;
+    const InputType* input_row = input + row * input_columns;
+    const float* input_row_float;
+    if (std::is_same<InputType, float>()) {
+      // NOTE: this reinterpret_cast is only to workaround c++
+      // type requirements -- it is not for fp16 case and `input_row` HAS to be
+      // float* type. Remove it and use constexpr when pytorch allows C++17.
+      input_row_float = reinterpret_cast<const float*>(input_row);
+    } else {
+      input_row_float = input_row_float_for_fp16;
+    }
     std::uint8_t* output_row = output + row * output_columns;
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + input_columns);
@@ -1713,7 +1728,15 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
     __m256 max_v = _mm256_set1_ps(maximum_element);
     std::size_t col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
-      __m256 in_v = _mm256_loadu_ps(input_row + col);
+      __m256 in_v;
+      if (std::is_same<InputType, float>()) {
+        in_v = _mm256_loadu_ps(input_row_float + col);
+      } else {
+        __m128i in_half_v =
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(input_row + col));
+        in_v = _mm256_cvtph_ps(in_half_v);
+        _mm256_store_ps(input_row_float_for_fp16 + col, in_v);
+      }
       min_v = _mm256_min_ps(min_v, in_v);
       max_v = _mm256_max_ps(max_v, in_v);
     }
@@ -1724,13 +1747,20 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
       minimum_element = std::min(minimum_element, min_buf[i]);
       maximum_element = std::max(maximum_element, max_buf[i]);
     }
+
     for (; col < input_columns; ++col) {
-      minimum_element = std::min(minimum_element, input_row[col]);
-      maximum_element = std::max(maximum_element, input_row[col]);
+      if (std::is_same<InputType, float>()) {
+        minimum_element = std::min(minimum_element, input_row_float[col]);
+        maximum_element = std::max(maximum_element, input_row_float[col]);
+      } else {
+        float element = halfToFloat(input_row[col]);
+        input_row_float_for_fp16[col] = element;
+        minimum_element = std::min(minimum_element, element);
+        maximum_element = std::max(maximum_element, element);
+      }
     }
 
     float range = maximum_element - minimum_element;
-
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
     const auto inverse_scale = 255.0f / (range + kEpsilon);
@@ -1740,16 +1770,18 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
     for (col = 0; col < input_columns / (4 * VLEN) * (4 * VLEN);
          col += 4 * VLEN) {
       __m256i x_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-          _mm256_sub_ps(_mm256_loadu_ps(input_row + col), min_v),
+          _mm256_sub_ps(_mm256_loadu_ps(input_row_float + col), min_v),
           inverse_scale_v));
       __m256i y_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-          _mm256_sub_ps(_mm256_loadu_ps(input_row + col + VLEN), min_v),
+          _mm256_sub_ps(_mm256_loadu_ps(input_row_float + col + VLEN), min_v),
           inverse_scale_v));
       __m256i z_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-          _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 2 * VLEN), min_v),
+          _mm256_sub_ps(
+              _mm256_loadu_ps(input_row_float + col + 2 * VLEN), min_v),
           inverse_scale_v));
       __m256i w_rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-          _mm256_sub_ps(_mm256_loadu_ps(input_row + col + 3 * VLEN), min_v),
+          _mm256_sub_ps(
+              _mm256_loadu_ps(input_row_float + col + 3 * VLEN), min_v),
           inverse_scale_v));
 
       // An instruction sequence to save 32 32-bit integers as 8-bit integers
@@ -1763,7 +1795,7 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
     }
     for (; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256i rounded_v = _mm256_cvtps_epi32(_mm256_mul_ps(
-          _mm256_sub_ps(_mm256_loadu_ps(input_row + col), min_v),
+          _mm256_sub_ps(_mm256_loadu_ps(input_row_float + col), min_v),
           inverse_scale_v));
 
       // An instruction sequence to save 8 32-bit integers as 8-bit integers
@@ -1775,8 +1807,11 @@ void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
     }
     for (; col < input_columns; ++col) {
       output_row[col] =
-          std::lrintf((input_row[col] - minimum_element) * inverse_scale);
+          std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
+  }
+  if (std::is_same<InputType, float16>()) {
+    fbgemmAlignedFree(input_row_float_for_fp16);
   }
 }
 
@@ -2016,11 +2051,12 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   }
 }
 
-void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
+template <typename OutputType>
+void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output) {
+    OutputType* output) {
   constexpr int VLEN = 8;
   int output_columns = input_columns - 2 * sizeof(float);
 
@@ -2028,7 +2064,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
     const std::uint8_t* input_row = input + row * input_columns;
     const float* input_row_scale_bias =
         reinterpret_cast<const float*>(input_row + output_columns);
-    float* output_row = output + row * output_columns;
+    OutputType* output_row = output + row * output_columns;
 
     __m256 scale_v = _mm256_set1_ps(input_row_scale_bias[0]);
     __m256 bias_v = _mm256_set1_ps(input_row_scale_bias[1]);
@@ -2037,19 +2073,31 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
-      _mm256_storeu_ps(
-          output_row + col,
-          _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v));
+      __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
+      if (std::is_same<OutputType, float>()) {
+        float* output_row_float = reinterpret_cast<float*>(output_row);
+        _mm256_storeu_ps(output_row_float + col, dequantzed_v);
+      } else {
+        _mm_storeu_si128(
+            reinterpret_cast<__m128i*>(output_row + col),
+            _mm256_cvtps_ph(
+                dequantzed_v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+      }
     }
 
     for (; col < output_columns; ++col) {
-      output_row[col] =
+      float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+      if (std::is_same<OutputType, float>()) {
+        output_row[col] = output_value;
+      } else {
+        output_row[col] = cpu_float2half_rn(output_value);
+      }
     }
   }
 }
 
-#define INSTANTIATE_QuantizationAvx2Functions(type, bit_rate)       \
+#define INSTANTIATE_QuantizationAvx2FunctionsNBits(type, bit_rate)  \
   template void                                                     \
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>( \
       const type* input,                                            \
@@ -2064,14 +2112,31 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
       type* output);
 
 // clang-format off
-INSTANTIATE_QuantizationAvx2Functions(float, 2)
-INSTANTIATE_QuantizationAvx2Functions(float, 4)
-INSTANTIATE_QuantizationAvx2Functions(float, 8)
-INSTANTIATE_QuantizationAvx2Functions(float16, 2)
-INSTANTIATE_QuantizationAvx2Functions(float16, 4)
-INSTANTIATE_QuantizationAvx2Functions(float16, 8)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 2)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 4)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 8)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 2)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 4)
+INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 8)
 // clang-format on
+#undef INSTANTIATE_QuantizationAvx2FunctionsNBits
 
-#undef INSTANTIATE_QuantizationAvx2Functions
+#define INSTANTIATE_QuantizationAvx2Functions8Bits(type)                 \
+  template void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<type>( \
+      const type* input,                                                 \
+      int input_rows,                                                    \
+      int input_columns,                                                 \
+      std::uint8_t* output);                                             \
+  template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<type>( \
+      const std::uint8_t* input,                                         \
+      int input_rows,                                                    \
+      int input_columns,                                                 \
+      type* output);
+
+// clang-format off
+INSTANTIATE_QuantizationAvx2Functions8Bits(float)
+INSTANTIATE_QuantizationAvx2Functions8Bits(float16)
+// clang-format on
+#undef INSTANTIATE_QuantizationAvx2Functions8Bits
 
 } // namespace fbgemm
