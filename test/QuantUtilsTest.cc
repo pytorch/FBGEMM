@@ -648,29 +648,36 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
         [](float input) { return cpu_float2half_rn(input); });
 
     // Results are hand calculated.
-    expected_output[8] = {
+    expected_output_half[8] = {
       0, 0, 0, 0,       0x00, 0x3c, 0x00, 0x3c,   // Scale: 1, bias: 1
       0, 61, 126, 255,  0x00, 0x3c, 0x00, 0xd4,   // Scale: 1, bias: -64
     };
-    expected_output[4] = {
+    expected_output_half[4] = {
       0x00, 0x00, 0x00, 0x3c, 0x00, 0x3c,    // 0, 0, 0, 0, Scale: 1, bias: 1
       0x40, 0xf7, 0x40, 0x4c, 0x00, 0xd4,    // 0, 4, 7, 15, Scale: 17, bias: -64
       0, 0, 0, 0                             // Padding
     };
-    expected_output[2] = {
+    expected_output_half[2] = {
       0b00000000, 0x00, 0x3c, 0x00, 0x3c,    // 0, 0, 0, 0, Scale: 1, bias: 1
       0b11010100, 0x50, 0x55, 0x00, 0xd4,    // 0, 1, 1, 3, Scale: 85, bias: -64
       0, 0, 0, 0, 0, 0                       // Padding
+    };
+    expected_output_float = {
+      0, 0, 0, 0,       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f,   // Scale: 0, bias: 1
+      0, 61, 126, 255,  0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x80, 0xc2,   // Scale: 1, bias: -64
     };
   }
   // clang-format on
 
   const int row = 2;
   const int col = 4;
-  const int out_cols = col + 2 * sizeof(float16);
+  const int out_cols_half = col + 2 * sizeof(float16);
+  const int out_cols_float = col + 2 * sizeof(float);
   std::vector<float> float_test_input;
   std::vector<float16> float16_test_input;
-  std::map</*bit_rate*/ int, /*output*/ std::vector<uint8_t>> expected_output;
+  std::map</*bit_rate*/ int, /*output*/ std::vector<uint8_t>>
+      expected_output_half;
+  std::vector<uint8_t> expected_output_float;
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -680,25 +687,44 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(EmbeddingQuantizeFixedNumberTest, embeddingFloatToQuantizedSBHalfTest) {
   const int bit_rate = GetParam();
-  vector<uint8_t> outVecTest(row * out_cols);
+  vector<uint8_t> outVectHalfTest(row * out_cols_half);
 
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
-      bit_rate, float_test_input.data(), row, col, outVecTest.data());
+      bit_rate, float_test_input.data(), row, col, outVectHalfTest.data());
   EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output[bit_rate], outVecTest, row, col));
+      expected_output_half[bit_rate], outVectHalfTest, row, col));
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
-      bit_rate, float_test_input.data(), row, col, outVecTest.data());
+      bit_rate, float_test_input.data(), row, col, outVectHalfTest.data());
   EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output[bit_rate], outVecTest, row, col));
+      expected_output_half[bit_rate], outVectHalfTest, row, col));
 
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float16>(
-      bit_rate, float16_test_input.data(), row, col, outVecTest.data());
+      bit_rate, float16_test_input.data(), row, col, outVectHalfTest.data());
   EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output[bit_rate], outVecTest, row, col));
+      expected_output_half[bit_rate], outVectHalfTest, row, col));
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float16>(
-      bit_rate, float16_test_input.data(), row, col, outVecTest.data());
+      bit_rate, float16_test_input.data(), row, col, outVectHalfTest.data());
   EXPECT_TRUE(isQEmbeddingClose<float16>(
-      expected_output[bit_rate], outVecTest, row, col));
+      expected_output_half[bit_rate], outVectHalfTest, row, col));
+
+  vector<uint8_t> outVecFloatTest(row * out_cols_float);
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
+      float_test_input.data(), row, col, outVecFloatTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTest, row, col));
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
+      float_test_input.data(), row, col, outVecFloatTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTest, row, col));
+
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float16>(
+      float16_test_input.data(), row, col, outVecFloatTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTest, row, col));
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float16>(
+      float16_test_input.data(), row, col, outVecFloatTest.data());
+  EXPECT_TRUE(isQEmbeddingClose<float>(
+      expected_output_float, outVecFloatTest, row, col));
 }
 
 // Scale and bias are of type float16
@@ -804,17 +830,55 @@ TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   vector<uint8_t> outVecRef(outVecSize);
   vector<uint8_t> outVecTest(outVecSize);
 
-  FloatToFused8BitRowwiseQuantizedSBFloatRef(
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
       inpVec.data(), rows, cols, outVecRef.data());
-  FloatToFused8BitRowwiseQuantizedSBFloat(
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
       inpVec.data(), rows, cols, outVecTest.data());
 
   // The number of input columns is the same as the number of output columns
   EXPECT_TRUE(isQEmbeddingClose<float>(outVecRef, outVecTest, rows, cols));
 
-  Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float>(
       outVecTest.data(), rows, out_cols, dequantOutRef.data());
-  Fused8BitRowwiseQuantizedSBFloatToFloat(
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float>(
       outVecTest.data(), rows, out_cols, dequantOutTest.data());
   EXPECT_TRUE(floatCloseAll(dequantOutRef, dequantOutTest, 1e-3));
+
+  generate(inpVec.begin(), inpVec.end(), [&, disFP]() mutable {
+    return cpu_half2float(cpu_float2half_rn(disFP(gen)));
+  });
+  vector<float16> inpHalfVec(rows * cols);
+  std::transform(
+      inpVec.begin(), inpVec.end(), inpHalfVec.begin(), [](float input) {
+        return cpu_float2half_rn(input);
+      });
+  vector<uint8_t> outVecRefFromHalf(outVecSize);
+  vector<uint8_t> outVecTestFromHalf(outVecSize);
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
+      inpVec.data(), rows, cols, outVecRef.data());
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float16>(
+      inpHalfVec.data(), rows, cols, outVecRefFromHalf.data());
+  EXPECT_TRUE(
+      isQEmbeddingClose<float16>(outVecRefFromHalf, outVecRef, rows, cols));
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float16>(
+      inpHalfVec.data(), rows, cols, outVecTestFromHalf.data());
+  EXPECT_TRUE(isQEmbeddingClose<float16>(
+      outVecRefFromHalf, outVecTestFromHalf, rows, cols));
+
+  vector<float16> dequantOutHalfRef(rows * cols);
+  vector<float16> dequantOutHalfTest(rows * cols);
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float>(
+      outVecRef.data(), rows, out_cols, dequantOutRef.data());
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<float16>(
+      outVecRef.data(), rows, out_cols, dequantOutHalfRef.data());
+  constexpr int NumberOfFP16Matissa = 9;
+  EXPECT_TRUE(floatCloseAll(
+      dequantOutRef, dequantOutHalfRef, 1e-3, pow(2, NumberOfFP16Matissa)));
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float16>(
+      outVecRef.data(), rows, out_cols, dequantOutHalfTest.data());
+  EXPECT_TRUE(floatCloseAll(
+      dequantOutHalfRef,
+      dequantOutHalfTest,
+      1e-3,
+      pow(2, NumberOfFP16Matissa)));
 }

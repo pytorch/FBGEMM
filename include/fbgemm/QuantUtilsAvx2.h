@@ -132,8 +132,9 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     int input_columns,
     std::uint8_t* output);
 
-void FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
-    const float* input,
+template <typename InputType>
+void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output);
@@ -145,10 +146,11 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     int input_columns,
     OutputType* output);
 
-void Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
+template <typename OutputType>
+void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output);
+    OutputType* output);
 
 } // namespace fbgemm
