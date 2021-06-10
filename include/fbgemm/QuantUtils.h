@@ -326,10 +326,26 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
  * This version intentionally supports only 8-bit because we want to discourage
  * the usage of float scale and bias with 2 and 4 bit cases as that diminishes
  * the overall memory savings.
- *
+ * TODO(T91361248): deprecate and replace with FloatOrHalfToFused8BitRowwiseQuantizedSBFloat.
  */
 FBGEMM_API void FloatToFused8BitRowwiseQuantizedSBFloat(
     const float* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output);
+
+/**
+ * Convert float or half inputs to rowwise quantized (8-bit) outputs.
+ * Scale and Bias are in float. Each row's Scale and Bias are stored in
+ * the row itself (fused) at the end.
+ *
+ * This version intentionally supports only 8-bit because we want to discourage
+ * the usage of float scale and bias with 2 and 4 bit cases as that diminishes
+ * the overall memory savings.
+ */
+template <typename InputType>
+FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output);
@@ -341,13 +357,28 @@ FBGEMM_API void FloatToFused8BitRowwiseQuantizedSBFloat(
  *
  * This version intentionally supports only 8-bit because
  * the corresponding quantize version only supports 8-bit.
- *
+ * TODO(T91361248): deprecate and replace with Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf.
  */
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloat(
     const uint8_t* input,
     int input_rows,
     int input_columns,
     float* output);
+
+/**
+ * Convert fused rowwise quantized (8-bit) inputs to float or half outputs.
+ * Scale and Bias are in float. Each row's Scale and Bias are stored in
+ * the row itself (fused) at the end.
+ *
+ * This version intentionally supports only 8-bit because
+ * the corresponding quantize version only supports 8-bit.
+ */
+template <typename OutputType>
+FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
+    const uint8_t* input,
+    int input_rows,
+    int input_columns,
+    OutputType* output);
 
 /**
  * Same as ToFusedNBitRowwiseQuantizedSBHalf but unoptimized.
@@ -362,11 +393,12 @@ FBGEMM_API void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     std::uint8_t* output);
 
 /**
- * Same as FloatToFused8BitRowwiseQuantizedSBFloat but unoptimized.
+ * Same as FloatOrHalfToFused8BitRowwiseQuantizedSBFloat but unoptimized.
  * This should not be called directly except in testing.
  */
-FBGEMM_API void FloatToFused8BitRowwiseQuantizedSBFloatRef(
-    const float* input,
+template <typename InputType>
+FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output);
@@ -384,13 +416,14 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     OutputType* output);
 
 /**
- * Same as Fused8BitRowwiseQuantizedSBFloatToFloat but unoptimized.
+ * Same as Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf but unoptimized.
  * This should not be called directly except in testing.
  */
-FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+template <typename OutputType>
+FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output);
+    OutputType* output);
 
 } // namespace fbgemm

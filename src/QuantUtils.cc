@@ -619,24 +619,34 @@ void FloatToFusedNBitRowwiseQuantizedSBHalf(
       bit_rate, input, input_rows, input_columns, output);
 }
 
-void FloatToFused8BitRowwiseQuantizedSBFloatRef(
-    const float* input,
+template <typename InputType>
+void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
+    const InputType* input,
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
   constexpr float kEpsilon = 1e-8f;
 
   int output_columns = input_columns + 2 * sizeof(float);
+  std::vector<float> input_row_float(input_columns);
   for (std::size_t row = 0; row < input_rows; ++row) {
-    const float* input_row = input + row * input_columns;
+    const InputType* input_row = input + row * input_columns;
     std::uint8_t* output_row = output + row * output_columns;
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + input_columns);
 
+    for (std::size_t col = 0; col < input_columns; ++col) {
+      if (std::is_same<InputType, float>()) {
+        input_row_float[col] = input_row[col];
+      } else {
+        input_row_float[col] = cpu_half2float(input_row[col]);
+      }
+    }
+
     float minimum_element =
-        *std::min_element(input_row, input_row + input_columns);
+        *std::min_element(input_row_float.begin(), input_row_float.end());
     float maximum_element =
-        *std::max_element(input_row, input_row + input_columns);
+        *std::max_element(input_row_float.begin(), input_row_float.end());
     float range = maximum_element - minimum_element;
 
     output_row_scale_bias[0] = range / 255.0f;
@@ -644,8 +654,23 @@ void FloatToFused8BitRowwiseQuantizedSBFloatRef(
     const auto inverse_scale = 255.0f / (range + kEpsilon);
     for (std::size_t col = 0; col < input_columns; ++col) {
       output_row[col] =
-          std::lrintf((input_row[col] - minimum_element) * inverse_scale);
+          std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
+  }
+}
+
+template <typename InputType>
+void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
+    const InputType* input,
+    int input_rows,
+    int input_columns,
+    std::uint8_t* output) {
+  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+    FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<InputType>(
+        input, input_rows, input_columns, output);
+  } else {
+    FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<InputType>(
+        input, input_rows, input_columns, output);
   }
 }
 
@@ -654,13 +679,8 @@ void FloatToFused8BitRowwiseQuantizedSBFloat(
     int input_rows,
     int input_columns,
     std::uint8_t* output) {
-  if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
-    FloatToFused8BitRowwiseQuantizedSBFloatAvx2(
-        input, input_rows, input_columns, output);
-  } else {
-    FloatToFused8BitRowwiseQuantizedSBFloatRef(
-        input, input_rows, input_columns, output);
-  }
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
+      input, input_rows, input_columns, output);
 }
 
 template <typename OutputType>
@@ -741,38 +761,54 @@ void FusedNBitRowwiseQuantizedSBHalfToFloat(
       bit_rate, input, input_rows, input_columns, output);
 }
 
-void Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+template <typename OutputType>
+void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output) {
+    OutputType* output) {
   int output_columns = input_columns - 2 * sizeof(float);
 
   for (std::size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const float* input_row_scale_bias =
         reinterpret_cast<const float*>(input_row + output_columns);
-    float* output_row = output + row * output_columns;
+    OutputType* output_row = output + row * output_columns;
 
     for (std::size_t col = 0; col < output_columns; ++col) {
-      output_row[col] =
+      float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+      if (std::is_same<OutputType, float>()) {
+        output_row[col] = output_value;
+      } else {
+        output_row[col] = cpu_float2half_rn(output_value);
+      }
     }
   }
 }
 
-void Fused8BitRowwiseQuantizedSBFloatToFloat(
+template <typename OutputType>
+void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const std::uint8_t* input,
     int input_rows,
     int input_columns,
-    float* output) {
+    OutputType* output) {
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
-    Fused8BitRowwiseQuantizedSBFloatToFloatAvx2(
+    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<OutputType>(
         input, input_rows, input_columns, output);
   } else {
-    Fused8BitRowwiseQuantizedSBFloatToFloatRef(
+    Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
         input, input_rows, input_columns, output);
   }
+}
+
+void Fused8BitRowwiseQuantizedSBFloatToFloat(
+    const uint8_t* input,
+    int input_rows,
+    int input_columns,
+    float* output) {
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float>(
+      input, input_rows, input_columns, output);
 }
 
 #define INSTANTIATE_QuantizationFunctions(type)                                \
@@ -801,7 +837,25 @@ void Fused8BitRowwiseQuantizedSBFloatToFloat(
       const uint8_t* input,                                                    \
       int input_rows,                                                          \
       int input_columns,                                                       \
-      type* output);
+      type* output);                                                           \
+  template FBGEMM_API void                                                     \
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<type>(                      \
+      const type* input,                                                       \
+      int input_rows,                                                          \
+      int input_columns,                                                       \
+      std::uint8_t* output);                                                   \
+  template FBGEMM_API void                                                     \
+  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<type>(                         \
+      const type* input,                                                       \
+      int input_rows,                                                          \
+      int input_columns,                                                       \
+      std::uint8_t* output);                                                   \
+  template FBGEMM_API void                                                     \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<type>(                      \
+      const uint8_t* input, int input_rows, int input_columns, type* output);  \
+  template FBGEMM_API void                                                     \
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<type>(                         \
+      const uint8_t* input, int input_rows, int input_columns, type* output);
 
 // clang-format off
 INSTANTIATE_QuantizationFunctions(float)
