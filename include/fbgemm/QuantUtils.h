@@ -1,14 +1,15 @@
 #pragma once
 
+#include "./FbgemmBuild.h"
+#include "./QuantUtilsAvx2.h"
+#include "./Types.h"
+#include "./Utils.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include "./FbgemmBuild.h"
-#include "./QuantUtilsAvx2.h"
-#include "./Types.h"
-#include "./Utils.h"
 
 namespace fbgemm {
 
@@ -149,7 +150,7 @@ void Dequantize(
     int num_threads = 1) {
   int i_begin, i_end;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
-  for (std::size_t i = i_begin; i < i_end; i++) {
+  for (int i = i_begin; i < i_end; i++) {
     dst[i] = Dequantize(src[i], qparams);
   }
 }
