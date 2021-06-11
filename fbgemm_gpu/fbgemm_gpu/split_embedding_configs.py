@@ -42,12 +42,13 @@ class SparseType(enum.Enum):
 
     def as_int(self) -> int:
         return {
-            SparseType.FP32: 0,
-            SparseType.FP16: 1,
-            SparseType.INT8: 2,
-            SparseType.INT4: 3,
-            SparseType.INT2: 4,
-        }[self]
+            SparseType.FP32.value: 0,
+            SparseType.FP16.value: 1,
+            SparseType.INT8.value: 2,
+            SparseType.INT4.value: 3,
+            SparseType.INT2.value: 4,
+        }[self.value]
+
 
 ELEMENT_SIZE: Dict[SparseType, int] = {
     SparseType.FP32: 4,

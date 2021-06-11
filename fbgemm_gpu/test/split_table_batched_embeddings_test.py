@@ -1640,6 +1640,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             index_remapping=[torch.arange(E) for E in Es],
             use_cpu=cpu,
         )
+        # NOTE: test TorchScript-compatible!
+        cc = torch.jit.script(cc)
+
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
             # weights.zero_()
