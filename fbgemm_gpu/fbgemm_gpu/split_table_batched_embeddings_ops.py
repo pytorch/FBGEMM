@@ -1295,20 +1295,21 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
 
 def row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return {
-        SparseType.FP16: dim * 2,
-        SparseType.INT8: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
-        SparseType.INT4: dim // 2 + 4,
-        SparseType.INT2: dim // 4 + 4,
-    }[weight_ty]
+        SparseType.FP16.value: dim * 2,
+        SparseType.INT8.value: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT4.value: dim // 2 + 4,
+        SparseType.INT2.value: dim // 4 + 4,
+    }[weight_ty.value]
 
 
 def effective_D(dim: int, weight_ty: SparseType) -> int:
     return {
-        SparseType.FP16: dim,
-        SparseType.INT8: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
-        SparseType.INT4: dim + 8,
-        SparseType.INT2: dim + 16,
-    }[weight_ty]
+        SparseType.FP16.value: dim,
+        SparseType.INT8.value: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT4.value: dim + 8,
+        SparseType.INT2.value: dim + 16,
+    }[weight_ty.value]
+
 
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
@@ -1550,14 +1551,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offset : offset + rows * row_size_in_bytes(dim, weight_ty)
             ].view(rows, row_size_in_bytes(dim, weight_ty))
 
-            if weight_ty in (SparseType.INT4, SparseType.INT2):
+            if weight_ty == SparseType.INT4 or weight_ty == SparseType.INT2:
                 splits.append(
                     (
                         weights_shifts[:, 4:],
                         weights_shifts[:, :4],
                     )
                 )
-            elif weight_ty in (SparseType.INT8,):
+            elif weight_ty == SparseType.INT8:
                 # Note: we use a 4 byte scale shift (2xfp16),
                 # but then insert 4 bytes of padding to ensure that all
                 # rows are 8 byte aligned.
@@ -1568,7 +1569,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     )
                 )
             else:
-                assert weight_ty in (SparseType.FP16,)
+                assert weight_ty == SparseType.FP16
                 splits.append(
                     (
                         weights_shifts,
