@@ -1579,7 +1579,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cpu=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_4b_forward(
+    def test_nbit_forward(
         self,
         T: int,
         D: int,
@@ -1640,6 +1640,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             index_remapping=[torch.arange(E) for E in Es],
             use_cpu=cpu,
         )
+        # NOTE: test TorchScript-compatible!
+        cc = torch.jit.script(cc)
+
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
             # weights.zero_()
