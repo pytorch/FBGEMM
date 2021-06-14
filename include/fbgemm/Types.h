@@ -37,11 +37,11 @@ static inline float16 cpu_float2half_rn(float f) {
 
   // Get rid of +Inf/-Inf, +0/-0.
   if (u > 0x477fefff) {
-    ret = sign | 0x7c00U;
+    ret = static_cast<float16>(sign | 0x7c00U);
     return ret;
   }
   if (u < 0x33000001) {
-    ret = (sign | 0x0000);
+    ret = static_cast<float16>(sign | 0x0000);
     return ret;
   }
 
@@ -71,7 +71,7 @@ static inline float16 cpu_float2half_rn(float f) {
     }
   }
 
-  ret = (sign | (exponent << 10) | mantissa);
+  ret = static_cast<float16>(sign | (exponent << 10) | mantissa);
 
   return ret;
 }
@@ -91,7 +91,7 @@ static inline float16 cpu_float2half_rz(float f) {
 
   // Get rid of +NaN/-NaN case first.
   if (u > 0x7f800000) {
-    ret = 0x7fffU;
+    ret = static_cast<float16>(0x7fffU);
     return ret;
   }
 
@@ -99,11 +99,11 @@ static inline float16 cpu_float2half_rz(float f) {
 
   // Get rid of +Inf/-Inf, +0/-0.
   if (u > 0x477fefff) {
-    ret = sign | 0x7c00U;
+    ret = static_cast<float16>(sign | 0x7c00U);
     return ret;
   }
   if (u < 0x33000001) {
-    ret = (sign | 0x0000);
+    ret = static_cast<float16>(sign | 0x0000);
     return ret;
   }
 
@@ -126,7 +126,7 @@ static inline float16 cpu_float2half_rz(float f) {
   remainder = (mantissa & lsb_m1);
   mantissa >>= shift;
 
-  ret = (sign | (exponent << 10) | mantissa);
+  ret = static_cast<float16>(sign | (exponent << 10) | mantissa);
 
   return ret;
 }
