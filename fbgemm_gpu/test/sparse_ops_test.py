@@ -5,9 +5,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import numpy as np
 import unittest
 import random
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type, Union
 from itertools import accumulate
 
 import hypothesis.strategies as st
@@ -20,6 +21,30 @@ try:
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+
+np_int_types = Union[Type[np.int32], Type[np.int64]]
+
+def unbucketize_indices_value(
+    bucketized_indices: torch.Tensor,
+    bucketized_lengths: torch.Tensor,
+    block_sizes: torch.Tensor,
+    W: int,
+    B: int,
+) -> torch.Tensor:
+    lengths_sum = bucketized_indices.size()[0]
+    block_size_expand = torch.empty_like(bucketized_indices)
+    bucket_expand = torch.empty_like(bucketized_indices)
+    T = block_sizes.size()[0]
+    offset = 0
+    for w in range(W):
+        for t in range(T):
+            for b in range(B):
+                seg_length = bucketized_lengths[w * T * B + t * B + b]
+                for i in range(offset, offset + seg_length):
+                    block_size_expand[i] = block_sizes[t]
+                    bucket_expand[i] = w
+                offset += seg_length
+    return bucket_expand * block_size_expand + bucketized_indices
 
 
 class SparseOpsTest(unittest.TestCase):
@@ -88,7 +113,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = torch.ops.fb.permute_sparse_data(permute, lengths, indices, weights)
+        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
         (
             permuted_lengths_ref,
             permuted_indices_ref,
@@ -106,7 +131,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
-            ) = torch.ops.fb.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
@@ -160,7 +185,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = torch.ops.fb.permute_sparse_data(permute, lengths, indices, weights)
+        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
         (
             permuted_lengths_ref,
             permuted_indices_ref,
@@ -178,7 +203,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
-            ) = torch.ops.fb.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
@@ -228,7 +253,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = torch.ops.fb.permute_sparse_data(permute, lengths, indices, weights)
+        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
         (
             permuted_lengths_ref,
             permuted_indices_ref,
@@ -246,7 +271,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
-            ) = torch.ops.fb.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
@@ -285,7 +310,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_embeddings_cpu,
             _,
-        ) = torch.ops.fb.permute_sparse_data(permute, lengths, embeddings, None)
+        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, embeddings, None)
         (
             permuted_lengths_ref,
             permuted_embeddings_ref,
@@ -299,7 +324,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_embeddings_gpu,
                 _,
-            ) = torch.ops.fb.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 embeddings.cuda(),
@@ -311,6 +336,186 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_allclose(
                 permuted_lengths_gpu.cpu(), permuted_lengths_cpu
             )
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        long_indices=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_long_indices(
+        self,
+        long_indices: bool,
+    ) -> None:
+        has_weight = False
+        bucketize_pos = False
+        sequence = False
+        index_type = torch.long
+
+        # 3 features, 2 batches
+        T = 3
+        B = 2
+
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([3, 4, 5], dtype=index_type)
+
+        if not long_indices:
+            lengths = torch.tensor([0, 3, 2, 0, 1, 4], dtype=index_type)
+            indices = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=index_type)
+            new_lengths_ref = torch.tensor(
+                [0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 1, 3, 0, 0, 0, 0, 0, 1], dtype=index_type
+            )
+            new_indices_ref = torch.tensor(
+                [1, 2, 0, 0, 1, 1, 2, 3, 4, 0], dtype=index_type
+            )
+        else:
+            lengths = torch.tensor([0, 3, 2, 0, 1, 4], dtype=index_type)
+            # Test long and negative indices: -8 will be casted to 18446644015555759292
+            indices = torch.tensor(
+                [1, 2, 3, 100061827127359, 5, 6, 7, -8, 100058153792324, 10],
+                dtype=index_type,
+            )
+            new_lengths_ref = torch.tensor(
+                [0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 1, 1, 0, 0, 0, 0, 0, 3], dtype=index_type
+            )
+            new_indices_ref = torch.tensor(
+                [1, 2, 0, 3, 1, 1, 2, 3, 4, 0], dtype=index_type
+            )
+
+        (
+            new_lengths_gpu,
+            new_indices_gpu,
+            new_weights_gpu,
+            new_pos_gpu,
+            unbucketize_permute_gpu,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda(),
+            indices.cuda(),
+            bucketize_pos,
+            sequence,
+            block_sizes.cuda(),
+            my_size,
+            None,
+        )
+
+        print(f"new_lengths_gpu={new_lengths_gpu}")
+        print(f"new_indices_gpu={new_indices_gpu}")
+        torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref)
+        torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        offset_type=st.sampled_from([torch.int, torch.long]),
+        index_type=st.sampled_from([torch.int, torch.long]),
+        has_weight=st.booleans(),
+        bucketize_pos=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features(
+        self,
+        offset_type: np_int_types,
+        index_type: np_int_types,
+        has_weight: bool,
+        bucketize_pos: bool,
+        sequence: bool,
+    ) -> None:
+        T = 4
+        B = 2
+        lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=offset_type)
+        indices = torch.tensor(
+            [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20], dtype=index_type
+        )
+        weights = (
+            torch.tensor(
+                [
+                    1.0,
+                    2.0,
+                    3.0,
+                    4.0,
+                    5.0,
+                    6.0,
+                    7.0,
+                    8.0,
+                    9.0,
+                    10.0,
+                    11.0,
+                    12.0,
+                    13.0,
+                    14.0,
+                    15.0,
+                ],
+                dtype=float,
+            )
+            if has_weight
+            else None
+        )
+        block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
+        my_size = 2
+
+        new_lengths_ref = torch.tensor(
+            [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1], dtype=index_type
+        )
+        new_indices_ref = torch.tensor(
+            [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0], dtype=index_type
+        )
+        new_weights_ref = torch.tensor(
+            [
+                1.0,
+                2.0,
+                4.0,
+                7.0,
+                12.0,
+                3.0,
+                5.0,
+                6.0,
+                8.0,
+                9.0,
+                10.0,
+                11.0,
+                13.0,
+                14.0,
+                15.0,
+            ],
+            dtype=float,
+        )
+        new_pos_ref = torch.tensor(
+            [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0], dtype=index_type
+        )
+
+        (
+            new_lengths_gpu,
+            new_indices_gpu,
+            new_weights_gpu,
+            new_pos_gpu,
+            unbucketize_permute_gpu,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda(),
+            indices.cuda(),
+            bucketize_pos,
+            sequence,
+            block_sizes.cuda(),
+            my_size,
+            weights.cuda() if has_weight else None,
+        )
+        torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
+        torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+        if has_weight:
+            torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_ref)
+        if bucketize_pos:
+            torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_ref)
+        if sequence:
+            value_unbucketized_indices = unbucketize_indices_value(
+                new_indices_gpu.cpu(),
+                new_lengths_gpu.cpu(),
+                block_sizes,
+                my_size,
+                B,
+            )
+            unbucketized_indices = torch.index_select(
+                value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
+            )
+            torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
 
 
 if __name__ == "__main__":
