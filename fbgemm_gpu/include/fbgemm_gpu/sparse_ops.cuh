@@ -137,23 +137,23 @@ __global__ void _bucketize_sparse_features_cuda_kernel2(
 // block-cyclic distribution). Used for bucketize sparse feature, especially for
 // checkpointing with row-wise partition (sparse_feature is partitioned
 // continuously along the sparse dimension into my_size blocks)
-template <typename index_t>
+template <typename offset_t, typename index_t>
 __global__ void _block_bucketize_sparse_features_cuda_kernel1(
     int32_t lengths_size,
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
     int my_size,
-    const index_t* __restrict__ offsets_data,
+    const offset_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
-    index_t* __restrict__ new_lengths_data) {
+    offset_t* __restrict__ new_lengths_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
   using uindex_t= std::make_unsigned_t<index_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
-    index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
-    index_t rowend = offsets_data[b_t];
+    offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    offset_t rowend = offsets_data[b_t];
     for (index_t i = rowstart; i < rowend; ++i) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
@@ -177,6 +177,7 @@ template <
     bool sequence,
     bool has_weight,
     bool bucketize_pos,
+    typename offset_t,
     typename index_t,
     typename scalar_t>
 __global__ void _block_bucketize_sparse_features_cuda_kernel2(
@@ -184,10 +185,10 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
     int my_size,
-    const index_t* __restrict__ offsets_data,
+    const offset_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
     const scalar_t* __restrict__ weights_data,
-    index_t* __restrict__ new_offsets_data,
+    offset_t* __restrict__ new_offsets_data,
     index_t* __restrict__ new_indices_data,
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data,
@@ -195,11 +196,12 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
   using uindex_t= std::make_unsigned_t<index_t>;
+  using uoffset_t= std::make_unsigned_t<offset_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
-    index_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
-    index_t rowend = offsets_data[b_t];
+    offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    offset_t rowend = offsets_data[b_t];
     for (index_t i = rowstart; i < rowend; ++i) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
@@ -210,7 +212,7 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
       uindex_t new_idx = idx % blk_size;
-      uindex_t pos = new_offsets_data[p * lengths_size + b_t];
+      uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
       if (sequence) {

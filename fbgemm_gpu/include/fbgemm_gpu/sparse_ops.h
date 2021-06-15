@@ -21,6 +21,36 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const c10::optional<Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
 
+std::tuple<
+    Tensor,
+    Tensor,
+    c10::optional<Tensor>,
+    c10::optional<Tensor>,
+    c10::optional<Tensor>>
+block_bucketize_sparse_features_cuda(
+    Tensor lengths,
+    Tensor indices,
+    bool bucketize_pos,
+    bool sequence,
+    Tensor block_sizes,
+    int64_t my_size,
+    c10::optional<Tensor> weights);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+block_bucketize_sparse_features_cpu(
+    at::Tensor lengths,
+    at::Tensor indices,
+    bool bucketize_pos,
+    bool sequence,
+    at::Tensor block_sizes,
+    int64_t my_size,
+    c10::optional<at::Tensor> weights);
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
