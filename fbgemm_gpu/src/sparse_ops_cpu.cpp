@@ -20,6 +20,24 @@ constexpr int FALSE_SHARING_PAD = 16;
 
 } // namespace
 
+Tensor native_empty_like(const Tensor& self) {
+  return at::native::empty_like(
+      self,
+      optTypeMetaToScalarType(self.options().dtype_opt()),
+      self.options().layout_opt(),
+      self.options().device_opt(),
+      self.options().pinned_memory_opt(),
+      c10::nullopt);
+}
+
+template <typename T>
+void prefix_sum(const int length, const T* const array, T* const presum) {
+  presum[0] = 0;
+  for (const auto i : c10::irange(length)) {
+    presum[i + 1] = array[i] + presum[i];
+  }
+}
+
 // NOTE : _permute_indices_weights_kernel_cpu and _permute_lengths_cpu_kernel
 // have to use the same grain size for consistent partitioning across threads.
 template <
@@ -141,6 +159,96 @@ void _permute_lengths_cpu_kernel(
   }
 }
 
+template <bool sequence, bool has_weight, typename offset_t, typename index_t, typename scalar_t>
+void _block_bucketize_sparse_features_cpu(
+    at::Tensor lengths,
+    at::Tensor indices,
+    c10::optional<at::Tensor> weights,
+    bool bucketize_pos,
+    at::Tensor block_sizes,
+    int64_t my_size,
+    at::Tensor new_lengths,
+    at::Tensor new_indices,
+    c10::optional<at::Tensor> new_weights,
+    c10::optional<at::Tensor> new_pos,
+    c10::optional<at::Tensor> unbucketize_permute) {
+  // allocate tensors and buffers
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  const int32_t T = block_sizes.numel();
+  const int32_t B = lengths_size / T;
+  auto offsets = at::empty({lengths_size + 1}, lengths.options());
+  auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
+  const offset_t* lengths_data = lengths.data_ptr<offset_t>();
+  offset_t* offsets_data = offsets.data_ptr<offset_t>();
+  const index_t* indices_data = indices.data_ptr<index_t>();
+  scalar_t* weights_data;
+  scalar_t* new_weights_data;
+  index_t* new_pos_data;
+  index_t* unbucketize_permute_data;
+  offset_t* new_lengths_data = new_lengths.data_ptr<offset_t>();
+  offset_t* new_offsets_data = new_offsets.data_ptr<offset_t>();
+  index_t* new_indices_data = new_indices.data_ptr<index_t>();
+  index_t* block_sizes_data = block_sizes.data_ptr<index_t>();
+
+  if (sequence) {
+    unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
+  }
+  if (has_weight) {
+    weights_data = weights.value().data_ptr<scalar_t>();
+    new_weights_data = new_weights.value().data_ptr<scalar_t>();
+  }
+  if (bucketize_pos) {
+    new_pos_data = new_pos.value().data_ptr<index_t>();
+  }
+
+  // count nonzeros
+  prefix_sum(lengths_size, lengths_data, offsets_data);
+  assert(offsets_data[lengths_size] == indices.numel());
+  for (const auto t : c10::irange(T)) {
+    auto blk_size = block_sizes_data[t];
+    for (const auto b : c10::irange(B)) {
+      const auto b_t = t * B + b;
+      const offset_t rowstart = offsets_data[b_t];
+      const offset_t rowend = offsets_data[b_t + 1];
+      for (const auto i : c10::irange(rowstart, rowend)) {
+        const index_t idx = indices_data[i];
+        const index_t p = idx / blk_size;
+        new_lengths_data[p * lengths_size + b_t]++;
+      }
+    }
+  }
+
+  // bucketize nonzeros
+  prefix_sum(new_lengths_size, new_lengths_data, new_offsets_data);
+  assert(new_offsets_data[new_lengths_size] == new_indices.numel());
+  for (const auto t : c10::irange(T)) {
+    auto blk_size = block_sizes_data[t];
+    for (const auto b : c10::irange(B)) {
+      const auto b_t = t * B + b;
+      const offset_t rowstart = offsets_data[b_t];
+      const offset_t rowend = offsets_data[b_t + 1];
+      for (const auto i : c10::irange(rowstart, rowend)) {
+        const index_t idx = indices_data[i];
+        const index_t p = idx / blk_size;
+        const index_t new_idx = idx % blk_size;
+        const offset_t pos = new_offsets_data[p * lengths_size + b_t];
+        new_indices_data[pos] = new_idx;
+        if (sequence) {
+          unbucketize_permute_data[i] = pos;
+        }
+        new_offsets_data[p * lengths_size + b_t]++;
+        if (has_weight) {
+          new_weights_data[pos] = weights_data[i];
+        }
+        if (bucketize_pos) {
+          new_pos_data[pos] = i - rowstart;
+        }
+      }
+    }
+  }
+}
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
@@ -249,13 +357,176 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
-} // namespace at
-
-TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+block_bucketize_sparse_features_cpu(
+    at::Tensor lengths,
+    at::Tensor indices,
+    bool bucketize_pos,
+    bool sequence,
+    at::Tensor block_sizes,
+    int64_t my_size,
+    c10::optional<at::Tensor> weights) {
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
+  auto new_indices = native_empty_like(indices);
+  Tensor new_weights;
+  Tensor new_pos;
+  Tensor unbucketize_permute;
+  if (bucketize_pos) {
+    new_pos = native_empty_like(indices);
+  }
+  if (weights.has_value()) {
+    const auto lengths_sum = indices.numel();
+    Tensor weights_value = weights.value();
+    new_weights = native_empty_like(weights_value);
+    if (sequence) {
+      unbucketize_permute = at::empty({lengths_sum}, indices.options());
+      AT_DISPATCH_INDEX_TYPES(
+          lengths.scalar_type(),
+          "block_bucketize_sparse_features_weights_cpu_1",
+          ([&] {
+            using offset_t = index_t;
+            AT_DISPATCH_INDEX_TYPES(
+                indices.scalar_type(),
+                "block_bucketize_sparse_features_weights_cpu_2",
+                ([&] {
+                  AT_DISPATCH_FLOATING_TYPES(
+                      weights_value.scalar_type(),
+                      "bucketize_sparse_features_weights_cpu_3",
+                      ([&] {
+                        _block_bucketize_sparse_features_cpu<
+                            true,
+                            true,
+                            offset_t,
+                            index_t,
+                            scalar_t>(
+                            lengths,
+                            indices,
+                            weights,
+                            bucketize_pos,
+                            block_sizes,
+                            my_size,
+                            new_lengths,
+                            new_indices,
+                            new_weights,
+                            new_pos,
+                            unbucketize_permute);
+                      }));
+                }));
+          }));
+    } else {
+      AT_DISPATCH_INDEX_TYPES(
+          lengths.scalar_type(),
+          "block_bucketize_sparse_features_weights_cpu_1",
+          ([&] {
+            using offset_t = index_t;
+            AT_DISPATCH_INDEX_TYPES(
+                indices.scalar_type(),
+                "block_bucketize_sparse_features_weights_cpu_2",
+                ([&] {
+                  AT_DISPATCH_FLOATING_TYPES(
+                      weights_value.scalar_type(),
+                      "bucketize_sparse_features_weights_cpu_3",
+                      ([&] {
+                        _block_bucketize_sparse_features_cpu<
+                            false,
+                            true,
+                            offset_t,
+                            index_t,
+                            scalar_t>(
+                            lengths,
+                            indices,
+                            weights,
+                            bucketize_pos,
+                            block_sizes,
+                            my_size,
+                            new_lengths,
+                            new_indices,
+                            new_weights,
+                            new_pos,
+                            unbucketize_permute);
+                      }));
+                }));
+          }));
+    }
+  } else {
+    if (sequence) {
+      const auto lengths_sum = indices.numel();
+      unbucketize_permute = at::empty({lengths_sum}, indices.options());
+      AT_DISPATCH_INDEX_TYPES(
+          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", ([&] {
+            using offset_t = index_t;
+            AT_DISPATCH_INDEX_TYPES(
+                indices.scalar_type(),
+                "block_bucketize_sparse_features_cpu_2",
+                ([&] {
+                  _block_bucketize_sparse_features_cpu<
+                      true,
+                      false,
+                      offset_t,
+                      index_t,
+                      std::nullptr_t>(
+                      lengths,
+                      indices,
+                      weights,
+                      bucketize_pos,
+                      block_sizes,
+                      my_size,
+                      new_lengths,
+                      new_indices,
+                      new_weights,
+                      new_pos,
+                      unbucketize_permute);
+                }));
+          }));
+    } else {
+      AT_DISPATCH_INDEX_TYPES(
+          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", ([&] {
+            using offset_t = index_t;
+            AT_DISPATCH_INDEX_TYPES(
+                indices.scalar_type(),
+                "block_bucketize_sparse_features_cpu_2",
+                ([&] {
+                  _block_bucketize_sparse_features_cpu<
+                      false,
+                      false,
+                      offset_t,
+                      index_t,
+                      std::nullptr_t>(
+                      lengths,
+                      indices,
+                      weights,
+                      bucketize_pos,
+                      block_sizes,
+                      my_size,
+                      new_lengths,
+                      new_indices,
+                      new_weights,
+                      new_pos,
+                      unbucketize_permute);
+                }));
+          }));
+    }
+  }
+  return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
-TORCH_LIBRARY_IMPL(fb, CPU, m) {
+} // namespace at
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+  m.def(
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("permute_sparse_data", at::permute_sparse_data_cpu);
+  m.impl("block_bucketize_sparse_features", at::block_bucketize_sparse_features_cpu);
 }

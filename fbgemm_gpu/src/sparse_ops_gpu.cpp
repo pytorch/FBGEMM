@@ -12,6 +12,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
-TORCH_LIBRARY_IMPL(fb, CUDA, m) {
+TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("permute_sparse_data", at::permute_sparse_data_cuda);
+  DISPATCH_TO_CUDA("block_bucketize_sparse_features", at::block_bucketize_sparse_features_cuda);
 }
