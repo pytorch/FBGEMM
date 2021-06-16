@@ -64,13 +64,13 @@ void performance_test() {
         duration = measureWithWarmup(
             [&]() {
               is_same<T, float16>::value
-                  ? FloatToFusedNBitRowwiseQuantizedSBHalf(
+                  ? FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
                         bit_rate,
                         inpVec.data(),
                         rowSize,
                         colSize,
                         outVec.data())
-                  : FloatToFused8BitRowwiseQuantizedSBFloat(
+                  : FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
                         inpVec.data(), rowSize, colSize, outVec.data());
             },
             NWARMUP,

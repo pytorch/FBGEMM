@@ -31,7 +31,7 @@ at::Tensor& _float_to_fused8bitrowwise_cpu_out(
   output_dims[last_dim] = output_columns;
   at::native::resize_(output, output_dims, c10::nullopt);
 
-  fbgemm::FloatToFused8BitRowwiseQuantizedSBFloat(
+  fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
       input.data_ptr<float>(), nrows, ncols, output.data_ptr<uint8_t>());
 
   return output;
@@ -56,7 +56,7 @@ at::Tensor& _fused8bitrowwise_to_float_cpu_out(
   output_dims[last_dim] = output_columns;
   at::native::resize_(output, output_dims, c10::nullopt);
 
-  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloat(
+  fbgemm::Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float>(
       input.data_ptr<uint8_t>(), nrows, ncols, output.data_ptr<float>());
 
   return output;
