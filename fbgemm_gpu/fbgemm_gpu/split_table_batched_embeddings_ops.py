@@ -461,9 +461,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.step += 1
 
         if len(self.timesteps_prefetched) == 0:
-            self.prefetch(indices, offsets)
+            # self.prefetch(indices, offsets)
+            pass
 
-        self.timesteps_prefetched.pop(0)
+        # self.timesteps_prefetched.pop(0)
         lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
@@ -601,6 +602,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
+    @torch.jit.ignore
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
@@ -713,7 +715,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 return buffer
         return torch.tensor(0)
 
-    @torch.jit.export
+    @torch.jit.ignore
     def get_optimizer_state(self) -> List[Dict[str, torch.Tensor]]:
         r"""
         Get the optimizer state dict that matches the OSS Pytorch optims
@@ -804,7 +806,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         return list(zip(*states))
 
-    @torch.jit.export
+    @torch.jit.ignore
     def set_learning_rate(self, lr: float) -> None:
         """
         Sets the learning rate.
@@ -820,7 +822,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
         return 0.0
 
-    @torch.jit.export
+    @torch.jit.ignore
     def flush(self) -> None:
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],

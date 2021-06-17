@@ -36,10 +36,10 @@ def invoke(
     iter: int,
     {% endif %}
 ) -> torch.Tensor:
-    if (common_args.host_weights.numel() > 0):
+    if ((common_args.host_weights.numel() > 0) or (not common_args.dev_weights.is_cuda)):
         return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
             # common_args
-            host_weights=common_args.host_weights,
+            host_weights=common_args.host_weights if common_args.host_weights.numel() > 0 else common_args.dev_weights,
             weights_placements=common_args.weights_placements,
             weights_offsets=common_args.weights_offsets,
             D_offsets=common_args.D_offsets,
