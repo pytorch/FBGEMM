@@ -190,6 +190,8 @@ void _block_bucketize_sparse_features_cpu(
   offset_t* new_offsets_data = new_offsets.data_ptr<offset_t>();
   index_t* new_indices_data = new_indices.data_ptr<index_t>();
   index_t* block_sizes_data = block_sizes.data_ptr<index_t>();
+  using uindex_t = std::make_unsigned_t<index_t>;
+  using uoffset_t = std::make_unsigned_t<offset_t>;
 
   if (sequence) {
     unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
@@ -212,8 +214,15 @@ void _block_bucketize_sparse_features_cpu(
       const offset_t rowstart = offsets_data[b_t];
       const offset_t rowend = offsets_data[b_t + 1];
       for (const auto i : c10::irange(rowstart, rowend)) {
-        const index_t idx = indices_data[i];
-        const index_t p = idx / blk_size;
+        // We have use cases using none-hashed raw indices that can be either
+        // negative or larger than embedding table hash_size (blk_size *
+        // my_size). In cases of none-hashed indices we need to ensure
+        // bucketization can distribute them into different ranks and within
+        // range of blk_size, we expect the later embedding module to take care
+        // of hashing indices calculation.
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p =
+            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
       }
     }
@@ -229,10 +238,17 @@ void _block_bucketize_sparse_features_cpu(
       const offset_t rowstart = offsets_data[b_t];
       const offset_t rowend = offsets_data[b_t + 1];
       for (const auto i : c10::irange(rowstart, rowend)) {
-        const index_t idx = indices_data[i];
-        const index_t p = idx / blk_size;
-        const index_t new_idx = idx % blk_size;
-        const offset_t pos = new_offsets_data[p * lengths_size + b_t];
+        // We have use cases using none-hashed raw indices that can be either
+        // negative or larger than embedding table hash_size (blk_size *
+        // my_size). In cases of none-hashed indices we need to ensure
+        // bucketization can distribute them into different ranks and within
+        // range of blk_size, we expect the later embedding module to take care
+        // of hashing indices calculation.
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p =
+            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        const uindex_t new_idx = idx % blk_size;
+        const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
         new_indices_data[pos] = new_idx;
         if (sequence) {
           unbucketize_permute_data[i] = pos;
