@@ -41,6 +41,7 @@ cpp_asmjit_files = glob.glob("../third_party/asmjit/src/asmjit/*/*.cpp")
 
 cpp_fbgemm_files = [
     "../src/EmbeddingSpMDMAvx2.cc",
+    "../src/EmbeddingSpMDMAvx512.cc",
     "../src/EmbeddingSpMDM.cc",
     "../src/EmbeddingSpMDMNBit.cc",
     "../src/QuantUtils.cc",
