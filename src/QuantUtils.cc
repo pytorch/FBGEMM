@@ -609,16 +609,6 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
   }
 }
 
-void FloatToFusedNBitRowwiseQuantizedSBHalf(
-    int bit_rate,
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output) {
-  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
-      bit_rate, input, input_rows, input_columns, output);
-}
-
 template <typename InputType>
 void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     const InputType* input,
@@ -672,15 +662,6 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<InputType>(
         input, input_rows, input_columns, output);
   }
-}
-
-void FloatToFused8BitRowwiseQuantizedSBFloat(
-    const float* input,
-    int input_rows,
-    int input_columns,
-    std::uint8_t* output) {
-  FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<float>(
-      input, input_rows, input_columns, output);
 }
 
 template <typename OutputType>
@@ -751,16 +732,6 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
   }
 }
 
-void FusedNBitRowwiseQuantizedSBHalfToFloat(
-    int bit_rate,
-    const uint8_t* input,
-    int input_rows,
-    int input_columns,
-    float* output) {
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
-      bit_rate, input, input_rows, input_columns, output);
-}
-
 template <typename OutputType>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const std::uint8_t* input,
@@ -800,15 +771,6 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
         input, input_rows, input_columns, output);
   }
-}
-
-void Fused8BitRowwiseQuantizedSBFloatToFloat(
-    const uint8_t* input,
-    int input_rows,
-    int input_columns,
-    float* output) {
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<float>(
-      input, input_rows, input_columns, output);
 }
 
 #define INSTANTIATE_QuantizationFunctions(type)                                \
