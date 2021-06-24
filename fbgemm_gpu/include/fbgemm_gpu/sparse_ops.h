@@ -60,5 +60,11 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
+at::Tensor _float_to_fusednbitrowwise_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
+at::Tensor _fusednbitrowwise_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
 
 } // namespace at
