@@ -22,7 +22,7 @@ with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 extra_compile_args = sysconfig.get_config_var("CFLAGS").split()
-extra_compile_args += ["-mavx2", "-mf16c", "-mfma"]
+extra_compile_args += ["-mavx2", "-mf16c", "-mfma", "-mavx512f", "-mavx512bw", "-mavx512dq", "-mavx512vl"]
 
 OPTIMIZERS = [
     "adagrad",
