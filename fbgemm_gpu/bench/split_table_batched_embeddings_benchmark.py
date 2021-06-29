@@ -132,6 +132,7 @@ def benchmark_requests(
             torch.cuda.synchronize()
             total_time += start_event.elapsed_time(end_event) * 1.0e-3
         else:
+            # pyre-fixme[61]: `start_time` may not be initialized here.
             total_time += time.time() - start_time
     return total_time / len(requests)
 
@@ -509,6 +510,7 @@ def uvm(
 
         # forward
         time_per_iter = benchmark_requests(
+            # pyre-fixme[61]: `requests_gpu` may not be initialized here.
             requests_gpu,
             lambda indices, offsets, per_sample_weights: emb_gpu.forward(
                 indices.long(),
