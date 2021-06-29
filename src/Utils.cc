@@ -43,7 +43,7 @@ int compare_buffers(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol /*=1e-3*/) {
   size_t mismatches = 0;
   for (int i = 0; i < m; ++i) {
@@ -91,8 +91,8 @@ void printMatrix(
   std::cout << name << ":"
             << "[" << R << ", " << C << "]" << std::endl;
   bool tr = (op == matrix_op_t::Transpose);
-  for (auto r = 0; r < R; ++r) {
-    for (auto c = 0; c < C; ++c) {
+  for (size_t r = 0; r < R; ++r) {
+    for (size_t c = 0; c < C; ++c) {
       T res = tr ? inp[c * ld + r] : inp[r * ld + c];
       if (std::is_integral<T>::value) {
         std::cout << std::setw(5) << static_cast<int64_t>(res) << " ";
@@ -110,7 +110,7 @@ template int compare_buffers<float>(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol);
 
 template int compare_buffers<int32_t>(
@@ -119,7 +119,7 @@ template int compare_buffers<int32_t>(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol);
 
 template int compare_buffers<uint8_t>(
@@ -128,7 +128,7 @@ template int compare_buffers<uint8_t>(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol);
 
 template int compare_buffers<int64_t>(
@@ -137,7 +137,7 @@ template int compare_buffers<int64_t>(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol);
 
 template void printMatrix<float>(

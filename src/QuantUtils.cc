@@ -230,7 +230,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
       QuantizeAvx2<T, LEGACY>(                                          \
           &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
     } else {                                                            \
-      for (std::size_t i = i_begin; i < i_end; ++i) {                   \
+      for (int i = i_begin; i < i_end; ++i) {                           \
         dst[i] = Quantize<T, LEGACY>(src[i], qparams);                  \
       }                                                                 \
     }                                                                   \
@@ -261,7 +261,7 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
       FusedQuantizeDequantizeAvx2<T>(                                   \
           &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
     } else if (noise_ratio <= 0.0f) {                                   \
-      for (std::size_t i = i_begin; i < i_end; ++i) {                   \
+      for (int i = i_begin; i < i_end; ++i) {                           \
         dst[i] = FusedQuantizeDequantize<T>(src[i], qparams);           \
       }                                                                 \
     } else {                                                            \
@@ -510,7 +510,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
       (input_columns + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(float16);
   std::vector<float> input_row_float(input_columns);
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     std::uint8_t* output_row = output + row * output_columns;
     float16* output_row_scale_bias = reinterpret_cast<float16*>(
@@ -519,7 +519,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
 
     // NOTE: this can be optimized, however we don't care much about performance
     // for reference implementation.
-    for (std::size_t col = 0; col < input_columns; ++col) {
+    for (int col = 0; col < input_columns; ++col) {
       if (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
@@ -553,7 +553,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
 
     output_row_scale_bias[0] = cpu_float2half_rn(scale);
     output_row_scale_bias[1] = minimum_element_fp16;
-    for (std::size_t col = 0; col < input_columns; ++col) {
+    for (int col = 0; col < input_columns; ++col) {
       float X = input_row_float[col];
       std::uint8_t quantized = std::max(
           0,
@@ -619,13 +619,13 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
 
   int output_columns = input_columns + 2 * sizeof(float);
   std::vector<float> input_row_float(input_columns);
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     std::uint8_t* output_row = output + row * output_columns;
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + input_columns);
 
-    for (std::size_t col = 0; col < input_columns; ++col) {
+    for (int col = 0; col < input_columns; ++col) {
       if (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
@@ -642,7 +642,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
     const auto inverse_scale = 255.0f / (range + kEpsilon);
-    for (std::size_t col = 0; col < input_columns; ++col) {
+    for (int col = 0; col < input_columns; ++col) {
       output_row[col] =
           std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
@@ -678,7 +678,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
   int output_columns =
       (input_columns - 2 * sizeof(float16)) * num_elem_per_byte;
 
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const float16* input_row_scale_bias = reinterpret_cast<const float16*>(
         input_row +
@@ -687,7 +687,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     float bias = cpu_half2float(input_row_scale_bias[1]);
     OutputType* output_row = output + row * output_columns;
 
-    for (std::size_t col = 0; col < output_columns; ++col) {
+    for (int col = 0; col < output_columns; ++col) {
       std::uint8_t quantized = input_row[col / num_elem_per_byte];
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
@@ -740,13 +740,13 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     OutputType* output) {
   int output_columns = input_columns - 2 * sizeof(float);
 
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const float* input_row_scale_bias =
         reinterpret_cast<const float*>(input_row + output_columns);
     OutputType* output_row = output + row * output_columns;
 
-    for (std::size_t col = 0; col < output_columns; ++col) {
+    for (int col = 0; col < output_columns; ++col) {
       float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
       if (std::is_same<OutputType, float>()) {
