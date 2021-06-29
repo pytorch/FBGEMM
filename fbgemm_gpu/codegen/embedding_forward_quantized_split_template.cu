@@ -817,7 +817,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
 
     if (max_float16_D) {
         [&](){
-            {% for kMaxVecsPerThread in range(1, 4) %}
+            {% for kMaxVecsPerThread in range(1, 9) %}
             if (max_float16_D <= {{ 128 * kMaxVecsPerThread }}) {
                 float16_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, {{ kMaxVecsPerThread }} ><<<
                     div_round_up((B * T), kForwardMaxThreads / kWarpSize),
@@ -839,7 +839,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
                     return;
             }
             {% endfor %}
-            TORCH_CHECK(false, "Unhandled max_float16_D");
+            TORCH_CHECK(false, "Unhandled max_float16_D:", max_float16_D);
         }();
     }
 
@@ -934,8 +934,29 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         return output;
     }
-
-    TORCH_CHECK(false, "Unhandled max_effective_D");
+    if (max_effective_D <= 1024) {
+        constexpr size_t kThreadsPerRow = 32;
+        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 2, kThreadsPerRow><<<
+            div_round_up((B * T), kThreads / kThreadsPerRow),
+            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
+            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
+            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            pooling_mode,
+            {% if weighted %}
+            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
+            {% endif %}
+            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
+            );
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        return output;
+    }
+    TORCH_CHECK(false, "Unhandled max_effective_D:", max_effective_D);
     return output;
 }
 
