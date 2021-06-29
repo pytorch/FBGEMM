@@ -19,13 +19,13 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
+    #  100)` to decorator factory `hypothesis.given`.
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
     )
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(self, nrows: int, ncols: int) -> None:
         input_data = torch.rand(nrows, ncols).float()
@@ -60,9 +60,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 reference[:, ncols + 4 : ncols + 8],
             )
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `[hypothesis.HealthCheck.filter_too_much]` to decorator factory
-    #  `hypothesis.settings`.
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
         ncols = 256
