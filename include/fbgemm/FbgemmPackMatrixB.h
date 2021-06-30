@@ -163,14 +163,15 @@ class PackedGemmMatrixB {
                  (block_row_id * nbcol_) * (blockRowSize() * blockColSize());
     uint64_t block_col_id = c / blockColSize(),
              bcol_offset = block_col_id *
-        ((block_row_id != nbrow_ - 1) ? (blockRowSize() * blockColSize())
-                                      : (last_brow_ * blockColSize()));
+        ((static_cast<int64_t>(block_row_id) != nbrow_ - 1)
+                ? (blockRowSize() * blockColSize())
+                : (last_brow_ * blockColSize()));
     uint64_t block_offset = brow_offset + bcol_offset;
     uint64_t inblock_offset =
         r % blockRowSize() * blockColSize() + c % blockColSize();
 
     uint64_t index = block_offset + inblock_offset;
-    assert(index < matSize());
+    assert(static_cast<int64_t>(index) < matSize());
     return index;
   }
 
