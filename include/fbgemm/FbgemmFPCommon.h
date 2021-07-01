@@ -111,7 +111,7 @@ void cblas_gemm_compute(
   i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
     int mb = std::min(mb_max, i_end - m0);
-    assert(mb < partition.size());
+    assert(mb < static_cast<int64_t>(partition.size()));
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
       float beta_;
@@ -128,13 +128,13 @@ void cblas_gemm_compute(
 
       auto m1 = m0;
       auto const num_cycles = partition[mb].size();
-      for (auto c = 0; c < num_cycles; ++c) {
+      for (size_t c = 0; c < num_cycles; ++c) {
         auto kernel_nrows = partition[mb][c][0];
         auto nkernel_nrows = partition[mb][c][1];
         auto m_start = m1;
         auto m_end = m1 + kernel_nrows * nkernel_nrows;
         for (auto m2 = m_start; m2 < m_end; m2 += kernel_nrows) {
-          assert(kernel_nrows * kb < scratchpad->size());
+          assert(kernel_nrows * kb < static_cast<int64_t>(scratchpad->size()));
           if (m != 1) {
             PackA(kernel_nrows, kb, &A[m2 * k + k_ind], k, scratchpad->data());
             gp.A = scratchpad->data();
@@ -190,14 +190,15 @@ void cblas_gemm_compute(
             // use one thread to handle the fringe cases
             if (thread_id == num_threads - 1) {
               // leftover
-              int rem = n - last_blk_col;
+              const int rem = n - last_blk_col;
+              (void)rem; // Suppress unused variable warning
               assert(rem < Bp.blockColSize());
 
               // small temporary buffer: the size should be larger than the
               // required kernel_nrow x kernel_ncols elements computed in the
               // registers.
               std::array<float, 14 * 32> c_tmp{0.f};
-              assert(c_tmp.size() >= kernel_nrows * Bp.blockColSize());
+              assert(static_cast<int64_t>(c_tmp.size()) >= kernel_nrows * Bp.blockColSize());
 
               gp.B = &(Bp(k_ind, last_blk_col));
               gp.C = c_tmp.data();
@@ -213,7 +214,7 @@ void cblas_gemm_compute(
                 for (int j = last_blk_col; j < n; j++) {
                   assert(
                       i * Bp.blockColSize() + (j - last_blk_col) <
-                      sizeof(c_tmp) / sizeof(c_tmp[0]));
+                      static_cast<int64_t>(sizeof(c_tmp) / sizeof(c_tmp[0])));
                   if (beta_ == 0.f) {
                     C[(m2 + i) * ldc + j] =
                         c_tmp[i * Bp.blockColSize() + (j - last_blk_col)];

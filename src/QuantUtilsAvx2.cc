@@ -36,7 +36,7 @@ void QuantizeAvx2(
   // that is exactly representable in float
   constexpr int32_t int32_float_max_val =
       std::numeric_limits<int32_t>::max() - 127;
-  std::size_t i = 0;
+  int i = 0;
   float inverse_scale = 1.f / qparams.scale;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   // clang-format off
@@ -170,7 +170,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   // that is exactly representable in float
   constexpr int32_t int32_float_max_val =
       std::numeric_limits<int32_t>::max() - 127;
-  std::size_t i = 0;
+  int i = 0;
   uint32_t rand;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   __m256 scale_v = _mm256_set1_ps(qparams.scale);
@@ -1356,7 +1356,8 @@ void requantizeOutputProcessingGConvAvx2(
           _mm256_castsi256_si128(x_clamped_v));
     } // j loop vectorized
 
-    int remainder = block.col_start + block.col_size - j;
+    const int remainder = block.col_start + block.col_size - j;
+    (void)remainder; // Suppress unused variable warning
     assert(remainder == 0);
   } // i loop
 }
@@ -1505,7 +1506,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
 
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
     if (std::is_same<InputType, float>()) {
@@ -1527,7 +1528,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     __m256 min_v = _mm256_set1_ps(minimum_element);
     __m256 max_v = _mm256_set1_ps(maximum_element);
 
-    std::size_t col;
+    int col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v;
       if (std::is_same<InputType, float>()) {
@@ -1707,7 +1708,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
     if (std::is_same<InputType, float>()) {
@@ -1726,7 +1727,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     float maximum_element = -FLT_MAX;
     __m256 min_v = _mm256_set1_ps(minimum_element);
     __m256 max_v = _mm256_set1_ps(maximum_element);
-    std::size_t col;
+    int col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v;
       if (std::is_same<InputType, float>()) {
@@ -1888,7 +1889,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
              (VLEN + 1))));
   }
 
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const uint16_t* input_row_scale_bias = reinterpret_cast<const uint16_t*>(
         input_row +
@@ -1904,7 +1905,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
       output_row_float = reinterpret_cast<float*>(output_row);
     }
 
-    std::size_t col = 0;
+    int col = 0;
     if (BIT_RATE == 4 || BIT_RATE == 2) {
       __m256 vscale = _mm256_set1_ps(scale);
       __m256 vbias = _mm256_set1_ps(bias);
@@ -2060,7 +2061,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
   constexpr int VLEN = 8;
   int output_columns = input_columns - 2 * sizeof(float);
 
-  for (std::size_t row = 0; row < input_rows; ++row) {
+  for (int row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const float* input_row_scale_bias =
         reinterpret_cast<const float*>(input_row + output_columns);
@@ -2069,7 +2070,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     __m256 scale_v = _mm256_set1_ps(input_row_scale_bias[0]);
     __m256 bias_v = _mm256_set1_ps(input_row_scale_bias[1]);
 
-    std::size_t col;
+    int col;
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));

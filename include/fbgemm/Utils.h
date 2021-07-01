@@ -129,7 +129,7 @@ FBGEMM_API int compare_buffers(
     int m,
     int n,
     int ld,
-    int max_mismatches_to_report,
+    size_t max_mismatches_to_report,
     float atol = 1e-3);
 
 /**

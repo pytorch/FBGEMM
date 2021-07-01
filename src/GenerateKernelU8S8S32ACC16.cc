@@ -160,8 +160,10 @@ getOrCreate<inst_set_t::avx2>(
     assert(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
     assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
-    int maxMRegs = mRegBlockSize;
-    int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
+    const int maxMRegs = mRegBlockSize;
+    const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
+    (void)maxMRegs; // Suppress unused variable warning
+    (void)maxNRegs; // Suppress unused variable warning
     assert(
         maxMRegs * maxNRegs <= 13 &&
         "MR*(NR*ROW_INTERLEAVE*8/256"
