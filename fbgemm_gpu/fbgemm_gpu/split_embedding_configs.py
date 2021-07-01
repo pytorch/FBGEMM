@@ -8,6 +8,7 @@
 import enum
 from typing import Dict
 
+
 @enum.unique
 class EmbOptimType(enum.Enum):
     SGD = "sgd"  # uses non-deterministic updates (atomicAdd(..)) with duplicate ids
@@ -47,6 +48,24 @@ class SparseType(enum.Enum):
             SparseType.INT8.value: 2,
             SparseType.INT4.value: 3,
             SparseType.INT2.value: 4,
+        }[self.value]
+
+    def bit_rate(self) -> int:
+        return {
+            SparseType.FP32.value: 32,
+            SparseType.FP16.value: 16,
+            SparseType.INT8.value: 8,
+            SparseType.INT4.value: 4,
+            SparseType.INT2.value: 2,
+        }[self.value]
+
+    def align_size(self) -> int:
+        return {
+            SparseType.FP32.value: 1,
+            SparseType.FP16.value: 4,
+            SparseType.INT8.value: 8,
+            SparseType.INT4.value: 8,
+            SparseType.INT2.value: 16,
         }[self.value]
 
 

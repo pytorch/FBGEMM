@@ -1296,7 +1296,8 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
 def row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return {
         SparseType.FP16.value: dim * 2,
-        SparseType.INT8.value: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT8.value: dim
+        + 8,  # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
         SparseType.INT4.value: dim // 2 + 4,
         SparseType.INT2.value: dim // 4 + 4,
     }[weight_ty.value]
@@ -1305,7 +1306,8 @@ def row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
 def effective_D(dim: int, weight_ty: SparseType) -> int:
     return {
         SparseType.FP16.value: dim,
-        SparseType.INT8.value: dim + 8, # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT8.value: dim
+        + 8,  # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
         SparseType.INT4.value: dim + 8,
         SparseType.INT2.value: dim + 16,
     }[weight_ty.value]
@@ -1318,7 +1320,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def __init__(
         self,
-        embedding_specs: List[Tuple[int, int, SparseType]],  # tuple of (rows, dims, SparseType)
+        embedding_specs: List[
+            Tuple[int, int, SparseType]
+        ],  # tuple of (rows, dims, SparseType)
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
@@ -1329,6 +1333,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.use_cpu = use_cpu
         current_device = torch.device("cpu") if use_cpu else torch.cuda.current_device()
+        self.current_device: torch.device = current_device
 
         self.pooling_mode = pooling_mode
 
@@ -1343,29 +1348,26 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         assert T_ > 0
         for (dim, weight_ty) in zip(dims, weights_tys):
+            assert dim % weight_ty.align_size() == 0
             if weight_ty == SparseType.FP16:
-                assert dim % 4 == 0
                 if row_size_in_bytes(dim, weight_ty) % 32 != 0:
                     logging.warning(
                         f"{weight_ty} Embedding, dim={dim} is not 32-byte aligned"
                     )
 
-            if weight_ty == SparseType.INT8:
-                assert dim % 8 == 0
+            elif weight_ty == SparseType.INT8:
                 if row_size_in_bytes(dim, weight_ty) % 32 != 0:
                     logging.warning(
                         f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift and 4-byte padding is not 32-byte aligned"
                     )
 
-            if weight_ty == SparseType.INT4:
-                assert dim % 8 == 0
+            elif weight_ty == SparseType.INT4:
                 if row_size_in_bytes(dim, weight_ty) % 32 != 0:
                     logging.warning(
                         f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
                     )
 
-            if weight_ty == SparseType.INT2:
-                assert dim % 16 == 0
+            elif weight_ty == SparseType.INT2:
                 if row_size_in_bytes(dim, weight_ty) % 32 != 0:
                     logging.warning(
                         f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
@@ -1380,13 +1382,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [0] + np.cumsum(D_offsets).tolist()
         self.total_D: int = D_offsets[-1]
         self.max_effective_D: int = max(
-            [effective_D(dim, weight_ty)
-            for dim, weight_ty in zip(dims, weights_tys)
-            if weight_ty != SparseType.FP16], default=0)
+            [
+                effective_D(dim, weight_ty)
+                for dim, weight_ty in zip(dims, weights_tys)
+                if weight_ty != SparseType.FP16
+            ],
+            default=0,
+        )
         self.max_float16_D: int = max(
-            [effective_D(dim, weight_ty)
-            for dim, weight_ty in zip(dims, weights_tys)
-            if weight_ty == SparseType.FP16], default=0)
+            [
+                effective_D(dim, weight_ty)
+                for dim, weight_ty in zip(dims, weights_tys)
+                if weight_ty == SparseType.FP16
+            ],
+            default=0,
+        )
 
         self.register_buffer(
             "D_offsets",
@@ -1402,7 +1412,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return ((a + (128 - 1)) // 128) * 128
 
         weights_offsets = [0] + np.cumsum(
-            [align_to_cacheline(row * row_size_in_bytes(dim, weight_ty)) for (row, dim, weight_ty) in embedding_specs]
+            [
+                align_to_cacheline(row * row_size_in_bytes(dim, weight_ty))
+                for (row, dim, weight_ty) in embedding_specs
+            ]
         ).tolist()
         self.register_buffer(
             "weights",
@@ -1445,6 +1458,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if not use_cpu:
                 # TODO: tune this?
                 LOAD_FACTOR = 0.5
+
                 def div_round_up(a: int, b: int) -> int:
                     return int((a + b - 1) // b) * b
 
@@ -1484,14 +1498,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remapping_hash_table_cpu.insert(
                     indices, dense_indices, offsets, T
                 )
-                self.register_buffer(
-                    "index_remapping_hash_table_gpu", torch.empty(0)
-                )
+                self.register_buffer("index_remapping_hash_table_gpu", torch.empty(0))
 
         else:
             # pyre-fixme[4]: Attribute must be annotated.
             self.index_remapping_hash_table_gpu = None
             self.index_remapping_hash_table_cpu = None
+
     def forward(
         self,
         indices: Tensor,
@@ -1513,10 +1526,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
             else:
                 indices = self.index_remapping_hash_table_cpu.lookup(
+                    indices,
+                    offsets,
                     # pyre-fixme[29]:
                     #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self,
                     #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
-                    indices, offsets, self.D_offsets.numel() - 1
+                    self.D_offsets.numel() - 1,
                 )
         return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights,
