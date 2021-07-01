@@ -256,8 +256,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.INT8:
             for t in range(T):
                 bs[t].weight.data.copy_(
-                    torch.ops.fb.Fused8BitRowwiseQuantizedToFloat(
-                        torch.ops.fb.FloatToFused8BitRowwiseQuantized(bs[t].weight.data)
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(bs[t].weight.data)
                     )
                 )
 
@@ -324,7 +324,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cc.split_embedding_weights()[t].data.copy_(
                 bs[t].weight
                 if weights_precision != SparseType.INT8
-                else torch.ops.fb.FloatToFused8BitRowwiseQuantized(bs[t].weight)
+                else torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(bs[t].weight)
             )
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)

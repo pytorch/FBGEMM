@@ -769,4 +769,107 @@ at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
   return output;
 }
 
+at::Tensor _float_to_fusednbitrowwise_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate) {
+  TENSOR_ON_CUDA_GPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const int nrows = input.size(0);
+  const int ncols = input.size(1);
+  const int num_elem_per_byte = 8 / bit_rate;
+  TORCH_CHECK(
+      ncols % (2 * num_elem_per_byte) == 0,
+      "ncols needs to be multiple of 2 Bytes (half type size) to make the address aligned");
+  const int output_columns =
+      (ncols + num_elem_per_byte - 1) / num_elem_per_byte +
+      2 * sizeof(at::Half);
+
+  // Global memory instructions support reading or writing words of size equal
+  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
+  // data residing in global memory compiles to a single global memory
+  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
+  // bytes and the data is naturally aligned (i.e., its address is a multiple of
+  // that size).
+  auto output = at::empty(
+      {nrows, output_columns},
+      input.options().dtype(at::kByte)); // at::kBytes for uint8_t
+
+  if (nrows == 0 || ncols == 0) {
+    return output;
+  }
+
+  constexpr auto threads_per_block = 256;
+  const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
+  // think unsigned as we use 0, 255
+
+  _float_to_fusednbitrowwise_cuda_kernel<<<
+      num_blocks,
+      threads_per_block,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      bit_rate,
+      input.data_ptr<float>(),
+      nrows,
+      ncols,
+      output.data_ptr<std::uint8_t>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return output;
+}
+
+at::Tensor _fusednbitrowwise_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate) {
+  TENSOR_ON_CUDA_GPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const int nrows = input.size(0);
+  const int ncols = input.size(1);
+  const int num_elem_per_byte = 8 / bit_rate;
+  const int output_columns = (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
+
+  // Global memory instructions support reading or writing words of size equal
+  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
+  // data residing in global memory compiles to a single global memory
+  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
+  // bytes and the data is naturally aligned (i.e., its address is a multiple of
+  // that size).
+  auto output = at::empty(
+      {nrows, output_columns}, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat)); // at::kBytes for uint8_t
+
+  if (nrows == 0 || output_columns == 0) {
+    return output;
+  }
+
+  constexpr int threads_per_block = 256;
+
+  const int blockDim_x = std::min(output_columns, threads_per_block);
+  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+  const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
+  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+  dim3 gridDim(gridDim_x, gridDim_y);
+
+  _fusednbitrowwise_to_float_cuda_kernel<<<
+      gridDim,
+      blockDim,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      bit_rate,
+      input.data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output.data_ptr<float>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return output;
+}
+
 } // namespace at

@@ -87,6 +87,14 @@ inline bool torch_tensor_on_cuda_gpu_check(
       " and ",                                             \
       (y).dtype().name())
 
+#define TENSOR_NDIM_EQUALS(ten, dims)      \
+  TORCH_CHECK(                             \
+      (ten).ndimension() == (dims),        \
+      "Tensor '" #ten "' must have " #dims \
+      " dimension(s). "                    \
+      "Found ",                            \
+      (ten).ndimension())
+
 /// Determine an appropriate CUDA block count along the x axis
 ///
 /// When launching CUDA kernels the number of blocks B is often calculated
