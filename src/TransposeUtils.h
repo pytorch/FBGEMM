@@ -5,7 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+
 #include "fbgemm/FbgemmBuild.h"
+
+#include <cstdint>
 
 namespace fbgemm {
 
@@ -39,8 +42,8 @@ void transpose_avx2(unsigned M, unsigned N, const T* src, unsigned ld_src, T* ds
  */
 template <typename T>
 void transpose_avx512(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
     unsigned ld_src,
     T* dst,

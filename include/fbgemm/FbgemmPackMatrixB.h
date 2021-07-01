@@ -202,10 +202,10 @@ class PackedGemmMatrixB {
   }
 
   const T& operator()(const int r, const int c) const {
-    uint64_t a = addr(r, c);
+    const auto a = addr(r, c);
     assert(r < numRows());
     assert(c < numCols());
-    assert(a < this->matSize());
+    assert(static_cast<int64_t>(a) < this->matSize());
     return pmat_[a];
   }
 

@@ -307,8 +307,8 @@ namespace internal {
 
 template <>
 void transpose_avx512(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const float* src,
     unsigned ld_src,
     float* dst,
@@ -1040,8 +1040,8 @@ void transpose_16x32_block(
 
 template <>
 void transpose_avx512(
-    unsigned M,
-    unsigned N,
+    const int64_t M,
+    const int64_t N,
     const uint8_t* src,
     unsigned ld_src,
     uint8_t* dst,

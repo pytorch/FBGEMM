@@ -803,7 +803,7 @@ int SparseAdaGradBlockSize1_(
   if (weight_decay != 0.0f) {
     for (int i = 0; i < num_rows; ++i) {
       IndexType idx = indices[i];
-      if (idx >= param_size) {
+      if (idx >= static_cast<int64_t>(param_size)) {
         return i;
       }
 
@@ -821,7 +821,7 @@ int SparseAdaGradBlockSize1_(
   } else {
     for (int i = 0; i < num_rows; ++i) {
       IndexType idx = indices[i];
-      if (idx >= param_size) {
+      if (idx >= static_cast<int64_t>(param_size)) {
         return i;
       }
       float gi = g[i];

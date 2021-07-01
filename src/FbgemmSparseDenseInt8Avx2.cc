@@ -66,6 +66,7 @@ void SparseDenseInt8MMAvx2(
   constexpr int VLEN_INT8 = 32;
   constexpr int VLEN_INT32 = 8;
   constexpr int rowBlockSize = BCSRMatrix<>::RB;
+  (void)rowBlockSize; // Suppress unused variable warning
   constexpr int colBlockSize = BCSRMatrix<>::CB;
 
   constexpr int colTileSize = BCSRMatrix<>::COLTILE;

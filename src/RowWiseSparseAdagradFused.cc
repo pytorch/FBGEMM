@@ -634,7 +634,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                       x86::rsp,
                       x86::ptr(
                           x86::rsp, static_cast<int>(-vlen * sizeof(float16))));
-                  for (size_t r = 0; r < remainder; ++r) {
+                  for (int r = 0; r < remainder; ++r) {
                     a->mov(
                         h.r16(),
                         x86::word_ptr(
@@ -652,7 +652,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   // Truncate rounding to 'counterwork' the random added part
                   a->vcvtps2ph(x86::word_ptr(x86::rsp), out_vreg, 11);
                   // Copy results back
-                  for (size_t r = 0; r < remainder; ++r) {
+                  for (int r = 0; r < remainder; ++r) {
                     a->mov(h.r16(), x86::ptr(x86::rsp, sizeof(dataType) * r));
                     a->mov(
                         x86::word_ptr(
@@ -788,7 +788,7 @@ void rand_initialize() {
     for (auto i = 0; i < 4; ++i) {
       g_rnd128v_buffer[i * VLEN_MAX] = rnd128_init_next(h0);
       uint64_t h1 = g_rnd128v_buffer[i * VLEN_MAX];
-      for (auto v = 1; v < VLEN_MAX; ++v) {
+      for (size_t v = 1; v < VLEN_MAX; ++v) {
         g_rnd128v_buffer[i * VLEN_MAX + v] = rnd128_init_next(h1);
       }
     }
