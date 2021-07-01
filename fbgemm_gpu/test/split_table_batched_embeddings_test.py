@@ -1608,8 +1608,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
             ]
         ),
-
-        cpu=st.booleans(),
+        cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward(
@@ -1622,8 +1621,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        cpu: bool,
         weights_ty: SparseType,
+        cpu: bool,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -1726,7 +1725,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = comps.reshape(E, D)
                 bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
 
-            if weights_ty == SparseType.INT2:
+            elif weights_ty == SparseType.INT2:
                 (E, D_4) = np_weights.shape
                 D = D_4 * 4
 
@@ -1749,7 +1748,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
 
 
-            if weights_ty == SparseType.INT8:
+            elif weights_ty == SparseType.INT8:
                 (E, D) = np_weights.shape
                 comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
                         -1, 1
@@ -1758,7 +1757,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
 
-            if weights_ty == SparseType.FP16:
+            elif weights_ty == SparseType.FP16:
                 comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
                 weights.copy_(torch.tensor(comps))
 
