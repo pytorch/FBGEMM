@@ -667,7 +667,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 shape = [emb.shape[0], emb.shape[1] - self.int8_emb_row_dim_offset]
                 tmp_emb = torch.zeros(shape, device=self.current_device)
                 tmp_emb.uniform_(min_val, max_val)
-                tmp_emb_i8 = torch.ops.fb.FloatToFused8BitRowwiseQuantized(tmp_emb)
+                tmp_emb_i8 = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(tmp_emb)
                 emb.data.copy_(tmp_emb_i8)
         else:
             for param in splits:
