@@ -68,10 +68,6 @@ git submodule update --init --recursive
 export CUDACXX=/usr/local/cuda/bin/nvcc
 export CUB_DIR=${CUB_DIR}
 # in fbgemm_gpu folder
-# build the data layout transform op, quantized ops, etc.
-mkdir build && cd build
-cmake ..
-make
 # build the table batched embedding bag op
 cd ..
 python setup.py build develop
@@ -82,11 +78,13 @@ python setup.py build develop
 To run the tests or benchmarks after building FBGEMM_GPU (if tests or benchmarks
 are built), use the following command:
 ```
-# run the tests for the data layout transform op, quantized ops, etc.
-cd build && make test
-# run the tests and benchmarks of table batched embedding bag op
+# run the tests and benchmarks of table batched embedding bag op,
+# data layout transform op, quantized ops, etc.
 cd ..
 python test/split_table_batched_embeddings_test.py
+python test/quantize_ops_test.py
+python test/sparse_ops_test.py
+python test/split_embedding_inference_converter_test.py
 python bench/split_table_batched_embeddings_benchmark.py
 ```
 
