@@ -1889,6 +1889,108 @@ class CUMemTest(unittest.TestCase):
         del uvm_t
         cpu_t.mul_(42)
 
+    @given(
+        L=st.integers(min_value=0, max_value=16),
+        H=st.integers(min_value=512, max_value=1024),
+        S=st.integers(min_value=0, max_value=128)
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_cache_update_function(self, L: int, H: int, S: int) -> None:
+        # Generate synthetic data
+        linear_cache_indices_cpu = torch.randint(L, H, (S,))
+        lxu_cache_locations_cpu = torch.clone(linear_cache_indices_cpu)
+
+        indices = [True if np.random.rand() < 0.5 else False for _ in range(S)]
+        lxu_cache_locations_cpu[indices] = -1
+
+        cache_miss_ids = torch.clone(linear_cache_indices_cpu)
+        cache_miss_ids[lxu_cache_locations_cpu != -1] = -2
+
+        # Calculate the correct output
+        unique_cache_miss_ids = torch.unique(cache_miss_ids)
+        expect_out = sum(unique_cache_miss_ids >= 0)
+        linear_cache_indices = to_device(torch.tensor(linear_cache_indices_cpu, dtype=torch.int64), use_cpu=False)
+        lxu_cache_locations = to_device(torch.tensor(lxu_cache_locations_cpu, dtype=torch.int32), use_cpu=False)
+
+        # Create an abstrat splittable
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        cc = emb_op(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            record_cache_metrics=True,
+        )
+        cc._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
+        cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
+
+        assert(unique_cache_miss_count == expect_out)
+        assert(cache_miss_forward_count <= unique_cache_miss_count)
+
+    @given(
+        N=st.integers(min_value=1, max_value=8)
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_cache_miss_counter(self, N: int) -> None:
+
+        # Create an abstrat splittable
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        cc = emb_op(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            record_cache_metrics=True,
+        )
+
+        # Create fake input data and the target output
+        xs = []
+        x1 = torch.Tensor([[[1],[1]],[[3],[4]]])
+        x1 = to_device(torch.tensor(x1, dtype=torch.int64), use_cpu=False)
+
+        x2 = torch.Tensor([[[2],[1]],[[3],[4]]])
+        x2 = to_device(torch.tensor(x2, dtype=torch.int64), use_cpu=False)
+
+        x3 = torch.Tensor([[[5],[6]],[[7],[8]]])
+        x3 = to_device(torch.tensor(x3, dtype=torch.int64), use_cpu=False)
+
+        xs.append(x1)
+        xs.append(x2)
+        xs.append(x3)
+
+        target_counter = [[1, 3], [2, 4], [3, 8]]
+        for x, target in zip(xs, target_counter):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                cc(indices, offsets)
+                cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
+                assert(cache_miss_forward_count == target[0])
+                assert(unique_cache_miss_count == target[1])
+
 
 if __name__ == "__main__":
     unittest.main()

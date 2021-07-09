@@ -175,6 +175,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
+        record_cache_metrics: bool = False,
         # General Optimizer args
         stochastic_rounding: bool = False,
         gradient_clipping: bool = False,
@@ -193,6 +194,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
+        self.record_cache_metrics = record_cache_metrics
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
         self.dummy_tensor: Tensor = torch.tensor(0)
 
@@ -445,6 +447,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 pass
         return all_states
 
+    @torch.jit.export
+    def get_cache_miss_counter(self) -> Tensor:
+        # cache_miss_counter contains two items:
+        # The first one is cache_miss_forward_count which records the total number of forwards which has at least one cache miss
+        # The second one is the unique_cache_miss_count which records to total number of unique (dedup) cache misses
+
+        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
+        # nn.Module]`.
+        return self.cache_miss_counter
+
     def forward(
         self,
         indices: Tensor,
@@ -611,6 +623,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices,
             offsets,
         )
+
+        if self.record_cache_metrics:
+            lxu_cache_locations = torch.ops.fb.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+            )
+            self._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
+
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fb.lru_cache_populate(
                 self.weights_uvm,
@@ -644,12 +664,34 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             len(self.lxu_cache_locations_list) < self.max_prefetch_depth
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
-        self.lxu_cache_locations_list.append(
-            torch.ops.fb.lxu_cache_lookup(
+        self.lxu_cache_locations_list.append(torch.ops.fb.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
             )
         )
+
+    def _update_cache_miss_counter(self, lxu_cache_locations: Tensor, linear_cache_indices: Tensor) -> None:
+        CACHE_MISS = -1
+        CACHE_HIT = -2
+
+        cache_missed_locations = torch.where(lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT)
+        unique_ids_list = torch.unique(cache_missed_locations)
+        unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+        miss_count = torch.sum(unique_ids_count_list)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[1] += miss_count
+
 
     def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
         splits = self.split_embedding_weights()
@@ -964,6 +1006,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
+            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
+            self.register_buffer(
+                "cache_miss_counter",
+                torch.tensor([0, 0], dtype=torch.int64),
+                persistent=False,
+            )
             return
 
         assert cache_load_factor > 0
@@ -1042,6 +1090,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 device=self.current_device,
                 dtype=torch.int64,
             ),
+        )
+        self.register_buffer(
+            "cache_miss_counter",
+            torch.tensor([0, 0], device=self.current_device, dtype=torch.int64),
         )
         if cache_algorithm not in (CacheAlgorithm.LFU, CacheAlgorithm.LRU):
             raise ValueError(
