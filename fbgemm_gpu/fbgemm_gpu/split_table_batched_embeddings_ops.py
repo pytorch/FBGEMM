@@ -1006,7 +1006,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "cache_miss_counter",
                 torch.tensor([0, 0], dtype=torch.int64),
