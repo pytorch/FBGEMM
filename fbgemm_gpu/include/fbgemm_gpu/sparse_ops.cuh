@@ -211,7 +211,8 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
       // of hashing indices calculation.
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-      uindex_t new_idx = idx % blk_size;
+      uindex_t new_idx =
+            idx < blk_size * my_size ? idx % blk_size : idx / my_size;
       uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
