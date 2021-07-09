@@ -187,8 +187,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
         pooling_mode: PoolingMode = PoolingMode.SUM,
+        device: Optional[torch.device] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
+
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
@@ -206,9 +208,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
-        self.current_device: torch.device = (
-            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
-        )
+
+        if device is not None:
+            self.current_device: torch.device = device
+        else:
+            self.current_device: torch.device = (
+                torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
+            )
 
         # add placeholder require_grad param tensor to enable autograd with int8 weights
         self.placeholder_autograd_tensor = nn.Parameter(
