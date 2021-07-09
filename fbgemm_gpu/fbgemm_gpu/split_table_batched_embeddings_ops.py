@@ -324,25 +324,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.EXACT_SGD,
         ):
             # NOTE: make TorchScript work!
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_placements",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum1_offsets",
                 torch.tensor([0], dtype=torch.int64),
@@ -379,31 +374,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.register_buffer("iter", torch.tensor([0], dtype=torch.int64))
         else:
             # NOTE: make TorchScript work!
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_dev", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_host", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_placements",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "momentum2_offsets",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "iter", torch.tensor([0], dtype=torch.int64), persistent=False
             )
@@ -950,31 +939,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(0, 0, device=self.current_device, dtype=dtype),
             )
             # NOTE: make TorchScript work!
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "cache_hash_size_cumsum",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "total_cache_hash_size",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "cache_index_table_map",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "lxu_cache_state",
                 torch.tensor([0], dtype=torch.int64),
                 persistent=False,
             )
-            # pyre-fixme[28]: Unexpected keyword argument `persistent`.
             self.register_buffer(
                 "lxu_state",
                 torch.tensor([0], dtype=torch.int64),
