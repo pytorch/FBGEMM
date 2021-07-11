@@ -116,23 +116,19 @@ def benchmark_requests(
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    else:
-        start_time = time.time()
     for (indices, offsets, weights) in requests:
+        start_time = time.time()
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
                 _ = torch.rand(flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
                 torch.cuda.synchronize()
             start_event.record()
-        else:
-            start_time = time.time()
         func(indices, offsets, weights)
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
             total_time += start_event.elapsed_time(end_event) * 1.0e-3
         else:
-            # pyre-fixme[61]: `start_time` may not be initialized here.
             total_time += time.time() - start_time
     return total_time / len(requests)
 

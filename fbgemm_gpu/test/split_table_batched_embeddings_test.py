@@ -205,6 +205,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             do_pooling = False
             T = 1  # PoolingMode.None only works for T = 1
             emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
+        else:
+            # This proves that we have exhaustively checked all PoolingModes
+            raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -249,7 +252,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
         bs = [
-            # pyre-fixme[61]: `mode` may not be initialized here.
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
@@ -275,7 +277,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-                # pyre-fixme[61]: `do_pooling` may not be initialized here.
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -286,19 +287,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-                    # pyre-fixme[61]: `do_pooling` may not be initialized here.
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat([f.view(-1) for f in fs], dim=0)
 
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[
                 (
@@ -315,7 +313,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
@@ -331,7 +328,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if not do_pooling:
             offsets = None
         fc2 = (
@@ -339,7 +335,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if not do_pooling:
             fc2 = fc2.view(-1)
         torch.testing.assert_allclose(
@@ -415,6 +410,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             T = 1  # PoolingMode.None only works for T = 1
             # emb_op = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen
             emb_op = split_table_batched_embeddings_ops.DenseSequenceEmbeddingCodegen
+        else:
+            raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -433,7 +430,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2 * E)) for _ in range(T)
             ]
         bs = [
-            # pyre-fixme[61]: `mode` may not be initialized here.
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=False), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
@@ -466,7 +462,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-                # pyre-fixme[61]: `do_pooling` may not be initialized here.
+
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -477,7 +473,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-                    # pyre-fixme[61]: `do_pooling` may not be initialized here.
+
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -490,7 +486,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
 
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
@@ -498,7 +493,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         if weights_precision == SparseType.FP16 and not use_cpu:
             cc = cc.half()
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
@@ -516,7 +510,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
 
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
@@ -528,7 +521,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
         else:
@@ -633,6 +625,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             do_pooling = False
             T = 1  # PoolingMode.None only works for T = 1
             emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
+        else:
+            raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -677,7 +671,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
         bs = [
-            # pyre-fixme[61]: `mode` may not be initialized here.
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
@@ -717,7 +710,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-                # pyre-fixme[61]: `do_pooling` may not be initialized here.
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -728,7 +720,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-                    # pyre-fixme[61]: `do_pooling` may not be initialized here.
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -743,7 +734,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             del bs[table_to_replicate]
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -768,7 +758,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
         else:
@@ -871,6 +860,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             do_pooling = False
             T = 1  # PoolingMode.None only works for T = 1
             emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
+        else:
+            raise RuntimeError("Unknown PoolingMode!")
 
         # stochastic rounding only implemented for rowwise
         assume(not stochastic_rounding or row_wise)
@@ -922,7 +913,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
         bs = [
-            # pyre-fixme[61]: `mode` may not be initialized here.
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
@@ -958,7 +948,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-                # pyre-fixme[61]: `do_pooling` may not be initialized here.
+
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -969,7 +959,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-                    # pyre-fixme[61]: `do_pooling` may not be initialized here.
+
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -986,7 +976,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if row_wise
             else OptimType.EXACT_ADAGRAD
         )
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -1015,7 +1004,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
@@ -1053,7 +1041,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             D_gradcheck = (D_gradcheck + 15) // 16 * 4
         else:
             D_gradcheck = D_gradcheck * 4
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[
                 (E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)
@@ -1296,6 +1283,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             do_pooling = False
             T = 1  # PoolingMode.None only works for T = 1
             emb_op = split_table_batched_embeddings_ops.SequenceEmbeddingCodegen
+        else:
+            raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10 ** log_E)
         if use_cpu:
@@ -1328,7 +1317,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
         bs = [
-            # pyre-fixme[61]: `mode` may not be initialized here.
             to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
@@ -1353,7 +1341,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-                # pyre-fixme[61]: `do_pooling` may not be initialized here.
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -1364,7 +1351,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-                    # pyre-fixme[61]: `do_pooling` may not be initialized here.
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -1404,7 +1390,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             optimizer_kwargs["momentum"] = momentum
             optimizer_kwargs["eta"] = eta
 
-        # pyre-fixme[61]: `emb_op` may not be initialized here.
         cc = emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -1427,7 +1412,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        # pyre-fixme[61]: `do_pooling` may not be initialized here.
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
