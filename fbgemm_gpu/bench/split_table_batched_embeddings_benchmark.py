@@ -863,7 +863,7 @@ def cpu(  # noqa C901
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--index-remapping", is_flag=True, default=False)
-def int4_device(  # noqa C901
+def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
     batch_size: int,
@@ -912,13 +912,13 @@ def int4_device(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, SparseType.INT4) for d in Ds],
+        [(E, d, weights_precision) for d in Ds],
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cuda()
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     logging.info(
-        f"Int4 Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
+        f"{weights_precision} Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
         f"{nparams / 1.0e9: .2f}GB"
     )
     logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
@@ -953,7 +953,7 @@ def int4_device(  # noqa C901
     )
 
     logging.info(
-        f"Int4 Forward, B: {B}, "
+        f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
         f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
