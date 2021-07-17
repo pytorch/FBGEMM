@@ -216,6 +216,7 @@ def device(  # noqa C901
     flush_gpu_cache_size_mb: int,
 ) -> None:
     np.random.seed(42)
+    torch.manual_seed(42)
     B = batch_size
     D = embedding_dim
     L = bag_size
@@ -367,8 +368,8 @@ def uvm(
     weighted: bool,
     flush_gpu_cache_size_mb: int,
 ) -> None:
-
     np.random.seed(42)
+    torch.manual_seed(42)
     B = batch_size
     D = embedding_dim
     L = bag_size
@@ -576,7 +577,7 @@ def cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
 ) -> None:
     np.random.seed(42)
-
+    torch.manual_seed(42)
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
     B = batch_size
     D = embedding_dim
@@ -768,6 +769,7 @@ def cpu(  # noqa C901
 ) -> None:
     assert int4
     np.random.seed(42)
+    torch.manual_seed(42)
     B = batch_size
     D = embedding_dim
     L = bag_size
@@ -851,7 +853,7 @@ def cpu(  # noqa C901
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--managed", default="device")
@@ -863,7 +865,7 @@ def cpu(  # noqa C901
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--index-remapping", is_flag=True, default=False)
-def int4_device(  # noqa C901
+def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
     batch_size: int,
@@ -882,6 +884,7 @@ def int4_device(  # noqa C901
     index_remapping: bool,
 ) -> None:
     np.random.seed(42)
+    torch.manual_seed(42)
     B = batch_size
     D = embedding_dim
     L = bag_size
@@ -912,13 +915,13 @@ def int4_device(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, SparseType.INT4) for d in Ds],
+        [(E, d, weights_precision) for d in Ds],
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cuda()
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     logging.info(
-        f"Int4 Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
+        f"{weights_precision} Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
         f"{nparams / 1.0e9: .2f}GB"
     )
     logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
@@ -953,7 +956,7 @@ def int4_device(  # noqa C901
     )
 
     logging.info(
-        f"Int4 Forward, B: {B}, "
+        f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
         f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
@@ -983,6 +986,7 @@ def hashtable(  # noqa C901
     L = bag_size
     E = num_embeddings
     np.random.seed(42)
+    torch.manual_seed(42)
     if hit_rate == 1.0:
         chosen_indices = torch.cat(
             [torch.arange(E) for _ in range(T)], dim=0
