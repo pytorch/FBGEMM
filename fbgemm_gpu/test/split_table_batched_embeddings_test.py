@@ -133,6 +133,7 @@ def generate_requests(
 
 
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -344,6 +345,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=128),
@@ -1570,6 +1572,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-4,
                 )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -1592,7 +1595,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
             ]
         ),
-        cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward(
@@ -1606,13 +1609,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
-        cpu: bool,
+        use_cpu: bool,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
 
+        mode = "sum"
         if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
             mode = "sum"
         elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
@@ -1635,12 +1639,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         bs = [
-            torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True).cuda()
+            to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
             for (E, D) in zip(Es, Ds)
         ]
 
-        xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-        xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+        xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
+        xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
+
         xws_acc_type = copy.deepcopy(xws)
 
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
@@ -1654,7 +1659,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ],
             pooling_mode=pooling_mode,
             index_remapping=[torch.arange(E) for E in Es],
-            use_cpu=cpu,
+            use_cpu=use_cpu,
         )
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -1749,7 +1754,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(x, False)
-        if not cpu:
+        if not use_cpu:
             fc2 = (
                 cc(indices.int(), offsets.int())
                 if not weighted
@@ -1765,10 +1770,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
         fs = (
-            [b_indices(b, x, use_cpu=False) for (b, x) in zip(bs, xs)]
+            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=False)
+                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
@@ -1784,7 +1789,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=10),
         B=st.integers(min_value=1, max_value=128),
         L=st.integers(min_value=0, max_value=20),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_4b_forward_pruning(
