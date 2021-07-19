@@ -1141,8 +1141,9 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.pooling_mode = pooling_mode
 
+        self.use_cpu = use_cpu
         self.current_device: torch.device = (
-            torch.device("cpu") if use_cpu else torch.cuda.current_device()
+            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
 
         self.embedding_specs = embedding_specs
@@ -1373,8 +1374,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         import numpy as np
 
         self.use_cpu = use_cpu
-        current_device = torch.device("cpu") if use_cpu else torch.cuda.current_device()
-        self.current_device: torch.device = current_device
+        self.current_device: torch.device = (
+            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
+        )
 
         self.pooling_mode = pooling_mode
 
@@ -1441,7 +1443,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.register_buffer(
             "D_offsets",
-            torch.tensor(D_offsets, device=current_device, dtype=torch.int32),
+            torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
@@ -1465,7 +1467,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 255,
                 size=(weights_offsets[-1],),
                 dtype=torch.uint8,
-                device=current_device,
+                device=self.current_device,
             ),
         )
 
@@ -1485,18 +1487,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.register_buffer(
             "weights_offsets",
-            torch.tensor(weights_offsets, device=current_device, dtype=torch.int64),
+            torch.tensor(weights_offsets, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "weights_tys",
-            torch.tensor(weights_tys_int, device=current_device, dtype=torch.uint8),
+            torch.tensor(weights_tys_int, device=self.current_device, dtype=torch.uint8),
         )
 
         if index_remapping:
             # pyre-fixme[4]: Attribute must be annotated.
             self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
 
-            if not use_cpu:
+            if not self.use_cpu:
                 # TODO: tune this?
                 LOAD_FACTOR = 0.5
 
@@ -1523,7 +1525,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     indices, dense_indices, offsets, hash_table, T
                 )
                 self.register_buffer(
-                    "index_remapping_hash_table_gpu", hash_table.to(current_device)
+                    "index_remapping_hash_table_gpu", hash_table.to(self.current_device)
                 )
             else:
                 # TODO: handle feature remapping!!! Are these physical or virtual tables?

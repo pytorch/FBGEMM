@@ -337,6 +337,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu.cpu(), permuted_lengths_cpu
             )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         long_indices=st.booleans(),
@@ -415,6 +416,7 @@ class SparseOpsTest(unittest.TestCase):
         torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref)
         torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         offset_type=st.sampled_from([torch.int, torch.long]),
