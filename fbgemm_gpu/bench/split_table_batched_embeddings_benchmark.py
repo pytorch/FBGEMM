@@ -535,8 +535,8 @@ def uvm(
         )
         logging.info(
             f"Mixed Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+            f"E: {E}, T_GPU: {T_gpu}, T_UVM: {T_uvm}, D: {D}, L_GPU: {L}, L_UVM: {L_uvm}, W: {weighted}, "
+            f"BW: {((param_size_multiplier * B)*((sum(Ds[:T_uvm]) * L_uvm) + sum(Ds[T_uvm:]) * L)) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
             f"T: {time_per_iter * 1.0e6:.0f}us"
         )
 
