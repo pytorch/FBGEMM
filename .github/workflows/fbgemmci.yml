@@ -13,7 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
 
     steps:
     - uses: actions/checkout@v2
@@ -48,21 +48,6 @@ jobs:
         echo GITHUB_REF        = $GITHUB_REF
         c++ --verbose
 
-    - name: Build static FBGEMM lib
-      run: |
-        set -e
-        mkdir build_static
-        cd build_static
-        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=static ..
-        make
-
-    - name: Test static FBGEMM lib
-      if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
-      run: |
-        set -e
-        cd build_static
-        ctest
-
     - name: Build shared FBGEMM lib
       run: |
         set -e
@@ -76,7 +61,7 @@ jobs:
       run: |
         set -e
         cd build_shared
-        ctest
+        ctest -R PackedRequantizeTest --verbose --output-on-failure 
 
   build1:
     runs-on: ${{ matrix.os }}
