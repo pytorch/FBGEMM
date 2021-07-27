@@ -1081,7 +1081,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             param.requires_grad = False
         y = cc(indices, offsets, per_sample_weights)
         y.sum().backward()
-        # pyre-fixme[16]: `Tensor` has no attribute `grad`.
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
         T_ = len(xws)
         feature_requires_grad = to_device(
