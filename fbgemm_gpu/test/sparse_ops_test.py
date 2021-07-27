@@ -58,7 +58,6 @@ class SparseOpsTest(unittest.TestCase):
         T = lengths.size(0)
         permuted_lengths = torch.index_select(lengths.view(T, -1), 0, permute)
 
-        # pyre-fixme[28]: Unexpected keyword argument `dtype`.
         original_segment_lengths = lengths.view(T, -1).sum(dim=1, dtype=torch.int32)
         original_segment_start = [0] + list(
             accumulate(original_segment_lengths.view(-1))

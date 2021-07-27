@@ -26,7 +26,6 @@ class SplitEmbInferenceConverter:
         return model
 
     def _quantize_split_embs(self, model: nn.Module) -> None:
-        # pyre-fixme[29]: `Union[nn.Module, torch.Tensor]` is not a function.
         for name, child in model.named_children():
             if isinstance(
                 child,
