@@ -439,15 +439,17 @@ __global__ inline void _float_to_hfp8_cuda_kernel(
     int bias,
     float min_pos,
     float max_pos) {
+
   const int row_incre = blockDim.y * gridDim.y;
   const int col_incre = blockDim.x * gridDim.x;
-
   for (int row = blockIdx.y * blockDim.y + threadIdx.y; row < nrows;
        row += row_incre) {
+    const float* input_row = input + row * ncols;
+    uint8_t* output_row = output + row * ncols;
     for (int col = blockIdx.x * blockDim.x + threadIdx.x; col < ncols;
          col += col_incre) {
-      output[row * ncols + col] = float_to_hfp8(
-          input[row * ncols + col], ebits, mbits, bias, min_pos, max_pos);
+      output_row[col] = float_to_hfp8(
+          input_row[col], ebits, mbits, bias, min_pos, max_pos);
     }
   }
 }
@@ -460,13 +462,15 @@ __global__ inline void _hfp8_to_float_cuda_kernel(
     int ebits,
     int mbits,
     int bias) {
-  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
-  int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-
-  for (int i = row; i < nrows; i += blockDim.y) {
-    for (int j = col; j < ncols; j += blockDim.x) {
-      output[i * ncols + j] =
-          hfp8_to_float(input[i * ncols + j], ebits, mbits, bias);
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+  for (int row = blockIdx.y * blockDim.y + threadIdx.y; row < nrows;
+       row += row_incre) {
+    for (int col = blockIdx.x * blockDim.x + threadIdx.x; col < ncols;
+         col += col_incre) {
+      const uint8_t* input_row = input + row * ncols;
+      float* output_row = output + row * ncols;
+      output_row[col] = hfp8_to_float(input_row[col], ebits, mbits, bias);
     }
   }
 }
