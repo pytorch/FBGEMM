@@ -1,78 +1,69 @@
-/*
- * Copyright (c) Facebook, Inc. and its affiliates.
- * All rights reserved.
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree.
- */
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
-enum {
-  DEVICE = 0,
-  MANAGED = 1,
-  MANAGED_CACHING = 2,
+namespace nbit {
+
+using namespace at;
+using namespace fbgemm_gpu;
+// Keep in sync with split_embedding_configs.py:SparseType
+enum class SparseType : uint8_t {
+    FP32 = 0,
+    FP16 = 1,
+    INT8 = 2,
+    INT4 = 3,
+    INT2 = 4,
 };
 
-constexpr size_t kForwardMaxThreads = 256;
 
-
-struct __align__(8) half4 {
-  __host__ __device__ half4() {}
-  __host__ __device__ half4(const half4 &other) : v(other.v) {}
-  __host__ __device__ half4 &operator=(const half4 &other) {
-    v = other.v;
-    return *this;
-  }
-  union {
-    half2 vals[2];
-    int2 v;
-  };
-};
-
-__device__ __forceinline__ half2 make_half2(float x, float y) {
-  half2 t;
-
-  t.x = __float2half_rn(x);
-  t.y = __float2half_rn(y);
-
-  return t;
+__forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
+  return ((a + b - 1) / b) * b;
 }
 
-__forceinline__ __device__ half2 make_zero_half2() {
-  return make_half2(0.0, 0.0);
+
+__forceinline__ __host__ __device__ uint32_t div_round_up(uint32_t a, uint32_t b) {
+  return ((a + b - 1) / b);
 }
 
-__forceinline__ __device__ half4 make_zero_half4() {
-  half4 result;
-  result.vals[0] = make_zero_half2();
-  result.vals[1] = make_zero_half2();
-  return result;
+__host__ __device__ inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::FP16) { return dim * 2; }
+    if (weight_ty == SparseType::INT8) { return dim + 4; }
+    if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
+    if (weight_ty == SparseType::INT2) { return dim / 4 + 4; }
+    return 0;
 }
 
-struct __align__(16) half8 {
-  __host__ __device__ half8() {}
-  __host__ __device__ half8(const half8 &other) : v(other.v) {}
-  __host__ __device__ half8 &operator=(const half8 &other) {
-    v = other.v;
-    return *this;
-  }
-  union {
-    half4 vals[2];
-    int4 v;
-  };
-};
+__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
+  return round_up(r, 16);
+}
 
-__forceinline__ __device__ half8 make_zero_half8() {
-  half8 result;
-  result.vals[0] = make_zero_half4();
-  result.vals[1] = make_zero_half4();
-  return result;
+// "Effective" number of elements in the row when we include the row-wise quantization parameters.
+__device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::FP16) { return dim; }
+    if (weight_ty == SparseType::INT8) { return dim + 4; }
+    if (weight_ty == SparseType::INT4) { return dim + 8; }
+    if (weight_ty == SparseType::INT2) { return dim + 16; }
+    return 0;
 }
 
 struct __align__(32) float8 {
   __host__ __device__ float8() {}
   float4 vals[2];
 };
+
+struct __align__(8) half4 {
+  __host__ __device__ half4() {}
+  half2 vals[2];
+};
+
+struct __align__(16) half8 {
+  __host__ __device__ half8() {}
+  half2 vals[4];
+};
+
+__device__ __forceinline__ float4 make_zero_float4() {
+  return make_float4(0, 0, 0, 0);
+}
 
 __device__ __forceinline__ float8 make_zero_float8() {
   float8 t;
@@ -81,25 +72,31 @@ __device__ __forceinline__ float8 make_zero_float8() {
   return t;
 }
 
+__device__ __forceinline__ float2 make_zero_float2() {
+  return make_float2(0, 0);
+}
+
 __device__ __forceinline__ half8 to_half8(float8 v) {
   half8 t;
-  t.vals[0].vals[0] = __float22half2_rn(make_float2(v.vals[0].x, v.vals[0].y));
-  t.vals[0].vals[1] = __float22half2_rn(make_float2(v.vals[0].z, v.vals[0].w));
-  t.vals[1].vals[0] = __float22half2_rn(make_float2(v.vals[1].x, v.vals[1].y));
-  t.vals[1].vals[1] = __float22half2_rn(make_float2(v.vals[1].z, v.vals[1].w));
+  t.vals[0] = __float22half2_rn(make_float2(v.vals[0].x, v.vals[0].y));
+  t.vals[1] = __float22half2_rn(make_float2(v.vals[0].z, v.vals[0].w));
+  t.vals[2] = __float22half2_rn(make_float2(v.vals[1].x, v.vals[1].y));
+  t.vals[3] = __float22half2_rn(make_float2(v.vals[1].z, v.vals[1].w));
   return t;
 }
 
-__device__ __forceinline__ __half hbfe(uint32_t val, uint32_t pos, uint32_t len) {
-  uint32_t ret;
-  // Get the bit field of [pos, pos+len) bits from val:
-  // (val >> pos) && ( (1u << len) - 1u )
-  asm("bfe.u32 %0, %1, %2, %3;" : "=r"(ret) : "r"(val), "r"(pos), "r"(len));
-  return __uint2half_rn(ret);
+__device__ __forceinline__ half4 to_half4(float4 v) {
+  half4 t;
+  t.vals[0] = __float22half2_rn(make_float2(v.x, v.y));
+  t.vals[1] = __float22half2_rn(make_float2(v.z, v.w));
+  return t;
 }
 
-__forceinline__ __device__ half2 hfma2(const half2 a, const half2 b, const half2 c) {
-  // TODO: We might need to use FMA with FP16 input and FP32 output.
+__device__ __forceinline__ __half2 to_half2(float2 v) {
+  return __float22half2_rn(v);
+}
+
+__forceinline__ __device__ __half2 hfma2(const __half2 a, const __half2 b, const __half2 c) {
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
   return __hfma2(a, b, c);
 #else
@@ -113,855 +110,783 @@ __forceinline__ __device__ half2 hfma2(const half2 a, const half2 b, const half2
 #endif
 }
 
-__forceinline__ __device__ half8  dequantize_int4(uint32_t packedVals, __half2 shift_scale) {
-  half8 res;
-  res.vals[0].vals[0].x =
-      hbfe(packedVals, 0,
-           4); // __short2half_rn((uint8_t)((packedVals >> 0) & 0x0F));
-  res.vals[0].vals[0].y =
-      hbfe(packedVals, 4,
-           4); // __short2half_rn((uint8_t)((packedVals >> 4) & 0x0F));
-  res.vals[0].vals[1].x =
-      hbfe(packedVals, 8,
-           4); // __short2half_rn((uint8_t)((packedVals >> 8) & 0x0F));
-  res.vals[0].vals[1].y =
-      hbfe(packedVals, 12,
-           4); // __short2half_rn((uint8_t)((packedVals >> 12) & 0x0F));
-  res.vals[1].vals[0].x =
-      hbfe(packedVals, 16,
-           4); // __short2half_rn((uint8_t)((packedVals >> 16) & 0x0F));
-  res.vals[1].vals[0].y =
-      hbfe(packedVals, 20,
-           4); // __short2half_rn((uint8_t)((packedVals >> 20) & 0x0F));
-  res.vals[1].vals[1].x =
-      hbfe(packedVals, 24,
-           4); // __short2half_rn((uint8_t)((packedVals >> 24) & 0x0F));
-  res.vals[1].vals[1].y =
-      hbfe(packedVals, 28,
-           4); // __short2half_rn((uint8_t)((packedVals >> 28) & 0x0F));
+__forceinline__ __device__ half hmul(half a, half b) {
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+  return __hmul(a, b);
+#else
+  return __float2half(__half2float(a) * __half2float(b));
+#endif
+}
 
-  res.vals[0].vals[0] =
-      hfma2(res.vals[0].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[0].vals[1] =
-      hfma2(res.vals[0].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[0] =
-      hfma2(res.vals[1].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[1] =
-      hfma2(res.vals[1].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
+// Reinterpret a  pair of uint16_t (packed into a uint32_t) as half2, and multiply by rhs.
+__device__ __forceinline__ __half2 hmul_short2(uint32_t lhs, __half rhs) {
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+  __half2 ret;
+  __half2 rhsp = make_half2(rhs, rhs);
+  asm("mul.f16x2 %0, %1, %2;" : "=r"(__HALF2_TO_UI(ret)) : "r"(__HALF2_TO_CUI(lhs)), "r"(__HALF2_TO_CUI(rhsp)));
+  return ret;
+#else
+  __half2 lhs_h2;
+  __HALF2_TO_UI(lhs_h2) = lhs;
+  float2 fx = __half22float2(lhs_h2);
+  float2 fy = __half22float2(make_half2(rhs, rhs));
+  float2 fr;
+  fr.x = fx.x * fy.x;
+  fr.y = fx.y * fy.y;
+  return __float22half2_rn(fr);
+#endif
+}
+
+__forceinline__ __device__ half8  dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
+  half8 res;
+  uint32_t v = packedVals;
+  // What's going on here, you might ask? We extra out 4-bit pairs of integers as 2xuint16 packed into an int32
+  // via the mask operation, and then we convert them to half precision values.
+  // As these are all integers in [0, 15], we can actually just interpret the 4-bit integer values as half-precision values.
+  // We multiply by 4096 x 4096 to go from the 4-bit representation to the equivalent fp16 value,
+  // or alternatively 32768 * 512 (or 32 when we have shifted the 4-bit value up).
+  // See e.g. https://gist.github.com/ajtulloch/021254a291a95966bc509db4e34ffeff for a NumPy implementation.
+  // We do this dance because:
+  // a) doing bitwise operations on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive on the XU.
+  // b) doing a 256-entry shared memory LUT on 8-bit pairs is expensive on SMEM throughput.
+  // Credit to @jhj.
+  res.vals[0] = hmul_short2(v & 0x000F000F, 32768);
+  res.vals[1] = hmul_short2(v & 0x00F000F0, 32768);
+  v >>= 8;
+  res.vals[2] = hmul_short2(v & 0x000F000F, 32768);
+  res.vals[3] = hmul_short2(v & 0x00F000F0, 32768);
+
+  res.vals[0] =
+     hfma2(res.vals[0], __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+             __half2(shift_scale.y, shift_scale.y));
+  res.vals[1] =
+    hfma2(res.vals[1], __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
+            __half2(shift_scale.y, shift_scale.y));
+  res.vals[2] =
+   hfma2(res.vals[2], __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+           __half2(shift_scale.y, shift_scale.y));
+  res.vals[3] =
+   hfma2(res.vals[3], __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
+            __half2(shift_scale.y, shift_scale.y));
   return res;
 }
 
-__forceinline__ __device__ half8  dequantize_int2(uint16_t packedVals_, __half2 shift_scale) {
-  uint32_t packedVals = static_cast<uint32_t>(packedVals_);
-  half8 res;
-  res.vals[0].vals[0].x =
-      hbfe(packedVals, 0,
-           2);
-  res.vals[0].vals[0].y =
-      hbfe(packedVals, 2,
-           2);
-  res.vals[0].vals[1].x =
-      hbfe(packedVals, 4,
-           2);
-  res.vals[0].vals[1].y =
-      hbfe(packedVals, 6,
-           2);
-  res.vals[1].vals[0].x =
-      hbfe(packedVals, 8,
-           2);
-  res.vals[1].vals[0].y =
-      hbfe(packedVals, 10,
-           2);
-  res.vals[1].vals[1].x =
-      hbfe(packedVals, 12,
-           2);
-  res.vals[1].vals[1].y =
-      hbfe(packedVals, 14,
-           2);
-
-  res.vals[0].vals[0] =
-      hfma2(res.vals[0].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[0].vals[1] =
-      hfma2(res.vals[0].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[0] =
-      hfma2(res.vals[1].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[1] =
-      hfma2(res.vals[1].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
+__forceinline__ __device__ half4  dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
+  half4 res;
+  uint32_t v = packedVals;
+  // See comment above, this is a minor variation.
+  res.vals[0] = hmul_short2(v & 0x00FF00FF, 32768);
+  v >>= 8;
+  res.vals[1] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[0] =
+     hfma2(res.vals[0], __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+             __half2(shift_scale.y, shift_scale.y));
+  res.vals[1] =
+    hfma2(res.vals[1], __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+            __half2(shift_scale.y, shift_scale.y));
   return res;
 }
 
-__forceinline__ __device__ half8  dequantize_int8(uint64_t packedVals, __half2 shift_scale) {
-  half8 res;
-  uint32_t packedVals_l = static_cast<uint32_t>(packedVals);
-  uint32_t packedVals_h = static_cast<uint32_t>(packedVals >> 32);
+__forceinline__ __device__ float2 accumulate_fp16(float2 acc, __half2 vals) {
+  float2 v = __half22float2(vals);
+  acc.x += v.x;
+  acc.y += v.y;
+  return acc;
+}
 
-  res.vals[0].vals[0].x =
-      hbfe(packedVals_l, 0,
-           8);
-  res.vals[0].vals[0].y =
-      hbfe(packedVals_l, 8,
-           8);
-  res.vals[0].vals[1].x =
-      hbfe(packedVals_l, 16,
-           8);
-  res.vals[0].vals[1].y =
-      hbfe(packedVals_l, 24,
-           8);
-  res.vals[1].vals[0].x =
-      hbfe(packedVals_h, 0,
-           8);
-  res.vals[1].vals[0].y =
-      hbfe(packedVals_h, 8,
-           8);
-  res.vals[1].vals[1].x =
-      hbfe(packedVals_h, 16,
-           8);
-  res.vals[1].vals[1].y =
-      hbfe(packedVals_h, 24,
-           8);
-
-  res.vals[0].vals[0] =
-      hfma2(res.vals[0].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[0].vals[1] =
-      hfma2(res.vals[0].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[0] =
-      hfma2(res.vals[1].vals[0], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  res.vals[1].vals[1] =
-      hfma2(res.vals[1].vals[1], __half2(shift_scale.x, shift_scale.x),
-              __half2(shift_scale.y, shift_scale.y));
-  return res;
+__forceinline__ __device__ float2 accumulate_weighted_fp16(float2 acc, __half2 vals, float weight) {
+  float2 v = __half22float2(vals);
+  acc.x = fmaf(v.x, weight, acc.x);
+  acc.y = fmaf(v.y, weight, acc.y);
+  return acc;
 }
 
 __forceinline__ __device__ float8 accumulate_packed_int4(float8 acc,
                                                          uint32_t packedVals,
                                                          __half2 shift_scale) {
-  half8 res = dequantize_int4(packedVals, shift_scale);
+  half8 res = dequantize_permuted_int4(packedVals, shift_scale);
   // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
+
+  // Twiddle after permutations.
   acc.vals[0].x += v0.x;
-  acc.vals[0].y += v0.y;
-  acc.vals[0].z += v1.x;
-  acc.vals[0].w += v1.y;
-  acc.vals[1].x += v2.x;
-  acc.vals[1].y += v2.y;
-  acc.vals[1].z += v3.x;
+  acc.vals[0].y += v1.x;
+  acc.vals[0].z += v2.x;
+  acc.vals[0].w += v3.x;
+  acc.vals[1].x += v0.y;
+  acc.vals[1].y += v1.y;
+  acc.vals[1].z += v2.y;
   acc.vals[1].w += v3.y;
   return acc;
 }
 
-__forceinline__ __device__ float8 accumulate_packed_int2(float8 acc,
-                                                         uint16_t packedVals,
-                                                         __half2 shift_scale) {
-  half8 res = dequantize_int2(packedVals, shift_scale);
-  // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
-  acc.vals[0].x += v0.x;
-  acc.vals[0].y += v0.y;
-  acc.vals[0].z += v1.x;
-  acc.vals[0].w += v1.y;
-  acc.vals[1].x += v2.x;
-  acc.vals[1].y += v2.y;
-  acc.vals[1].z += v3.x;
-  acc.vals[1].w += v3.y;
-  return acc;
-}
-
-__forceinline__ __device__ float8 accumulate_packed_int8(float8 acc,
-                                                         uint64_t packedVals,
-                                                         __half2 shift_scale) {
-  half8 res = dequantize_int8(packedVals, shift_scale);
-  // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
-  acc.vals[0].x += v0.x;
-  acc.vals[0].y += v0.y;
-  acc.vals[0].z += v1.x;
-  acc.vals[0].w += v1.y;
-  acc.vals[1].x += v2.x;
-  acc.vals[1].y += v2.y;
-  acc.vals[1].z += v3.x;
-  acc.vals[1].w += v3.y;
-  return acc;
-}
-
-__forceinline__ __device__ float8 weighted_accumulate_packed_int4(float8 acc,
+__forceinline__ __device__ float8 accumulate_weighted_packed_int4(float8 acc,
                                                         uint32_t packedVals,
                                                         __half2 shift_scale,
                                                         float weight) {
-  half8 res = dequantize_int4(packedVals, shift_scale);
+  half8 res = dequantize_permuted_int4(packedVals, shift_scale);
   // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
 
+  // Twiddle after permutations.
   acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
-  acc.vals[0].y = fmaf(v0.y, weight, acc.vals[0].y);
-  acc.vals[0].z = fmaf(v1.x, weight, acc.vals[0].z);
-  acc.vals[0].w = fmaf(v1.y, weight, acc.vals[0].w);
-
-  acc.vals[1].x = fmaf(v2.x, weight, acc.vals[1].x);
-  acc.vals[1].y = fmaf(v2.y, weight, acc.vals[1].y);
-  acc.vals[1].z = fmaf(v3.x, weight, acc.vals[1].z);
+  acc.vals[0].y = fmaf(v1.x, weight, acc.vals[0].y);
+  acc.vals[0].z = fmaf(v2.x, weight, acc.vals[0].z);
+  acc.vals[0].w = fmaf(v3.x, weight, acc.vals[0].w);
+  acc.vals[1].x = fmaf(v0.y, weight, acc.vals[1].x);
+  acc.vals[1].y = fmaf(v1.y, weight, acc.vals[1].y);
+  acc.vals[1].z = fmaf(v2.y, weight, acc.vals[1].z);
   acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
-
   return acc;
 }
 
-__forceinline__ __device__ float8 weighted_accumulate_packed_int2(float8 acc,
-                                                        uint16_t packedVals,
-                                                        __half2 shift_scale,
-                                                        float weight) {
-  half8 res = dequantize_int2(packedVals, shift_scale);
+__forceinline__ __device__ float4 accumulate_packed_int8(float4 acc,
+                                                         uint32_t packedVals,
+                                                         __half2 shift_scale) {
+  half4 res = dequantize_permuted_int8(packedVals, shift_scale);
   // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
 
-  acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
-  acc.vals[0].y = fmaf(v0.y, weight, acc.vals[0].y);
-  acc.vals[0].z = fmaf(v1.x, weight, acc.vals[0].z);
-  acc.vals[0].w = fmaf(v1.y, weight, acc.vals[0].w);
-
-  acc.vals[1].x = fmaf(v2.x, weight, acc.vals[1].x);
-  acc.vals[1].y = fmaf(v2.y, weight, acc.vals[1].y);
-  acc.vals[1].z = fmaf(v3.x, weight, acc.vals[1].z);
-  acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
-
+  // Twiddle after permutations.
+  acc.x += v0.x;
+  acc.y += v1.x;
+  acc.z += v0.y;
+  acc.w += v1.y;
   return acc;
 }
 
-__forceinline__ __device__ float8 weighted_accumulate_packed_int8(float8 acc,
-                                                        uint64_t packedVals,
-                                                        __half2 shift_scale,
-                                                        float weight) {
-  half8 res = dequantize_int8(packedVals, shift_scale);
+__forceinline__ __device__ float4 accumulate_weighted_packed_int8(float4 acc,
+                                                                  uint32_t packedVals,
+                                                                  __half2 shift_scale,
+                                                                  float weight) {
+  half4 res = dequantize_permuted_int8(packedVals, shift_scale);
   // Accumulate in float32.
-  float2 v0 = __half22float2(res.vals[0].vals[0]);
-  float2 v1 = __half22float2(res.vals[0].vals[1]);
-  float2 v2 = __half22float2(res.vals[1].vals[0]);
-  float2 v3 = __half22float2(res.vals[1].vals[1]);
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
 
-  acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
-  acc.vals[0].y = fmaf(v0.y, weight, acc.vals[0].y);
-  acc.vals[0].z = fmaf(v1.x, weight, acc.vals[0].z);
-  acc.vals[0].w = fmaf(v1.y, weight, acc.vals[0].w);
-
-  acc.vals[1].x = fmaf(v2.x, weight, acc.vals[1].x);
-  acc.vals[1].y = fmaf(v2.y, weight, acc.vals[1].y);
-  acc.vals[1].z = fmaf(v3.x, weight, acc.vals[1].z);
-  acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
-
+  // Twiddle after permutations.
+  acc.x = fmaf(v0.x, weight, acc.x);
+  acc.y = fmaf(v1.x, weight, acc.y);
+  acc.z = fmaf(v0.y, weight, acc.z);
+  acc.w = fmaf(v1.y, weight, acc.w);
   return acc;
 }
 
-using namespace at;
-using namespace fbgemm_gpu;
+// ---------------------- start cp.async helpers, copied from CUTLASS
 
-// Keep in sync with split_embedding_configs.py:SparseType
-enum class SparseType : uint8_t {
-    FP32 = 0,
-    FP16 = 1,
-    INT8 = 2,
-    INT4 = 3,
-    INT2 = 4,
-};
+/// CUTLASS helper to get SMEM pointer
+inline __device__ unsigned cutlass_get_smem_pointer(void *ptr) {
 
-__device__ inline int32_t row_size_in_bytes(int32_t dim, SparseType weight_ty) {
-    if (weight_ty == SparseType::INT8) { return dim + 8; }
-    if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
-    if (weight_ty == SparseType::INT2) { return dim / 4 + 4; }
+// We prefer to use the new CVTA intrinsics if they are available, otherwise we will fall back to
+// the previous internal intrinsics if they are available.
+#if (! defined (__clang__) && defined(__CUDA_ARCH__) && __CUDACC_VER_MAJOR__ >= 11)
+  //
+  // This NVVM intrinsic converts an address in shared memory to a plain
+  // unsigned integer. This is necessary to pass to shared memory instructions
+  // in inline PTX.
+  //
+  // In CUDA 11 and beyond, this replaces __nvvm_get_smem_pointer()  [only available in 10.2].
+  //
+  //__device__ size_t __cvta_generic_to_shared(void* ptr);
+  /// CUTLASS helper to get SMEM pointer
+  return static_cast<unsigned>(__cvta_generic_to_shared(ptr));
+#elif (! defined (__clang__) && defined(__CUDA_ARCH__) &&  __CUDACC_VER_MAJOR__ == 10 && __CUDACC_VER_MINOR__ >= 2)
+  return __nvvm_get_smem_pointer(ptr);
+#elif defined(__CUDA_ARCH__)
+  uint32_t smem_ptr;
+  asm(
+  "{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }\n"
+    : "=r"(smem_ptr) : "l"(ptr));
+  return smem_ptr;
+#else
     return 0;
+#endif
 }
 
-// "Effective" number of elements in the row when we include the row-wise quantization parameters.
-__device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
-    if (weight_ty == SparseType::INT8) { return dim + 8; }
-    if (weight_ty == SparseType::INT4) { return dim + 8; }
-    if (weight_ty == SparseType::INT2) { return dim + 16; }
-    return 0;
+/// CUTLASS helper to get SMEM pointer
+inline __device__ unsigned cutlass_get_smem_pointer(void const *ptr) {
+  return cutlass_get_smem_pointer(const_cast<void *>(ptr));
+}
+
+__device__ __forceinline__ void cp_async_fence() {
+  #if __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.commit_group;\n" ::);
+  #endif
+}
+
+/// Partial specialization
+
+/// Blocks until all but <N> previous cp.async.commit_group operations have committed.
+template <int N>
+__device__ __forceinline__ void cp_async_wait() {
+  #if __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_group %0;\n" ::"n"(N));
+  #endif
+}
+
+/// Blocks until all previous cp.async.commit_group operations have committed.
+template <>
+__device__ __forceinline__ void cp_async_wait<0>() {
+  #if __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_all;\n" ::);
+  #endif
+}
+
+/// Partial specialization
+template <int SizeInBytes>
+__device__ __forceinline__
+void cp_async_zfill_cg(void *smem_ptr, void const *global_ptr, bool pred_guard) {
+#if __CUDA_ARCH__ >= 800
+    static_assert(SizeInBytes == 16,
+    "cp.async only supports CacheOperation::Global when access size is 16B.");
+
+    unsigned smem_int_ptr = cutlass_get_smem_pointer(smem_ptr);
+    int src_in_bytes = (pred_guard ? SizeInBytes : 0);
+    asm volatile(
+    "cp.async.cg.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
+    "l"(global_ptr), "n"(SizeInBytes), "r"(src_in_bytes));
+#else
+    static_assert(SizeInBytes == 16, "");
+    using AccessType = uint4;
+    if (pred_guard) {
+      *static_cast<AccessType *>(smem_ptr) = *static_cast<AccessType const *>(global_ptr);
+    } else {
+      AccessType zeros;
+      zeros.x = 0;
+      zeros.y = 0;
+      zeros.z = 0;
+      zeros.w = 0;
+      *static_cast<AccessType *>(smem_ptr) = zeros;
+    }
+#endif
 }
 
 
-template<typename index_t, size_t kMaxVecsPerThread>
-__launch_bounds__(kForwardMaxThreads)
-__global__ void float16_split_embedding_codegen_forward_{{ wdesc }}_kernel(
-    const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
-    int64_t pooling_mode,
+/// Copy with zero fill
+template <int SizeInBytes>
+__device__ __forceinline__
+void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
+#if __CUDA_ARCH__ >= 800
+    // Make sure the size is supported.
+    static_assert((SizeInBytes == 4 || SizeInBytes == 8 || SizeInBytes == 16),
+            "Size is not supported");
+
+    unsigned smem_int_ptr = cutlass_get_smem_pointer(smem_ptr);
+    int src_in_bytes = (pred_guard ? SizeInBytes : 0);
+
+    asm volatile(
+    "cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
+    "l"(global_ptr), "n"(SizeInBytes), "r"(src_in_bytes));
+#else
+    static_assert(SizeInBytes == 16, "");
+    using AccessType = uint4;
+    if (pred_guard) {
+      *static_cast<AccessType *>(smem_ptr) = *static_cast<AccessType const *>(global_ptr);
+    } else {
+      AccessType zeros;
+      zeros.x = 0;
+      zeros.y = 0;
+      zeros.z = 0;
+      zeros.w = 0;
+      *static_cast<AccessType *>(smem_ptr) = zeros;
+    }
+#endif
+}
+
+// TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
+template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+__launch_bounds__(WarpsPerBlock * 32)
+__global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  int64_t pooling_mode,
+  {% if weighted %}
+  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+      indice_weights,
+  {% endif %}
+  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+      output // [B][total_D],
+  ) {
+  int32_t B = output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+      return;
+  }
+
+  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+  if (weight_ty != SparseType::FP16) {
+      return;
+  }
+
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+    return;
+  }
+
+  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+
+  int64_t weights_offset = weights_offsets[t];
+  const int32_t D_total = padded_D(D, weight_ty);
+  const int32_t D_padding = D_total - D;
+
+  uint32_t warp_idx = threadIdx.y;
+  int32_t indices_starts[OutputRowsPerThread];
+  int32_t Ls[OutputRowsPerThread];
+  int32_t max_Ls = 0;
+
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    int32_t indices_start = offsets[t * B + b];
+    int32_t indices_end = offsets[t * B + b + 1];
+    indices_starts[i] = indices_start;
+    Ls[i] = indices_end - indices_start;
+    max_Ls = max(max_Ls, Ls[i]);
+  }
+
+  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  constexpr size_t kOutputsPerThread = 2;
+
+  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+
+  float2 accumulators[OutputRowsPerThread][MaxNum128BRows];
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      accumulators[i][j] = make_zero_float2();
+    }
+  }
+
+  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    __shared__ AllBuffers buffers;
+
     {% if weighted %}
-    PackedTensorAccessor32<float, 1, RestrictPtrTraits>
-        indice_weights,
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
-    PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
-        output // [B][total_D],
-    ) {
-    int32_t B = output.size(0);
-    int32_t T = D_offsets.size(0) - 1;
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= B * T) {
-        return;
-    }
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
 
-    if (weight_ty != SparseType::FP16) {
-        return;
-    }
-    int64_t weights_offset = weights_offsets[t];
-    int32_t D_start = D_offsets[t];
-    int32_t D_end = D_offsets[t + 1];
-    int32_t D = D_end - D_start;
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
+      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
 
-    int64_t indices_start = offsets[t * B + b];
-    int64_t indices_end = offsets[t * B + b + 1];
-    int32_t L = indices_end - indices_start;
-    const auto* __restrict__ weights = reinterpret_cast<const Half*>(&dev_weights[weights_offset]);
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
-
-    Vec4T<Half> accumulators[kMaxVecsPerThread];
-
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        int32_t l = l_start + threadIdx.x;
-        int64_t idx = l < L ? indices[indices_start + l] : 0;
         {% if weighted %}
-        acc_type<Half, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
+        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        {% endif %}
+      }
+    }
+    // equivalent to fence + wait.
+    cp_async_wait<0>();
+    __syncwarp();
+    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+
+        {% if weighted %}
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
         {% endif %}
 
-        for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
+        #pragma unroll MaxNum128BRows
+        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+          __half2 v = reinterpret_cast<const __half2*>(row)[kWarpSize * j + threadIdx.x];
 
-            {% if weighted %}
-            acc_type<Half, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
-            {% endif %}
+          {% if weighted %}
+          accumulators[i][j] = valid ? accumulate_weighted_fp16(accumulators[i][j], v, row_weight) : accumulators[i][j];
+          {% else %}
+          accumulators[i][j] = valid ? accumulate_fp16(accumulators[i][j], v) : accumulators[i][j];
+          {% endif %}
+        }
+      }
+    }
+  }
 
-            // Handle pruned-out indices.
-            if (idx_j != -1) {
-                #pragma unroll kMaxVecsPerThread
-                for (int32_t i = 0;
-                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-                    ++i) {
-                    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-                    Vec4T<Half> weight(&weights[idx_j * D + d]);
-                    {% if weighted %}
-                    accumulators[i].fma_(weight, idx_weight_j);
-                    {% else %}
-                    accumulators[i].acc.x += weight.acc.x;
-                    accumulators[i].acc.y += weight.acc.y;
-                    accumulators[i].acc.z += weight.acc.z;
-                    accumulators[i].acc.w += weight.acc.w;
-                    {% endif %}
-                }
-            }
-        }
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      if (pooling_mode == MEAN && Ls[i] != 0) {
+          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+          accumulators[i][j].x *= inv_L;
+          accumulators[i][j].y *= inv_L;
+      }
+      half2 val = to_half2(accumulators[i][j]);
+      if (output_d >= 0 && output_d < D) {
+        *reinterpret_cast<int1*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int1*>(&val);
+      }
     }
-#pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-        ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        if (pooling_mode == MEAN && L != 0) {
-            accumulators[i].acc.x /= L;
-            accumulators[i].acc.y /= L;
-            accumulators[i].acc.z /= L;
-            accumulators[i].acc.w /= L;
-        }
-        accumulators[i].store(&output[b][D_start + d]);
-    }
+  }
 }
 
-template<typename index_t, size_t kMaxVecsPerThread, size_t kThreadsPerRow>
-__launch_bounds__(kForwardMaxThreads)
-__global__ void int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel(
-    const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
-    int64_t pooling_mode,
+template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+__launch_bounds__(WarpsPerBlock * 32)
+__global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  int64_t pooling_mode,
+  {% if weighted %}
+  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+      indice_weights,
+  {% endif %}
+  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+      output // [B][total_D],
+  ) {
+  int32_t B = output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+      return;
+  }
+
+  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+  if (weight_ty != SparseType::INT4) {
+      return;
+  }
+
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+    return;
+  }
+
+  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+
+  int64_t weights_offset = weights_offsets[t];
+  const int32_t D_total = padded_D(D, weight_ty);
+  const int32_t D_padding = D_total - D;
+
+  uint32_t warp_idx = threadIdx.y;
+  int32_t indices_starts[OutputRowsPerThread];
+  int32_t Ls[OutputRowsPerThread];
+  int32_t max_Ls = 0;
+
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    int32_t indices_start = offsets[t * B + b];
+    int32_t indices_end = offsets[t * B + b + 1];
+    indices_starts[i] = indices_start;
+    Ls[i] = indices_end - indices_start;
+    max_Ls = max(max_Ls, Ls[i]);
+  }
+
+  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  constexpr size_t kOutputsPerThread = 8;
+
+  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+
+  float8 accumulators[OutputRowsPerThread][MaxNum128BRows];
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      accumulators[i][j] = make_zero_float8();
+    }
+  }
+
+  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    __shared__ AllBuffers buffers;
+
     {% if weighted %}
-    PackedTensorAccessor32<float, 1, RestrictPtrTraits>
-        indice_weights,
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
-    PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
-        output // [B][total_D],
-    ) {
-    int32_t B = output.size(0);
-    int32_t T = D_offsets.size(0) - 1;
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= B * T) {
-        return;
-    }
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
 
-    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-    if (weight_ty == SparseType::FP16) {
-        return;
-    }
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
+      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
 
-    constexpr int32_t kRowsPerWarp = 32 / kThreadsPerRow;
-    const int32_t row_in_warp = threadIdx.y % kRowsPerWarp;
-    uint32_t subwarp_mask;
-    if (kThreadsPerRow == 8) {
-        subwarp_mask = uint32_t(0xFF) << row_in_warp;
-    }
-    if (kThreadsPerRow == 16) {
-        subwarp_mask = uint32_t(0xFFFF) << row_in_warp;
-    }
-    if (kThreadsPerRow == 32) {
-        subwarp_mask = uint32_t(0xFFFFFFFF) << row_in_warp;
-    }
-    int64_t weights_offset = weights_offsets[t];
-    int32_t D_start = D_offsets[t];
-    int32_t D_end = D_offsets[t + 1];
-    int32_t D = D_end - D_start;
-
-    const int32_t D_total = padded_D(D, weight_ty);
-    const int32_t D_padding = D_total - D;
-    const int32_t D_bytes = row_size_in_bytes(D, weight_ty);
-
-    int64_t indices_start = offsets[t * B + b];
-    int64_t indices_end = offsets[t * B + b + 1];
-    int32_t L = indices_end - indices_start;
-    const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
-
-    float8 accumulators[kMaxVecsPerThread];
-    for (auto i = 0; i < kMaxVecsPerThread; ++i) {
-        accumulators[i] = make_zero_float8();
-    }
-
-    for (int32_t l_start = 0; l_start < L; l_start += kThreadsPerRow) {
-        int32_t l = l_start + threadIdx.x;
-        int64_t idx = l < L ? indices[indices_start + l] : 0;
-        int32_t JLim = L - l_start < kThreadsPerRow ? L - l_start : kThreadsPerRow;
-
-        // negative indices represent "pruned out" values.
-        const uint8_t* __restrict__ row = idx >= 0 ? &weights[idx * D_bytes] : nullptr;
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
         {% if weighted %}
-        float idx_weight = l < L ? indice_weights[indices_start + l] : 0.0;
+        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
         {% endif %}
 
-        int32_t j = 0;
-        constexpr size_t kUnroll = 4;
-        int32_t jUnroll = (JLim / kUnroll) * kUnroll;
-        for (; j < jUnroll; j += kUnroll) {
-            const uint32_t *row_j0 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 0 + row_in_warp * kThreadsPerRow));
-            const uint32_t *row_j1 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 1 + row_in_warp * kThreadsPerRow));
-            const uint32_t *row_j2 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 2 + row_in_warp * kThreadsPerRow));
-            const uint32_t *row_j3 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 3 + row_in_warp * kThreadsPerRow));
-
-            // scale and bias are at the beginning of each row.
-            // rationale: have scale/shift at start since these get loaded first
-            // and then broadcasted around so it might speed up the first cache
-            // miss.
-            half2 shift_scale_j0 = row ? (reinterpret_cast<const half2*>(row_j0))[0] : make_half2(0.0, 0.0);
-            half2 shift_scale_j1 = row ? (reinterpret_cast<const half2*>(row_j1))[0] : make_half2(0.0, 0.0);
-            half2 shift_scale_j2 = row ? (reinterpret_cast<const half2*>(row_j2))[0] : make_half2(0.0, 0.0);
-            half2 shift_scale_j3 = row ? (reinterpret_cast<const half2*>(row_j3))[0] : make_half2(0.0, 0.0);
-
-            {% if weighted %}
-            float idx_weight_j0 = __shfl_sync(subwarp_mask, idx_weight, j + 0 + row_in_warp * kThreadsPerRow);
-            float idx_weight_j1 = __shfl_sync(subwarp_mask, idx_weight, j + 1 + row_in_warp * kThreadsPerRow);
-            float idx_weight_j2 = __shfl_sync(subwarp_mask, idx_weight, j + 2 + row_in_warp * kThreadsPerRow);
-            float idx_weight_j3 = __shfl_sync(subwarp_mask, idx_weight, j + 3 + row_in_warp * kThreadsPerRow);
-
-            {% endif %}
-
-            #pragma unroll kMaxVecsPerThread
-            for (int32_t i = 0;
-                i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
-                ++i) {
-                // Read the rowwise-quantized int values: note that first D_padding elements will be ditched later:
-                // Reason: to avoid divergence the first thread in the warp computes garbage.
-                if (weight_ty == SparseType::INT4) {
-                    uint32_t v0 = row_j0 ? reinterpret_cast<const uint32_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint32_t v1 = row_j1 ? reinterpret_cast<const uint32_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint32_t v2 = row_j2 ? reinterpret_cast<const uint32_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint32_t v3 = row_j3 ? reinterpret_cast<const uint32_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int4(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j0);
-                    accumulators[i] = weighted_accumulate_packed_int4(
-                        accumulators[i], v1,
-                        shift_scale_j1, idx_weight_j1);
-                    accumulators[i] = weighted_accumulate_packed_int4(
-                        accumulators[i], v2,
-                        shift_scale_j2, idx_weight_j2);
-                    accumulators[i] = weighted_accumulate_packed_int4(
-                        accumulators[i], v3,
-                        shift_scale_j3, idx_weight_j3);
-
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int4(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    accumulators[i] = accumulate_packed_int4(
-                        accumulators[i], v1,
-                        shift_scale_j1);
-                    accumulators[i] = accumulate_packed_int4(
-                        accumulators[i], v2,
-                        shift_scale_j2);
-                    accumulators[i] = accumulate_packed_int4(
-                        accumulators[i], v3,
-                        shift_scale_j3);
-                    {% endif %}
-                } else if (weight_ty == SparseType::INT2) {
-                    uint16_t v0 = row_j0 ? reinterpret_cast<const uint16_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint16_t v1 = row_j1 ? reinterpret_cast<const uint16_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint16_t v2 = row_j2 ? reinterpret_cast<const uint16_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint16_t v3 = row_j3 ? reinterpret_cast<const uint16_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int2(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j0);
-                    accumulators[i] = weighted_accumulate_packed_int2(
-                        accumulators[i], v1,
-                        shift_scale_j1, idx_weight_j1);
-                    accumulators[i] = weighted_accumulate_packed_int2(
-                        accumulators[i], v2,
-                        shift_scale_j2, idx_weight_j2);
-                    accumulators[i] = weighted_accumulate_packed_int2(
-                        accumulators[i], v3,
-                        shift_scale_j3, idx_weight_j3);
-
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int2(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    accumulators[i] = accumulate_packed_int2(
-                        accumulators[i], v1,
-                        shift_scale_j1);
-                    accumulators[i] = accumulate_packed_int2(
-                        accumulators[i], v2,
-                        shift_scale_j2);
-                    accumulators[i] = accumulate_packed_int2(
-                        accumulators[i], v3,
-                        shift_scale_j3);
-                    {% endif %}
-                } else if (weight_ty == SparseType::INT8) {
-                    uint64_t v0 = row_j0 ? reinterpret_cast<const uint64_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint64_t v1 = row_j1 ? reinterpret_cast<const uint64_t*>(row_j1)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint64_t v2 = row_j2 ? reinterpret_cast<const uint64_t*>(row_j2)[kThreadsPerRow * i + threadIdx.x] : 0;
-                    uint64_t v3 = row_j3 ? reinterpret_cast<const uint64_t*>(row_j3)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int8(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j0);
-                    accumulators[i] = weighted_accumulate_packed_int8(
-                        accumulators[i], v1,
-                        shift_scale_j1, idx_weight_j1);
-                    accumulators[i] = weighted_accumulate_packed_int8(
-                        accumulators[i], v2,
-                        shift_scale_j2, idx_weight_j2);
-                    accumulators[i] = weighted_accumulate_packed_int8(
-                        accumulators[i], v3,
-                        shift_scale_j3, idx_weight_j3);
-
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int8(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    accumulators[i] = accumulate_packed_int8(
-                        accumulators[i], v1,
-                        shift_scale_j1);
-                    accumulators[i] = accumulate_packed_int8(
-                        accumulators[i], v2,
-                        shift_scale_j2);
-                    accumulators[i] = accumulate_packed_int8(
-                        accumulators[i], v3,
-                        shift_scale_j3);
-                    {% endif %}
-                }
-            }
-        }
-        for (; j < JLim; ++j) {
-            const uint32_t *row_j0 = reinterpret_cast<const uint32_t *>(__shfl_sync(subwarp_mask, intptr_t(row), j + 0 + row_in_warp * kThreadsPerRow));
-            half2 shift_scale_j0 = row ? (reinterpret_cast<const half2*>(row_j0))[0] : make_half2(0.0, 0.0);
-
-            {% if weighted %}
-            float idx_weight_j = __shfl_sync(subwarp_mask, idx_weight, j + row_in_warp * kThreadsPerRow);
-            {% endif %}
-            #pragma unroll kMaxVecsPerThread
-            for (int32_t i = 0;
-                i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
-                ++i) {
-                if (weight_ty == SparseType::INT4) {
-                    uint32_t v0 = row_j0 ? reinterpret_cast<const uint32_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int4(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j);
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int4(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    {% endif %}
-                } else if (weight_ty == SparseType::INT2) {
-                    uint16_t v0 = row_j0 ? reinterpret_cast<const uint16_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int2(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j);
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int2(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    {% endif %}
-                } else if (weight_ty == SparseType::INT8) {
-                    uint64_t v0 = row_j0 ? reinterpret_cast<const uint64_t*>(row_j0)[kThreadsPerRow * i + threadIdx.x] : 0;
-
-                    {% if weighted %}
-                    accumulators[i] = weighted_accumulate_packed_int8(
-                        accumulators[i], v0,
-                        shift_scale_j0, idx_weight_j);
-                    {% else %}
-                    accumulators[i] = accumulate_packed_int8(
-                        accumulators[i], v0,
-                        shift_scale_j0);
-                    {% endif %}
-                }
-
-            }
-        }
+      }
     }
+    // equivalent to fence + wait.
+    cp_async_wait<0>();
+    __syncwarp();
+    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
 
-#pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && 8 * kThreadsPerRow * i + threadIdx.x * 8 < D_total;
-        ++i) {
-        // We shift back by a fixed number of elements to remove the first group of elements (which is
-        // garbage due to the scale/shift handling)
-        int32_t d = 8 * kThreadsPerRow * i + threadIdx.x * 8 - D_padding;
-        if (pooling_mode == MEAN && L != 0) {
-            float inv_L = 1.0 / L;
-            accumulators[i].vals[0].x *= inv_L;
-            accumulators[i].vals[0].y *= inv_L;
-            accumulators[i].vals[0].z *= inv_L;
-            accumulators[i].vals[0].w *= inv_L;
-            accumulators[i].vals[1].x *= inv_L;
-            accumulators[i].vals[1].y *= inv_L;
-            accumulators[i].vals[1].z *= inv_L;
-            accumulators[i].vals[1].w *= inv_L;
+        {% if weighted %}
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
+        {% endif %}
+
+        #pragma unroll MaxNum128BRows
+        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
+          {% if weighted %}
+          accumulators[i][j] = valid ? accumulate_weighted_packed_int4(accumulators[i][j], v, shift_scale, row_weight) : accumulators[i][j];
+          {% else %}
+          accumulators[i][j] = valid ? accumulate_packed_int4(accumulators[i][j], v, shift_scale) : accumulators[i][j];
+          {% endif %}
         }
-        if (d >= 0 && d < D) {
-            *(half8 *)(&output[b][D_start + d]) = to_half8(accumulators[i]);
-        }
+      }
     }
+  }
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      bool aligned_16b = intptr_t(&output[b][D_start + output_d]) % 16 == 0;
+      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
+
+      if (pooling_mode == MEAN && Ls[i] != 0) {
+          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+          accumulators[i][j].vals[0].x *= inv_L;
+          accumulators[i][j].vals[0].y *= inv_L;
+          accumulators[i][j].vals[0].z *= inv_L;
+          accumulators[i][j].vals[0].w *= inv_L;
+          accumulators[i][j].vals[1].x *= inv_L;
+          accumulators[i][j].vals[1].y *= inv_L;
+          accumulators[i][j].vals[1].z *= inv_L;
+          accumulators[i][j].vals[1].w *= inv_L;
+      }
+      half8 val = to_half8(accumulators[i][j]);
+      if (output_d >= 0 && output_d < D) {
+        if (aligned_16b) {
+          *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
+        } else if (aligned_8b) {
+          auto v = *reinterpret_cast<const int4*>(&val);
+          *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
+          *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v.z, v.w);
+        } else {
+          auto v = *reinterpret_cast<const int4*>(&val);
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 4]) = v.z;
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 6]) = v.w;
+        }
+      }
+    }
+  }
 }
 
-Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor weights_tys,
-    Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_effective_D,
-    int64_t max_float16_D,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
+template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+__launch_bounds__(WarpsPerBlock * 32)
+__global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  int64_t pooling_mode,
+  {% if weighted %}
+  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+      indice_weights,
+  {% endif %}
+  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+      output // [B][total_D],
+  ) {
+  int32_t B = output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+      return;
+  }
+
+  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+  if (weight_ty != SparseType::INT8) {
+      return;
+  }
+
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+    return;
+  }
+
+  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+
+  int64_t weights_offset = weights_offsets[t];
+  const int32_t D_total = padded_D(D, weight_ty);
+  const int32_t D_padding = D_total - D;
+
+  uint32_t warp_idx = threadIdx.y;
+  int32_t indices_starts[OutputRowsPerThread];
+  int32_t Ls[OutputRowsPerThread];
+  int32_t max_Ls = 0;
+
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    int32_t indices_start = offsets[t * B + b];
+    int32_t indices_end = offsets[t * B + b + 1];
+    indices_starts[i] = indices_start;
+    Ls[i] = indices_end - indices_start;
+    max_Ls = max(max_Ls, Ls[i]);
+  }
+
+  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  constexpr size_t kOutputsPerThread = 4;
+
+  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+
+  float4 accumulators[OutputRowsPerThread][MaxNum128BRows];
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      accumulators[i][j] = make_zero_float4();
+    }
+  }
+
+  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    __shared__ AllBuffers buffers;
+
     {% if weighted %}
-    Tensor indice_weights,
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
-    int64_t unused
-) {
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
 
-    int32_t T = D_offsets.numel() - 1;
-    TORCH_CHECK(T > 0);
-    // offsets = [B x T  + 1]
-    int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
-    TORCH_CHECK(total_D > 0);
-    TORCH_CHECK(total_D % 4 == 0);
-    TORCH_CHECK(max_effective_D <= {{ max_embedding_dim }});
-    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
+      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
 
-    int32_t kThreads = 128;
-    using index_t = int32_t;
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
-    if (max_float16_D) {
-        [&](){
-            {% for kMaxVecsPerThread in range(1, 9) %}
-            if (max_float16_D <= {{ 128 * kMaxVecsPerThread }}) {
-                float16_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, {{ kMaxVecsPerThread }} ><<<
-                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-                    0,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                        dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-                        weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                        weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-                        D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-                        indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-                        offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-                        pooling_mode,
-                        {% if weighted %}
-                        indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-                        {% endif %}
-                        output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-                    );
-                    return;
-            }
-            {% endfor %}
-            TORCH_CHECK(false, "Unhandled max_float16_D:", max_float16_D);
-        }();
-    }
+        {% if weighted %}
+        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        {% endif %}
 
-    // AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
-    if (max_effective_D <= 64) {
-        constexpr size_t kThreadsPerRow = 8;
-        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
-            div_round_up((B * T), kThreads / kThreadsPerRow),
-            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            pooling_mode,
-            {% if weighted %}
-            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-            {% endif %}
-            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-            );
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-        return output;
+      }
+    }
+    // equivalent to fence + wait.
+    cp_async_wait<0>();
+    __syncwarp();
+    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
 
-    }
-    if (max_effective_D <= 128) {
-        constexpr size_t kThreadsPerRow = 16;
-        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
-            div_round_up((B * T), kThreads / kThreadsPerRow),
-            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            pooling_mode,
-            {% if weighted %}
-            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-            {% endif %}
-            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-            );
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-        return output;
+        {% if weighted %}
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
+        {% endif %}
 
+        #pragma unroll MaxNum128BRows
+        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
+          {% if weighted %}
+          accumulators[i][j] = valid ? accumulate_weighted_packed_int8(accumulators[i][j], v, shift_scale, row_weight) : accumulators[i][j];
+          {% else %}
+          accumulators[i][j] = valid ? accumulate_packed_int8(accumulators[i][j], v, shift_scale) : accumulators[i][j];
+          {% endif %}
+        }
+      }
     }
-    if (max_effective_D <= 256) {
-        constexpr size_t kThreadsPerRow = 32;
-        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 1, kThreadsPerRow><<<
-            div_round_up((B * T), kThreads / kThreadsPerRow),
-            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            pooling_mode,
-            {% if weighted %}
-            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-            {% endif %}
-            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-            );
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-        return output;
+  }
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
+
+      if (pooling_mode == MEAN && Ls[i] != 0) {
+          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+          accumulators[i][j].x *= inv_L;
+          accumulators[i][j].y *= inv_L;
+          accumulators[i][j].z *= inv_L;
+          accumulators[i][j].w *= inv_L;
+      }
+      half4 val = to_half4(accumulators[i][j]);
+      if (output_d >= 0 && output_d < D) {
+        if (aligned_8b) {
+          *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
+        } else {
+          auto v = *reinterpret_cast<const int2*>(&val);
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
+          *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
+        }
+      }
     }
-    if (max_effective_D <= 512) {
-        constexpr size_t kThreadsPerRow = 32;
-        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 2, kThreadsPerRow><<<
-            div_round_up((B * T), kThreads / kThreadsPerRow),
-            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            pooling_mode,
-            {% if weighted %}
-            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-            {% endif %}
-            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-            );
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-        return output;
-    }
-    if (max_effective_D <= 1024) {
-        constexpr size_t kThreadsPerRow = 32;
-        int_nbit_split_embedding_codegen_forward_{{ wdesc }}_kernel<index_t, 2, kThreadsPerRow><<<
-            div_round_up((B * T), kThreads / kThreadsPerRow),
-            dim3(kThreadsPerRow, kThreads / kThreadsPerRow),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            pooling_mode,
-            {% if weighted %}
-            indice_weights.packed_accessor32<float, 1, RestrictPtrTraits>(),
-            {% endif %}
-            output.packed_accessor32<Half, 2, RestrictPtrTraits>()
-            );
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-        return output;
-    }
-    TORCH_CHECK(false, "Unhandled max_effective_D:", max_effective_D);
-    return output;
+  }
 }
+
+
 
 #define BIG_CONSTANT(x) (x##LLU)
-
 __device__ inline uint32_t pruned_hash_function(int32_t key, int32_t table) {
     uint64_t k = (static_cast<uint64_t>(key) << 32) | static_cast<uint64_t>(table);
     k ^= k >> 33;
@@ -1018,28 +943,177 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
     }
 }
 
-Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
-    Tensor indices,
-    Tensor offsets,
-    Tensor hash_table,
+}
+
+at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
+    at::Tensor dev_weights,
+    at::Tensor weights_offsets,
+    at::Tensor weights_tys,
+    at::Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    at::Tensor indices,
+    at::Tensor offsets,
+    int64_t pooling_mode,
+    {% if weighted %}
+    at::Tensor indice_weights,
+    {% endif %}
+    int64_t unused
+) {
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(dev_weights.get_device());
+
+    int32_t T = D_offsets.numel() - 1;
+    TORCH_CHECK(T > 0);
+    // offsets = [B x T  + 1]
+    int32_t B = (offsets.size(0) - 1) / T;
+    TORCH_CHECK(B > 0);
+
+    TORCH_CHECK(total_D > 0);
+    TORCH_CHECK(max_int2_D == 0);
+
+    auto output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    using index_t = int32_t;
+
+    // launch 4-bit kernel
+    constexpr int32_t kWarpsPerBlock = 4;
+
+    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        pooling_mode, \
+        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+
+    if (max_int4_D > 0) {
+      auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, nbit::SparseType::INT4), 128);
+      TORCH_CHECK(max_int4_128b_rows <= 4);
+      if (max_int4_128b_rows > 0) {
+        X(2, 8, 0, 1);
+      }
+      if (max_int4_128b_rows > 1) {
+        X(2, 4, 1, 2);
+      }
+      if (max_int4_128b_rows > 2) {
+        X(1, 4, 2, 4);
+      }
+    }
+    #undef X
+
+
+    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        pooling_mode, \
+        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+
+    if (max_int8_D > 0) {
+      auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, nbit::SparseType::INT8), 128);
+      TORCH_CHECK(max_int8_128b_rows <= 8);
+      if (max_int8_128b_rows > 0) {
+        X(2, 8, 0, 1);
+      }
+      if (max_int8_128b_rows > 1) {
+        X(2, 4, 1, 2);
+      }
+      if (max_int8_128b_rows > 2) {
+        X(2, 4, 2, 4);
+      }
+      if (max_int8_128b_rows > 4) {
+        X(2, 4, 4, 8);
+      }
+
+    }
+    #undef X
+
+    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        pooling_mode, \
+        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+
+    if (max_float16_D > 0) {
+      auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, nbit::SparseType::FP16), 128);
+      TORCH_CHECK(max_fp16_128b_rows <= 16);
+      if (max_fp16_128b_rows > 0) {
+        X(2, 8, 0, 2);
+      }
+      if (max_fp16_128b_rows > 2) {
+        X(2, 8, 2, 4);
+      }
+      if (max_fp16_128b_rows > 4) {
+        X(2, 4, 4, 8);
+      }
+      if (max_fp16_128b_rows > 8) {
+        X(2, 2, 8, 16);
+      }
+    }
+    #undef X
+    // TODO: 2-bit kernels.
+    return output;
+}
+
+at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
+    at::Tensor indices,
+    at::Tensor offsets,
+    at::Tensor hash_table,
     int64_t T) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(indices.get_device());
-    auto dense_indices = empty_like(indices);
+    auto dense_indices = at::empty_like(indices);
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
-    int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
-        div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
-        dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+    constexpr size_t kForwardMaxThreads = 256;
+    nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
+        nbit::div_round_up(B * T + 1, kForwardMaxThreads / 32),
+        dim3(32, kForwardMaxThreads / 32),
         0,
         at::cuda::getCurrentCUDAStream()>>>(
-            indices.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-            hash_table.packed_accessor64<int32_t, 2, RestrictPtrTraits>(),
+            indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            hash_table.packed_accessor64<int32_t, 2, at::RestrictPtrTraits>(),
             B,
             T,
-            dense_indices.packed_accessor32<int32_t, 1, RestrictPtrTraits>()
+            dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()
     );
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return dense_indices;

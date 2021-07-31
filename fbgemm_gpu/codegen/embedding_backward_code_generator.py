@@ -806,7 +806,6 @@ def forward_split() -> None:
 
 def forward_quantized() -> None:
     template = env.get_template("embedding_forward_quantized_split_template.cu")
-
     src_cu = template.render(weighted=False)
     write("gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu", src_cu)
     src_cu = template.render(weighted=True)

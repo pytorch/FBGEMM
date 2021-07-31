@@ -62,8 +62,8 @@ class SparseType(enum.Enum):
     def align_size(self) -> int:
         return {
             SparseType.FP32.value: 1,
-            SparseType.FP16.value: 4,
-            SparseType.INT8.value: 8,
+            SparseType.FP16.value: 2,
+            SparseType.INT8.value: 4,
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
         }[self.value]

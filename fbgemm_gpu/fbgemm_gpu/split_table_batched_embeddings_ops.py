@@ -1334,25 +1334,23 @@ class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
             feature_requires_grad,
         )
 
+def round_up(a: int, b: int) -> int:
+    return int((a + b - 1) // b) * b
 
-def row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
-    return {
+
+def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+    r = unpadded_row_size_in_bytes(dim, weight_ty)
+    # align each row to 16-byte boundaries.
+    return round_up(r, 16)
+
+def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+    r = {
         SparseType.FP16.value: dim * 2,
-        SparseType.INT8.value: dim
-        + 8,  # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
+        SparseType.INT8.value: dim + 4,
         SparseType.INT4.value: dim // 2 + 4,
         SparseType.INT2.value: dim // 4 + 4,
     }[weight_ty.value]
-
-
-def effective_D(dim: int, weight_ty: SparseType) -> int:
-    return {
-        SparseType.FP16.value: dim,
-        SparseType.INT8.value: dim
-        + 8,  # NOTE: we use 8 bytes to store the fp16 scale/shift so we can ensure all accesses are 8 byte aligned
-        SparseType.INT4.value: dim + 8,
-        SparseType.INT2.value: dim + 16,
-    }[weight_ty.value]
+    return r
 
 
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
@@ -1392,29 +1390,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert T_ > 0
         for (dim, weight_ty) in zip(dims, weights_tys):
             assert dim % weight_ty.align_size() == 0
-            if weight_ty == SparseType.FP16:
-                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
-                    logging.warning(
-                        f"{weight_ty} Embedding, dim={dim} is not 32-byte aligned"
-                    )
-
-            elif weight_ty == SparseType.INT8:
-                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
-                    logging.warning(
-                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift and 4-byte padding is not 32-byte aligned"
-                    )
-
-            elif weight_ty == SparseType.INT4:
-                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
-                    logging.warning(
-                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
-                    )
-
-            elif weight_ty == SparseType.INT2:
-                if row_size_in_bytes(dim, weight_ty) % 32 != 0:
-                    logging.warning(
-                        f"{weight_ty} Embedding, dim={dim} with 4-byte scale/shift is not 32-byte aligned"
-                    )
 
         feature_table_map = (
             feature_table_map if feature_table_map is not None else list(range(T_))
@@ -1424,22 +1399,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [dims[t] for t in feature_table_map]
         D_offsets = [0] + np.cumsum(D_offsets).tolist()
         self.total_D: int = D_offsets[-1]
-        self.max_effective_D: int = max(
-            [
-                effective_D(dim, weight_ty)
-                for dim, weight_ty in zip(dims, weights_tys)
-                if weight_ty != SparseType.FP16
-            ],
-            default=0,
-        )
-        self.max_float16_D: int = max(
-            [
-                effective_D(dim, weight_ty)
-                for dim, weight_ty in zip(dims, weights_tys)
-                if weight_ty == SparseType.FP16
-            ],
-            default=0,
-        )
+
+        def max_ty_D(ty: SparseType) -> int:
+            return max(
+                [
+                    dim
+                    for dim, weight_ty in zip(dims, weights_tys)
+                    if weight_ty == ty
+                ],
+                default=0,
+            )
+        self.max_int2_D: int = max_ty_D(SparseType.INT2)
+        self.max_int4_D: int = max_ty_D(SparseType.INT4)
+        self.max_int8_D: int = max_ty_D(SparseType.INT8)
+        self.max_float16_D: int = max_ty_D(SparseType.FP16)
+
 
         self.register_buffer(
             "D_offsets",
@@ -1452,13 +1426,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         def align_to_cacheline(a: int) -> int:
             # align each table to 128b cache line boundary.
-            return ((a + (128 - 1)) // 128) * 128
+            return round_up(a, 128)
 
         weights_offsets = [0] + np.cumsum(
-            [
-                align_to_cacheline(row * row_size_in_bytes(dim, weight_ty))
-                for (row, dim, weight_ty) in embedding_specs
-            ]
+            [align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty)) for (row, dim, weight_ty) in embedding_specs]
         ).tolist()
         self.register_buffer(
             "weights",
@@ -1480,7 +1451,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #  nn.Module]` is not a function.
             assert self.weights[
                 weights_offsets[t] : weights_offsets[t + 1]
-            ].numel() == align_to_cacheline(row * row_size_in_bytes(dim, weight_ty))
+            ].numel() == align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty))
 
         weights_offsets = [weights_offsets[t] for t in feature_table_map]
         weights_tys_int = [weights_tys[t].as_int() for t in feature_table_map]
@@ -1501,11 +1472,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if not self.use_cpu:
                 # TODO: tune this?
                 LOAD_FACTOR = 0.5
-
-                def div_round_up(a: int, b: int) -> int:
-                    return int((a + b - 1) // b) * b
-
-                capacity = div_round_up(int(sum(rows) * 1.0 / LOAD_FACTOR), 32)
+                capacity = round_up(int(sum(rows) * 1.0 / LOAD_FACTOR), 32)
                 hash_table = torch.empty(
                     (capacity, 3),
                     dtype=torch.int32,
@@ -1582,7 +1549,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             weights_tys=self.weights_tys,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
-            max_effective_D=self.max_effective_D,
+            max_int2_D=self.max_int2_D,
+            max_int4_D=self.max_int4_D,
+            max_int8_D=self.max_int8_D,
             max_float16_D=self.max_float16_D,
             indices=indices,
             offsets=offsets,
@@ -1606,23 +1575,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self, Tensor)],
             #  Tensor], Tensor], Tensor, nn.Module]` is not a function.
             weights_shifts = self.weights.detach()[
-                offset : offset + rows * row_size_in_bytes(dim, weight_ty)
-            ].view(rows, row_size_in_bytes(dim, weight_ty))
-
-            if weight_ty == SparseType.INT4 or weight_ty == SparseType.INT2:
+                offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
+            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
+            # remove the padding at the end of each row.
+            weights_shifts = weights_shifts[:, :unpadded_row_size_in_bytes(dim, weight_ty)]
+            if weight_ty == SparseType.INT8 or weight_ty == SparseType.INT4 or weight_ty == SparseType.INT2:
                 splits.append(
                     (
                         weights_shifts[:, 4:],
-                        weights_shifts[:, :4],
-                    )
-                )
-            elif weight_ty == SparseType.INT8:
-                # Note: we use a 4 byte scale shift (2xfp16),
-                # but then insert 4 bytes of padding to ensure that all
-                # rows are 8 byte aligned.
-                splits.append(
-                    (
-                        weights_shifts[:, 8:],
                         weights_shifts[:, :4],
                     )
                 )
