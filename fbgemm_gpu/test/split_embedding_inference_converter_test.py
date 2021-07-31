@@ -119,7 +119,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             [
                 SparseType.INT8,
                 SparseType.INT4,
-                SparseType.INT2,
+                # TODO: support SparseType.INT2,
                 SparseType.FP16,
             ]
         ),

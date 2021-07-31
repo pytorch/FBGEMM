@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
@@ -17,7 +18,9 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_effective_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
     int64_t max_float16_D,
     Tensor indices,
     Tensor offsets,
@@ -30,7 +33,25 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_effective_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    Tensor indice_weights,
+    int64_t unused);
+
+Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
+    Tensor dev_weights,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
     int64_t max_float16_D,
     Tensor indices,
     Tensor offsets,
@@ -44,7 +65,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor weights_tys,
     Tensor D_offsets,
     int64_t total_D,
-    int64_t max_effective_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
     int64_t max_float16_D,
     Tensor indices,
     Tensor offsets,
@@ -57,7 +80,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         weights_tys,
         D_offsets,
         total_D,
-        max_effective_D,
+        max_int2_D,
+        max_int4_D,
+        max_int8_D,
         max_float16_D,
         indices,
         offsets,
@@ -70,7 +95,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       weights_tys,
       D_offsets,
       total_D,
-      max_effective_D,
+      max_int2_D,
+      max_int4_D,
+      max_int8_D,
       max_float16_D,
       indices,
       offsets,
@@ -87,7 +114,7 @@ Tensor pruned_hashmap_lookup_unweighted_cuda(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_effective_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(

@@ -24,7 +24,7 @@ MAX_EXAMPLES = 40
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
 
-def div_round_up(a: int, b: int) -> int:
+def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
 
@@ -220,7 +220,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [int(1e4)] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -425,7 +425,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -640,7 +640,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -882,7 +882,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1140,7 +1140,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1297,7 +1297,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1573,11 +1573,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
+        T=st.integers(min_value=1, max_value=50),
+        D=st.integers(min_value=2, max_value=1024 - 8),
         B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
+        log_E=st.integers(min_value=2, max_value=4),
+        L=st.integers(min_value=0, max_value=32),
         weighted=st.booleans(),
         mixed=st.booleans(),
         pooling_mode=st.sampled_from(
@@ -1590,7 +1590,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 SparseType.INT8,
                 SparseType.INT4,
-                SparseType.INT2,
+                # TODO: implement for SparseType.INT2,
                 SparseType.FP16,
             ]
         ),
@@ -1620,17 +1620,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mode = "sum"
         elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
             mode = "mean"
-
         E = int(10 ** log_E)
-        D_alignment = 8 if not weights_ty == SparseType.INT2 else 16
-        D = div_round_up(D, D_alignment)
+        D_alignment = weights_ty.align_size()
+        D = round_up(D, D_alignment)
 
         if not mixed:
             Ds = [D] * T
             Es = [int(1e4)] * T
         else:
             Ds = [
-                div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment)
+                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment)
                 for _ in range(T)
             ]
             Ds = [min(D, 128) for D in Ds]
@@ -1646,7 +1645,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
         xws_acc_type = copy.deepcopy(xws)
-
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
@@ -1665,20 +1663,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
-            # weights.zero_()
             if scale_shift is not None:
                 (E, R) = scale_shift.shape
                 assert R == 4
-                scale_shift[:, :] = torch.tensor(
-                    # should use a random # for test coverage ??
-                    # np.random.rand(E, 2).astype(np.float16).view(np.uint8)
-                    np.ones((E, 2))
-                    .astype(np.float16)
-                    .view(np.uint8)
-                )
+                if weights_ty == SparseType.INT4:
+                    scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
+                    shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
+                if weights_ty == SparseType.INT8:
+                    scales = np.random.uniform(0.001, 0.01, size=(E,)).astype(np.float16)
+                    shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
+
+                scale_shift[:, :] = torch.tensor(np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8))
+
 
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
+            np_weights = weights.contiguous().cpu().numpy()
+
             if scale_shift is not None:
                 # pyre-fixme[35]: Target cannot be annotated.
                 # pyre-fixme[11]: Annotation `array` is not defined as a type.
@@ -1689,9 +1690,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     .view(np.float16)
                     .astype(np.float32)
                 )
-                np.testing.assert_allclose(scale_shift, np.ones_like(scale_shift))
-            # weights.fill_(1)
-            np_weights = weights.contiguous().cpu().numpy()
 
             if weights_ty == SparseType.INT4:
                 (E, D_2) = np_weights.shape
@@ -1780,8 +1778,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(
             fc2.float().cpu(),
             f.float().cpu(),
-            atol=1.0e-1,
-            rtol=1.0e-1,
+            atol=1.0e-2,
+            rtol=1.0e-2,
         )
 
     @given(

@@ -25,10 +25,11 @@ from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
 
-PRECISION_SIZE_MULTIPLIER: Dict[SparseType, int] = {
+PRECISION_SIZE_MULTIPLIER: Dict[SparseType, float] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.INT8: 1,
+    SparseType.INT4: 0.5,
 }
 
 
@@ -735,7 +736,7 @@ def benchmark_cpu_requests(
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--managed", default="device")
@@ -745,7 +746,6 @@ def benchmark_cpu_requests(
 @click.option("--reuse", default=0.0)
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
-@click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--int4", is_flag=True, default=False)
 @click.option("--index-remapping", is_flag=True, default=False)
 def cpu(  # noqa C901
@@ -763,11 +763,9 @@ def cpu(  # noqa C901
     reuse: float,
     row_wise: bool,
     weighted: bool,
-    weighted_num_requires_grad: Optional[int],
     int4: bool,
     index_remapping: bool,
 ) -> None:
-    assert int4
     np.random.seed(42)
     torch.manual_seed(42)
     B = batch_size
@@ -775,20 +773,6 @@ def cpu(  # noqa C901
     L = bag_size
     E = num_embeddings
     T = num_tables
-    if weighted_num_requires_grad:
-        assert weighted_num_requires_grad <= T
-        weighted_requires_grad_tables = np.random.choice(
-            T, replace=False, size=(weighted_num_requires_grad,)
-        ).tolist()
-        feature_requires_grad = (
-            torch.tensor(
-                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
-            )
-            .cuda()
-            .int()
-        )
-    else:
-        feature_requires_grad = None
     if mixed:
         Ds = [
             # int4 table batched emb op can only handle mixed D where D is multiple of 8
@@ -800,7 +784,7 @@ def cpu(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, SparseType.INT4) for d in Ds],
+        [(E, d, weights_precision) for d in Ds],
         use_cpu=True,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
@@ -836,14 +820,14 @@ def cpu(  # noqa C901
             indices,
             offsets,
             per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
+            feature_requires_grad=None,
         ),
     )
 
     logging.info(
-        f"Int4 Forward, B: {B}, "
+        f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {(2 * B * T * D + PRECISION_SIZE_MULTIPLIER[weights_precision] * B * T * L * D) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -939,8 +923,6 @@ def nbit_device(  # noqa C901
     )
     requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
-    # TODO: multiple or single?
-    requests = [requests[0] for _ in requests]
     # forward
     time_per_iter = benchmark_requests(
         # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
@@ -958,7 +940,7 @@ def nbit_device(  # noqa C901
     logging.info(
         f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(0.5) * B * T * L * D / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"BW: {(2 * B * T * D + PRECISION_SIZE_MULTIPLIER[weights_precision] * B * T * L * D) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
