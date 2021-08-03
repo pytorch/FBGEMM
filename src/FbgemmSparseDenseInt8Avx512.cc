@@ -10,8 +10,8 @@
 #include "fbgemm/Utils.h"
 #include "fbgemm/spmmUtilsAvx2.h"
 
-#include <algorithm> // for min and max
 #include <immintrin.h>
+#include <algorithm> // for min and max
 #include <cassert>
 
 namespace fbgemm {
@@ -366,8 +366,7 @@ void SparseDenseInt8MMAvx512(
         __m512i c_v[4];
         if (accum || kt > 0) {
           for (int idx = 0; idx < 4; ++idx) {
-            c_v[idx] =
-                _mm512_loadu_si512(C_i32 + i * ldb + idx * VLEN_INT32);
+            c_v[idx] = _mm512_loadu_si512(C_i32 + i * ldb + idx * VLEN_INT32);
           }
         } else {
           for (int idx = 0; idx < 4; ++idx) {
