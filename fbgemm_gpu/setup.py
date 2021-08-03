@@ -164,7 +164,8 @@ setup(
                 os.path.join(cur_dir, "../third_party/cpuinfo/include"),
                 cub_include_path,
             ],
-            extra_compile_args={"cxx": extra_compile_args},
+            extra_compile_args={"cxx": extra_compile_args,
+                                "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
         )
     ],
     cmdclass={"build_ext": FBGEMM_GPU_BuildExtension},
