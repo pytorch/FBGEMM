@@ -142,6 +142,5 @@ void SparseDenseMMAvx512(
     }
   }
 }
-
 } // namespace internal
 } // namespace fbgemm

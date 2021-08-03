@@ -28,93 +28,110 @@ void SparseDenseMMAvx2(
   // size of values is equal to number of non-zeros (nnzs)
   // size of row_ptr is equal to M + 1
   // size of col_idx is equal to nnzs
+
   constexpr int VLEN = 8;
-  for (int i = 0; i < M; ++i) {
-    if (!accum) {
-      int j = 0;
-      __m256 c_v = _mm256_set1_ps(0.0f);
-      for (; j < N / VLEN * VLEN; j += VLEN) {
-        _mm256_storeu_ps(C + i * ldc + j, c_v);
+  int j = 0;
+  int effective_N = (N + VLEN - 1) / (2 * VLEN) * (2 * VLEN);
+  for (; j < effective_N; j += (2 * VLEN)) {
+    // r1 is for j:j+VLEN
+    // r2 is for j+VLEN:j+2*VLEN
+    // r2_rem is used to calculate the mask for r2
+    int r2_rem = N - VLEN - j;
+    r2_rem = (r2_rem <= VLEN) ? r2_rem : VLEN;
+    r2_rem = (r2_rem < 0) ? 0 : r2_rem;
+    __m256i mask_v = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(&avx2_ps_or_epi32_masks[r2_rem]));
+    for (int i = 0; i < M; ++i) {
+      __m256 c_v_r1;
+      __m256 c_v_r2;
+      if (accum) {
+        c_v_r1 = _mm256_loadu_ps(C + i * ldc + j);
+        c_v_r2 = _mm256_maskload_ps(C + i * ldc + j + VLEN, mask_v);
+      } else {
+        c_v_r1 = _mm256_set1_ps(0.0f);
+        c_v_r2 = _mm256_set1_ps(0.0f);
       }
-      // Handle remainder
-      int rem = N - j;
-      if (rem > 0) {
-        __m256i mask_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-            &avx2_ps_or_epi32_combined_mask[VLEN - rem]));
-        _mm256_maskstore_ps(C + i * ldc + j, mask_v, c_v);
+      int r = row_ptr[i];
+      // unrolled by 4
+      for (; r < row_ptr[i + 1] - 4; r += 4) {
+        int acbr_0 = col_idx[r + 0];
+        int acbr_1 = col_idx[r + 1];
+        int acbr_2 = col_idx[r + 2];
+        int acbr_3 = col_idx[r + 3];
+        __m256 a_v0 = _mm256_set1_ps(values[r + 0]);
+        __m256 a_v1 = _mm256_set1_ps(values[r + 1]);
+        __m256 a_v2 = _mm256_set1_ps(values[r + 2]);
+        __m256 a_v3 = _mm256_set1_ps(values[r + 3]);
+        __m256 br_v_0_r1 = _mm256_loadu_ps(B + acbr_0 * ldb + j);
+        __m256 br_v_1_r1 = _mm256_loadu_ps(B + acbr_1 * ldb + j);
+        __m256 br_v_2_r1 = _mm256_loadu_ps(B + acbr_2 * ldb + j);
+        __m256 br_v_3_r1 = _mm256_loadu_ps(B + acbr_3 * ldb + j);
+        __m256 br_v_0_r2 = _mm256_loadu_ps(B + acbr_0 * ldb + j + VLEN);
+        __m256 br_v_1_r2 = _mm256_loadu_ps(B + acbr_1 * ldb + j + VLEN);
+        __m256 br_v_2_r2 = _mm256_loadu_ps(B + acbr_2 * ldb + j + VLEN);
+        __m256 br_v_3_r2 = _mm256_loadu_ps(B + acbr_3 * ldb + j + VLEN);
+        c_v_r1 = _mm256_fmadd_ps(a_v0, br_v_0_r1, c_v_r1);
+        c_v_r1 = _mm256_fmadd_ps(a_v1, br_v_1_r1, c_v_r1);
+        c_v_r1 = _mm256_fmadd_ps(a_v2, br_v_2_r1, c_v_r1);
+        c_v_r1 = _mm256_fmadd_ps(a_v3, br_v_3_r1, c_v_r1);
+        c_v_r2 = _mm256_fmadd_ps(a_v0, br_v_0_r2, c_v_r2);
+        c_v_r2 = _mm256_fmadd_ps(a_v1, br_v_1_r2, c_v_r2);
+        c_v_r2 = _mm256_fmadd_ps(a_v2, br_v_2_r2, c_v_r2);
+        c_v_r2 = _mm256_fmadd_ps(a_v3, br_v_3_r2, c_v_r2);
       }
-    }
-    int r = row_ptr[i];
-    int r_end_aligned = row_ptr[i] + (row_ptr[i + 1] - row_ptr[i]) / 4 * 4;
-    // unrolled by 4
-    for (; r < r_end_aligned; r += 4) {
-      int acbr_0 = col_idx[r + 0];
-      int acbr_1 = col_idx[r + 1];
-      int acbr_2 = col_idx[r + 2];
-      int acbr_3 = col_idx[r + 3];
-      float v_0 = values[r + 0];
-      float v_1 = values[r + 1];
-      float v_2 = values[r + 2];
-      float v_3 = values[r + 3];
-      __m256 a_v_0 = _mm256_set1_ps(v_0);
-      __m256 a_v_1 = _mm256_set1_ps(v_1);
-      __m256 a_v_2 = _mm256_set1_ps(v_2);
-      __m256 a_v_3 = _mm256_set1_ps(v_3);
-      int j = 0;
-      for (; j < N / VLEN * VLEN; j += VLEN) {
-        __m256 br_v_0 = _mm256_loadu_ps(B + acbr_0 * ldb + j);
-        __m256 br_v_1 = _mm256_loadu_ps(B + acbr_1 * ldb + j);
-        __m256 br_v_2 = _mm256_loadu_ps(B + acbr_2 * ldb + j);
-        __m256 br_v_3 = _mm256_loadu_ps(B + acbr_3 * ldb + j);
-        __m256 c_v = _mm256_loadu_ps(C + i * ldc + j);
-        c_v = _mm256_fmadd_ps(a_v_0, br_v_0, c_v);
-        c_v = _mm256_fmadd_ps(a_v_1, br_v_1, c_v);
-        c_v = _mm256_fmadd_ps(a_v_2, br_v_2, c_v);
-        c_v = _mm256_fmadd_ps(a_v_3, br_v_3, c_v);
-        _mm256_storeu_ps(C + i * ldc + j, c_v);
+      for (; r < row_ptr[i + 1]; ++r) {
+        int acbr = col_idx[r];
+        __m256 a_v = _mm256_set1_ps(values[r]);
+        __m256 br_v_r1 = _mm256_loadu_ps(B + acbr * ldb + j);
+        __m256 br_v_r2 = _mm256_maskload_ps(B + acbr * ldb + j + VLEN, mask_v);
+        c_v_r1 = _mm256_fmadd_ps(a_v, br_v_r1, c_v_r1);
+        c_v_r2 = _mm256_fmadd_ps(a_v, br_v_r2, c_v_r2);
       }
-      // Handle remainder j loop
-      int rem = N - j;
-      if (rem > 0) {
-        __m256i mask_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-            &avx2_ps_or_epi32_combined_mask[VLEN - rem]));
-        __m256 br_v_0 = _mm256_maskload_ps(B + acbr_0 * ldb + j, mask_v);
-        __m256 br_v_1 = _mm256_maskload_ps(B + acbr_1 * ldb + j, mask_v);
-        __m256 br_v_2 = _mm256_maskload_ps(B + acbr_2 * ldb + j, mask_v);
-        __m256 br_v_3 = _mm256_maskload_ps(B + acbr_3 * ldb + j, mask_v);
-        __m256 c_v = _mm256_maskload_ps(C + i * ldc + j, mask_v);
-        c_v = _mm256_fmadd_ps(a_v_0, br_v_0, c_v);
-        c_v = _mm256_fmadd_ps(a_v_1, br_v_1, c_v);
-        c_v = _mm256_fmadd_ps(a_v_2, br_v_2, c_v);
-        c_v = _mm256_fmadd_ps(a_v_3, br_v_3, c_v);
-        _mm256_maskstore_ps(C + i * ldc + j, mask_v, c_v);
+      _mm256_storeu_ps(C + i * ldc + j, c_v_r1);
+      _mm256_maskstore_ps(C + i * ldc + j + VLEN, mask_v, c_v_r2);
+    } // i loop
+  }
+  // Handle remainder j loop
+  int rem = N - j;
+  if (rem > 0) {
+    for (int i = 0; i < M; ++i) {
+      __m256 c_v_r;
+      __m256i mask_v = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(&avx2_ps_or_epi32_masks[rem]));
+      if (accum) {
+        c_v_r = _mm256_maskload_ps(C + i * ldc + j, mask_v);
+      } else {
+        c_v_r = _mm256_set1_ps(0.0f);
       }
-    }
-    // Handle remainder r loop
-    for (; r < row_ptr[i + 1]; ++r) {
-      int acbr = col_idx[r];
-      float v = values[r];
-      __m256 a_v = _mm256_set1_ps(v);
-      int j = 0;
-      for (; j < N / VLEN * VLEN; j += VLEN) {
-        __m256 br_v = _mm256_loadu_ps(B + acbr * ldb + j);
-        __m256 c_v = _mm256_loadu_ps(C + i * ldc + j);
-        c_v = _mm256_fmadd_ps(a_v, br_v, c_v);
-        _mm256_storeu_ps(C + i * ldc + j, c_v);
+      int r = row_ptr[i];
+      for (; r < row_ptr[i + 1] - 4; r += 4) {
+        int acbr_0 = col_idx[r + 0];
+        int acbr_1 = col_idx[r + 1];
+        int acbr_2 = col_idx[r + 2];
+        int acbr_3 = col_idx[r + 3];
+        __m256 a_v0 = _mm256_set1_ps(values[r + 0]);
+        __m256 a_v1 = _mm256_set1_ps(values[r + 1]);
+        __m256 a_v2 = _mm256_set1_ps(values[r + 2]);
+        __m256 a_v3 = _mm256_set1_ps(values[r + 3]);
+        __m256 br_v_r0 = _mm256_loadu_ps(B + acbr_0 * ldb + j);
+        __m256 br_v_r1 = _mm256_loadu_ps(B + acbr_1 * ldb + j);
+        __m256 br_v_r2 = _mm256_loadu_ps(B + acbr_2 * ldb + j);
+        __m256 br_v_r3 = _mm256_loadu_ps(B + acbr_3 * ldb + j);
+        c_v_r = _mm256_fmadd_ps(a_v0, br_v_r0, c_v_r);
+        c_v_r = _mm256_fmadd_ps(a_v1, br_v_r1, c_v_r);
+        c_v_r = _mm256_fmadd_ps(a_v2, br_v_r2, c_v_r);
+        c_v_r = _mm256_fmadd_ps(a_v3, br_v_r3, c_v_r);
       }
-      // Handle remainder j loop
-      int rem = N - j;
-      if (rem > 0) {
-        __m256i mask_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
-            &avx2_ps_or_epi32_combined_mask[VLEN - rem]));
-        __m256 br_v = _mm256_maskload_ps(B + acbr * ldb + j, mask_v);
-        __m256 c_v = _mm256_maskload_ps(C + i * ldc + j, mask_v);
-        c_v = _mm256_fmadd_ps(a_v, br_v, c_v);
-        _mm256_maskstore_ps(C + i * ldc + j, mask_v, c_v);
+      // Handle remainder r loop
+      for (; r < row_ptr[i + 1]; ++r) {
+        int acbr = col_idx[r];
+        __m256 a_v = _mm256_set1_ps(values[r]);
+        __m256 br_v_r = _mm256_maskload_ps(B + acbr * ldb + j, mask_v);
+        c_v_r = _mm256_fmadd_ps(a_v, br_v_r, c_v_r);
       }
+      _mm256_maskstore_ps(C + i * ldc + j, mask_v, c_v_r);
     }
   }
 }
-
 } // namespace internal
 } // namespace fbgemm
