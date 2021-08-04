@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
+#include "fbgemm/Utils.h"
 
 enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
 
@@ -37,27 +38,39 @@ namespace internal {
 struct BatchedHyperCompressedSparseColumn {
   int num_tables; // # of matrices (or tables)
   // pointers to the beginning of each table in column_ptr (length T + 1)
-  std::vector<int> table_ptr;
+  int* table_ptr = nullptr;
   // pointers to the beginning of each column segment in row_indices
   // (length table_ptr[T] + 1)
   // For a shared table, a column can have multiple segments, each for a
   // feature sharing the table. In this case, the segments will have the
   // same column_segment_indices but different column_segment_ids.
-  std::vector<int> column_segment_ptr;
-  std::vector<int64_t> column_segment_indices; // length table_ptr[T]
-  std::vector<int64_t> column_segment_ids; // length table_ptr[T]
-  std::vector<int> row_indices; // length column_ptr[table_ptr[T]]
-  std::vector<float> weights; // length column_ptr[table_ptr[T]]
+  int* column_segment_ptr = nullptr;
+  int64_t* column_segment_indices = nullptr; // length table_ptr[T]
+  int64_t* column_segment_ids = nullptr; // length table_ptr[T]
+  int* row_indices = nullptr; // length column_ptr[table_ptr[T]]
+  float* weights = nullptr; // length column_ptr[table_ptr[T]]
+  ~BatchedHyperCompressedSparseColumn() {
+    if (table_ptr) {
+      fbgemm::fbgemmAlignedFree(table_ptr);
+      fbgemm::fbgemmAlignedFree(column_segment_ptr);
+      fbgemm::fbgemmAlignedFree(column_segment_indices);
+      fbgemm::fbgemmAlignedFree(column_segment_ids);
+      fbgemm::fbgemmAlignedFree(row_indices);
+    }
+    if (weights) {
+      fbgemm::fbgemmAlignedFree(weights);
+    }
+  }
 };
 
 template <typename scalar_t>
 void batched_csr2csc(
     BatchedHyperCompressedSparseColumn& batched_csc,
-    int num_tables, // number of tables, not number of features
     int B,
     const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
     const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
     const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
     int64_t pooling_mode,
-    const int* table_to_feature_offset);
+    const int* table_to_feature_offset,
+    int64_t num_embeddings);
 } // namespace internal

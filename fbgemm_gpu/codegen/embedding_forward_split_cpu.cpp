@@ -7,6 +7,8 @@
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
+#include "fbgemm/Utils.h"
+#include "include/fbgemm_gpu/cpu_utils.h"
 #ifdef FBCODE_CAFFE2
 #include "folly/container/F14Map.h"
 #endif
@@ -323,168 +325,219 @@ namespace internal {
 template <typename scalar_t>
 void batched_csr2csc(
     BatchedHyperCompressedSparseColumn& batched_csc,
-    int num_tables, // number of tables, not number of features
     int B,
     // TODO: use accessor for the following 3 parameters
     const TensorAccessor<int64_t, 1>& batched_csr_offsets,
     const TensorAccessor<int64_t, 1>& batched_csr_indices,
     const TensorAccessor<scalar_t, 1>& batched_csr_weights,
     int64_t pooling_mode,
-    const int* table_to_feature_offset) {
+    const int* table_to_feature_offset,
+    int64_t num_embeddings) {
+  int num_tables = 1;
   batched_csc.num_tables = num_tables;
-  batched_csc.table_ptr.resize(num_tables + 1);
+  batched_csc.table_ptr =
+      (int*)fbgemm::fbgemmAlignedAlloc(64, (num_tables + 1) * sizeof(int));
+  batched_csc.table_ptr[0] = 0;
   int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B] -
       batched_csr_offsets[table_to_feature_offset[0] * B];
-  batched_csc.row_indices.resize(nnz);
+  if (nnz == 0) {
+    batched_csc.table_ptr[1] = 0;
+    return;
+  }
+  batched_csc.row_indices =
+      (int*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int));
   bool has_weights = batched_csr_weights.data() != nullptr;
   if (has_weights || pooling_mode == MEAN) {
-    batched_csc.weights.resize(nnz);
+    batched_csc.weights =
+        (float*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float));
   }
 
-  batched_csc.table_ptr[0] = 0;
-  batched_csc.column_segment_ptr.push_back(0);
   int column_ptr_curr = 0;
-  for (int t = 0; t < num_tables; ++t) {
-    int num_non_empty_segments = 0;
-    if (batched_csc.weights.empty()) {
-#ifdef FBCODE_CAFFE2
-      folly::F14FastMap<int64_t, std::vector<std::vector<int>>>
-#else
-      std::unordered_map<int64_t, std::vector<std::vector<int>>>
-#endif
-          non_empty_columns;
-      int f_begin = table_to_feature_offset[t];
-      int f_end = table_to_feature_offset[t + 1];
+  int t = 0;
+  auto NS = batched_csr_offsets[table_to_feature_offset[t + 1] * B] -
+      batched_csr_offsets[table_to_feature_offset[t] * B];
+  int num_non_empty_segments = 0;
+  if (!batched_csc.weights) {
+    Radix_Sort_Pair<int>* tmpBuf =
+        (Radix_Sort_Pair<int>*)fbgemm::fbgemmAlignedAlloc(
+            64, (NS) * sizeof(Radix_Sort_Pair<int>));
+    Radix_Sort_Pair<int>* tmpBuf1 =
+        (Radix_Sort_Pair<int>*)fbgemm::fbgemmAlignedAlloc(
+            64, (NS) * sizeof(Radix_Sort_Pair<int>));
+    const auto FBo = batched_csr_offsets[table_to_feature_offset[t] * B];
+    for (int feature = table_to_feature_offset[t];
+         feature < table_to_feature_offset[t + 1];
+         ++feature) {
+      const auto FBs = (feature - table_to_feature_offset[t]) * B;
+#pragma omp parallel for
+      for (int b = 0; b < B; ++b) {
+        const auto FBb = feature * B + b;
+        int64_t pool_begin = batched_csr_offsets[FBb];
+        int64_t pool_end = batched_csr_offsets[FBb + 1];
+        for (int64_t p = pool_begin; p < pool_end; ++p) {
+          tmpBuf[p - FBo].first = batched_csr_indices[p];
+          tmpBuf[p - FBo].second = FBs + b;
+        }
+      }
+    }
 
-      for (int feature = f_begin; feature < f_end; ++feature) {
-        for (int b = 0; b < B; ++b) {
-          int64_t pool_begin = batched_csr_offsets[feature * B + b];
-          int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
-          for (int64_t p = pool_begin; p < pool_end; ++p) {
-            auto itr = non_empty_columns.find(batched_csr_indices[p]);
-            if (itr == non_empty_columns.end()) {
-              itr = non_empty_columns
-                        .emplace(
-                            batched_csr_indices[p],
-                            std::vector<std::vector<int>>(f_end - f_begin))
-                        .first;
-            }
-            if (itr->second[feature - f_begin].empty()) {
-              ++num_non_empty_segments;
-            }
-            itr->second[feature - f_begin].push_back(b);
+    Radix_Sort_Pair<int>* sorted_col_row_index_pairs =
+        radix_sort_parallel<int>(&tmpBuf[0], &tmpBuf1[0], NS, num_embeddings);
+
+    int max_thds = omp_get_max_threads();
+    int num_uniq[max_thds][64];
+#pragma omp parallel
+    {
+      int tid = omp_get_thread_num();
+      num_uniq[tid][0] = 0;
+#pragma omp for schedule(static)
+      for (int i = 1; i < NS; i++) {
+        if (sorted_col_row_index_pairs[i].first !=
+            sorted_col_row_index_pairs[i - 1].first)
+          num_uniq[tid][0]++;
+      }
+    }
+    num_uniq[0][0] += 1;
+    for (int i = 1; i < max_thds; i++)
+      num_uniq[i][0] += num_uniq[i - 1][0];
+    int U = num_uniq[max_thds - 1][0];
+
+    batched_csc.column_segment_ptr =
+        (int*)fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int));
+    batched_csc.column_segment_indices =
+        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+    batched_csc.column_segment_ids =
+        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+
+    batched_csc.column_segment_ptr[0] = 0;
+    batched_csc.row_indices[0] = sorted_col_row_index_pairs[0].second % B;
+    batched_csc.column_segment_indices[0] = sorted_col_row_index_pairs[0].first;
+    batched_csc.column_segment_ids[0] =
+        sorted_col_row_index_pairs[0].second / B;
+#pragma omp parallel
+    {
+      int tid = omp_get_thread_num();
+      int64_t* tstart =
+          (tid == 0
+               ? batched_csc.column_segment_indices + 1
+               : batched_csc.column_segment_indices + num_uniq[tid - 1][0]);
+      int64_t* t_sids =
+          (tid == 0 ? batched_csc.column_segment_ids + 1
+                    : batched_csc.column_segment_ids + num_uniq[tid - 1][0]);
+
+      int* t_offs =
+          (tid == 0 ? batched_csc.column_segment_ptr + 1
+                    : batched_csc.column_segment_ptr + num_uniq[tid - 1][0]);
+
+#pragma omp for schedule(static)
+      for (int i = 1; i < NS; i++) {
+        batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second % B;
+        if (sorted_col_row_index_pairs[i].first !=
+            sorted_col_row_index_pairs[i - 1].first) {
+          *tstart = sorted_col_row_index_pairs[i].first;
+          *t_sids = sorted_col_row_index_pairs[i].second / B;
+          *t_offs = i;
+          tstart++;
+          t_sids++;
+          t_offs++;
+        }
+      }
+    }
+    batched_csc.table_ptr[t + 1] = batched_csc.table_ptr[t] + U;
+    batched_csc.column_segment_ptr[U] = NS;
+    column_ptr_curr += NS;
+    fbgemm::fbgemmAlignedFree(tmpBuf);
+    fbgemm::fbgemmAlignedFree(tmpBuf1);
+  } else {
+    // !batched_csc.weights.empty()
+#ifdef FBCODE_CAFFE2
+    folly::F14FastMap<
+#else
+    std::unordered_map<
+#endif
+        int64_t,
+        std::vector<std::vector<std::pair<int, scalar_t>>>>
+        non_empty_columns;
+    int f_begin = table_to_feature_offset[t];
+    int f_end = table_to_feature_offset[t + 1];
+    for (int feature = f_begin; feature < f_end; ++feature) {
+      for (int b = 0; b < B; ++b) {
+        int64_t pool_begin = batched_csr_offsets[feature * B + b];
+        int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
+        int64_t L = pool_end - pool_begin;
+        // MEAN pooling will not work with indice_weights!
+        double scale_factor =
+            (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
+        for (int64_t p = pool_begin; p < pool_end; ++p) {
+          auto itr = non_empty_columns.find(batched_csr_indices[p]);
+          if (itr == non_empty_columns.end()) {
+            itr = non_empty_columns
+                      .emplace(
+                          batched_csr_indices[p],
+                          std::vector<std::vector<std::pair<int, scalar_t>>>(
+                              f_end - f_begin))
+                      .first;
+          }
+          if (itr->second[feature - f_begin].empty()) {
+            ++num_non_empty_segments;
+          }
+          itr->second[feature - f_begin].emplace_back(
+              b, scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
+        }
+      }
+    } // for each feature
+
+    batched_csc.table_ptr[t + 1] =
+        batched_csc.table_ptr[t] + num_non_empty_segments;
+    batched_csc.column_segment_ptr =
+        (int*)fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int));
+    batched_csc.column_segment_ptr[0] = 0;
+    batched_csc.column_segment_indices =
+        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+    batched_csc.column_segment_ids =
+        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+    int k = 1;
+    for (auto const& column : non_empty_columns) {
+      int feature = f_begin;
+      for (auto const& column_segment : column.second) {
+        if (!column_segment.empty()) {
+          batched_csc.column_segment_ptr[k] =
+              column_ptr_curr + column_segment.size();
+          batched_csc.column_segment_indices[k - 1] = column.first;
+          batched_csc.column_segment_ids[k - 1] = feature - f_begin;
+          k++;
+          for (auto const& non_zero : column_segment) {
+            batched_csc.row_indices[column_ptr_curr] = non_zero.first;
+            batched_csc.weights[column_ptr_curr] = non_zero.second;
+            ++column_ptr_curr;
           }
         }
-      } // for each feature
-
-      batched_csc.table_ptr[t + 1] =
-          batched_csc.table_ptr[t] + num_non_empty_segments;
-      batched_csc.column_segment_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
-      batched_csc.column_segment_indices.reserve(batched_csc.table_ptr[t + 1]);
-      batched_csc.column_segment_ids.reserve(batched_csc.table_ptr[t + 1]);
-      for (auto const& column : non_empty_columns) {
-        int feature = f_begin;
-        for (auto const& column_segment : column.second) {
-          if (!column_segment.empty()) {
-            batched_csc.column_segment_ptr.push_back(
-                column_ptr_curr + column_segment.size());
-            batched_csc.column_segment_indices.push_back(column.first);
-            batched_csc.column_segment_ids.push_back(feature - f_begin);
-            memcpy(
-                &batched_csc.row_indices[column_ptr_curr],
-                column_segment.data(),
-                column_segment.size() * sizeof(int));
-            column_ptr_curr += column_segment.size();
-          }
-          ++feature;
-        } // for each column segment
-      } // for each column
-    } else {
-      // !batched_csc.weights.empty()
-#ifdef FBCODE_CAFFE2
-      folly::F14FastMap<
-#else
-      std::unordered_map<
-#endif
-          int64_t,
-          std::vector<std::vector<std::pair<int, scalar_t>>>>
-          non_empty_columns;
-      int f_begin = table_to_feature_offset[t];
-      int f_end = table_to_feature_offset[t + 1];
-      for (int feature = f_begin; feature < f_end; ++feature) {
-        for (int b = 0; b < B; ++b) {
-          int64_t pool_begin = batched_csr_offsets[feature * B + b];
-          int64_t pool_end = batched_csr_offsets[feature * B + b + 1];
-          int64_t L = pool_end - pool_begin;
-          // MEAN pooling will not work with indice_weights!
-          double scale_factor =
-              (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
-          for (int64_t p = pool_begin; p < pool_end; ++p) {
-            auto itr = non_empty_columns.find(batched_csr_indices[p]);
-            if (itr == non_empty_columns.end()) {
-              itr = non_empty_columns
-                        .emplace(
-                            batched_csr_indices[p],
-                            std::vector<std::vector<std::pair<int, scalar_t>>>(
-                                f_end - f_begin))
-                        .first;
-            }
-            if (itr->second[feature - f_begin].empty()) {
-              ++num_non_empty_segments;
-            }
-            itr->second[feature - f_begin].emplace_back(
-                b,
-                scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
-          }
-        }
-      } // for each feature
-
-      batched_csc.table_ptr[t + 1] =
-          batched_csc.table_ptr[t] + num_non_empty_segments;
-      batched_csc.column_segment_ptr.reserve(batched_csc.table_ptr[t + 1] + 1);
-      batched_csc.column_segment_indices.reserve(batched_csc.table_ptr[t + 1]);
-      batched_csc.column_segment_ids.reserve(batched_csc.table_ptr[t + 1]);
-      for (auto const& column : non_empty_columns) {
-        int feature = f_begin;
-        for (auto const& column_segment : column.second) {
-          if (!column_segment.empty()) {
-            batched_csc.column_segment_ptr.push_back(
-                column_ptr_curr + column_segment.size());
-            batched_csc.column_segment_indices.push_back(column.first);
-            batched_csc.column_segment_ids.push_back(feature - f_begin);
-            for (auto const& non_zero : column_segment) {
-              batched_csc.row_indices[column_ptr_curr] = non_zero.first;
-              batched_csc.weights[column_ptr_curr] = non_zero.second;
-              ++column_ptr_curr;
-            }
-          }
-          ++feature;
-        } // for each column segment
-      } // for each column
-    } // !batched_csc.weights.empty()
-  } // for each matrix (table)
+        ++feature;
+      } // for each column segment
+    } // for each column
+  } // !batched_csc.weights.empty()
 
   assert(column_ptr_curr == nnz);
 }
 
 template void batched_csr2csc<float>(
     BatchedHyperCompressedSparseColumn& batched_csc,
-    int T,
     int B,
     const TensorAccessor<int64_t, 1>& batched_csr_offsets,
     const TensorAccessor<int64_t, 1>& batched_csr_indices,
     const TensorAccessor<float, 1>& batched_csr_weights,
     int64_t pooling_mode,
-    const int* table_to_feature_offset);
+    const int* table_to_feature_offset,
+    int64_t num_embeddings);
 
 template void batched_csr2csc<double>(
     BatchedHyperCompressedSparseColumn& batched_csc,
-    int T,
     int B,
     const TensorAccessor<int64_t, 1>& batched_csr_offsets,
     const TensorAccessor<int64_t, 1>& batched_csr_indices,
     const TensorAccessor<double, 1>& batched_csr_weights,
     int64_t pooling_mode,
-    const int* table_to_feature_offset);
+    const int* table_to_feature_offset,
+    int64_t num_embeddings);
 
 } // namespace internal

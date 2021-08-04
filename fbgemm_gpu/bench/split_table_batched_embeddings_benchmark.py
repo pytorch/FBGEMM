@@ -499,8 +499,8 @@ def uvm(
             offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
             per_sample_weights = None
             if weighted:
-                assert (this_rs_uvm_weights := rs_uvm[2]) is not None
-                assert (this_rs_gpu_weights := rs_gpu[2]) is not None
+                # assert (this_rs_uvm_weights := rs_uvm[2]) is not None
+                # assert (this_rs_gpu_weights := rs_gpu[2]) is not None
                 per_sample_weights = torch.cat(
                     [this_rs_uvm_weights, this_rs_gpu_weights]
                 )
