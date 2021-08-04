@@ -10,7 +10,7 @@ import sysconfig
 
 from codegen.embedding_backward_code_generator import emb_codegen
 from setuptools import setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 cub_include_path = os.getenv("CUB_DIR")
@@ -163,6 +163,31 @@ setup(
                 os.path.join(cur_dir, "../third_party/asmjit/src/x86"),
                 os.path.join(cur_dir, "../third_party/cpuinfo/include"),
                 cub_include_path,
+            ],
+            extra_compile_args={"cxx": extra_compile_args},
+        ) if cub_include_path is not None and os.path.exists(cub_include_path) else
+        CppExtension(
+            name="fbgemm_gpu_py",
+            sources=[
+                os.path.join(cur_dir, build_codegen_path, "{}".format(f))
+                for f in cpp_cpu_output_files
+            ]
+            + cpp_asmjit_files
+            + cpp_fbgemm_files
+            + [
+                os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
+            ],
+            include_dirs=[
+                cur_dir,
+                os.path.join(cur_dir, "include"),
+                os.path.join(cur_dir, "../include"),
+                os.path.join(cur_dir, "../src"),
+                os.path.join(cur_dir, "../third_party/asmjit/src"),
+                os.path.join(cur_dir, "../third_party/asmjit/src/core"),
+                os.path.join(cur_dir, "../third_party/asmjit/src/x86"),
+                os.path.join(cur_dir, "../third_party/cpuinfo/include"),
             ],
             extra_compile_args={"cxx": extra_compile_args},
         )

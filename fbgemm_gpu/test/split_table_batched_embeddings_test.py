@@ -790,6 +790,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         stochastic_rounding=st.booleans(),
         weighted=st.booleans(),
+        # row_wise=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
