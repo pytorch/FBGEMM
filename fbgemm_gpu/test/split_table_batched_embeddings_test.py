@@ -1843,7 +1843,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
 
-        # pyre-fixme[16]: `IntTensor` has no attribute `fill_`.
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
 
