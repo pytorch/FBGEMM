@@ -26,7 +26,7 @@ Radix_Sort_Pair<T>* radix_sort_parallel(
   if (max_value == 0)
     return inp_buf;
   int num_bits = sizeof(T) * 8 - __builtin_clz(max_value);
-  int num_passes = (num_bits + 7) / 8;
+  unsigned int num_passes = (num_bits + 7) / 8;
 
 #pragma omp parallel
   {
