@@ -52,6 +52,8 @@ struct BatchedHyperCompressedSparseColumn {
   ~BatchedHyperCompressedSparseColumn() {
     if (table_ptr) {
       fbgemm::fbgemmAlignedFree(table_ptr);
+    }
+    if (column_segment_ptr) {
       fbgemm::fbgemmAlignedFree(column_segment_ptr);
       fbgemm::fbgemmAlignedFree(column_segment_indices);
       fbgemm::fbgemmAlignedFree(column_segment_ids);

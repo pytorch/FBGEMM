@@ -407,13 +407,12 @@ void batched_csr2csc(
     batched_csc.column_segment_indices =
         (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
     batched_csc.column_segment_ids =
-        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int64_t));
 
     batched_csc.column_segment_ptr[0] = 0;
     batched_csc.row_indices[0] = sorted_col_row_index_pairs[0].second % B;
     batched_csc.column_segment_indices[0] = sorted_col_row_index_pairs[0].first;
-    batched_csc.column_segment_ids[0] =
-        sorted_col_row_index_pairs[0].second / B;
+    batched_csc.column_segment_ids[0] = sorted_col_row_index_pairs[0].second / B;
 #pragma omp parallel
     {
       int tid = omp_get_thread_num();
@@ -421,9 +420,6 @@ void batched_csr2csc(
           (tid == 0
                ? batched_csc.column_segment_indices + 1
                : batched_csc.column_segment_indices + num_uniq[tid - 1][0]);
-      int64_t* t_sids =
-          (tid == 0 ? batched_csc.column_segment_ids + 1
-                    : batched_csc.column_segment_ids + num_uniq[tid - 1][0]);
 
       int* t_offs =
           (tid == 0 ? batched_csc.column_segment_ptr + 1
@@ -432,13 +428,12 @@ void batched_csr2csc(
 #pragma omp for schedule(static)
       for (int i = 1; i < NS; i++) {
         batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second % B;
+        batched_csc.column_segment_ids[i] = sorted_col_row_index_pairs[i].second / B;
         if (sorted_col_row_index_pairs[i].first !=
             sorted_col_row_index_pairs[i - 1].first) {
           *tstart = sorted_col_row_index_pairs[i].first;
-          *t_sids = sorted_col_row_index_pairs[i].second / B;
           *t_offs = i;
           tstart++;
-          t_sids++;
           t_offs++;
         }
       }

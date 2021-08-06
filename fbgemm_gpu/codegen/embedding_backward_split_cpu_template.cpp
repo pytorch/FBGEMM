@@ -91,6 +91,8 @@ void split_embedding_backward_exact_cpu_kernel(
           table_to_feature_offset + t,
           hash_size);
   }
+  // sort based csr2csc handles segment_ids differently
+  bool is_csr2csc_sort = batched_cscs[0].weights == nullptr;
 
   for (int t = 0; t < num_tables; ++t) {
     int feature_begin = table_to_feature_offset[t];
@@ -180,8 +182,9 @@ void split_embedding_backward_exact_cpu_kernel(
           memset(grad_buffer, 0, D * sizeof(grad_t));
         }
         const int64_t embedding_begin = table_begin + idx * D;
-        int D_offset = D_begin + batched_cscs[t].column_segment_ids[c] * D;
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
+          int D_offset = D_begin +
+            batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
           int b = batched_cscs[t].row_indices[r];
           for (int64_t d = 0; d < D; ++d) {
             grad_buffer[d] += batched_cscs[t].weights != nullptr
