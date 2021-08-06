@@ -1152,8 +1152,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_state`.
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
         self.timestep = 1

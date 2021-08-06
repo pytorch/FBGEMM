@@ -435,8 +435,12 @@ class SparseOpsTest(unittest.TestCase):
     ) -> None:
         T = 4
         B = 2
+        # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+        #  `Union[Type[np.int32], Type[np.int64]]`.
         lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=offset_type)
         indices = torch.tensor(
+            # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+            #  `Union[Type[np.int32], Type[np.int64]]`.
             [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20], dtype=index_type
         )
         weights = (
@@ -458,18 +462,26 @@ class SparseOpsTest(unittest.TestCase):
                     14.0,
                     15.0,
                 ],
+                # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but
+                #  got `Type[float]`.
                 dtype=float,
             )
             if has_weight
             else None
         )
+        # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+        #  `Union[Type[np.int32], Type[np.int64]]`.
         block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
         my_size = 2
 
         new_lengths_ref = torch.tensor(
+            # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+            #  `Union[Type[np.int32], Type[np.int64]]`.
             [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1], dtype=index_type
         )
         new_indices_ref = torch.tensor(
+            # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+            #  `Union[Type[np.int32], Type[np.int64]]`.
             [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0], dtype=index_type
         )
         new_weights_ref = torch.tensor(
@@ -490,9 +502,13 @@ class SparseOpsTest(unittest.TestCase):
                 14.0,
                 15.0,
             ],
+            # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+            #  `Type[float]`.
             dtype=float,
         )
         new_pos_ref = torch.tensor(
+            # pyre-fixme[6]: Expected `Optional[torch.dtype]` for 2nd param but got
+            #  `Union[Type[np.int32], Type[np.int64]]`.
             [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0], dtype=index_type
         )
 
