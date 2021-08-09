@@ -15,7 +15,7 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType, RecordCacheMetrics
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
 
@@ -1843,7 +1843,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
 
-        # pyre-fixme[16]: `IntTensor` has no attribute `fill_`.
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
 
@@ -1917,7 +1916,7 @@ class CUMemTest(unittest.TestCase):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
-            record_cache_metrics=True,
+            record_cache_metrics=RecordCacheMetrics(True, False),
         )
         cc._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
         cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
@@ -1950,7 +1949,7 @@ class CUMemTest(unittest.TestCase):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
-            record_cache_metrics=True,
+            record_cache_metrics=RecordCacheMetrics(True, True),
         )
 
         # Create fake input data and the target output
@@ -1968,14 +1967,18 @@ class CUMemTest(unittest.TestCase):
         xs.append(x2)
         xs.append(x3)
 
-        target_counter = [[1, 3], [2, 4], [3, 8]]
-        for x, target in zip(xs, target_counter):
+        target_counter_list = [[1, 3], [2, 4], [3, 8]]
+        target_tablewise_cache_miss_list = [[1, 2], [2, 2], [4, 4]]
+        for x, t_counter, t_tablewise_cache_miss in zip(xs, target_counter_list, target_tablewise_cache_miss_list):
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc(indices, offsets)
                 cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
-                assert(cache_miss_forward_count == target[0])
-                assert(unique_cache_miss_count == target[1])
+                tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
+                assert(cache_miss_forward_count == t_counter[0])
+                assert(unique_cache_miss_count == t_counter[1])
+                for i in range(len(tablewise_cache_miss)):
+                    assert(t_tablewise_cache_miss[i] == tablewise_cache_miss[i])
 
 
 if __name__ == "__main__":

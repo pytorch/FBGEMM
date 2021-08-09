@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, NamedTuple
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
@@ -53,6 +53,10 @@ class PoolingMode(enum.IntEnum):
     MEAN = 1
     NONE = 2
 
+RecordCacheMetrics: NamedTuple = NamedTuple(
+    "RecordCacheMetrics",
+    [("record_cache_miss_counter", bool), ("record_tablewise_cache_miss", bool)]
+)
 
 @dataclass
 class SplitState:
@@ -160,6 +164,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     lxu_cache_locations_list: List[Tensor]
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: List[int]
+    record_cache_metrics: RecordCacheMetrics
 
     def __init__(  # noqa C901
         self,
@@ -175,7 +180,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
-        record_cache_metrics: bool = False,
+        record_cache_metrics: Optional[RecordCacheMetrics] = None,
         # General Optimizer args
         stochastic_rounding: bool = False,
         gradient_clipping: bool = False,
@@ -194,7 +199,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
-        self.record_cache_metrics = record_cache_metrics
+
+        if record_cache_metrics is not None:
+            self.record_cache_metrics = record_cache_metrics
+        else:
+            self.record_cache_metrics = RecordCacheMetrics(False, False)
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
         self.dummy_tensor: Tensor = torch.zeros(0, device=device)
 
@@ -400,6 +409,29 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         cache_state = construct_cache_state(embedding_specs, self.feature_table_map)
+
+        # Add table-wise cache miss counter
+        if self.record_cache_metrics.record_tablewise_cache_miss:
+            num_tables = len(cache_state.cache_hash_size_cumsum) - 1
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    num_tables,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+        # NOTE: make TorchScript work!
+        else:
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    0,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+
         if cache_precision == SparseType.FP32:
             cache_embedding_dtype = torch.float32
         elif cache_precision == SparseType.FP16:
@@ -456,6 +488,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
         # nn.Module]`.
         return self.cache_miss_counter
+
+    @torch.jit.export
+    def get_table_wise_cache_miss(self) -> Tensor:
+        # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
+
+        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
+        # nn.Module]`.
+        return self.table_wise_cache_miss
 
     def forward(
         self,
@@ -654,12 +694,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets,
         )
 
-        if self.record_cache_metrics:
+        if self.record_cache_metrics.record_cache_miss_counter or self.record_cache_metrics.record_tablewise_cache_miss:
             lxu_cache_locations = torch.ops.fb.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
             )
-            self._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
+            if self.record_cache_metrics.record_cache_miss_counter:
+                self._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
+            if self.record_cache_metrics.record_tablewise_cache_miss:
+                self._update_tablewise_cache_miss(lxu_cache_locations, linear_cache_indices, offsets)
 
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fb.lru_cache_populate(
@@ -700,7 +743,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
-    def _update_cache_miss_counter(self, lxu_cache_locations: Tensor, linear_cache_indices: Tensor) -> None:
+    def _update_cache_miss_counter(
+        self, lxu_cache_locations: Tensor, linear_cache_indices: Tensor,
+    ) -> None:
         CACHE_MISS = -1
         CACHE_HIT = -2
 
@@ -722,6 +767,34 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  nn.Module]` is not a function.
         self.cache_miss_counter[1] += miss_count
 
+    def _update_tablewise_cache_miss(
+        self, lxu_cache_locations: Tensor, linear_cache_indices: Tensor, offsets: Tensor,
+    ) -> None:
+        CACHE_MISS = -1
+        CACHE_HIT = -2
+
+        # pyre-ignore[6]:
+        # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
+        # positional only parameter to call `len` but got `typing.Union[Tensor, nn.Module]`.
+        num_tables = len(self.cache_hash_size_cumsum) - 1
+        num_offsets_per_table = (len(offsets) - 1) // num_tables
+        cache_missed_locations = torch.where(lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT)
+
+        for i in range(num_tables):
+            start = offsets[i * num_offsets_per_table]
+            end = offsets[(i + 1) * num_offsets_per_table]
+
+            current_cache_missed_locations = cache_missed_locations[start:end]
+            unique_ids_list = torch.unique(current_cache_missed_locations)
+            unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+            miss_count = torch.sum(unique_ids_count_list)
+
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+            #  nn.Module]` is not a function.
+            self.table_wise_cache_miss[i] += miss_count
 
     def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
         splits = self.split_embedding_weights()
@@ -1152,8 +1225,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
-        # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_state`.
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
         self.timestep = 1
