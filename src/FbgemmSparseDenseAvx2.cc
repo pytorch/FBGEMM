@@ -113,10 +113,10 @@ void SparseDenseMMAvx2(
         __m256 a_v1 = _mm256_set1_ps(values[r + 1]);
         __m256 a_v2 = _mm256_set1_ps(values[r + 2]);
         __m256 a_v3 = _mm256_set1_ps(values[r + 3]);
-        __m256 br_v_r0 = _mm256_loadu_ps(B + acbr_0 * ldb + j);
-        __m256 br_v_r1 = _mm256_loadu_ps(B + acbr_1 * ldb + j);
-        __m256 br_v_r2 = _mm256_loadu_ps(B + acbr_2 * ldb + j);
-        __m256 br_v_r3 = _mm256_loadu_ps(B + acbr_3 * ldb + j);
+        __m256 br_v_r0 = _mm256_maskload_ps(B + acbr_0 * ldb + j, mask_v);
+        __m256 br_v_r1 = _mm256_maskload_ps(B + acbr_1 * ldb + j, mask_v);
+        __m256 br_v_r2 = _mm256_maskload_ps(B + acbr_2 * ldb + j, mask_v);
+        __m256 br_v_r3 = _mm256_maskload_ps(B + acbr_3 * ldb + j, mask_v);
         c_v_r = _mm256_fmadd_ps(a_v0, br_v_r0, c_v_r);
         c_v_r = _mm256_fmadd_ps(a_v1, br_v_r1, c_v_r);
         c_v_r = _mm256_fmadd_ps(a_v2, br_v_r2, c_v_r);
