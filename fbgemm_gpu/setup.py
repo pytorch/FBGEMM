@@ -22,7 +22,8 @@ with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 extra_compile_args = sysconfig.get_config_var("CFLAGS").split()
-extra_compile_args += ["-mavx2", "-mf16c", "-mfma", "-mavx512f", "-mavx512bw", "-mavx512dq", "-mavx512vl"]
+# extra_compile_args += ["-mavx2", "-mf16c", "-mfma", "-mavx512f", "-mavx512bw", "-mavx512dq", "-mavx512vl"]
+extra_compile_args += ["-mavx2", "-mf16c", "-mfma"]
 
 OPTIMIZERS = [
     "adagrad",
@@ -41,7 +42,7 @@ cpp_asmjit_files = glob.glob("../third_party/asmjit/src/asmjit/*/*.cpp")
 
 cpp_fbgemm_files = [
     "../src/EmbeddingSpMDMAvx2.cc",
-    "../src/EmbeddingSpMDMAvx512.cc",
+    # "../src/EmbeddingSpMDMAvx512.cc",
     "../src/EmbeddingSpMDM.cc",
     "../src/EmbeddingSpMDMNBit.cc",
     "../src/QuantUtils.cc",
