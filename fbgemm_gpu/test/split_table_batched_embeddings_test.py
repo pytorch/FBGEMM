@@ -1648,6 +1648,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
+                    "",
                     E,
                     D,
                     weights_ty
