@@ -12,9 +12,6 @@ using namespace at;
 // Allocate the ATen Tensor with unified managed memory (UVM)
 Tensor new_managed_tensor(Tensor self, std::vector<std::int64_t> sizes);
 
-// Allocate the ATen Tensor with host-mapped memory
-Tensor new_host_mapped_tensor(Tensor self, std::vector<std::int64_t> sizes);
-
 // Check if a tensor is allocated with UVM or host-mapped memory
 bool is_uvm_tensor(Tensor t);
 
@@ -31,9 +28,4 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.impl(
       "new_managed_tensor",
       torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(new_managed_tensor)));
-  m.def("new_host_mapped_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.impl(
-      "new_host_mapped_tensor",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(new_host_mapped_tensor)));
 }
