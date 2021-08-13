@@ -1478,8 +1478,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def __init__(
         self,
         embedding_specs: List[
-            Tuple[int, int, SparseType]
-        ],  # tuple of (rows, dims, SparseType)
+            Tuple[str, int, int, SparseType]
+        ],  # tuple of (feature_names, rows, dims, SparseType)
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
@@ -1496,11 +1496,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
 
         self.embedding_specs = embedding_specs
-        # (rows, dims, weights_tys, ) = zip(*embedding_specs)
+        # (feature_names, rows, dims, weights_tys, ) = zip(*embedding_specs)
         # Pyre workaround
-        rows: List[int] = [e[0] for e in embedding_specs]
-        dims: List[int] = [e[1] for e in embedding_specs]
-        weights_tys: List[SparseType] = [e[2] for e in embedding_specs]
+        self.feature_names: List[str] = [e[0] for e in embedding_specs]
+        rows: List[int] = [e[1] for e in embedding_specs]
+        dims: List[int] = [e[2] for e in embedding_specs]
+        weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
 
         T_ = len(self.embedding_specs)
 
@@ -1546,7 +1547,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return round_up(a, 128)
 
         weights_offsets = [0] + np.cumsum(
-            [align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty)) for (row, dim, weight_ty) in embedding_specs]
+            [align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty)) for _, row, dim, weight_ty in embedding_specs]
         ).tolist()
         self.register_buffer(
             "weights",
@@ -1561,7 +1562,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         for feature in range(T):
             t = feature_table_map[feature]
-            row, dim, weight_ty = embedding_specs[t]
+            _, row, dim, weight_ty = embedding_specs[t]
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
             #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
@@ -1682,7 +1683,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Returns a list of weights, split by table
         """
         splits: List[Tuple[Tensor, Optional[Tensor]]] = []
-        for t, (rows, dim, weight_ty) in enumerate(self.embedding_specs):
+        for t, (_, rows, dim, weight_ty) in enumerate(self.embedding_specs):
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
             #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,

@@ -46,14 +46,14 @@ class SplitEmbInferenceConverter:
                         weights_ty = (
                             SparseType.FP16
                         )  # fall back to FP16 if dimension couldn't be aligned with the required size
-                    embedding_specs.append((E, D, weights_ty))
+                    embedding_specs.append(("", E, D, weights_ty))
 
                 q_child = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=embedding_specs,
                     pooling_mode=child.pooling_mode,
                     use_cpu=use_cpu,
                 )
-                for t, (_, _, weight_ty) in enumerate(embedding_specs):
+                for t, (_, _, _, weight_ty) in enumerate(embedding_specs):
                     if weight_ty == SparseType.FP16:
                         original_weight = child.split_embedding_weights()[t]
                         q_weight = original_weight.half()

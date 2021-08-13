@@ -784,7 +784,7 @@ def cpu(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, weights_precision) for d in Ds],
+        [("", E, d, weights_precision) for d in Ds],
         use_cpu=True,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
@@ -899,7 +899,7 @@ def nbit_device(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [(E, d, weights_precision) for d in Ds],
+        [("", E, d, weights_precision) for d in Ds],
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cuda()
 
