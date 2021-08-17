@@ -1473,10 +1473,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
-                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
-                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1515,10 +1511,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
-                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
-                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
