@@ -33,7 +33,7 @@ PRECISION_SIZE_MULTIPLIER: Dict[SparseType, float] = {
 }
 
 
-def div_round_up(a: int, b: int) -> int:
+def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
 
@@ -121,7 +121,9 @@ def benchmark_requests(
         start_time = time.time()
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
-                _ = torch.rand(flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+                _ = torch.rand(
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                )
                 torch.cuda.synchronize()
             start_event.record()
         func(indices, offsets, weights)
@@ -153,7 +155,9 @@ def benchmark_pipelined_requests(
         requests, start_events, end_events
     ):
         if flush_gpu_cache_size_mb:
-            _ = torch.rand(flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+            _ = torch.rand(
+                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+            )
             torch.cuda.synchronize()
         start_event[0].record()
         func1(indices, offsets, indices_weights)
@@ -239,7 +243,7 @@ def device(  # noqa C901
         feature_requires_grad = None
     if mixed:
         Ds = [
-            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
         D = np.average(Ds)
@@ -386,7 +390,7 @@ def uvm(
 
     if mixed:
         Ds = [
-            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
         D = np.average(Ds)
@@ -588,7 +592,7 @@ def cache(  # noqa C901
     cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
     if mixed:
         Ds = [
-            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
         D = np.average(Ds)
@@ -679,7 +683,9 @@ def cache(  # noqa C901
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
             # pyre-fixme[16]: `bool` has no attribute `sum`.
-            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
+            (emb.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
         emb.forward(indices.long(), offsets.long())
@@ -776,7 +782,7 @@ def cpu(  # noqa C901
     if mixed:
         Ds = [
             # int4 table batched emb op can only handle mixed D where D is multiple of 8
-            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
             for _ in range(T)
         ]
         D = np.average(Ds)
@@ -891,7 +897,7 @@ def nbit_device(  # noqa C901
     if mixed:
         # int4 table batched emb op can only handle mixed D where D is multiple of 8
         Ds = [
-            div_round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 8)
             for _ in range(T)
         ]
         D = np.average(Ds)
@@ -953,7 +959,7 @@ def nbit_device(  # noqa C901
 @click.option("--num-tables", default=100)
 @click.option("--load-factor", default=0.75)
 @click.option("--hit-rate", default=0.9)
-
+@click.option("--use-cpu", is_flag=True, default=False)
 def hashtable(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -962,6 +968,7 @@ def hashtable(  # noqa C901
     num_tables: int,
     load_factor: float,
     hit_rate: float,
+    use_cpu: bool
 ) -> None:
     B = batch_size
     T = num_tables
@@ -970,29 +977,35 @@ def hashtable(  # noqa C901
     np.random.seed(42)
     torch.manual_seed(42)
     if hit_rate == 1.0:
-        chosen_indices = torch.cat(
-            [torch.arange(E) for _ in range(T)], dim=0
-        ).int()
+        chosen_indices = torch.cat([torch.arange(E) for _ in range(T)], dim=0).int()
     else:
-        chosen_indices = torch.randint(low=0, high=int(E * 1.0 / hit_rate), size=(E * T,)).view(-1).int()
-    dense_indices = torch.cat(
-        [torch.arange(E) for _ in range(T)], dim=0
-    ).int()
+        chosen_indices = (
+            torch.randint(low=0, high=int(E * 1.0 / hit_rate), size=(E * T,))
+            .view(-1)
+            .int()
+        )
+    dense_indices = torch.cat([torch.arange(E) for _ in range(T)], dim=0).int()
     offsets = torch.tensor([E * t for t in range(T + 1)]).int()
     assert offsets[-1] == chosen_indices.numel()
     assert offsets.numel() == T + 1
     assert (offsets.numel() - 1) // T == 1
-    capacity = div_round_up(int(dense_indices.numel() * 1.0 / load_factor), 32)
+
+    capacities = [round_up(int(E / load_factor), 32) for _ in range(T)]
+
     hash_table = torch.zeros(
-        (capacity, 3),
+        (sum(capacities), 2),
         dtype=torch.int32,
     )
+    hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
+
     assert hash_table.numel() * 4 < 2 ** 32
     # initialize
     hash_table[:, :] = -1
-    torch.ops.fb.pruned_hashmap_insert(chosen_indices, dense_indices, offsets, hash_table, T)
+    torch.ops.fb.pruned_hashmap_insert(
+        chosen_indices, dense_indices, offsets, hash_table, hash_table_offsets
+    )
 
-    hash_table = hash_table.cuda()
+
     requests = generate_requests(
         iters,
         B,
@@ -1000,12 +1013,26 @@ def hashtable(  # noqa C901
         L,
         E,
     )
-    requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
 
-    empirical_hit_rate = np.mean([torch.ops.fb.pruned_hashmap_lookup(
-            indices.cuda().int(), offsets.cuda().int(), hash_table.cuda().contiguous(), T
-    ).ne(-1).sum().item() / indices.numel() for indices, offsets, _ in requests])
+    if not use_cpu:
+        hash_table = hash_table.cuda()
+        hash_table_offsets = hash_table_offsets.cuda()
+        requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
+    else:
+        requests = [(a.int().cpu(), b.int().cpu(), c) for (a, b, c) in requests]
 
+    empirical_hit_rate = np.mean(
+        [
+            torch.ops.fb.pruned_hashmap_lookup(
+                indices, offsets, hash_table, hash_table_offsets
+            )
+            .ne(-1)
+            .sum()
+            .item()
+            / indices.numel()
+            for indices, offsets, _ in requests
+        ]
+    )
 
     time_per_iter = benchmark_requests(
         # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
@@ -1013,15 +1040,33 @@ def hashtable(  # noqa C901
         #  Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, _: torch.ops.fb.pruned_hashmap_lookup(
-            indices.cuda().int(), offsets.cuda().int().contiguous(), hash_table.cuda().int().contiguous(), T
+            indices, offsets, hash_table, hash_table_offsets
         ),
     )
 
     logging.info(
-        f"100% hit: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
-        f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / capacity * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
+        f"LinearTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
     )
 
+    if use_cpu:
+        ht = torch.classes.fb.PrunedMapCPU()
+        ht.insert(chosen_indices, dense_indices, offsets, T)
+
+        time_per_iter = benchmark_requests(
+            # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+            #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+            #  Optional[Tensor]]]`.
+            requests,
+            lambda indices, offsets, _: ht.lookup(
+                indices, offsets
+            ),
+        )
+
+        logging.info(
+            f"HashTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
+            f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
+        )
 
 if __name__ == "__main__":
     cli()

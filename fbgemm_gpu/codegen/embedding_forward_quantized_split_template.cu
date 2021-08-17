@@ -886,25 +886,25 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
 
 
 
-#define BIG_CONSTANT(x) (x##LLU)
-__device__ inline uint32_t pruned_hash_function(int32_t key, int32_t table) {
-    uint64_t k = (static_cast<uint64_t>(key) << 32) | static_cast<uint64_t>(table);
-    k ^= k >> 33;
-    k *= BIG_CONSTANT(0xff51afd7ed558ccd);
-    k ^= k >> 33;
-    k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
-    k ^= k >> 33;
-    return static_cast<uint32_t>(k >> 32);
+__device__ inline uint32_t pruned_hash_function(uint32_t h) {
+    // MurmorHash3 32-bit mixing function.
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
 }
 
 __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> indices,
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> offsets,
     const PackedTensorAccessor64<int32_t, 2, RestrictPtrTraits> hash_table,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> hash_table_offsets,
     int32_t B,
     int32_t T,
     PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> dense_indices) {
-    uint32_t capacity = hash_table.size(0);
+    // uint32_t capacity = hash_table.size(0);
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
     int32_t t = b_t / B;
     int32_t b = b_t % B;
@@ -914,23 +914,38 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
     int32_t indices_start = offsets[t * B + b];
     int32_t indices_end = offsets[t * B + b + 1];
     int32_t L = indices_end - indices_start;
+
+    int64_t table_start = hash_table_offsets[t];
+    int64_t table_end = hash_table_offsets[t + 1];
+    int64_t capacity = table_end - table_start;
+
+    if (capacity == 0) {
+      // No pruning applied on the indices associated with this table.
+      for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+      }
+      return;
+    }
+
     uint32_t subwarp_id = threadIdx.x / 4;
     uint32_t subwarp_tid = threadIdx.x % 4;
     uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
     for (int32_t l_start = 0; l_start + subwarp_id < L; l_start += kWarpSize / 4) {
         int32_t idx = indices[indices_start + l_start + subwarp_id];
-        uint32_t slot_start = static_cast<uint32_t>(pruned_hash_function(idx, t));
+        uint32_t slot_start = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
         while (true) {
             uint32_t slot = (slot_start + subwarp_tid) % capacity;
-            int32_t sidx = hash_table[slot][0];
-            int32_t stable = hash_table[slot][1];
+            int2 val = *reinterpret_cast<const int2*>(&hash_table[table_start + static_cast<int64_t>(slot)][0]);
+            int32_t slot_sparse_idx = val.x;
+            int32_t slot_dense_idx = val.y;
+
             bool found = false;
             bool empty = false;
-            if (sidx == -1) {
+            if (slot_sparse_idx == -1) {
                 empty = true;
-            } else if (sidx == idx && stable == t) {
+            } else if (slot_sparse_idx == idx) {
                 found = true;
-                dense_indices[indices_start + l_start + subwarp_id] = hash_table[slot][2];
+                dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
             }
             if (__any_sync(subwarp_mask, found)) {
                 break;
@@ -1095,10 +1110,11 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     at::Tensor indices,
     at::Tensor offsets,
     at::Tensor hash_table,
-    int64_t T) {
+    at::Tensor hash_table_offsets) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(indices.get_device());
     auto dense_indices = at::empty_like(indices);
+    int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
@@ -1111,6 +1127,7 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
             indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             hash_table.packed_accessor64<int32_t, 2, at::RestrictPtrTraits>(),
+            hash_table_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             B,
             T,
             dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()
