@@ -86,13 +86,13 @@ void pruned_hashmap_insert_unweighted_cpu(
     Tensor dense_indices,
     Tensor offsets,
     Tensor hash_table,
-    int64_t T);
+    Tensor hash_table_offsets);
 
 Tensor pruned_hashmap_lookup_unweighted_cpu(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
-    int64_t T);
+    Tensor hash_table_offsets);
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.impl(
@@ -104,7 +104,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert
   m.def(
-      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, int T) -> ()");
+      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
   m.impl(
       "pruned_hashmap_insert",
       torch::dispatch(
@@ -120,10 +120,6 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
 }
 
-// TODO: 1) switch from doing a single flat table keyed on (table_idx, idx) ->
-// value (i.e. 3x32bits per entry) and instead have T separate tables with
-// idx->value (i.e. 2x32bits per entry).
-// 2) Possibly reuse the concurrent hash table.
 class PrunedMapCPU : public torch::jit::CustomClassHolder {
  public:
   PrunedMapCPU() {}
@@ -131,39 +127,57 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     torch::serialize::InputArchive archive;
     archive.load_from(serialized.data(), serialized.size());
     Tensor values;
-    archive.read(std::string("table"), values);
+    archive.read(std::string("values"), values);
+    Tensor table_offsets;
+    archive.read(std::string("table_offsets"), table_offsets);
+
+    auto T = table_offsets.numel() - 1;
+
     auto values_acc = values.accessor<int32_t, 2>();
-    map_.reserve(values.size(0));
-    for (auto i = 0; i < values.size(0); ++i) {
-      auto index = values_acc[i][0];
-      auto table = values_acc[i][1];
-      auto value = values_acc[i][2];
-      std::pair<int32_t, int32_t> key = {index, table};
-      map_.emplace(key, value);
+    auto table_offsets_acc = table_offsets.accessor<int64_t, 1>();
+
+    maps_.resize(T);
+    for (auto t = 0; t < T; ++t) {
+      auto& map = maps_[t];
+      const auto table_start = table_offsets_acc[t];
+      for (auto i = 0; i < values.size(0); ++i) {
+        auto slot_sparse_index = values_acc[table_start + i][0];
+        auto slot_dense_index = values_acc[table_start + i][1];
+        map.emplace(slot_sparse_index, slot_dense_index);
+      }
     }
   }
   std::string serialize() const {
     torch::serialize::OutputArchive archive(
         std::make_shared<torch::jit::CompilationUnit>());
-    int64_t N = map_.size();
+    int64_t T = maps_.size();
+    auto table_offsets =
+        at::empty({T + 1}, at::TensorOptions(at::kCPU).dtype(at::kLong));
+    auto table_offsets_acc = table_offsets.accessor<int64_t, 1>();
+    table_offsets_acc[0] = 0;
+    int64_t N = 0;
+    for (auto t = 0; t < T; ++t) {
+      N += maps_[t].size();
+      table_offsets_acc[t + 1] = N;
+    }
     auto values =
-        at::empty({N, 3}, at::TensorOptions(at::kCPU).dtype(at::kInt));
+        at::empty({N, 2}, at::TensorOptions(at::kCPU).dtype(at::kInt));
     auto values_acc = values.accessor<int32_t, 2>();
-#ifdef FBCODE_CAFFE2
-    for (const auto& [index, kv] : folly::enumerate(map_)) {
-#else
-    int index = 0;
-    for (auto& kv : map_) {
-#endif
-      values_acc[index][0] = kv.first.first;
-      values_acc[index][1] = kv.first.second;
-      values_acc[index][2] = kv.second;
-#ifndef FBCODE_CAFFE2
-      index++;
-#endif
+    for (auto t = 0; t < maps_.size(); ++t) {
+      const auto& map = maps_[t];
+      const auto table_start = table_offsets_acc[t];
+      TORCH_CHECK(
+          map.size() == (table_offsets_acc[t + 1] - table_offsets_acc[t]));
+      int index = 0;
+      for (const auto& kv : map) {
+        values_acc[table_start + index][0] = kv.first;
+        values_acc[table_start + index][1] = kv.second;
+        index++;
+      }
     }
     std::ostringstream oss;
-    archive.write(std::string("table"), values);
+    archive.write(std::string("values"), values);
+    archive.write(std::string("table_offsets"), table_offsets);
     archive.save_to(oss);
     return oss.str();
   }
@@ -174,38 +188,43 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
+    maps_.resize(T);
     for (int32_t t = 0; t < T; ++t) {
+      auto& map = maps_[t];
       for (int32_t b = 0; b < B; ++b) {
         int32_t indices_start = offsets_acc[t * B + b];
         int32_t indices_end = offsets_acc[t * B + b + 1];
         int32_t L = indices_end - indices_start;
         for (int32_t l = 0; l < L; ++l) {
-          int32_t idx = indices_acc[indices_start + l];
-          int32_t value = dense_indices_acc[indices_start + l];
-          std::pair<int32_t, int32_t> key = {idx, t};
-          map_.emplace(key, value);
+          int32_t slot_sparse_index = indices_acc[indices_start + l];
+          int32_t slot_dense_index = dense_indices_acc[indices_start + l];
+          map.emplace(slot_sparse_index, slot_dense_index);
         }
       }
     }
   }
 
-  Tensor lookup(Tensor indices, Tensor offsets, int64_t T) const {
+  Tensor lookup(Tensor indices, Tensor offsets) const {
+    int32_t T = maps_.size();
+    TORCH_CHECK(T > 0);
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
+    TORCH_CHECK(maps_.size() == T);
     auto dense_indices = empty_like(indices);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     for (int32_t t = 0; t < T; ++t) {
+      auto& map = maps_[t];
       for (int32_t b = 0; b < B; ++b) {
         int32_t indices_start = offsets_acc[t * B + b];
         int32_t indices_end = offsets_acc[t * B + b + 1];
         int32_t L = indices_end - indices_start;
         for (int32_t l = 0; l < L; ++l) {
-          int32_t idx = indices_acc[indices_start + l];
-          auto it = map_.find({idx, t});
+          int32_t slot_sparse_index = indices_acc[indices_start + l];
+          auto it = map.find(slot_sparse_index);
           dense_indices_acc[indices_start + l] =
-              it != map_.end() ? it->second : -1;
+              it != map.end() ? it->second : -1;
         }
       }
     }
@@ -214,15 +233,9 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
 
  private:
 #ifdef FBCODE_CAFFE2
-  folly::F14FastMap<std::pair<int32_t, int32_t>, int32_t> map_;
+  std::vector<folly::F14FastMap<int32_t, int32_t>> maps_;
 #else
-  struct pair_hash {
-    template <class T1, class T2>
-    std::size_t operator()(const std::pair<T1, T2>& pair) const {
-      return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
-    }
-  };
-  std::unordered_map<std::pair<int32_t, int32_t>, int32_t, pair_hash> map_;
+  std::vector<std::unordered_map<int32_t, int32_t>> maps_;
 #endif
 };
 

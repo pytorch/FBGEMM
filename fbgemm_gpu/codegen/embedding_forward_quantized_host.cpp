@@ -110,7 +110,7 @@ Tensor pruned_hashmap_lookup_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
-    int64_t T);
+    Tensor hash_table_offsets);
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
@@ -122,7 +122,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           TORCH_FN(int_nbit_split_embedding_codegen_lookup_function)));
 
   m.def(
-      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, int T) -> Tensor");
+      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
   m.impl(
       "pruned_hashmap_lookup",
       torch::dispatch(

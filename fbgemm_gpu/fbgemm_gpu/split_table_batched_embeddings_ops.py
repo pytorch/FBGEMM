@@ -1584,54 +1584,55 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if index_remapping:
-            # pyre-fixme[4]: Attribute must be annotated.
-            self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+            # TODO: tune this?
+            LOAD_FACTOR = 0.5
+            assert len(index_remapping) == len(rows)
+            capacities = [round_up(int(row * 1.0 / LOAD_FACTOR), 32) if index_remap is not None else 0 for (index_remap, row) in zip(index_remapping, rows)]
+            hash_table = torch.empty(
+                (sum(capacities), 2),
+                dtype=torch.int32,
+            )
+            hash_table[:, :] = -1
+            hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
 
-            if not self.use_cpu:
-                # TODO: tune this?
-                LOAD_FACTOR = 0.5
-                capacity = round_up(int(sum(rows) * 1.0 / LOAD_FACTOR), 32)
-                hash_table = torch.empty(
-                    (capacity, 3),
-                    dtype=torch.int32,
-                )
-                hash_table[:, :] = -1
-                # TODO: handle feature remapping!!! Are these physical or virtual tables?
-                feature_rows = [rows[t] for t in feature_table_map]
-                assert len(feature_rows) == len(index_remapping)
-                for row, index_map in zip(feature_rows, index_remapping):
-                    assert row == index_map.numel()
-                indices = torch.cat(index_remapping, dim=0).int()
-                dense_indices = torch.cat(
-                    [torch.arange(row) for row in feature_rows], dim=0
-                ).int()
-                offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
-                torch.ops.fb.pruned_hashmap_insert(
-                    indices, dense_indices, offsets, hash_table, T
-                )
-                self.register_buffer(
-                    "index_remapping_hash_table_gpu", hash_table.to(self.current_device)
-                )
+            # Note: feature remapping does not work for pruned tables because we use both
+            # the start and end-point of the offsets.
+            np.testing.assert_equal(feature_table_map, list(range(T_)))
+
+            feature_rows = [rows[t] for t in feature_table_map]
+            assert len(feature_rows) == len(index_remapping)
+            for row, index_map in zip(feature_rows, index_remapping):
+                assert row == index_map.numel()
+            indices = torch.cat(index_remapping, dim=0).int()
+            dense_indices = torch.cat(
+                [torch.arange(row) for row in feature_rows], dim=0
+            ).int()
+            offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
+            torch.ops.fb.pruned_hashmap_insert(
+                indices, dense_indices, offsets, hash_table, hash_table_offsets
+            )
+            self.register_buffer(
+                "index_remapping_hash_table", hash_table.to(self.current_device)
+            )
+            self.register_buffer(
+                "index_remapping_hash_table_offsets", hash_table_offsets.to(self.current_device)
+            )
+
+            if use_cpu:
+                # pyre-fixme[4]: Attribute must be annotated.
+                self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+                assert T == T_
+                self.index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T_)
             else:
-                # TODO: handle feature remapping!!! Are these physical or virtual tables?
-                feature_rows = [rows[t] for t in feature_table_map]
-                assert len(feature_rows) == len(index_remapping)
-                for row, index_map in zip(feature_rows, index_remapping):
-                    assert row == index_map.numel()
-                indices = torch.cat(index_remapping, dim=0).int()
-                dense_indices = torch.cat(
-                    [torch.arange(row) for row in feature_rows], dim=0
-                ).int()
-                offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
-                self.index_remapping_hash_table_cpu.insert(
-                    indices, dense_indices, offsets, T
-                )
-                self.register_buffer("index_remapping_hash_table_gpu", torch.empty(0))
-
+                self.index_remapping_hash_table_cpu = None
         else:
             # pyre-fixme[4]: Attribute must be annotated.
-            self.index_remapping_hash_table_gpu = None
+            self.index_remapping_hash_table = None
+            # pyre-fixme[4]: Attribute must be annotated.
+            self.index_remapping_hash_table_offsets = None
+
             self.index_remapping_hash_table_cpu = None
+
 
     def forward(
         self,
@@ -1641,26 +1642,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         if self.index_remapping_hash_table_cpu is not None:
-            if not self.use_cpu:
-                # Convert from raw indices to pruned indices
-                indices = torch.ops.fb.pruned_hashmap_lookup(
-                    indices,
-                    offsets,
-                    self.index_remapping_hash_table_gpu,
-                    # pyre-fixme[29]:
-                    #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self,
-                    #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
-                    self.D_offsets.numel() - 1,
-                )
-            else:
-                indices = self.index_remapping_hash_table_cpu.lookup(
-                    indices,
-                    offsets,
-                    # pyre-fixme[29]:
-                    #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self,
-                    #  Tensor)], int], Tensor], Tensor, nn.Module]` is not a function.
-                    self.D_offsets.numel() - 1,
-                )
+            indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
+        elif self.index_remapping_hash_table is not None:
+            # Convert from raw indices to pruned indices
+            indices = torch.ops.fb.pruned_hashmap_lookup(
+                indices,
+                offsets,
+                self.index_remapping_hash_table,
+                self.index_remapping_hash_table_offsets,
+            )
         return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights,
             weights_offsets=self.weights_offsets,
