@@ -15,7 +15,11 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType, SparseType, RecordCacheMetrics
+from fbgemm_gpu.split_table_batched_embeddings_ops import (
+    OptimType,
+    SparseType,
+    RecordCacheMetrics,
+)
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
 
@@ -260,7 +264,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for t in range(T):
                 bs[t].weight.data.copy_(
                     torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
-                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(bs[t].weight.data)
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                            bs[t].weight.data
+                        )
                     )
                 )
 
@@ -464,7 +470,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -475,7 +480,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -950,7 +954,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         fs = (
             [
-
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
                 for (b, x) in zip(bs, xs)
             ]
@@ -961,7 +964,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     x,
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
-
                     do_pooling=do_pooling,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
@@ -1471,10 +1473,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
-                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
-                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1513,10 +1511,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_allclose(
                     m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
                 )
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.item)[[Named(self,
-                #  Tensor)], typing.Union[float, int]], Tensor], Tensor,
-                #  torch.nn.Module]` is not a function.
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -1629,7 +1623,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [int(1e4)] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment)
+                round_up(
+                    np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment
+                )
                 for _ in range(T)
             ]
             Ds = [min(D, 128) for D in Ds]
@@ -1646,15 +1642,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         xws_acc_type = copy.deepcopy(xws)
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    weights_ty
-                )
-                for (E, D) in zip(Es, Ds)
-            ],
+            embedding_specs=[("", E, D, weights_ty) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
             index_remapping=[torch.arange(E) for E in Es],
             use_cpu=use_cpu,
@@ -1671,11 +1659,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
                     shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
                 if weights_ty == SparseType.INT8:
-                    scales = np.random.uniform(0.001, 0.01, size=(E,)).astype(np.float16)
+                    scales = np.random.uniform(0.001, 0.01, size=(E,)).astype(
+                        np.float16
+                    )
                     shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
 
-                scale_shift[:, :] = torch.tensor(np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8))
-
+                scale_shift[:, :] = torch.tensor(
+                    np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8)
+                )
 
         for t in range(T):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
@@ -1734,13 +1725,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = comps.reshape(E, D)
                 bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
 
-
             elif weights_ty == SparseType.INT8:
                 (E, D) = np_weights.shape
                 comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
-                        -1, 1
+                    -1, 1
                 ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
-                        np.float32
+                    np.float32
                 )
                 bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
 
@@ -1785,20 +1775,32 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=10),
-        B=st.integers(min_value=1, max_value=128),
-        L=st.integers(min_value=0, max_value=20),
+        B=st.integers(min_value=1, max_value=64),
+        L=st.integers(min_value=0, max_value=64),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu_hashtable=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_4b_forward_pruning(
+    def test_nbit_forward_pruning(
         self,
         T: int,
         B: int,
         L: int,
         use_cpu: bool,
-    ) -> None:
+        use_cpu_hashtable: bool,
 
-        indices = torch.randint(low=0, high=int(1e9), size=(T, B, L)).view(-1).int()
+    ) -> None:
+        if use_cpu_hashtable:
+            assume(use_cpu)
+        indices = torch.randint(low=0, high=np.iinfo(np.int32).max - 1, size=(T, B, L))
+        for t in range(T):
+            while (
+                torch.unique(indices[t], return_counts=False, return_inverse=False).numel()
+                != indices[t].numel()
+            ):
+                indices[t] = torch.randint(low=0, high=np.iinfo(np.int32).max, size=(B, L))
+
+        indices = indices.view(-1).int()
         dense_indices = (
             torch.randint(low=0, high=int(1e5), size=(T, B, L)).view(-1).int()
         )
@@ -1807,42 +1809,53 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         def next_power_of_2(x: int) -> int:
             return 1 if x == 0 else 2 ** (x - 1).bit_length()
 
-        capacity = next_power_of_2(int(indices.numel() * 2) + 1)
+        LOAD_FACTOR = 0.8
+        capacities = [int(B * L / LOAD_FACTOR) + 1 for _ in range(T)]
+
+        hash_table = torch.empty(
+            (sum(capacities), 2),
+            dtype=torch.int32,
+        )
+        # initialize
+        hash_table[:, :] = -1
+        hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
+
+        torch.ops.fb.pruned_hashmap_insert(
+            indices, dense_indices, offsets, hash_table, hash_table_offsets
+        )
+
+        if use_cpu_hashtable:
+            ht = torch.classes.fb.PrunedMapCPU()
+            ht.insert(indices, dense_indices, offsets, T)
+
+
         if not use_cpu:
-            hash_table = torch.empty(
-                (capacity, 3),
-                dtype=torch.int32,
-            )
-            # initialize
-            hash_table[:, :] = -1
-            torch.ops.fb.pruned_hashmap_insert(
-                indices, dense_indices, offsets, hash_table, T
-            )
-            (indices, dense_indices, offsets, hash_table) = (
+            (indices, dense_indices, offsets, hash_table, hash_table_offsets) = (
                 indices.cuda(),
                 dense_indices.cuda(),
                 offsets.cuda(),
                 hash_table.cuda(),
+                hash_table_offsets.cuda(),
             )
-            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
-                indices, offsets, hash_table, T
-            )
+        if use_cpu_hashtable:
+            dense_indices_ = ht.lookup(indices, offsets)
         else:
-            index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
-            index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T)
-            dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
+            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+                indices, offsets, hash_table, hash_table_offsets
+            )
 
         torch.testing.assert_allclose(dense_indices, dense_indices_)
 
-        # value that does not exist
-        indices[:] = int(1e9) + 1
-        if not use_cpu:
-            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
-                # pyre-fixme[61]: `hash_table` may not be initialized here.
-                indices, offsets, hash_table, T
-            )
+        # now, use a value that does not exist in the original set of indices
+        # and so should be pruned out.
+        indices[:] = np.iinfo(np.int32).max
+
+        if use_cpu_hashtable:
+            dense_indices_ = ht.lookup(indices, offsets)
         else:
-            dense_indices_ = index_remapping_hash_table_cpu.lookup(indices, offsets, T)
+            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+                indices, offsets, hash_table, hash_table_offsets
+            )
 
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
@@ -1878,7 +1891,7 @@ class CUMemTest(unittest.TestCase):
     @given(
         L=st.integers(min_value=0, max_value=16),
         H=st.integers(min_value=512, max_value=1024),
-        S=st.integers(min_value=0, max_value=128)
+        S=st.integers(min_value=0, max_value=128),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_update_function(self, L: int, H: int, S: int) -> None:
@@ -1895,13 +1908,17 @@ class CUMemTest(unittest.TestCase):
         # Calculate the correct output
         unique_cache_miss_ids = torch.unique(cache_miss_ids)
         expect_out = sum(unique_cache_miss_ids >= 0)
-        linear_cache_indices = to_device(torch.tensor(linear_cache_indices_cpu, dtype=torch.int64), use_cpu=False)
-        lxu_cache_locations = to_device(torch.tensor(lxu_cache_locations_cpu, dtype=torch.int32), use_cpu=False)
+        linear_cache_indices = to_device(
+            torch.tensor(linear_cache_indices_cpu, dtype=torch.int64), use_cpu=False
+        )
+        lxu_cache_locations = to_device(
+            torch.tensor(lxu_cache_locations_cpu, dtype=torch.int32), use_cpu=False
+        )
 
         # Create an abstrat splittable
         D = 8
         T = 2
-        E = 10**3
+        E = 10 ** 3
         Ds = [D] * T
         Es = [E] * T
         emb_op = (
@@ -1920,21 +1937,22 @@ class CUMemTest(unittest.TestCase):
             record_cache_metrics=RecordCacheMetrics(True, False),
         )
         cc._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
-        cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
+        (
+            cache_miss_forward_count,
+            unique_cache_miss_count,
+        ) = cc.get_cache_miss_counter().cpu()
 
-        assert(unique_cache_miss_count == expect_out)
-        assert(cache_miss_forward_count <= unique_cache_miss_count)
+        assert unique_cache_miss_count == expect_out
+        assert cache_miss_forward_count <= unique_cache_miss_count
 
-    @given(
-        N=st.integers(min_value=1, max_value=8)
-    )
+    @given(N=st.integers(min_value=1, max_value=8))
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_miss_counter(self, N: int) -> None:
 
         # Create an abstrat splittable
         D = 8
         T = 2
-        E = 10**3
+        E = 10 ** 3
         Ds = [D] * T
         Es = [E] * T
         emb_op = (
@@ -1955,13 +1973,13 @@ class CUMemTest(unittest.TestCase):
 
         # Create fake input data and the target output
         xs = []
-        x1 = torch.Tensor([[[1],[1]],[[3],[4]]])
+        x1 = torch.Tensor([[[1], [1]], [[3], [4]]])
         x1 = to_device(torch.tensor(x1, dtype=torch.int64), use_cpu=False)
 
-        x2 = torch.Tensor([[[2],[1]],[[3],[4]]])
+        x2 = torch.Tensor([[[2], [1]], [[3], [4]]])
         x2 = to_device(torch.tensor(x2, dtype=torch.int64), use_cpu=False)
 
-        x3 = torch.Tensor([[[5],[6]],[[7],[8]]])
+        x3 = torch.Tensor([[[5], [6]], [[7], [8]]])
         x3 = to_device(torch.tensor(x3, dtype=torch.int64), use_cpu=False)
 
         xs.append(x1)
@@ -1970,16 +1988,21 @@ class CUMemTest(unittest.TestCase):
 
         target_counter_list = [[1, 3], [2, 4], [3, 8]]
         target_tablewise_cache_miss_list = [[1, 2], [2, 2], [4, 4]]
-        for x, t_counter, t_tablewise_cache_miss in zip(xs, target_counter_list, target_tablewise_cache_miss_list):
+        for x, t_counter, t_tablewise_cache_miss in zip(
+            xs, target_counter_list, target_tablewise_cache_miss_list
+        ):
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
                 cc(indices, offsets)
-                cache_miss_forward_count, unique_cache_miss_count = cc.get_cache_miss_counter().cpu()
+                (
+                    cache_miss_forward_count,
+                    unique_cache_miss_count,
+                ) = cc.get_cache_miss_counter().cpu()
                 tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
-                assert(cache_miss_forward_count == t_counter[0])
-                assert(unique_cache_miss_count == t_counter[1])
+                assert cache_miss_forward_count == t_counter[0]
+                assert unique_cache_miss_count == t_counter[1]
                 for i in range(len(tablewise_cache_miss)):
-                    assert(t_tablewise_cache_miss[i] == tablewise_cache_miss[i])
+                    assert t_tablewise_cache_miss[i] == tablewise_cache_miss[i]
 
 
 if __name__ == "__main__":

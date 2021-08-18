@@ -71,16 +71,15 @@ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
   return round_up(r, 16);
 }
 
-#define BIG_CONSTANT(x) (x##LLU)
 
-inline uint32_t pruned_hash_function(int32_t key, int32_t table) {
-    uint64_t k = (static_cast<uint64_t>(key) << 32) | static_cast<uint64_t>(table);
-    k ^= k >> 33;
-    k *= BIG_CONSTANT(0xff51afd7ed558ccd);
-    k ^= k >> 33;
-    k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
-    k ^= k >> 33;
-    return static_cast<uint32_t>(k >> 32);
+inline uint32_t pruned_hash_function(uint32_t h) {
+    // MurmorHash3 32-bit mixing function.
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
 }
 
 }
@@ -90,8 +89,8 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     Tensor dense_indices,
     Tensor offsets,
     Tensor hash_table,
-    int64_t T) {
-
+    Tensor hash_table_offsets) {
+    int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     const auto* indices_acc = indices.data_ptr<int32_t>();
@@ -99,8 +98,16 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
 
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     auto hash_table_acc = hash_table.accessor<int32_t, 2>();
-    uint32_t capacity = hash_table.size(0);
+    const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
+
+
     for (int32_t t = 0; t < T; ++t) {
+        int64_t table_start = hash_table_offsets_acc[t];
+        int64_t table_end = hash_table_offsets_acc[t + 1];
+        if (table_start == table_end) {
+            continue;
+        }
+        int64_t capacity = table_end - table_start;
         for (int32_t b = 0; b < B; ++b) {
             int32_t indices_start = offsets_acc[t * B + b];
             int32_t indices_end = offsets_acc[t * B + b + 1];
@@ -109,21 +116,18 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
                 int32_t idx = indices_acc[indices_start + l];
                 int32_t dense_idx = dense_indices_acc[indices_start + l];
 
-                uint32_t slot = static_cast<uint32_t>(pruned_hash_function(idx, t)) % capacity;
+                uint32_t slot = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
                 while (true) {
-                    int32_t sidx = hash_table_acc[slot][0];
-                    int32_t stable = hash_table_acc[slot][1];
-
+                    int32_t slot_sparse_idx = hash_table_acc[table_start + static_cast<int64_t>(slot)][0];
                     // empty slot
-                    if (sidx == -1) {
-                        hash_table_acc[slot][0] = idx;
-                        hash_table_acc[slot][1] = t;
-                        hash_table_acc[slot][2] = dense_idx;
+                    if (slot_sparse_idx == -1) {
+                        hash_table_acc[table_start + static_cast<int64_t>(slot)][0] = idx;
+                        hash_table_acc[table_start + static_cast<int64_t>(slot)][1] = dense_idx;
                         break;
                     }
                     // already exists (shouldn't happen in practice)
-                    if (sidx == idx && stable == t) {
-                        hash_table_acc[slot][2] = dense_idx;
+                    if (slot_sparse_idx == idx) {
+                        hash_table_acc[table_start + static_cast<int64_t>(slot)][1] = dense_idx;
                         break;
                     }
                     // linear probe
@@ -455,8 +459,8 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
-    int64_t T) {
-
+    Tensor hash_table_offsets) {
+    int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     auto dense_indices = empty_like(indices);
@@ -465,32 +469,42 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
 
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     const auto hash_table_acc = hash_table.accessor<int32_t, 2>();
-    int32_t capacity = hash_table.size(0);
+    const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
+
     for (int32_t t = 0; t < T; ++t) {
+        int64_t table_start = hash_table_offsets_acc[t];
+        int64_t table_end = hash_table_offsets_acc[t + 1];
+        int64_t capacity = table_end - table_start;
+
         for (int32_t b = 0; b < B; ++b) {
             int32_t indices_start = offsets_acc[t * B + b];
             int32_t indices_end = offsets_acc[t * B + b + 1];
             int32_t L = indices_end - indices_start;
-            for (int32_t l = 0; l < L; ++l) {
-                int32_t idx = indices_acc[indices_start + l];
 
-                uint32_t slot = static_cast<uint32_t>(pruned_hash_function(idx, t)) % capacity;
-                while (true) {
-                    int32_t sidx = hash_table_acc[slot][0];
-                    int32_t stable = hash_table_acc[slot][1];
+            if (table_start == table_end) {
+                for (int32_t l = 0; l < L; ++l) {
+                    dense_indices_acc[indices_start + l] = indices_acc[indices_start + l];
+                }
+            } else {
+                for (int32_t l = 0; l < L; ++l) {
+                    int32_t idx = indices_acc[indices_start + l];
+                    uint32_t slot = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
+                    while (true) {
+                        int32_t slot_sparse_idx = hash_table_acc[table_start + static_cast<int64_t>(slot)][0];
 
-                    // empty slot
-                    if (sidx == -1) {
-                        dense_indices_acc[indices_start + l] = -1;
-                        break;
+                        // empty slot
+                        if (slot_sparse_idx == -1) {
+                            dense_indices_acc[indices_start + l] = -1;
+                            break;
+                        }
+                        // already exists
+                        if (slot_sparse_idx == idx) {
+                            dense_indices_acc[indices_start + l] = hash_table_acc[table_start + static_cast<int64_t>(slot)][1];
+                            break;
+                        }
+                        // linear probe
+                        slot = (slot + 1) % capacity;
                     }
-                    // already exists
-                    if (sidx == idx && stable == t) {
-                        dense_indices_acc[indices_start + l] = hash_table_acc[slot][2];
-                        break;
-                    }
-                    // linear probe
-                    slot = (slot + 1) % capacity;
                 }
             }
         }
