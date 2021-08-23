@@ -288,6 +288,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._apply_split(
             weight_split,
             prefix="weights",
+            # pyre-fixme[6]: Expected `dtype` for 3rd param but got
+            #  `Type[typing.Union[torch.float16, torch.float32, torch.uint8]]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
         )
@@ -363,6 +365,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum1",
+                # pyre-fixme[6]: Expected `dtype` for 3rd param but got
+                #  `Type[torch.float32]`.
                 dtype=torch.float32,
                 enforce_hbm=enforce_hbm,
             )
@@ -380,6 +384,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum2",
+                # pyre-fixme[6]: Expected `dtype` for 3rd param but got
+                #  `Type[torch.float32]`.
                 dtype=torch.float32,
             )
             self.register_buffer("iter", torch.zeros(1, dtype=torch.int64, device=self.current_device))
@@ -445,6 +451,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_load_factor,
             cache_sets,
             cache_reserved_memory,
+            # pyre-fixme[6]: Expected `dtype` for 6th param but got
+            #  `Type[typing.Union[torch.float16, torch.float32]]`.
             dtype=cache_embedding_dtype,
         )
 
