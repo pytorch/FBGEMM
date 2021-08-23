@@ -100,7 +100,6 @@ ExecuteKernel<
         throw std::runtime_error("unknown architecure");
     }
   }
-  C_tile_ = new int32_t[mbSize_ * nbSize_];
 }
 
 template <typename packingAMatrix, typename cT, typename processOutputType>
@@ -289,10 +288,12 @@ void ExecuteKernel<
 
     int32_t* C_buffer_start = C_buffer_row_start + jb * nbSize_;
     int32_t leadingDim = ldc_;
+    static thread_local std::vector<int32_t> C_tile_;
     if (packedB_.isThereColRemainder() && (jb == bColBlocks - 1)) {
       // In case we will access memory past C_buffer_, we use C_tile_ scratchpad
       // instead.
-      C_buffer_start = C_tile_;
+      C_tile_.resize(mbSize_ * nbSize_);
+      C_buffer_start = C_tile_.data();
       leadingDim = nbSize_;
     }
 
@@ -317,7 +318,7 @@ void ExecuteKernel<
       // When C_tile_ is used for the last column block, we need a separate
       // handling for the last column block.
       int32_t nSize =
-          (C_buffer_start == C_tile_ ? (jb - jb_begin) * nbSize_
+          (C_buffer_start == C_tile_.data() ? (jb - jb_begin) * nbSize_
                                      : (jb_end - jb_begin) * nbSize_);
       if (nSize) {
         if (fbgemmHasAvx2Support()) {
@@ -339,7 +340,7 @@ void ExecuteKernel<
         }
       }
 
-      if (C_buffer_start == C_tile_) {
+      if (C_buffer_start == C_tile_.data()) {
         // When C_tile_ scratchpad was used to avoid accessing memory past
         // C_buffer_ .
         if (fbgemmHasAvx2Support()) {
@@ -347,7 +348,7 @@ void ExecuteKernel<
           // Currently use avx2 code
           outputProcess_.template f<inst_set_t::avx2>(
               matC_,
-              C_tile_,
+              C_tile_.data(),
               {row_start_A,
                packed_rows_A,
                NDim * group + jb * nbSize_,
