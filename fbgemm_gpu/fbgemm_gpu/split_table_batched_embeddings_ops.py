@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Any, Dict, List, Optional, Tuple, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
@@ -288,8 +288,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._apply_split(
             weight_split,
             prefix="weights",
-            # pyre-fixme[6]: Expected `dtype` for 3rd param but got
-            #  `Type[typing.Union[torch.float16, torch.float32, torch.uint8]]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
         )
@@ -365,8 +363,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum1",
-                # pyre-fixme[6]: Expected `dtype` for 3rd param but got
-                #  `Type[torch.float32]`.
                 dtype=torch.float32,
                 enforce_hbm=enforce_hbm,
             )
@@ -384,8 +380,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum2",
-                # pyre-fixme[6]: Expected `dtype` for 3rd param but got
-                #  `Type[torch.float32]`.
                 dtype=torch.float32,
             )
             self.register_buffer("iter", torch.zeros(1, dtype=torch.int64, device=self.current_device))
@@ -947,7 +941,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         split: SplitState,
         prefix: str,
-        dtype: torch.dtype,
+        dtype: Type[torch.dtype],
         enforce_hbm: bool = False,
     ) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
