@@ -64,33 +64,7 @@ void split_embedding_backward_exact_cpu_kernel(
   std::vector<::internal::BatchedHyperCompressedSparseColumn> batched_cscs(
       num_tables);
 
-  at::parallel_for(0, num_tables, 0, [&](int64_t t_begin, int64_t t_end) {
-    for (int t = t_begin; t < t_end; ++t) {
-      int feature_begin = table_to_feature_offset[t];
-
-      ::internal::batched_csr2csc(
-          batched_cscs[t],
-          1,
-          B,
-          offsets.accessor<int64_t, 1>(),
-          indices.accessor<int64_t, 1>(),
-          indice_weights.defined()
-              ? indice_weights.accessor<grad_t, 1>()
-              : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
-          pooling_mode,
-          table_to_feature_offset + t);
-    }
-  });
-
-  for (int t = 0; t < num_tables; ++t) {
-    int feature_begin = table_to_feature_offset[t];
-
-    int c_begin = batched_cscs[t].table_ptr[0];
-    int c_end = batched_cscs[t].table_ptr[1];
-    std::vector<int>& col_segment_ptr = batched_cscs[t].column_segment_ptr;
-    std::vector<int64_t>& col_segment_indices =
-        batched_cscs[t].column_segment_indices;
-
+  auto get_hash_size = [&hash_size_cumsum_data](int feature_begin) {
     int64_t hash_size;
     int t_temp = feature_begin + 1;
     do {
@@ -98,6 +72,37 @@ void split_embedding_backward_exact_cpu_kernel(
           hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[feature_begin];
       ++t_temp;
     } while (hash_size == 0);
+    return hash_size;
+  };
+
+  for (int t = 0; t < num_tables; ++t) {
+      int feature_begin = table_to_feature_offset[t];
+      int64_t hash_size = get_hash_size(feature_begin);
+
+      ::internal::batched_csr2csc(
+          batched_cscs[t],
+          B,
+          offsets.accessor<int64_t, 1>(),
+          indices.accessor<int64_t, 1>(),
+          indice_weights.defined()
+              ? indice_weights.accessor<grad_t, 1>()
+              : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
+          pooling_mode,
+          table_to_feature_offset + t,
+          hash_size);
+  }
+  // sort based csr2csc handles segment_ids differently
+  bool is_csr2csc_sort = batched_cscs[0].weights == nullptr;
+
+  for (int t = 0; t < num_tables; ++t) {
+    int feature_begin = table_to_feature_offset[t];
+
+    int c_begin = batched_cscs[t].table_ptr[0];
+    int c_end = batched_cscs[t].table_ptr[1];
+    int* col_segment_ptr = batched_cscs[t].column_segment_ptr;
+    int64_t* col_segment_indices = batched_cscs[t].column_segment_indices;
+
+    auto hash_size = get_hash_size(feature_begin);
 
     const auto D_begin = D_offsets_data[feature_begin];
     const auto D =
@@ -116,7 +121,7 @@ void split_embedding_backward_exact_cpu_kernel(
           /*IndexType=*/int32_t,
           /*OffsetType=*/int32_t>(
           D,
-          !batched_cscs[t].weights.empty(),
+          batched_cscs[t].weights != nullptr,
           /*normalize_by_lengths=*/false,
           /*prefetch=*/16,
           /*is_weight_positional=*/false,
@@ -131,7 +136,7 @@ void split_embedding_backward_exact_cpu_kernel(
       at::parallel_for(c_begin, c_end, C_BLOCK, [&](int64_t c0, int64_t c1) {
         grad_t grad_blocked_buffer[C_BLOCK * D];
         for (int64_t c = c0; c < c1; c += C_BLOCK) {
-          const int* offsets_begin_ptr = col_segment_ptr.data() + c;
+          const int* offsets_begin_ptr = col_segment_ptr + c;
           int64_t c_block_end = std::min(c + C_BLOCK, c1);
           bool success = spmdm_kernel(
               c_block_end - c,
@@ -139,11 +144,11 @@ void split_embedding_backward_exact_cpu_kernel(
               B,
               reinterpret_cast<const fbgemm_weight_t*>(
                   grad_output_data + D_begin),
-              batched_cscs[t].row_indices.data() + *offsets_begin_ptr,
+              batched_cscs[t].row_indices + *offsets_begin_ptr,
               offsets_begin_ptr,
-              batched_cscs[t].weights.empty()
+              batched_cscs[t].weights == nullptr
                   ? nullptr
-                  : batched_cscs[t].weights.data() + *offsets_begin_ptr,
+                  : batched_cscs[t].weights + *offsets_begin_ptr,
               reinterpret_cast<float*>(grad_blocked_buffer));
           // TODO: more friendly error msg.
           TORCH_CHECK(success);
@@ -154,7 +159,7 @@ void split_embedding_backward_exact_cpu_kernel(
               reinterpret_cast<const float*>(grad_blocked_buffer),
               reinterpret_cast<float*>(
                   &momentum1_host[momentum1_offsets_data[feature_begin]]),
-              col_segment_indices.data() + c,
+              col_segment_indices + c,
               eps,
               -learning_rate,
               /*weight_decay=*/0,
@@ -177,11 +182,12 @@ void split_embedding_backward_exact_cpu_kernel(
           memset(grad_buffer, 0, D * sizeof(grad_t));
         }
         const int64_t embedding_begin = table_begin + idx * D;
-        int D_offset = D_begin + batched_cscs[t].column_segment_ids[c] * D;
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
+          int D_offset = D_begin +
+            batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
           int b = batched_cscs[t].row_indices[r];
           for (int64_t d = 0; d < D; ++d) {
-            grad_buffer[d] += !batched_cscs[t].weights.empty()
+            grad_buffer[d] += batched_cscs[t].weights != nullptr
                 ? grad_output_data[b * grad_stride + D_offset + d] *
                     batched_cscs[t].weights[r]
                 : grad_output_data[b * grad_stride + D_offset + d];
