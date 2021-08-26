@@ -10,6 +10,7 @@
 #include "fbgemm/Utils.h"
 #include "include/fbgemm_gpu/cpu_utils.h"
 #ifdef FBCODE_CAFFE2
+#include <libdivide.h>
 #include "folly/container/F14Map.h"
 #endif
 
@@ -386,21 +387,25 @@ void batched_csr2csc(
 
     int max_thds = omp_get_max_threads();
     int num_uniq[max_thds][64];
+    int U = 0;
+    if (at::get_num_threads() > 1) {
+      // This block is not needed for single thread
 #pragma omp parallel
-    {
-      int tid = omp_get_thread_num();
-      num_uniq[tid][0] = 0;
+      {
+        int tid = omp_get_thread_num();
+        num_uniq[tid][0] = 0;
 #pragma omp for schedule(static)
-      for (int i = 1; i < NS; i++) {
-        if (sorted_col_row_index_pairs[i].first !=
-            sorted_col_row_index_pairs[i - 1].first)
-          num_uniq[tid][0]++;
+        for (int i = 1; i < NS; i++) {
+          if (sorted_col_row_index_pairs[i].first !=
+              sorted_col_row_index_pairs[i - 1].first)
+            num_uniq[tid][0]++;
+        }
       }
+      num_uniq[0][0] += 1;
+      for (int i = 1; i < max_thds; i++)
+        num_uniq[i][0] += num_uniq[i - 1][0];
+      U = num_uniq[max_thds - 1][0];
     }
-    num_uniq[0][0] += 1;
-    for (int i = 1; i < max_thds; i++)
-      num_uniq[i][0] += num_uniq[i - 1][0];
-    int U = num_uniq[max_thds - 1][0];
 
     batched_csc.column_segment_ptr =
         (int*)fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int));
@@ -412,7 +417,8 @@ void batched_csr2csc(
     batched_csc.column_segment_ptr[0] = 0;
     batched_csc.row_indices[0] = sorted_col_row_index_pairs[0].second % B;
     batched_csc.column_segment_indices[0] = sorted_col_row_index_pairs[0].first;
-    batched_csc.column_segment_ids[0] = sorted_col_row_index_pairs[0].second / B;
+    batched_csc.column_segment_ids[0] =
+        sorted_col_row_index_pairs[0].second / B;
 #pragma omp parallel
     {
       int tid = omp_get_thread_num();
@@ -425,10 +431,22 @@ void batched_csr2csc(
           (tid == 0 ? batched_csc.column_segment_ptr + 1
                     : batched_csc.column_segment_ptr + num_uniq[tid - 1][0]);
 
+#ifdef FBCODE_CAFFE2
+      libdivide::divider<int> divisor(B);
+#endif
+
 #pragma omp for schedule(static)
       for (int i = 1; i < NS; i++) {
+#ifdef FBCODE_CAFFE2
+        batched_csc.column_segment_ids[i] =
+            sorted_col_row_index_pairs[i].second / divisor;
+        batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second -
+            batched_csc.column_segment_ids[i] * B;
+#else
         batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second % B;
-        batched_csc.column_segment_ids[i] = sorted_col_row_index_pairs[i].second / B;
+        batched_csc.column_segment_ids[i] =
+            sorted_col_row_index_pairs[i].second / B;
+#endif
         if (sorted_col_row_index_pairs[i].first !=
             sorted_col_row_index_pairs[i - 1].first) {
           *tstart = sorted_col_row_index_pairs[i].first;
@@ -436,6 +454,11 @@ void batched_csr2csc(
           tstart++;
           t_offs++;
         }
+      }
+
+      if (at::get_num_threads() == 1 && tid == 0) {
+        // Special handling of single thread case
+        U = t_offs - batched_csc.column_segment_ptr;
       }
     }
     batched_csc.table_ptr[t + 1] = batched_csc.table_ptr[t] + U;
