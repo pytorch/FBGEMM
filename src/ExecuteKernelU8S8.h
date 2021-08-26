@@ -47,9 +47,6 @@ class ExecuteKernel<
       const BlockingFactors* params = nullptr);
   void execute(int kBlock);
 
-  ~ExecuteKernel() {
-    delete[] C_tile_;
-  }
 
  private:
   PackMatrix<packingAMatrix, uint8_t, typename packingAMatrix::accType>&
@@ -66,8 +63,6 @@ class ExecuteKernel<
   thread_type_t
       th_info_; ///<< the thread partition information (thread id and the number
                 ///< of threads across the group, m, n dimensions.
-  int32_t* C_tile_; ///< buffer for the last N block when NCB is not an exact
-                    ///< multiple of N.
   int mbSize_; ///< block size in the m dimension.
   int nbSize_; ///< block size in the n dimension.
   int nrMinSize_; ///< minimum register size in the n dimension.
