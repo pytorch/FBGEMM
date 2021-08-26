@@ -1487,9 +1487,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ).tolist()
         self.register_buffer(
             "weights",
-            torch.randint(
-                0,
-                255,
+            torch.empty(
                 size=(weights_offsets[-1],),
                 dtype=torch.uint8,
                 device=self.current_device,
@@ -1629,3 +1627,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
 
         return splits
+
+    def fill_random_weights(self) -> None:
+        """
+        Fill the buffer with random weights
+        """
+        self.weights = torch.randint(
+            0,
+            255,
+            size=(self.weights_offsets[-1],),
+            dtype=torch.uint8,
+            device=self.current_device,
+        )
