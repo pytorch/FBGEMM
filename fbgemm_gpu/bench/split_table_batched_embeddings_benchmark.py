@@ -5,6 +5,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
 import logging
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -68,7 +69,7 @@ def generate_requests(
     # inter-batch indices reuse rate
     reuse: float = 0.0,
     # alpha <= 1.0: use uniform distribution
-    # alpha > 1.0: use zjpf distribution
+    # alpha > 1.0: use zipf distribution
     alpha: float = 1.0,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
@@ -77,16 +78,33 @@ def generate_requests(
         all_indices = torch.randint(
             low=0,
             high=E,
-            size=(iters, T, B * L),
+            size=(iters, T, B, L),
             device=get_device(),
             dtype=torch.int32,
         )
+        # each bag is usually sorted
+        all_indices = torch.sort(all_indices).reshape(iters, T, B * L)
     else:
+        assert E >= L, "num-embeddings must be greater than equal to bag-size"
+        # oversample and then remove duplicates to obtain sampling without
+        # replacement
+        all_indices = (np.random.zipf(a=alpha, size=(iters, T, B, 3 * L)) - 1) % E
+        for index_tuple in itertools.product(range(iters), range(T), range(B)):
+            # sample without replacement from
+            # https://stats.stackexchange.com/questions/20590/how-do-i-sample-without-replacement-using-a-sampling-with-replacement-function
+            r = set()
+            for x in all_indices[index_tuple]:
+                if x not in r:
+                    r.add(x)
+                    if len(r) == L:
+                        break
+            assert (len(r)) == L, "too skewed distribution (alpha too big)"
+            all_indices[index_tuple][:L] = list(r)
         all_indices = (
-            torch.as_tensor(np.random.zipf(a=alpha, size=(iters, T, B * L)))
+            torch.as_tensor(all_indices[:, :, :, :L])
             .to(get_device())
             .int()
-            % E
+            .reshape(iters, T, B * L)
         )
     for it in range(iters - 1):
         for t in range(T):
@@ -968,7 +986,7 @@ def hashtable(  # noqa C901
     num_tables: int,
     load_factor: float,
     hit_rate: float,
-    use_cpu: bool
+    use_cpu: bool,
 ) -> None:
     B = batch_size
     T = num_tables
@@ -1004,7 +1022,6 @@ def hashtable(  # noqa C901
     torch.ops.fb.pruned_hashmap_insert(
         chosen_indices, dense_indices, offsets, hash_table, hash_table_offsets
     )
-
 
     requests = generate_requests(
         iters,
@@ -1058,15 +1075,14 @@ def hashtable(  # noqa C901
             #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
             #  Optional[Tensor]]]`.
             requests,
-            lambda indices, offsets, _: ht.lookup(
-                indices, offsets
-            ),
+            lambda indices, offsets, _: ht.lookup(indices, offsets),
         )
 
         logging.info(
             f"HashTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
             f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
         )
+
 
 if __name__ == "__main__":
     cli()
