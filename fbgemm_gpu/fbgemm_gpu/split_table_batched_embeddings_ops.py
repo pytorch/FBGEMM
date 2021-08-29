@@ -53,6 +53,17 @@ class PoolingMode(enum.IntEnum):
     MEAN = 1
     NONE = 2
 
+
+class BoundsCheckMode(enum.IntEnum):
+    # Raise an exception (CPU) or device-side assert (CUDA)
+    FATAL = 0
+    # Log the first out-of-bounds instance per kernel, and set to zero.
+    WARNING = 1
+    # Set to zero.
+    IGNORE = 2
+    # No bounds checks.
+    NONE = 3
+
 RecordCacheMetrics: NamedTuple = NamedTuple(
     "RecordCacheMetrics",
     [("record_cache_miss_counter", bool), ("record_tablewise_cache_miss", bool)]
@@ -194,10 +205,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta2: float = 0.999,  # used by LAMB and ADAM
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[torch.device] = None,
+        bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
         self.pooling_mode = pooling_mode
+        self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
 
         if record_cache_metrics is not None:
@@ -273,6 +286,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
+
+        self.register_buffer(
+            "rows_per_table",
+            torch.tensor(
+                [rows[t] for t in self.feature_table_map], device=self.current_device, dtype=torch.int64
+            )
+        )
+        self.register_buffer(
+            "bounds_check_warning",
+            torch.tensor(
+                [0], device=self.current_device, dtype=torch.int64
+            )
+        )
+
         weight_split = construct_split_state(
             embedding_specs,
             rowwise=False,
@@ -505,8 +532,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
+        # TODO(tulloch): enable this after sufficient forward-compatibility period.
+        # if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+        #     torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
         self.step += 1
-
         if len(self.timesteps_prefetched) == 0:
             self.prefetch(indices, offsets)
 
@@ -1423,6 +1452,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
+        bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
         import numpy as np
@@ -1433,7 +1463,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.pooling_mode = pooling_mode
-
+        self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
         # (feature_names, rows, dims, weights_tys, ) = zip(*embedding_specs)
         # Pyre workaround
@@ -1477,6 +1507,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
         assert self.D_offsets.numel() == T + 1
+
+        self.register_buffer(
+            "rows_per_table",
+            torch.tensor(
+                [rows[t] for t in feature_table_map], device=self.current_device, dtype=torch.int64
+            )
+        )
+        self.register_buffer(
+            "bounds_check_warning",
+            torch.tensor(
+                [0], device=self.current_device, dtype=torch.int64
+            )
+        )
 
         def align_to_cacheline(a: int) -> int:
             # align each table to 128b cache line boundary.
@@ -1573,6 +1616,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
+        # We cast to int as a TorchScript workaround.
+        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table is not None:

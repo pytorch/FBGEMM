@@ -19,6 +19,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     OptimType,
     SparseType,
     RecordCacheMetrics,
+    BoundsCheckMode,
 )
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
@@ -1788,17 +1789,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L: int,
         use_cpu: bool,
         use_cpu_hashtable: bool,
-
     ) -> None:
         if use_cpu_hashtable:
             assume(use_cpu)
         indices = torch.randint(low=0, high=np.iinfo(np.int32).max - 1, size=(T, B, L))
         for t in range(T):
             while (
-                torch.unique(indices[t], return_counts=False, return_inverse=False).numel()
+                torch.unique(
+                    indices[t], return_counts=False, return_inverse=False
+                ).numel()
                 != indices[t].numel()
             ):
-                indices[t] = torch.randint(low=0, high=np.iinfo(np.int32).max, size=(B, L))
+                indices[t] = torch.randint(
+                    low=0, high=np.iinfo(np.int32).max, size=(B, L)
+                )
 
         indices = indices.view(-1).int()
         dense_indices = (
@@ -1827,7 +1831,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu_hashtable:
             ht = torch.classes.fb.PrunedMapCPU()
             ht.insert(indices, dense_indices, offsets, T)
-
 
         if not use_cpu:
             (indices, dense_indices, offsets, hash_table, hash_table_offsets) = (
@@ -1860,8 +1863,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
-class CUMemTest(unittest.TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
@@ -1872,6 +1874,7 @@ class CUMemTest(unittest.TestCase):
         )
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
@@ -2003,6 +2006,79 @@ class CUMemTest(unittest.TestCase):
                 assert unique_cache_miss_count == t_counter[1]
                 for i in range(len(tablewise_cache_miss)):
                     assert t_tablewise_cache_miss[i] == tablewise_cache_miss[i]
+
+    @given(
+        T=st.integers(min_value=1, max_value=64),
+        B=st.integers(min_value=1, max_value=64),
+        max_L=st.integers(min_value=1, max_value=64),
+        bounds_check_mode=st.sampled_from(
+            [
+                BoundsCheckMode.FATAL,
+                BoundsCheckMode.WARNING,
+                BoundsCheckMode.IGNORE,
+            ]
+        ),
+        use_cpu=st.booleans(),
+        dtype=st.sampled_from([
+            torch.int64,
+            torch.int32,
+        ])
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_bounds_check(
+        self,
+        T: int,
+        B: int,
+        max_L: int,
+        bounds_check_mode: BoundsCheckMode,
+        use_cpu: bool,
+        dtype: torch.dtype,
+    ) -> None:
+        rows_per_table = torch.tensor(
+            np.random.randint(low=1, high=1000, size=(T,))
+        ).long()
+        Ls = np.random.randint(low=0, high=max_L, size=(T, B))
+        indices = [
+            np.random.randint(low=0, high=rows_per_table[t], size=Ls[t, b])
+            for t in range(T)
+            for b in range(B)
+        ]
+        indices = torch.tensor(np.concatenate(indices, axis=0)).to(dtype)
+        offsets = torch.tensor([0] + np.cumsum(Ls.flatten()).tolist()).to(dtype)
+        warning = torch.tensor([0]).long()
+
+        assert indices.numel() == np.sum(Ls).item()
+        assert offsets[-1] == np.sum(Ls).item()
+        if not use_cpu:
+            indices, offsets, rows_per_table, warning = (
+                indices.cuda(),
+                offsets.cuda(),
+                rows_per_table.cuda(),
+                warning.cuda(),
+            )
+        indices_copy = indices.clone()
+        torch.ops.fb.bounds_check_indices(
+            rows_per_table, indices, offsets, bounds_check_mode, warning
+        )
+        # we don't modify when we are in-bounds.
+        torch.testing.assert_allclose(indices_copy, indices)
+        indices[:] = torch.iinfo(dtype).max
+        if bounds_check_mode != BoundsCheckMode.FATAL:
+            torch.ops.fb.bounds_check_indices(
+                rows_per_table, indices, offsets, bounds_check_mode, warning
+            )
+            torch.testing.assert_allclose(indices, torch.zeros_like(indices))
+            if bounds_check_mode == BoundsCheckMode.WARNING:
+                self.assertEqual(warning.item(), indices.numel())
+        else:
+            if use_cpu and indices.numel():
+                with self.assertRaises(RuntimeError):
+                    torch.ops.fb.bounds_check_indices(
+                        rows_per_table, indices, offsets, bounds_check_mode, warning
+                    )
+            # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
+            # but the device assert kills the CUDA context and requires a process restart,
+            # which is a bit inconvenient.
 
 
 if __name__ == "__main__":
