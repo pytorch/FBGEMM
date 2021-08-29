@@ -14,6 +14,7 @@ import click
 import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
+    BoundsCheckMode,
     CacheAlgorithm,
     ComputeDevice,
     EmbeddingLocation,
@@ -873,6 +874,7 @@ def cpu(  # noqa C901
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--index-remapping", is_flag=True, default=False)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -890,6 +892,7 @@ def nbit_device(  # noqa C901
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
     index_remapping: bool,
+    bounds_check_mode: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -925,6 +928,7 @@ def nbit_device(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision) for d in Ds],
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
+        bounds_check_mode=BoundsCheckMode(bounds_check_mode),
     ).cuda()
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
@@ -1083,6 +1087,57 @@ def hashtable(  # noqa C901
             f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
         )
 
+@cli.command()
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=512)
+@click.option("--iters", default=100)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=32)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+def bounds_check_indices(  # noqa C901
+    bag_size: int,
+    batch_size: int,
+    iters: int,
+    num_embeddings: int,
+    num_tables: int,
+    bounds_check_mode: int,
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B = batch_size
+    L = bag_size
+    E = num_embeddings
+    T = num_tables
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+    )
+    # requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+
+    warning = torch.tensor([0]).long().cuda()
+    rows_per_table = torch.tensor([E for _ in range(T)]).long().cuda()
+    # forward
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda indices, offsets, _: torch.ops.fb.bounds_check_indices(
+            rows_per_table,
+            indices,
+            offsets,
+            BoundsCheckMode(bounds_check_mode),
+            warning,
+        ),
+    )
+
+    logging.info(
+        f"Bounds Check Indices:  B: {B}, "
+        f"E: {E}, T: {T}, L: {L}, "
+        f"BW: {(8 * B * T * L + 8 * (B * T + 1)) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
 
 if __name__ == "__main__":
     cli()
