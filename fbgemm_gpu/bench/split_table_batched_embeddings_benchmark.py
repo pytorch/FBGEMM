@@ -814,6 +814,7 @@ def cpu(  # noqa C901
         use_cpu=True,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
+    emb.fill_random_weights()
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     logging.info(
@@ -931,6 +932,7 @@ def nbit_device(  # noqa C901
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
     ).cuda()
+    emb.fill_random_weights()
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     logging.info(

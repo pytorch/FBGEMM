@@ -1528,12 +1528,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_offsets = [0] + np.cumsum(
             [align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty)) for _, row, dim, weight_ty in embedding_specs]
         ).tolist()
+        self.table_size: int = weights_offsets[-1]
         self.register_buffer(
             "weights",
-            torch.randint(
-                0,
-                255,
-                size=(weights_offsets[-1],),
+            torch.empty(
+                size=(self.table_size,),
                 dtype=torch.uint8,
                 device=self.current_device,
             ),
@@ -1675,3 +1674,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
 
         return splits
+
+    def fill_random_weights(self) -> None:
+        """
+        Fill the buffer with random weights
+        """
+        self.weights = torch.randint(
+            0,
+            255,
+            size=(self.table_size,),
+            dtype=torch.uint8,
+            device=self.current_device,
+        )
