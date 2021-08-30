@@ -112,8 +112,7 @@ void split_embedding_backward_exact_cpu_kernel(
     {% if optimizer == "rowwise_adagrad" %}
     constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value;
     // || std::is_same<scalar_t, at::Half>::value;
-    if (use_fbgemm &&
-        table_to_feature_offset[t + 1] == table_to_feature_offset[t] + 1) {
+    if (use_fbgemm) {
       // fbgemm handles common case of no shared table
       using fbgemm_weight_t = typename ::internal::half2float16<scalar_t>::type;
       auto spmdm_kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
@@ -133,42 +132,103 @@ void split_embedding_backward_exact_cpu_kernel(
               D, /*rowwise=*/true);
 
       constexpr int C_BLOCK = 64;
-      at::parallel_for(c_begin, c_end, C_BLOCK, [&](int64_t c0, int64_t c1) {
-        grad_t grad_blocked_buffer[C_BLOCK * D];
-        for (int64_t c = c0; c < c1; c += C_BLOCK) {
+      if (table_to_feature_offset[t + 1] == table_to_feature_offset[t] + 1) {
+        at::parallel_for(c_begin, c_end, C_BLOCK, [&](int64_t c0, int64_t c1) {
+          grad_t grad_blocked_buffer[C_BLOCK * D];
+          for (int64_t c = c0; c < c1; c += C_BLOCK) {
+            const int* offsets_begin_ptr = col_segment_ptr + c;
+            int64_t c_block_end = std::min(c + C_BLOCK, c1);
+            bool success = spmdm_kernel(
+                c_block_end - c,
+                col_segment_ptr[c_block_end] - *offsets_begin_ptr,
+                B,
+                reinterpret_cast<const fbgemm_weight_t*>(
+                    grad_output_data + D_begin),
+                batched_cscs[t].row_indices + *offsets_begin_ptr,
+                offsets_begin_ptr,
+                batched_cscs[t].weights == nullptr
+                    ? nullptr
+                    : batched_cscs[t].weights + *offsets_begin_ptr,
+                reinterpret_cast<float*>(grad_blocked_buffer));
+            // TODO: more friendly error msg.
+            TORCH_CHECK(success);
+            int num_rows_processed = rowwise_adagrad_kernel(
+                c_block_end - c,
+                hash_size * D,
+                reinterpret_cast<float*>(&host_weights_data[table_begin]),
+                reinterpret_cast<const float*>(grad_blocked_buffer),
+                reinterpret_cast<float*>(
+                    &momentum1_host[momentum1_offsets_data[feature_begin]]),
+                col_segment_indices + c,
+                eps,
+                -learning_rate,
+                /*weight_decay=*/0,
+                /*counter=*/nullptr,
+                /*counter_halflife=*/0);
+            // TODO: more friendly error msg.
+            TORCH_CHECK(num_rows_processed == c_block_end - c);
+          } // for each c
+        }); // parallel for
+      } else {
+        // TODO: to parallelize, we should easily identify segments belong to
+        // the same column.
+        grad_t grad_buffer_temp[D], grad_blocked_buffer[C_BLOCK * D];
+        int64_t col_segment_indices_buffer[C_BLOCK];
+        int grad_buffer_offset = 0;
+        for (int c = c_begin; c < c_end; ++c) {
+          int64_t idx = col_segment_indices[c];
+          bool first = c == c_begin || col_segment_indices[c - 1] != idx;
+          const int64_t embedding_begin = table_begin + idx * D;
+          int D_offset = D_begin + batched_cscs[t].column_segment_ids[c] * D;
           const int* offsets_begin_ptr = col_segment_ptr + c;
-          int64_t c_block_end = std::min(c + C_BLOCK, c1);
           bool success = spmdm_kernel(
-              c_block_end - c,
-              col_segment_ptr[c_block_end] - *offsets_begin_ptr,
+              1,
+              col_segment_ptr[c + 1] - *offsets_begin_ptr,
               B,
               reinterpret_cast<const fbgemm_weight_t*>(
-                  grad_output_data + D_begin),
+                  grad_output_data + D_offset),
               batched_cscs[t].row_indices + *offsets_begin_ptr,
               offsets_begin_ptr,
               batched_cscs[t].weights == nullptr
                   ? nullptr
                   : batched_cscs[t].weights + *offsets_begin_ptr,
-              reinterpret_cast<float*>(grad_blocked_buffer));
+              reinterpret_cast<float*>(
+                  first ? grad_blocked_buffer + grad_buffer_offset * D
+                        : grad_buffer_temp));
+          if (!first) {
+            for (int d = 0; d < D; ++d) {
+              grad_blocked_buffer[grad_buffer_offset * D + d] +=
+                  grad_buffer_temp[d];
+            }
+          }
           // TODO: more friendly error msg.
           TORCH_CHECK(success);
-          int num_rows_processed = rowwise_adagrad_kernel(
-              c_block_end - c,
-              hash_size * D,
-              reinterpret_cast<float*>(&host_weights_data[table_begin]),
-              reinterpret_cast<const float*>(grad_blocked_buffer),
-              reinterpret_cast<float*>(
-                  &momentum1_host[momentum1_offsets_data[feature_begin]]),
-              col_segment_indices + c,
-              eps,
-              -learning_rate,
-              /*weight_decay=*/0,
-              /*counter=*/nullptr,
-              /*counter_halflife=*/0);
-          // TODO: more friendly error msg.
-          TORCH_CHECK(num_rows_processed == c_block_end - c);
+          if (c == c_end - 1 || col_segment_indices[c + 1] != idx) {
+            col_segment_indices_buffer[grad_buffer_offset] = idx;
+            ++grad_buffer_offset;
+            if (c == c_end - 1 || grad_buffer_offset >= C_BLOCK) {
+              // accumulate gradients until we have C_BLOCK to amortize
+              // rowwise_adagrad_kernel invocation
+              int num_rows_processed = rowwise_adagrad_kernel(
+                  grad_buffer_offset,
+                  hash_size * D,
+                  reinterpret_cast<float*>(&host_weights_data[table_begin]),
+                  reinterpret_cast<const float*>(grad_blocked_buffer),
+                  reinterpret_cast<float*>(
+                      &momentum1_host[momentum1_offsets_data[feature_begin]]),
+                  col_segment_indices_buffer,
+                  eps,
+                  -learning_rate,
+                  /*weight_decay=*/0,
+                  /*counter=*/nullptr,
+                  /*counter_halflife=*/0);
+              // TODO: more friendly error msg.
+              TORCH_CHECK(num_rows_processed == grad_buffer_offset);
+              grad_buffer_offset = 0;
+            }
+          }
         } // for each c
-      }); // parallel for
+      }
     } else
     {% endif %}
     {
