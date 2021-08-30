@@ -84,7 +84,8 @@ def generate_requests(
             dtype=torch.int32,
         )
         # each bag is usually sorted
-        all_indices = torch.sort(all_indices).reshape(iters, T, B * L)
+        (all_indices, _) = torch.sort(all_indices)
+        all_indices = all_indices.reshape(iters, T, B * L)
     else:
         assert E >= L, "num-embeddings must be greater than equal to bag-size"
         # oversample and then remove duplicates to obtain sampling without
