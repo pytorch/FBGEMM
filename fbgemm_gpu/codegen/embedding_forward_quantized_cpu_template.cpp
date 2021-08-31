@@ -167,8 +167,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     {% if weighted %}
     const float* indice_weights_acc = indice_weights.data_ptr<float>();
     {% endif %}
-    // Empty vector filled with zeros (thus accumulating to zero).
-    static std::vector<uint8_t> zero_row(1024 * 8, 0);
+    // Empty array filled with zeros (thus accumulating to zero).
+    static constexpr std::array<uint8_t, 1024 * 8> zero_row = {0};
     std::vector<__m256> acc; //, {{ kMaxVecsPerThread }} > acc;
 
     AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
