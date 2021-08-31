@@ -1453,6 +1453,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
+        weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
+        load_factor: float = 0.5,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
         import numpy as np
@@ -1529,14 +1531,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             [align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty)) for _, row, dim, weight_ty in embedding_specs]
         ).tolist()
         self.table_size: int = weights_offsets[-1]
-        self.register_buffer(
-            "weights",
-            torch.empty(
-                size=(self.table_size,),
-                dtype=torch.uint8,
-                device=self.current_device,
-            ),
+        weights = torch.randint(
+            0,
+            255,
+            size=(self.table_size,),
+            dtype=torch.uint8,
+            device=self.current_device,
         )
+        self.register_buffer("weights", weights)
 
         for feature in range(T):
             t = feature_table_map[feature]
@@ -1557,31 +1559,43 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(weights_tys_int, device=self.current_device, dtype=torch.uint8),
         )
 
+        # Assign weights after weights and weights_offsets are initialized.
+        if weight_lists:
+            self.assign_embedding_weights(weight_lists) # type: ignore
+
         if index_remapping:
-            # TODO: tune this?
-            LOAD_FACTOR = 0.5
-            assert len(index_remapping) == len(rows)
-            capacities = [round_up(int(row * 1.0 / LOAD_FACTOR), 32) if index_remap is not None else 0 for (index_remap, row) in zip(index_remapping, rows)]
+            capacities = [
+                round_up(int(row * 1.0 / load_factor), 32)
+                if index_remap is not None else 0
+                for (index_remap, row) in zip(index_remapping, rows)
+            ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
                 dtype=torch.int32,
             )
             hash_table[:, :] = -1
-            hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
+            hash_table_offsets = torch.tensor(
+                [0] + np.cumsum(capacities).tolist()
+            ).long()
 
             # Note: feature remapping does not work for pruned tables because we use both
             # the start and end-point of the offsets.
             np.testing.assert_equal(feature_table_map, list(range(T_)))
 
-            feature_rows = [rows[t] for t in feature_table_map]
-            assert len(feature_rows) == len(index_remapping)
-            for row, index_map in zip(feature_rows, index_remapping):
-                assert row == index_map.numel()
-            indices = torch.cat(index_remapping, dim=0).int()
-            dense_indices = torch.cat(
-                [torch.arange(row) for row in feature_rows], dim=0
+            merged_index_remappings = [
+                mapping if mapping is not None else Tensor(list(range(spec[1])))
+                for (mapping, spec) in zip(index_remapping, embedding_specs)
+            ]
+            original_feature_rows = [
+                mapping.numel() for mapping in merged_index_remappings
+            ]
+            dense_indices = torch.cat(merged_index_remappings, dim=0).int()
+            indices = torch.cat(
+                [torch.arange(row) for row in original_feature_rows], dim=0
             ).int()
-            offsets = torch.tensor([0] + np.cumsum(feature_rows).tolist()).int()
+            offsets = torch.tensor(
+                [0] + np.cumsum(original_feature_rows).tolist()
+            ).int()
             torch.ops.fb.pruned_hashmap_insert(
                 indices, dense_indices, offsets, hash_table, hash_table_offsets
             )
@@ -1615,9 +1629,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
-        # We cast to int as a TorchScript workaround.
-        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table is not None:
@@ -1628,6 +1639,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remapping_hash_table,
                 self.index_remapping_hash_table_offsets,
             )
+        # We cast to int as a TorchScript workaround.
+        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
         return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights,
             weights_offsets=self.weights_offsets,
@@ -1686,3 +1700,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=torch.uint8,
             device=self.current_device,
         )
+
+    def assign_embedding_weights(
+        self, q_weight_list: List[Tuple[Tensor, Optional[Tensor]]]
+    ) -> None:
+        """
+        Assigns self.split_embedding_weights() with values from the input list of weights and scale_shifts.
+        """
+        weights = self.split_embedding_weights()
+        assert len(q_weight_list) == len(weights)
+
+        for (dest_weight, input_weight) in zip(weights, q_weight_list):
+            dest_weight[0].copy_(input_weight[0])
+            if input_weight[1] is not None:
+                assert dest_weight[1] is not None
+                dest_weight[1].copy_(input_weight[1])
+            else:
+                assert dest_weight[1] is None

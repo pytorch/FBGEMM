@@ -46,6 +46,10 @@ void bounds_check_indices_cpu(
         auto L = indices_end - indices_start;
         for (auto l = 0; l < L; ++l) {
           auto idx = indices_acc[indices_start + l];
+          if (idx == -1) {
+            // -1 indicates pruned rows.
+            continue;
+          }
           if (bounds_check_mode == BoundsCheckMode::FATAL) {
             TORCH_CHECK(idx >= 0);
             TORCH_CHECK(idx < num_rows);
