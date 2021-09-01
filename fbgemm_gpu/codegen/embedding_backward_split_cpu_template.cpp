@@ -14,6 +14,7 @@
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
+#include "include/fbgemm_gpu/cpu_utils.h"
 
 using namespace at;
 
@@ -235,28 +236,52 @@ void split_embedding_backward_exact_cpu_kernel(
       // no fbgemm
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
-      grad_t grad_buffer[D];
-      for (int c = c_begin; c < c_end; ++c) {
-        int64_t idx = col_segment_indices[c];
-        if (c == c_begin || col_segment_indices[c - 1] != idx) {
-          memset(grad_buffer, 0, D * sizeof(grad_t));
-        }
-        const int64_t embedding_begin = table_begin + idx * D;
-        for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
-          int D_offset = D_begin +
-            batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
-          int b = batched_cscs[t].row_indices[r];
-          for (int64_t d = 0; d < D; ++d) {
-            grad_buffer[d] += batched_cscs[t].weights != nullptr
-                ? grad_output_data[b * grad_stride + D_offset + d] *
-                    batched_cscs[t].weights[r]
-                : grad_output_data[b * grad_stride + D_offset + d];
+      alignas(64) grad_t grad_buffer[D];
+      if (batched_cscs[t].weights != nullptr) {
+        for (int c = c_begin; c < c_end; ++c) {
+          int64_t idx = col_segment_indices[c];
+          if (c == c_begin || col_segment_indices[c - 1] != idx) {
+            memset(grad_buffer, 0, D * sizeof(grad_t));
           }
-        }
-        if (c == c_end - 1 || col_segment_indices[c + 1] != idx) {
-          {{ split_weight_update_cpu }}
-        }
-      } // for each c
+          const int64_t embedding_begin = table_begin + idx * D;
+          for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
+            int D_offset = D_begin +
+              batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
+            int b = batched_cscs[t].row_indices[r];
+            fbgemm_gpu::madd_ker(
+                grad_buffer,
+                (grad_t*)&grad_output_data[b * grad_stride + D_offset],
+                D,
+                batched_cscs[t].weights[r]);
+          }
+          if (c == c_end - 1 || col_segment_indices[c + 1] != idx) {
+            {{ split_weight_update_cpu }}
+          }
+        } // for each c
+      } else {
+        // parallelize using sort csr2csc segments
+#pragma omp parallel for schedule(static,1)
+        for (int c = c_begin; c < c_end; ++c) {
+          int64_t idx = col_segment_indices[c];
+          if (c == c_begin || col_segment_indices[c - 1] != idx) {
+            memset(grad_buffer, 0, D * sizeof(grad_t));
+          }
+          const int64_t embedding_begin = table_begin + idx * D;
+          for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
+            int D_offset = D_begin +
+              batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
+            int b = batched_cscs[t].row_indices[r];
+            fbgemm_gpu::madd_ker(
+                grad_buffer,
+                (grad_t*)&grad_output_data[b * grad_stride + D_offset],
+                D,
+                1.0);
+          }
+          if (c == c_end - 1 || col_segment_indices[c + 1] != idx) {
+            {{ split_weight_update_cpu }}
+          }
+        } // for each c
+      }
     } // no fbgemm
   } // for each table
 }
