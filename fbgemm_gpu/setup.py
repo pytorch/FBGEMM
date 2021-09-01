@@ -152,6 +152,7 @@ setup(
                 os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops.cu"),
+                os.path.join(cur_dir, "src/merge_pooled_embeddings.cpp"),
             ],
             include_dirs=[
                 cur_dir,
@@ -166,6 +167,7 @@ setup(
             ],
             extra_compile_args={"cxx": extra_compile_args,
                                 "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
+            libraries=["nvidia-ml"],
         ) if cub_include_path is not None and os.path.exists(cub_include_path) else
         CppExtension(
             name="fbgemm_gpu_py",
