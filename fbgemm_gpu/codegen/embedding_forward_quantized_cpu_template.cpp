@@ -115,6 +115,10 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
             for (int32_t l = 0; l < L; ++l) {
                 int32_t idx = indices_acc[indices_start + l];
                 int32_t dense_idx = dense_indices_acc[indices_start + l];
+                if (dense_idx == -1) {
+                    // -1 means this row has been pruned, do not insert it.
+                    continue;
+                }
 
                 uint32_t slot = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
                 while (true) {

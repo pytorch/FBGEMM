@@ -198,6 +198,10 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
         for (int32_t l = 0; l < L; ++l) {
           int32_t slot_sparse_index = indices_acc[indices_start + l];
           int32_t slot_dense_index = dense_indices_acc[indices_start + l];
+          if (slot_dense_index == -1) {
+            // -1 means this row has been pruned, do not insert it.
+            continue;
+          }
           map.emplace(slot_sparse_index, slot_dense_index);
         }
       }

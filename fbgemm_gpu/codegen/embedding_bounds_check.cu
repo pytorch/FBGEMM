@@ -45,6 +45,10 @@ __global__ void bounds_check_indices_kernel(
   auto L = indices_end - indices_start;
   for (auto i = threadIdx.x; i < L; i += fbgemm_gpu::kWarpSize) {
     auto idx = indices[indices_start + i];
+    if (idx == -1) {
+        // -1 indicates pruned rows.
+        continue;
+    }
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
       CUDA_KERNEL_ASSERT(idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
       CUDA_KERNEL_ASSERT(idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
