@@ -796,7 +796,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for param in splits:
                 param.uniform_(min_val, max_val)
 
-    @torch.jit.export
+    @torch.jit.ignore
     def split_embedding_weights(self) -> List[Tensor]:
         """
         Returns a list of weights, split by table
