@@ -143,6 +143,9 @@ setup(
                 os.path.join(cur_dir, "codegen/embedding_forward_quantized_host.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_bounds_check_host.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_bounds_check_host_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_bounds_check.cu"),
                 os.path.join(cur_dir, "src/split_embeddings_cache_cuda.cu"),
                 os.path.join(cur_dir, "src/split_table_batched_embeddings.cpp"),
                 os.path.join(cur_dir, "src/cumem_utils.cu"),
@@ -168,7 +171,7 @@ setup(
             extra_compile_args={"cxx": extra_compile_args,
                                 "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
             libraries=["nvidia-ml"],
-        ) if cub_include_path is not None and os.path.exists(cub_include_path) else
+        ) if cub_include_path is not None else
         CppExtension(
             name="fbgemm_gpu_py",
             sources=[
