@@ -236,8 +236,8 @@ void split_embedding_backward_exact_cpu_kernel(
       // no fbgemm
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
-      alignas(64) grad_t grad_buffer[D];
       if (batched_cscs[t].weights != nullptr) {
+        alignas(64) grad_t grad_buffer[D];
         for (int c = c_begin; c < c_end; ++c) {
           int64_t idx = col_segment_indices[c];
           if (c == c_begin || col_segment_indices[c - 1] != idx) {
@@ -262,6 +262,7 @@ void split_embedding_backward_exact_cpu_kernel(
         // parallelize using sort csr2csc segments
 #pragma omp parallel for schedule(static,1)
         for (int c = c_begin; c < c_end; ++c) {
+          alignas(64) grad_t grad_buffer[D];
           int64_t idx = col_segment_indices[c];
           if (c == c_begin || col_segment_indices[c - 1] != idx) {
             memset(grad_buffer, 0, D * sizeof(grad_t));

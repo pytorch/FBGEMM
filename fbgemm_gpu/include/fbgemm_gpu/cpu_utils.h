@@ -134,7 +134,6 @@ inline float toFloat(at::Half val) {
 }
 template <typename T1, typename T2>
 inline void madd_ker_ref(T1* inout, T2* in, int len, float alpha) {
-#pragma omp simd
   for (long v = 0; v < len; v++) {
     inout[v] += toFloat(in[v]) * alpha;
   }
