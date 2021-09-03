@@ -155,7 +155,6 @@ setup(
                 os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops.cu"),
-                os.path.join(cur_dir, "src/merge_pooled_embeddings.cpp"),
             ],
             include_dirs=[
                 cur_dir,
