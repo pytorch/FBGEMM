@@ -265,7 +265,6 @@ template <typename scalar_t>
 void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor grad,
     Tensor grad_output,
-    Tensor host_weights,
     const TensorAccessor<int64_t, 1> weights_offsets_data,
     const TensorAccessor<int, 1> D_offsets_data,
     Tensor indices,
@@ -275,11 +274,9 @@ void split_embedding_backward_exact_cpu_dense_kernel(
     int num_tables,
     int B,
     const int* table_to_feature_offset) {
-  using grad_t = acc_type<scalar_t, true>;
-  auto grad_data = grad.data_ptr<grad_t>();
+  auto grad_data = grad.data_ptr<scalar_t>();
 
-  auto grad_output_data = grad_output.accessor<grad_t, 2>();
-  auto host_weights_data = host_weights.accessor<scalar_t, 1>();
+  auto grad_output_data = grad_output.accessor<scalar_t, 2>();
 
   const auto indices_data = indices.accessor<int64_t, 1>();
   const auto offsets_data = offsets.accessor<int64_t, 1>();
@@ -287,9 +284,9 @@ void split_embedding_backward_exact_cpu_dense_kernel(
       ?
       // If indice_weights are not defined, then this accessor won't be
       // used
-      indice_weights.accessor<grad_t, 1>()
-      : grad.accessor<grad_t, 1>(); // this is just to make compiler
-                                    // happy
+      indice_weights.accessor<scalar_t, 1>()
+      : grad.accessor<scalar_t, 1>(); // this is just to make compiler
+                                      // happy
 
   at::parallel_for(0, num_tables, 0, [&](int64_t t_begin, int64_t t_end) {
     for (int64_t t = table_to_feature_offset[t_begin];
@@ -410,12 +407,11 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
 
         split_embedding_backward_exact_cpu_dense_kernel<scalar_t>(
             grad,
             grad_output,
-            host_weights,
             weights_offsets_data,
             D_offsets_data,
             indices,
