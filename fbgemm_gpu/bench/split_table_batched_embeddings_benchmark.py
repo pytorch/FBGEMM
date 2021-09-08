@@ -7,6 +7,9 @@
 
 import itertools
 import logging
+import math
+import random
+import statistics
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -132,8 +135,9 @@ def benchmark_requests(
     requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     flush_gpu_cache_size_mb: int = 0,
+    check_median: bool = False,
 ) -> float:
-    total_time = 0.0
+    times = []
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -151,10 +155,14 @@ def benchmark_requests(
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
-            total_time += start_event.elapsed_time(end_event) * 1.0e-3
+            it_time = start_event.elapsed_time(end_event) * 1.0e-3
+            times.append(it_time)
         else:
-            total_time += time.time() - start_time
-    return total_time / len(requests)
+            it_time = time.time() - start_time
+            times.append(it_time)
+    avg_time = sum(times) / len(requests)
+    median_time = statistics.median(times)
+    return median_time if check_median else avg_time
 
 
 def benchmark_pipelined_requests(
@@ -892,8 +900,10 @@ def cpu(  # noqa C901
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
-@click.option("--index-remapping", is_flag=True, default=False)
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+@click.option("--pruning-ratio", type=float, default=None)
+@click.option("--load-factor", default=0.75)
+@click.option("--check-median", is_flag=True, default=True)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -910,8 +920,10 @@ def nbit_device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
-    index_remapping: bool,
     bounds_check_mode: int,
+    pruning_ratio: Optional[float],
+    load_factor: float,
+    check_median: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -919,7 +931,9 @@ def nbit_device(  # noqa C901
     D = embedding_dim
     L = bag_size
     E = num_embeddings
+    original_E = E
     T = num_tables
+    index_remapping = None
     if weighted_num_requires_grad:
         assert weighted_num_requires_grad <= T
         weighted_requires_grad_tables = np.random.choice(
@@ -944,10 +958,21 @@ def nbit_device(  # noqa C901
     else:
         Ds = [D] * T
 
+    if pruning_ratio:
+        assert pruning_ratio < 1 and pruning_ratio > 0
+        E = math.ceil(E * (1.0 - pruning_ratio))
+        index_remapping = []
+        for _ in range(T):
+            mapping = torch.tensor([-1] * original_E, dtype=torch.int32)
+            selected_indices = random.sample(range(original_E), E)
+            for i, idx in enumerate(selected_indices):
+                mapping[idx] = i
+            index_remapping.append(mapping)
+
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision) for d in Ds],
-        index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+        index_remapping=index_remapping, load_factor=load_factor,
     ).cuda()
     emb.fill_random_weights()
 
@@ -983,6 +1008,7 @@ def nbit_device(  # noqa C901
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
         ),
+        check_median=check_median,
     )
 
     logging.info(
