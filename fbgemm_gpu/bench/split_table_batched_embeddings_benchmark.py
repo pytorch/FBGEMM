@@ -17,6 +17,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
     CacheAlgorithm,
     ComputeDevice,
+    DenseTableBatchedEmbeddingBagsCodegen,
     EmbeddingLocation,
     OptimType,
     SparseType,
@@ -222,6 +223,7 @@ def cli() -> None:
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--dense", is_flag=True, default=False)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -239,6 +241,7 @@ def device(  # noqa C901
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
     flush_gpu_cache_size_mb: int,
+    dense: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -280,22 +283,36 @@ def device(  # noqa C901
     else:
         managed_option = EmbeddingLocation.MANAGED
 
-    emb = SplitTableBatchedEmbeddingBagsCodegen(
-        [
-            (
-                E,
-                d,
-                managed_option,
-                ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
-            )
-            for d in Ds
-        ],
-        optimizer=optimizer,
-        learning_rate=0.1,
-        eps=0.1,
-        weights_precision=weights_precision,
-        stochastic_rounding=stoc,
-    ).to(get_device())
+    if dense:
+        emb = DenseTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    E,
+                    d,
+                )
+                for d in Ds
+            ],
+            use_cpu=not torch.cuda.is_available(),
+        )
+    else:
+        emb = SplitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    E,
+                    d,
+                    managed_option,
+                    ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
+                )
+                for d in Ds
+            ],
+            optimizer=optimizer,
+            learning_rate=0.1,
+            eps=0.1,
+            weights_precision=weights_precision,
+            stochastic_rounding=stoc,
+        )
+    emb = emb.to(get_device())
+
     if weights_precision == SparseType.INT8:
         emb.init_embedding_weights_uniform(-0.0003, 0.0003)
 
