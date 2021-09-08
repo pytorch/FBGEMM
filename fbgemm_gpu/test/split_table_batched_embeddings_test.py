@@ -352,7 +352,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=128),
