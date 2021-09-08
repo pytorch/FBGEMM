@@ -299,18 +299,19 @@ void split_embedding_backward_exact_cpu_dense_kernel(
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
         const auto L = pool_end - pool_begin;
-        const double scale_factor =
+        const scalar_t scale_factor =
             // NOTE: MEAN pooling will not work with indice_weights!
             (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
         for (auto p = pool_begin; p < pool_end; ++p) {
           const int64_t embedding_begin = table_begin + indices_data[p] * D;
+          const scalar_t v = indice_weights.defined()
+              ? (indice_weights_data[p] * scale_factor)
+              : scale_factor;
           for (int64_t d = 0; d < D; ++d) {
-            grad_data[embedding_begin + d] += scale_factor *
-                (indice_weights.defined()
-                      ? grad_output_data[b][D_begin + d] * indice_weights_data[p]
-                      : grad_output_data[b][D_begin + d]);
+            grad_data[embedding_begin + d] +=
+                grad_output_data[b][D_begin + d] * v;
           }
         }
       }
