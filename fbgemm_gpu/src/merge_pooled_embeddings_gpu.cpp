@@ -306,7 +306,7 @@ Tensor cat_dim_1(
 
 // TODO: Add device arg.
 Tensor merge_pooled_embeddings(
-    std::vector<Tensor> ad_pooled_embeddings,
+    std::vector<Tensor> pooled_embeddings,
     Tensor batch_indices) {
   static std::once_flag flag;
   std::call_once(flag, []() {
@@ -328,9 +328,9 @@ Tensor merge_pooled_embeddings(
 
   at::cuda::CUDAGuard g(batch_indices.device());
 
-  TORCH_CHECK(!ad_pooled_embeddings.empty());
+  TORCH_CHECK(!pooled_embeddings.empty());
   auto B = batch_indices.size(0);
-  return cat_dim_1(ad_pooled_embeddings, B, batch_indices.device());
+  return cat_dim_1(pooled_embeddings, B, batch_indices.device());
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {

@@ -14,7 +14,7 @@ using namespace at;
 namespace at {
 
 at::Tensor merge_pooled_embeddings_cpu(
-    std::vector<Tensor> ad_pooled_embeddings,
+    std::vector<Tensor> pooled_embeddings,
     Tensor batch_indices) {
   auto cat_host_0 = [&](const std::vector<at::Tensor>& ts) {
     int64_t n = 0;
@@ -27,16 +27,17 @@ at::Tensor merge_pooled_embeddings_cpu(
     } else {
       r = at::empty({n}, ts[0].options());
     }
+    r.resize_(0);
     return at::cat_out(r, ts, 1); // concat the tensor list in dim = 1
   };
-  return cat_host_0(ad_pooled_embeddings);
+  return cat_host_0(pooled_embeddings);
 }
 
 } // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "merge_pooled_embeddings(Tensor[] ad_pooled_embeddings, Tensor batch_indices) -> Tensor");
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, Tensor batch_indices) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
