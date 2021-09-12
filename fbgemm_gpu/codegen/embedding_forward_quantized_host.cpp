@@ -5,15 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <torch/script.h>
 
 using namespace at;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -29,22 +31,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor weights_tys,
-    Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_int2_D,
-    int64_t max_int4_D,
-    int64_t max_int8_D,
-    int64_t max_float16_D,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    Tensor indice_weights,
-    int64_t unused);
-
-Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
-    Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -61,6 +49,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
 
 Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -76,6 +66,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
         dev_weights,
+        uvm_weights,
+        weights_placements,
         weights_offsets,
         weights_tys,
         D_offsets,
@@ -91,6 +83,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cuda(
       dev_weights,
+      uvm_weights,
+      weights_placements,
       weights_offsets,
       weights_tys,
       D_offsets,
@@ -114,7 +108,7 @@ Tensor pruned_hashmap_lookup_unweighted_cuda(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(

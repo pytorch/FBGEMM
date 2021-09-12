@@ -1637,16 +1637,40 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
 
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+        else:
+            managed = [
+                np.random.choice(
+                    [
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                    ]
+                )
+                for _ in range(T)
+            ]
+
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
         xws_acc_type = copy.deepcopy(xws)
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[("", E, D, weights_ty) for (E, D) in zip(Es, Ds)],
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    weights_ty,
+                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                )
+                for (E, D, M) in zip(Es, Ds, managed)
+            ],
             pooling_mode=pooling_mode,
             index_remapping=[torch.arange(E) for E in Es],
             use_cpu=use_cpu,
         )
+        # Initilize the random weights for int nbit table split embedding bag
+        cc.fill_random_weights()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
 

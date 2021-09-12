@@ -1469,16 +1469,62 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return r
 
 
+def intn_construct_split_state(
+    embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
+    cacheable: bool,
+) -> SplitState:
+    placements = []
+    offsets = []
+    dev_size = 0
+    host_size = 0
+    uvm_size = 0
+    for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
+
+        def align_to_cacheline(a: int) -> int:
+            # align each table to 128b cache line boundary.
+            return round_up(a, 128)
+
+        embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty)
+        state_size = align_to_cacheline(num_embeddings * embedding_dim)
+        if location == EmbeddingLocation.HOST:
+            placements.append(EmbeddingLocation.HOST)
+            offsets.append(host_size)
+            host_size += state_size
+        elif location == EmbeddingLocation.DEVICE:
+            placements.append(EmbeddingLocation.DEVICE)
+            offsets.append(dev_size)
+            dev_size += state_size
+        else:
+            if cacheable and location == EmbeddingLocation.MANAGED_CACHING:
+                placements.append(
+                    EmbeddingLocation.MANAGED_CACHING
+                )  # Note: this isn't supported yet.
+                raise AssertionError("MANAGED_CACHING is not supported yet")
+            else:
+                placements.append(EmbeddingLocation.MANAGED)
+            offsets.append(uvm_size)
+            uvm_size += state_size
+    assert len(placements) == len(offsets)
+    return SplitState(
+        dev_size=dev_size,
+        host_size=host_size,
+        uvm_size=uvm_size,
+        placements=placements,
+        offsets=offsets,
+    )
+
+
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
+    Inference version, with FP16/INT8/INT4 supports
     """
 
     def __init__(
         self,
         embedding_specs: List[
-            Tuple[str, int, int, SparseType]
-        ],  # tuple of (feature_names, rows, dims, SparseType)
+            Tuple[str, int, int, SparseType, EmbeddingLocation]
+        ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
@@ -1498,12 +1544,17 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
-        # (feature_names, rows, dims, weights_tys, ) = zip(*embedding_specs)
+        # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
+        locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        assert not self.use_cpu or all(
+            loc == EmbeddingLocation.HOST for loc in locations
+        ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
 
         T_ = len(self.embedding_specs)
 
@@ -1511,13 +1562,17 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for (dim, weight_ty) in zip(dims, weights_tys):
             assert dim % weight_ty.align_size() == 0
 
-        feature_table_map = (
+        self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
-        T = len(feature_table_map)
+        T = len(self.feature_table_map)
         assert T_ <= T
-        D_offsets = [dims[t] for t in feature_table_map]
-        D_offsets = [0] + np.cumsum(D_offsets).tolist()
+        table_has_feature = [False] * T_
+        for t in self.feature_table_map:
+            table_has_feature[t] = True
+        assert all(table_has_feature), "Each table must have at least one feature!"
+        D_offsets = [dims[t] for t in self.feature_table_map]
+        D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
 
         def max_ty_D(ty: SparseType) -> int:
@@ -1540,7 +1595,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "rows_per_table",
             torch.tensor(
-                [rows[t] for t in feature_table_map],
+                [rows[t] for t in self.feature_table_map],
                 device=self.current_device,
                 dtype=torch.int64,
             ),
@@ -1554,45 +1609,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # align each table to 128b cache line boundary.
             return round_up(a, 128)
 
-        weights_offsets = [0] + np.cumsum(
-            [
-                align_to_cacheline(row * rounded_row_size_in_bytes(dim, weight_ty))
-                for _, row, dim, weight_ty in embedding_specs
-            ]
-        ).tolist()
-        self.table_size: int = weights_offsets[-1]
-        weights = torch.randint(
-            0,
-            255,
-            size=(self.table_size,),
-            dtype=torch.uint8,
-            device=self.current_device,
-        )
-        self.register_buffer("weights", weights)
-
-        for feature in range(T):
-            t = feature_table_map[feature]
-            _, row, dim, weight_ty = embedding_specs[t]
-            assert self.weights[
-                weights_offsets[t] : weights_offsets[t + 1]
-            ].numel() == align_to_cacheline(
-                row * rounded_row_size_in_bytes(dim, weight_ty)
-            )
-
-        weights_offsets = [weights_offsets[t] for t in feature_table_map]
-        weights_tys_int = [weights_tys[t].as_int() for t in feature_table_map]
-
-        self.register_buffer(
-            "weights_offsets",
-            torch.tensor(
-                weights_offsets, device=self.current_device, dtype=torch.int64
-            ),
-        )
+        weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]
         self.register_buffer(
             "weights_tys",
             torch.tensor(
                 weights_tys_int, device=self.current_device, dtype=torch.uint8
             ),
+        )
+        weight_split = intn_construct_split_state(
+            embedding_specs,
+            cacheable=True,
+        )
+        self._apply_split(
+            weight_split,
         )
 
         # Assign weights after weights and weights_offsets are initialized.
@@ -1611,13 +1640,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int32,
             )
             hash_table[:, :] = -1
-            hash_table_offsets = torch.tensor(
-                [0] + np.cumsum(capacities).tolist()
-            ).long()
+            hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()
 
             # Note: feature remapping does not work for pruned tables because we use both
             # the start and end-point of the offsets.
-            np.testing.assert_equal(feature_table_map, list(range(T_)))
+            assert self.feature_table_map == list(range(T_))
 
             merged_index_remappings = [
                 mapping if mapping is not None else Tensor(list(range(spec[1])))
@@ -1630,9 +1657,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices = torch.cat(
                 [torch.arange(row) for row in original_feature_rows], dim=0
             ).int()
-            offsets = torch.tensor(
-                [0] + np.cumsum(original_feature_rows).tolist()
-            ).int()
+            offsets = torch.tensor([0] + list(accumulate(original_feature_rows))).int()
             torch.ops.fb.pruned_hashmap_insert(
                 indices, dense_indices, offsets, hash_table, hash_table_offsets
             )
@@ -1687,21 +1712,105 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
             )
-        return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
-            dev_weights=self.weights,
-            weights_offsets=self.weights_offsets,
-            weights_tys=self.weights_tys,
-            D_offsets=self.D_offsets,
-            total_D=self.total_D,
-            max_int2_D=self.max_int2_D,
-            max_int4_D=self.max_int4_D,
-            max_int8_D=self.max_int8_D,
-            max_float16_D=self.max_float16_D,
-            indices=indices,
-            offsets=offsets,
-            pooling_mode=self.pooling_mode,
-            indice_weights=per_sample_weights,
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if self.weights_host.numel() > 0:
+            return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function_cpu(
+                dev_weights=self.weights_host,
+                weights_offsets=self.weights_offsets,
+                weights_tys=self.weights_tys,
+                D_offsets=self.D_offsets,
+                total_D=self.total_D,
+                max_int2_D=self.max_int2_D,
+                max_int4_D=self.max_int4_D,
+                max_int8_D=self.max_int8_D,
+                max_float16_D=self.max_float16_D,
+                indices=indices,
+                offsets=offsets,
+                pooling_mode=self.pooling_mode,
+                indice_weights=per_sample_weights,
+            )
+        else:
+            return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
+                dev_weights=self.weights_dev,
+                uvm_weights=self.weights_uvm,
+                weights_placements=self.weights_placements,
+                weights_offsets=self.weights_offsets,
+                weights_tys=self.weights_tys,
+                D_offsets=self.D_offsets,
+                total_D=self.total_D,
+                max_int2_D=self.max_int2_D,
+                max_int4_D=self.max_int4_D,
+                max_int8_D=self.max_int8_D,
+                max_float16_D=self.max_float16_D,
+                indices=indices,
+                offsets=offsets,
+                pooling_mode=self.pooling_mode,
+                indice_weights=per_sample_weights,
+            )
+
+    def _apply_split(
+        self,
+        split: SplitState,
+    ) -> None:
+        self.weights_physical_placements = split.placements
+        self.weights_physical_offsets = split.offsets
+        self.table_size: int = split.offsets[-1]
+
+        offsets = [split.offsets[t] for t in self.feature_table_map]
+        placements = [split.placements[t] for t in self.feature_table_map]
+        self.register_buffer(
+            "weights_offsets",
+            torch.tensor(offsets, device=self.current_device, dtype=torch.int64),
         )
+        self.register_buffer(
+            "weights_placements",
+            torch.tensor(placements, device=self.current_device, dtype=torch.int32),
+        )
+        if split.dev_size > 0:
+            self.register_buffer(
+                "weights_dev",
+                torch.zeros(
+                    split.dev_size,
+                    device=self.current_device,
+                    dtype=torch.uint8,
+                ),
+            )
+        else:
+            self.register_buffer(
+                "weights_dev",
+                torch.empty(0, device=self.current_device, dtype=torch.uint8),
+            )
+        if split.host_size > 0:
+            self.register_buffer(
+                "weights_host",
+                torch.zeros(
+                    split.host_size, device=self.current_device, dtype=torch.uint8
+                ),
+            )
+        else:
+            self.register_buffer(
+                "weights_host",
+                torch.empty(0, device=self.current_device, dtype=torch.uint8),
+            )
+        if split.uvm_size > 0:
+            assert not self.use_cpu
+            self.register_buffer(
+                "weights_uvm",
+                torch.zeros(
+                    split.uvm_size,
+                    out=torch.ops.fb.new_managed_tensor(
+                        torch.zeros(1, device=self.current_device, dtype=torch.uint8),
+                        [split.uvm_size],
+                    ),
+                ),
+            )
+        else:
+            self.register_buffer(
+                "weights_uvm",
+                torch.empty(0, device=self.current_device, dtype=torch.uint8),
+            )
 
     @torch.jit.export
     def split_embedding_weights(self) -> List[Tuple[Tensor, Optional[Tensor]]]:
@@ -1709,9 +1818,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Returns a list of weights, split by table
         """
         splits: List[Tuple[Tensor, Optional[Tensor]]] = []
-        for t, (_, rows, dim, weight_ty) in enumerate(self.embedding_specs):
-            offset = self.weights_offsets[t]
-            weights_shifts = self.weights.detach()[
+        for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
+            placement = self.weights_physical_placements[t]
+            if placement == EmbeddingLocation.DEVICE.value:
+                weights = self.weights_dev
+            elif placement == EmbeddingLocation.HOST.value:
+                weights = self.weights_host
+            else:
+                weights = self.weights_uvm
+            offset = self.weights_physical_offsets[t]
+            # pyre-fixme[29]:
+            #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self, Tensor)],
+            #  Tensor], Tensor], Tensor, nn.Module]` is not a function.
+            weights_shifts = weights.detach()[
                 offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
             ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
             # remove the padding at the end of each row.
@@ -1742,15 +1861,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def fill_random_weights(self) -> None:
         """
-        Fill the buffer with random weights
+        Fill the buffer with random weights, table by table
+        FIXME: make it in-place fill.
         """
-        self.weights = torch.randint(
-            0,
-            255,
-            size=(self.table_size,),
-            dtype=torch.uint8,
-            device=self.current_device,
-        )
+        weights = self.split_embedding_weights()
+        for dest_weight in weights:
+            dest_weight[0].copy_(
+                torch.randint(
+                    0,
+                    255,
+                    size=dest_weight[0].shape,
+                    dtype=torch.uint8,
+                    device=self.current_device,
+                )
+            )
 
     def assign_embedding_weights(
         self, q_weight_list: List[Tuple[Tensor, Optional[Tensor]]]

@@ -17,6 +17,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
+# TODO: move torch.ops.fb.embedding_bag_rowwise_prune to OSS
 torch.ops.load_library("//caffe2/torch/fb/sparsenn:sparsenn_operators")
 
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
@@ -141,7 +142,15 @@ class SplitEmbInferenceConverter:
                     # Try to prune embeddings.
                     (pruned_weight, index_remapping) = self._prune_embs(t, E, child)
                     new_embedding_specs.append(
-                        ("", pruned_weight.size()[0], D, weight_ty)
+                        (
+                            "",
+                            pruned_weight.size()[0],
+                            D,
+                            weight_ty,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+                            if use_cpu
+                            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        )
                     )
                     index_remapping_list.append(index_remapping)
 
