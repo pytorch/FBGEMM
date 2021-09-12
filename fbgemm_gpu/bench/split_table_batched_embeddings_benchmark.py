@@ -835,7 +835,7 @@ def cpu(  # noqa C901
         Ds = [D] * T
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [("", E, d, weights_precision) for d in Ds],
+        [("", E, d, weights_precision, EmbeddingLocation.HOST) for d in Ds],
         use_cpu=True,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
@@ -969,8 +969,13 @@ def nbit_device(  # noqa C901
                 mapping[idx] = i
             index_remapping.append(mapping)
 
+    if managed == "device":
+        managed_option = EmbeddingLocation.DEVICE
+    else:
+        managed_option = EmbeddingLocation.MANAGED
+
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
-        [("", E, d, weights_precision) for d in Ds],
+        [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         index_remapping=index_remapping, load_factor=load_factor,
     ).cuda()
@@ -1133,6 +1138,7 @@ def hashtable(  # noqa C901
             f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
         )
 
+
 @cli.command()
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
@@ -1184,6 +1190,7 @@ def bounds_check_indices(  # noqa C901
         f"BW: {(8 * B * T * L + 8 * (B * T + 1)) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
+
 
 if __name__ == "__main__":
     cli()

@@ -20,6 +20,12 @@ enum class SparseType : uint8_t {
     INT2 = 4,
 };
 
+// Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
+enum {
+  DEVICE = 0,
+  MANAGED = 1,
+  MANAGED_CACHING = 2,
+};
 
 __forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
   return ((a + b - 1) / b) * b;
@@ -411,6 +417,8 @@ template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, siz
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
   const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
   const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
@@ -467,7 +475,13 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
     max_Ls = max(max_Ls, Ls[i]);
   }
 
-  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  const uint8_t* __restrict__ weights;
+  const auto placement = weights_placements[t];
+  if (placement == DEVICE) {
+      weights = &dev_weights[weights_offset];
+  } else {
+      weights = &uvm_weights[weights_offset];
+  }
   constexpr size_t kOutputsPerThread = 2;
 
   constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
@@ -562,6 +576,8 @@ template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, siz
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
   const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
   const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
@@ -618,7 +634,13 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     max_Ls = max(max_Ls, Ls[i]);
   }
 
-  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  const uint8_t* __restrict__ weights;
+  const auto placement = weights_placements[t];
+  if (placement == DEVICE) {
+      weights = &dev_weights[weights_offset];
+  } else {
+      weights = &uvm_weights[weights_offset];
+  }
   constexpr size_t kOutputsPerThread = 8;
 
   constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
@@ -734,6 +756,8 @@ template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, siz
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
   const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
   const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
@@ -790,7 +814,13 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     max_Ls = max(max_Ls, Ls[i]);
   }
 
-  const uint8_t* __restrict__ weights = &dev_weights[weights_offset];
+  const uint8_t* __restrict__ weights;
+  const auto placement = weights_placements[t];
+  if (placement == DEVICE) {
+      weights = &dev_weights[weights_offset];
+  } else {
+      weights = &uvm_weights[weights_offset];
+  }
   constexpr size_t kOutputsPerThread = 4;
 
   constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
@@ -970,6 +1000,8 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
 
 at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     at::Tensor dev_weights,
+    at::Tensor uvm_weights,
+    at::Tensor weights_placements,
     at::Tensor weights_offsets,
     at::Tensor weights_tys,
     at::Tensor D_offsets,
@@ -1011,6 +1043,8 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
         weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
         weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
         D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
@@ -1045,6 +1079,8 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
         weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
         weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
         D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
@@ -1082,6 +1118,8 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
         weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
         weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
         D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
