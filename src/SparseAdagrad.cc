@@ -950,19 +950,35 @@ typename SparseAdaGradSignature<IndexType>::Type GenerateSparseAdaGrad(
                float weight_decay,
                const double* counter,
                std::int64_t counter_halflife) {
-      return sparse_adagrad_ref(
-          num_rows, // number of rows reading
-          block_size, // number of parameters per rows
-          param_size, // total number of parameters
-          w, // input/output parameters
-          g, // input gradients
-          h, // input/output momentums
-          indices,
-          epsilon,
-          lr,
-          weight_decay,
-          counter,
-          counter_halflife);
+      if (rowwise) {
+        return rowwise_sparse_adagrad_ref(
+            num_rows, // number of rows reading
+            block_size, // number of parameters per rows
+            param_size, // total number of parameters
+            w, // input/output parameters
+            g, // input gradients
+            h, // input/output momentums
+            indices,
+            epsilon,
+            lr,
+            weight_decay,
+            counter,
+            counter_halflife);
+      } else {
+        return sparse_adagrad_ref(
+            num_rows, // number of rows reading
+            block_size, // number of parameters per rows
+            param_size, // total number of parameters
+            w, // input/output parameters
+            g, // input gradients
+            h, // input/output momentums
+            indices,
+            epsilon,
+            lr,
+            weight_decay,
+            counter,
+            counter_halflife);
+      }
     };
   }
 }
