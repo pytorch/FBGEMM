@@ -21,6 +21,8 @@ using namespace at;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -32,6 +34,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -44,8 +48,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
-    Tensor uvm_weights,  // Not used: to match the interface of CUDA op using UVM
-    Tensor weights_placements,  // Not used: to match the interface of CUDA op using UVM
+    Tensor uvm_weights,  // to match the interface of CUDA op using UVM
+    Tensor weights_placements,  // to match the interface of CUDA op using UVM
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -61,6 +65,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
+        uvm_weights,
+        weights_placements,
         weights_offsets,
         weights_tys,
         D_offsets,
@@ -72,6 +78,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       dev_weights,
+      uvm_weights,
+      weights_placements,
       weights_offsets,
       weights_tys,
       D_offsets,
