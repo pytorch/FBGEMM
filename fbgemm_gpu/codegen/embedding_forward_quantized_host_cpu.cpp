@@ -44,6 +44,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,  // Not used: to match the interface of CUDA op using UVM
+    Tensor weights_placements,  // Not used: to match the interface of CUDA op using UVM
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -96,10 +98,8 @@ Tensor pruned_hashmap_lookup_unweighted_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
 
-  m.def(
-      "int_nbit_split_embedding_codegen_lookup_function_cpu(Tensor dev_weights, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
   m.impl(
-      "int_nbit_split_embedding_codegen_lookup_function_cpu",
+      "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(
           c10::DispatchKey::CPU,
           TORCH_FN(int_nbit_split_embedding_codegen_lookup_function_cpu)));
