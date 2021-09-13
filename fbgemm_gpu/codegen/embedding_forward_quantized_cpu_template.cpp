@@ -16,6 +16,14 @@
 namespace {
 enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
 
+// Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
+enum {
+  DEVICE = 0,
+  MANAGED = 1,
+  MANAGED_CACHING = 2,
+  HOST = 3,
+};
+
 using namespace at;
 
 // From https://stackoverflow.com/questions/55084047/intel-vector-instruction-to-zero-extend-8-4-bit-values-packed-in-a-32-bit-int-to
@@ -146,6 +154,8 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
 
 Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -169,7 +179,10 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
       pined_memory = true;
     }
     auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
-    const auto* weights_acc = dev_weights.data_ptr<uint8_t>();
+
+    const int32_t* weights_placements_ptr = weights_placements.data_ptr<int32_t>();
+    const uint8_t* weights_acc;
+
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
     auto* output_acc = output.data_ptr<Half>();
@@ -191,6 +204,13 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
         for (int32_t t = 0; t < T; ++t) {
             const int32_t D_start = D_offsets_acc[t];
             const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
+            const auto placement = weights_placements_ptr[t];
+            assert(placement != DEVICE);
+            if (placement == HOST) {
+                weights_acc = dev_weights.data_ptr<uint8_t>();
+            } else {
+                weights_acc = uvm_weights.data_ptr<uint8_t>();
+            }
             const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
             auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
             const int32_t D_vecs = div_round_up(D, 8);
