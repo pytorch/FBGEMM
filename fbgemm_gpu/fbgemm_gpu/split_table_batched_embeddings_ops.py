@@ -1534,7 +1534,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         load_factor: float = 0.5,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
-        import numpy as np
 
         self.use_cpu = use_cpu
         self.current_device: torch.device = (
