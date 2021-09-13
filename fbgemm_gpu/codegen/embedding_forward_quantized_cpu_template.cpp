@@ -8,6 +8,7 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -163,7 +164,11 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(total_D > 0);
-    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(true));
+    bool pined_memory = false;
+    if (globalContext().hasCUDA() && ::at::cuda::is_available()) {
+      pined_memory = true;
+    }
+    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
     const auto* weights_acc = dev_weights.data_ptr<uint8_t>();
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
