@@ -333,6 +333,11 @@ Tensor merge_pooled_embeddings(
   return cat_dim_1(ad_pooled_embeddings, B, batch_indices.device());
 }
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "merge_pooled_embeddings(Tensor[] ad_pooled_embeddings, Tensor batch_indices) -> Tensor");
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl(
       "merge_pooled_embeddings",

@@ -34,11 +34,6 @@ at::Tensor merge_pooled_embeddings_cpu(
 
 } // namespace at
 
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "merge_pooled_embeddings(Tensor[] ad_pooled_embeddings, Tensor batch_indices) -> Tensor");
-}
-
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("merge_pooled_embeddings", at::merge_pooled_embeddings_cpu);
 }

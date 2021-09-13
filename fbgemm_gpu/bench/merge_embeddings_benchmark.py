@@ -11,6 +11,7 @@ try:
     torch.ops.load_library("fbgemm_gpu_py.so")
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu")
 
 
 @click.command()
