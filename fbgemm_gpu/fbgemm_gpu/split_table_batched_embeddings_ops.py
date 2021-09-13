@@ -1711,43 +1711,26 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
             )
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
-        if self.weights_host.numel() > 0:
-            return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function_cpu(
-                dev_weights=self.weights_host,
-                weights_offsets=self.weights_offsets,
-                weights_tys=self.weights_tys,
-                D_offsets=self.D_offsets,
-                total_D=self.total_D,
-                max_int2_D=self.max_int2_D,
-                max_int4_D=self.max_int4_D,
-                max_int8_D=self.max_int8_D,
-                max_float16_D=self.max_float16_D,
-                indices=indices,
-                offsets=offsets,
-                pooling_mode=self.pooling_mode,
-                indice_weights=per_sample_weights,
-            )
-        else:
-            return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
-                dev_weights=self.weights_dev,
-                uvm_weights=self.weights_uvm,
-                weights_placements=self.weights_placements,
-                weights_offsets=self.weights_offsets,
-                weights_tys=self.weights_tys,
-                D_offsets=self.D_offsets,
-                total_D=self.total_D,
-                max_int2_D=self.max_int2_D,
-                max_int4_D=self.max_int4_D,
-                max_int8_D=self.max_int8_D,
-                max_float16_D=self.max_float16_D,
-                indices=indices,
-                offsets=offsets,
-                pooling_mode=self.pooling_mode,
-                indice_weights=per_sample_weights,
-            )
+        # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
+        # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
+        # weights_placements
+        return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
+            dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
+            uvm_weights=self.weights_uvm,
+            weights_placements=self.weights_placements,
+            weights_offsets=self.weights_offsets,
+            weights_tys=self.weights_tys,
+            D_offsets=self.D_offsets,
+            total_D=self.total_D,
+            max_int2_D=self.max_int2_D,
+            max_int4_D=self.max_int4_D,
+            max_int8_D=self.max_int8_D,
+            max_float16_D=self.max_float16_D,
+            indices=indices,
+            offsets=offsets,
+            pooling_mode=self.pooling_mode,
+            indice_weights=per_sample_weights,
+        )
 
     def _apply_split(
         self,
@@ -1755,7 +1738,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> None:
         self.weights_physical_placements = split.placements
         self.weights_physical_offsets = split.offsets
-        self.table_size: int = split.offsets[-1]
+
+        self.host_size = split.host_size
+        self.dev_size = split.dev_size
+        self.uvm_size = split.uvm_size
 
         offsets = [split.offsets[t] for t in self.feature_table_map]
         placements = [split.placements[t] for t in self.feature_table_map]
