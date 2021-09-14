@@ -106,6 +106,12 @@ Tensor pruned_hashmap_lookup_unweighted_cuda(
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+Tensor pruned_array_lookup_cuda(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets);
+
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
       "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
@@ -122,4 +128,12 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       torch::dispatch(
           c10::DispatchKey::CUDA,
           TORCH_FN(pruned_hashmap_lookup_unweighted_cuda)));
+
+  m.def(
+      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
+  m.impl(
+      "pruned_array_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(pruned_array_lookup_cuda)));
 }
