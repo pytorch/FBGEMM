@@ -1589,6 +1589,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward(
@@ -1603,6 +1604,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
         use_cpu: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -1666,8 +1668,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D, M) in zip(Es, Ds, managed)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E) for E in Es],
+            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es],
             use_cpu=use_cpu,
+            use_array_for_index_remapping=use_array_for_index_remapping,
         )
         # Initilize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()

@@ -996,6 +996,36 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
     }
 }
 
+{% if not weighted %}
+__global__ void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> indices,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> offsets,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> index_remappings,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> index_remappings_offsets,
+    int32_t B,
+    int32_t T,
+    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> dense_indices) {
+  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  int32_t t = b_t / B;
+  int32_t b = b_t % B;
+  if (b_t >= B * T) {
+      return;
+  }
+  int32_t indices_start = offsets[t * B + b];
+  int32_t indices_end = offsets[t * B + b + 1];
+  int32_t L = indices_end - indices_start;
+
+  int64_t index_remappings_start = index_remappings_offsets[t];
+  int64_t index_remappings_end = index_remappings_offsets[t + 1];
+  int64_t capacity = index_remappings_end - index_remappings_start;
+
+  for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+    int32_t idx = indices[indices_start + l];
+    dense_indices[indices_start + l] = capacity ? index_remappings[index_remappings_start + idx] : idx;
+  }
+}
+{% endif %}
+
 }
 
 at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
@@ -1166,8 +1196,8 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
     constexpr size_t kForwardMaxThreads = 256;
     nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
-        nbit::div_round_up(B * T + 1, kForwardMaxThreads / 32),
-        dim3(32, kForwardMaxThreads / 32),
+        nbit::div_round_up(B * T + 1, kForwardMaxThreads / nbit::kWarpSize),
+        dim3(nbit::kWarpSize, kForwardMaxThreads / nbit::kWarpSize),
         0,
         at::cuda::getCurrentCUDAStream()>>>(
             indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
@@ -1181,3 +1211,47 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return dense_indices;
 }
+
+{% if not weighted %}
+at::Tensor pruned_array_lookup_cuda(
+    at::Tensor indices,
+    at::Tensor offsets,
+    at::Tensor index_remappings,
+    at::Tensor index_remappings_offsets) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(indices.get_device());
+  auto dense_indices = at::empty_like(indices);
+  int32_t T = index_remappings_offsets.size(0) - 1;
+  TORCH_CHECK(
+      (offsets.size(0) - 1) % T == 0,
+      "offsets.size() - 1 is not divisible by T! offsets.size: ",
+      offsets.size(0),
+      "T: ",
+      T
+  );
+  int32_t B = (offsets.size(0) - 1) / T;
+  TORCH_CHECK(B > 0, "offsets.size(): ", offsets.size(0), ", T: ", T, ", B: ", B);
+  TORCH_CHECK(index_remappings.size(0) < std::numeric_limits<int64_t>::max());
+  TORCH_CHECK(indices.dim() == 1, "Tensor dim: ", indices.dim());
+  TORCH_CHECK(offsets.dim() == 1, "Tensor dim: ", offsets.dim());
+  TORCH_CHECK(index_remappings.dim() == 1, "Tensor dim: ", index_remappings.dim());
+  TORCH_CHECK(index_remappings_offsets.dim() == 1, "Tensor dim: ", index_remappings_offsets.dim());
+  TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
+  constexpr size_t kForwardMaxThreads = 256;
+  nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
+      nbit::div_round_up(offsets.size(0), kForwardMaxThreads / nbit::kWarpSize),
+      dim3(nbit::kWarpSize, kForwardMaxThreads / nbit::kWarpSize),
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+          indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+          offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+          index_remappings.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+          index_remappings_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+          B,
+          T,
+          dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()
+  );
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return dense_indices;
+}
+{% endif %}
