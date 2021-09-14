@@ -1,7 +1,7 @@
 # FBGEMM_GPU
 
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
-high-performance CUDA GPU operator library for GPU training.
+high-performance CUDA GPU operator library for GPU training and inference.
 
 The library provides efficient table batched embedding bag,
 data layout transformation, and quantization supports.
