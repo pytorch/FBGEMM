@@ -540,3 +540,35 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     }
     return dense_indices;
 }
+
+{% if not weighted %}
+Tensor pruned_array_lookup_cpu(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets) {
+    int32_t T = index_remappings_offsets.size(0) - 1;
+    int32_t B = (offsets.size(0) - 1) / T;
+    TORCH_CHECK(B > 0);
+    auto dense_indices = empty_like(indices);
+    const auto* indices_acc = indices.data_ptr<int32_t>();
+    auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
+    const auto* offsets_acc = offsets.data_ptr<int32_t>();
+
+    const auto index_remappings_acc = index_remappings.data_ptr<int32_t>();
+    const auto index_remappings_offsets_acc = index_remappings_offsets.data_ptr<int64_t>();
+
+    for (int32_t t = 0; t < T; ++t) {
+        int64_t index_remappings_start = index_remappings_offsets_acc[t];
+        int64_t index_remappings_end = index_remappings_offsets_acc[t + 1];
+        int64_t capacity = index_remappings_end - index_remappings_start;
+        int32_t indices_start = offsets_acc[t * B];
+        int32_t indices_end = offsets_acc[(t + 1) * B];
+        for (int32_t i = indices_start; i < indices_end; ++i) {
+            int32_t idx = indices_acc[i];
+            dense_indices[i] = capacity ? index_remappings_acc[index_remappings_start + idx] : idx;
+        }
+    }
+    return dense_indices;
+}
+{% endif %}

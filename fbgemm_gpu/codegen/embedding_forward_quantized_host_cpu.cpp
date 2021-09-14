@@ -104,6 +104,12 @@ Tensor pruned_hashmap_lookup_unweighted_cpu(
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+Tensor pruned_array_lookup_cpu(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets);
+
 TORCH_LIBRARY_FRAGMENT(fb, m) {
 
   m.impl(
@@ -122,13 +128,20 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           c10::DispatchKey::CPU,
           TORCH_FN(pruned_hashmap_insert_unweighted_cpu)));
 
-  // CPU version of Lookup isn't used. For CPUs, we should use PrunedMapCPU
-  // below.
+  // CPU version of hashmap Lookup isn't used. For CPUs, we should use
+  // PrunedMapCPU below.
   m.impl(
       "pruned_hashmap_lookup",
       torch::dispatch(
           c10::DispatchKey::CPU,
           TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
+
+  // CPU version of array lookup.
+  m.impl(
+      "pruned_array_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(pruned_array_lookup_cpu)));
 }
 
 class PrunedMapCPU : public torch::jit::CustomClassHolder {

@@ -23,10 +23,14 @@ torch.ops.load_library("//caffe2/torch/fb/sparsenn:sparsenn_operators")
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
-    def __init__(self, quantize_type: SparseType, pruning_ratio: Optional[float]):
+    def __init__(
+            self, quantize_type: SparseType, pruning_ratio: Optional[float],
+            use_array_for_index_remapping: bool = True,
+    ):
         self.quantize_type = quantize_type
         # TODO(yingz): Change the pruning ratio to per-table settings.
         self.pruning_ratio = pruning_ratio
+        self.use_array_for_index_remapping = use_array_for_index_remapping
 
     def convert_model(self, model: torch.nn.Module) -> nn.Module:
         self._process_split_embs(model)
@@ -165,6 +169,7 @@ class SplitEmbInferenceConverter:
                     pooling_mode=child.pooling_mode,
                     use_cpu=use_cpu,
                     weight_lists=weight_lists,
+                    use_array_for_index_remapping=self.use_array_for_index_remapping,
                 )
                 setattr(model, name, q_child)
             else:

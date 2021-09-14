@@ -200,11 +200,13 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
 
     @given(
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_l2_norm_pruning_workflow(
         self,
         use_cpu: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         D = 128
         T = 2
@@ -252,6 +254,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             split_emb_infer_converter = SplitEmbInferenceConverter(
                 quantize_type=SparseType.FP16,
                 pruning_ratio=pruning_ratio,
+                use_array_for_index_remapping=use_array_for_index_remapping,
             )
             split_emb_infer_converter.convert_model(sparse_arch)
             assert (
@@ -277,6 +280,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         pruning_ratio=st.floats(min_value=0.0, max_value=1.0, exclude_max=True),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_pruning_workflow_large_scale(
@@ -286,6 +290,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         log_E: int,
         pruning_ratio: Optional[float],
         use_cpu: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         E = int(10 ** log_E)
         D_alignment = 8
@@ -305,6 +310,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         split_emb_infer_converter = SplitEmbInferenceConverter(
             quantize_type=SparseType.FP16,
             pruning_ratio=pruning_ratio,
+            use_array_for_index_remapping=use_array_for_index_remapping,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         embedding_weights_after = sparse_arch.emb_module.split_embedding_weights()

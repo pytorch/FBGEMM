@@ -891,7 +891,6 @@ def cpu(  # noqa C901
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--stoc", is_flag=True, default=False)
-@click.option("--iters", default=100)
 @click.option("--managed", default="device")
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
@@ -903,7 +902,11 @@ def cpu(  # noqa C901
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
 @click.option("--pruning-ratio", type=float, default=None)
 @click.option("--load-factor", default=0.75)
+@click.option("--use-array-for-index-remapping", is_flag=True, default=True)
 @click.option("--check-median", is_flag=True, default=True)
+@click.option("--iters", default=100)
+@click.option("--runs-of-iters", default=5)
+@click.option("--warmup-runs", default=2)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -911,7 +914,6 @@ def nbit_device(  # noqa C901
     embedding_dim: int,
     weights_precision: SparseType,
     stoc: bool,
-    iters: int,
     managed: str,
     mixed: bool,
     num_embeddings: int,
@@ -923,7 +925,11 @@ def nbit_device(  # noqa C901
     bounds_check_mode: int,
     pruning_ratio: Optional[float],
     load_factor: float,
+    use_array_for_index_remapping: bool,
     check_median: bool,
+    iters: int,
+    runs_of_iters: int,
+    warmup_runs: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -958,8 +964,9 @@ def nbit_device(  # noqa C901
     else:
         Ds = [D] * T
 
+    mem_for_pruning = 0
     if pruning_ratio:
-        assert pruning_ratio < 1 and pruning_ratio > 0
+        assert pruning_ratio < 1 and pruning_ratio >= 0
         E = math.ceil(E * (1.0 - pruning_ratio))
         index_remapping = []
         for _ in range(T):
@@ -968,6 +975,10 @@ def nbit_device(  # noqa C901
             for i, idx in enumerate(selected_indices):
                 mapping[idx] = i
             index_remapping.append(mapping)
+            if use_array_for_index_remapping:
+                mem_for_pruning += mapping.numel() * 4
+            else:
+                mem_for_pruning += E / load_factor * 2 * 4
 
     if managed == "device":
         managed_option = EmbeddingLocation.DEVICE
@@ -978,6 +989,7 @@ def nbit_device(  # noqa C901
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         index_remapping=index_remapping, load_factor=load_factor,
+        use_array_for_index_remapping=use_array_for_index_remapping,
     ).cuda()
     emb.fill_random_weights()
 
@@ -988,39 +1000,59 @@ def nbit_device(  # noqa C901
     )
     logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
 
-    requests = generate_requests(
-        iters,
-        B,
-        T,
-        L,
-        E,
-        reuse=reuse,
-        alpha=alpha,
-        weights_precision=weights_precision,
-        weighted=weighted,
-    )
-    requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+    times = []
+    for i in range(runs_of_iters):
+        requests = generate_requests(
+            iters,
+            B,
+            T,
+            L,
+            E,
+            reuse=reuse,
+            alpha=alpha,
+            weights_precision=weights_precision,
+            weighted=weighted,
+        )
+        requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
-    # forward
-    time_per_iter = benchmark_requests(
-        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-        #  Optional[Tensor]]]`.
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices.int(),
-            offsets.int(),
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        check_median=check_median,
-    )
+        # forward
+        time_per_iter = benchmark_requests(
+            # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+            #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+            #  Optional[Tensor]]]`.
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            check_median=check_median,
+        )
 
+        # free up GPU memory
+        del requests
+
+        logging.info(
+            f"Iteration {i}: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {(2 * B * T * D + PRECISION_SIZE_MULTIPLIER[weights_precision] * B * T * L * D) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+            f"T: {time_per_iter * 1.0e6:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e6:.0f}MB"
+        )
+
+        if i >= warmup_runs:
+            times.append(time_per_iter)
+
+    time_per_iter = statistics.mean(times)
     logging.info(
+        f"Average of all iterations: "
         f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
         f"BW: {(2 * B * T * D + PRECISION_SIZE_MULTIPLIER[weights_precision] * B * T * L * D) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
-        f"T: {time_per_iter * 1.0e6:.0f}us"
+        f"T: {time_per_iter * 1.0e6:.0f}us, "
+        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e6:.0f}MB"
     )
 
 
@@ -1138,6 +1170,64 @@ def hashtable(  # noqa C901
             f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
         )
 
+@cli.command()
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=2048)
+@click.option("--iters", default=100)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=100)
+@click.option("--pruning-ratio", default=0.9)
+def pruned_array(  # noqa C901
+    bag_size: int,
+    batch_size: int,
+    iters: int,
+    num_embeddings: int,
+    num_tables: int,
+    pruning_ratio: float,
+) -> None:
+    B = batch_size
+    T = num_tables
+    L = bag_size
+    E = num_embeddings
+    np.random.seed(42)
+    torch.manual_seed(42)
+    assert pruning_ratio > 0 and pruning_ratio <= 1
+    original_E = int(E / (1.0 - pruning_ratio))
+    index_remappings = torch.tensor([-1] * original_E * T, dtype=torch.int32, device='cuda')
+    index_remappings_offsets = torch.empty(T + 1, dtype=torch.int32, device='cuda')
+    index_remappings_offsets[0] = 0
+    dense_indicies = torch.tensor(range(E), dtype=torch.int32, device='cuda')
+    for t in range(T):
+        selected_indices = torch.add(torch.randperm(original_E, device='cuda'), t * original_E)[:E]
+        index_remappings[selected_indices] = dense_indicies
+        index_remappings_offsets[t + 1] = index_remappings_offsets[t] + original_E
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+    )
+    requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
+
+    time_per_iter = benchmark_requests(
+        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
+        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
+        #  Optional[Tensor]]]`.
+        requests,
+        lambda indices, offsets, _: torch.ops.fb.pruned_array_lookup(
+            indices,
+            offsets,
+            index_remappings,
+            index_remappings_offsets,
+        ),
+    )
+
+    logging.info(
+        f"LinearTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us, Pruning Ratio: {pruning_ratio * 100:.2f}%, Table size: {original_E * T * 4 / 1.0e6:.0f}MB"
+    )
 
 @cli.command()
 @click.option("--bag-size", default=20)
