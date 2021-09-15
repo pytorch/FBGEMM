@@ -291,7 +291,6 @@ template <typename scalar_t>
 void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor grad,
     Tensor grad_output,
-    Tensor host_weights,
     const TensorAccessor<int64_t, 1> weights_offsets_data,
     const TensorAccessor<int, 1> D_offsets_data,
     Tensor indices,
@@ -301,11 +300,9 @@ void split_embedding_backward_exact_cpu_dense_kernel(
     int num_tables,
     int B,
     const int* table_to_feature_offset) {
-  using grad_t = acc_type<scalar_t, true>;
-  auto grad_data = grad.data_ptr<grad_t>();
+  auto grad_data = grad.data_ptr<scalar_t>();
 
-  auto grad_output_data = grad_output.accessor<grad_t, 2>();
-  auto host_weights_data = host_weights.accessor<scalar_t, 1>();
+  auto grad_output_data = grad_output.accessor<scalar_t, 2>();
 
   const auto indices_data = indices.accessor<int64_t, 1>();
   const auto offsets_data = offsets.accessor<int64_t, 1>();
@@ -313,9 +310,9 @@ void split_embedding_backward_exact_cpu_dense_kernel(
       ?
       // If indice_weights are not defined, then this accessor won't be
       // used
-      indice_weights.accessor<grad_t, 1>()
-      : grad.accessor<grad_t, 1>(); // this is just to make compiler
-                                    // happy
+      indice_weights.accessor<scalar_t, 1>()
+      : grad.accessor<scalar_t, 1>(); // this is just to make compiler
+                                      // happy
 
   at::parallel_for(0, num_tables, 0, [&](int64_t t_begin, int64_t t_end) {
     for (int64_t t = table_to_feature_offset[t_begin];
@@ -328,18 +325,19 @@ void split_embedding_backward_exact_cpu_dense_kernel(
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
         const auto L = pool_end - pool_begin;
-        const double scale_factor =
+        const scalar_t scale_factor =
             // NOTE: MEAN pooling will not work with indice_weights!
             (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
         for (auto p = pool_begin; p < pool_end; ++p) {
           const int64_t embedding_begin = table_begin + indices_data[p] * D;
+          const scalar_t v = indice_weights.defined()
+              ? (indice_weights_data[p] * scale_factor)
+              : scale_factor;
           for (int64_t d = 0; d < D; ++d) {
-            grad_data[embedding_begin + d] += scale_factor *
-                (indice_weights.defined()
-                      ? grad_output_data[b][D_begin + d] * indice_weights_data[p]
-                      : grad_output_data[b][D_begin + d]);
+            grad_data[embedding_begin + d] +=
+                grad_output_data[b][D_begin + d] * v;
           }
         }
       }
@@ -436,12 +434,11 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
 
         split_embedding_backward_exact_cpu_dense_kernel<scalar_t>(
             grad,
             grad_output,
-            host_weights,
             weights_offsets_data,
             D_offsets_data,
             indices,

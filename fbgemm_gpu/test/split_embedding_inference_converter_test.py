@@ -7,8 +7,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
+import math
 import unittest
-from typing import Tuple
+from typing import Optional, Tuple
 
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
@@ -124,6 +126,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        pruning_ratio=st.sampled_from([None, 0.0]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_quantize_workflow(
@@ -135,6 +138,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         L: int,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         quantize_type: SparseType,
+        pruning_ratio: Optional[float],
         use_cpu: bool,
     ) -> None:
         E = int(10 ** log_E)
@@ -175,7 +179,8 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
 
         # Apply the quantization transformations on the model!
         split_emb_infer_converter = SplitEmbInferenceConverter(
-            quantize_type=quantize_type
+            quantize_type=quantize_type,
+            pruning_ratio=pruning_ratio,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         assert (
@@ -192,6 +197,143 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             atol=1.0e-1,
             rtol=1.0e-1,
         )
+
+    @given(
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_l2_norm_pruning_workflow(
+        self,
+        use_cpu: bool,
+        use_array_for_index_remapping: bool,
+    ) -> None:
+        D = 128
+        T = 2
+        E = 5
+        indices = torch.Tensor([3, 0, 2, 2, 3, 4, 2]).int()
+        offsets = torch.Tensor([0, 1, 4, 6, 7]).int()
+        weights = [
+            (torch.Tensor([0.4, 0.1, -0.2, 0.2, 0.3]).float().view(E, 1))
+            * (torch.Tensor([1.0] * E * D).view(E, D)),
+            (torch.Tensor([-0.8, 0.2, 0.5, -0.1, 0.9]).float().view(E, 1))
+            * (torch.Tensor([1.0] * E * D).view(E, D)),
+        ]
+
+        # Inputs for 3 test cases. Each row is used in one test case.
+        pruning_ratios = [0.9, 0.5, 0.1]
+        remapped_indices = [
+            torch.Tensor([0, 4]).int(),
+            torch.Tensor([3, 0, 2, 2, 4, 2]).int(),
+            indices,
+        ]
+        remapped_offsets = [
+            torch.Tensor([0, 0, 1, 2, 2]).int(),
+            torch.Tensor([0, 1, 4, 5, 6]).int(),
+            offsets,
+        ]
+
+        # Start to test.
+        logging.info("use cpu = {}".format(use_cpu))
+        for pruning_ratio, remapped_index, remapped_offset in zip(
+            pruning_ratios, remapped_indices, remapped_offsets
+        ):
+            logging.info("pruning ratio = {}.".format(pruning_ratio))
+            sparse_arch = SparseArch(
+                emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu
+            )
+            for idx in range(T):
+                sparse_arch.emb_module.split_embedding_weights()[idx].copy_(
+                    weights[idx]
+                )
+            emb_out = sparse_arch(
+                to_device(remapped_index, use_cpu), to_device(remapped_offset, use_cpu)
+            )  # B, T, D
+
+            # Apply pruning / quantization transformations on the model!
+            split_emb_infer_converter = SplitEmbInferenceConverter(
+                quantize_type=SparseType.FP16,
+                pruning_ratio=pruning_ratio,
+                use_array_for_index_remapping=use_array_for_index_remapping,
+            )
+            split_emb_infer_converter.convert_model(sparse_arch)
+            assert (
+                type(sparse_arch.emb_module)
+                == split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen
+            )
+            assert sparse_arch.emb_module.use_cpu == use_cpu
+            pruned_emb_out = sparse_arch(
+                to_device(indices, use_cpu), to_device(offsets, use_cpu)
+            )  # B, T, D
+
+            # Compare FP32 emb module with remapped index vs. FP16 emb module with pruning
+            torch.testing.assert_allclose(
+                emb_out.float().cpu(),
+                pruned_emb_out.float().cpu(),
+                atol=1.0e-1,
+                rtol=1.0e-1,
+            )
+
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        pruning_ratio=st.floats(min_value=0.0, max_value=1.0, exclude_max=True),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_pruning_workflow_large_scale(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        pruning_ratio: Optional[float],
+        use_cpu: bool,
+        use_array_for_index_remapping: bool,
+    ) -> None:
+        E = int(10 ** log_E)
+        D_alignment = 8
+        D = div_round_up(D, D_alignment)
+        sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)
+
+        # Make sure that each row has a unique L2 norm.
+        embedding_weights_before = sparse_arch.emb_module.split_embedding_weights()
+        for weights in embedding_weights_before:
+            for i in range(weights.size()[0]):
+                weights[i].uniform_(i * 0.01, (i + 1) * 0.01)
+
+        # Collect #rows before pruning.
+        num_rows_before = [weight.size()[0] for weight in embedding_weights_before]
+
+        # Apply pruning / quantization transformations on the model!
+        split_emb_infer_converter = SplitEmbInferenceConverter(
+            quantize_type=SparseType.FP16,
+            pruning_ratio=pruning_ratio,
+            use_array_for_index_remapping=use_array_for_index_remapping,
+        )
+        split_emb_infer_converter.convert_model(sparse_arch)
+        embedding_weights_after = sparse_arch.emb_module.split_embedding_weights()
+        assert (
+            type(sparse_arch.emb_module)
+            == split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen
+        )
+        assert sparse_arch.emb_module.use_cpu == use_cpu
+
+        # Collect #rows after pruning.
+        embedding_weights_after = sparse_arch.emb_module.split_embedding_weights()
+        num_rows_after = [weight[0].size()[0] for weight in embedding_weights_after]
+
+        # Check #rows after pruning aligns with the specified pruning ratio.
+        self.assertEqual(len(num_rows_before), len(num_rows_after))
+        for before, after in zip(num_rows_before, num_rows_after):
+            self.assertEqual(
+                math.ceil(before * (1.0 - pruning_ratio)), # type: ignore
+                after,
+                msg="original_num_rows = {}, pruning ratio = {}".format(
+                    before, pruning_ratio
+                ),
+            )
 
 
 if __name__ == "__main__":
