@@ -1629,7 +1629,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if weight_lists:
             self.assign_embedding_weights(weight_lists)  # type: ignore
 
-
         # Handle index remapping for embedding pruning.
         self.register_buffer(
             "index_remappings_array_offsets",
@@ -1639,84 +1638,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "index_remappings_array",
             torch.empty(0, device=self.current_device, dtype=torch.int32)
         )
-        hash_table_initialized = False
+        self.register_buffer(
+            "index_remapping_hash_table_offsets",
+            torch.empty(0, device=self.current_device, dtype=torch.int64)
+        )
+        self.register_buffer(
+            "index_remapping_hash_table",
+            torch.empty(0, device=self.current_device, dtype=torch.int32)
+        )
+        # pyre-fixme[4]: Attribute must be annotated.
+        self.index_remapping_hash_table_cpu = None
+
         if index_remapping:
-            if not use_array_for_index_remapping:
-                capacities = [
-                    round_up(int(row * 1.0 / load_factor), 32)
-                    if index_remap is not None else 0
-                    for (index_remap, row) in zip(index_remapping, rows)
-                ]
-                hash_table = torch.empty(
-                    (sum(capacities), 2),
-                    dtype=torch.int32,
-                )
-                hash_table[:, :] = -1
-                hash_table_offsets = torch.tensor(
-                    [0] + np.cumsum(capacities).tolist()
-                ).long()
-
-                # Note: feature remapping does not work for pruned tables because we use both
-                # the start and end-point of the offsets.
-                np.testing.assert_equal(self.feature_table_map, list(range(T_)))
-
-                merged_index_remappings = [
-                    mapping if mapping is not None else Tensor(list(range(spec[1])))
-                    for (mapping, spec) in zip(index_remapping, embedding_specs)
-                ]
-                original_feature_rows = [
-                    mapping.numel() for mapping in merged_index_remappings
-                ]
-                dense_indices = torch.cat(merged_index_remappings, dim=0).int()
-                indices = torch.cat(
-                    [torch.arange(row) for row in original_feature_rows], dim=0
-                ).int()
-                offsets = torch.tensor(
-                    [0] + np.cumsum(original_feature_rows).tolist()
-                ).int()
-                torch.ops.fb.pruned_hashmap_insert(
-                    indices, dense_indices, offsets, hash_table, hash_table_offsets
-                )
-                self.register_buffer(
-                    "index_remapping_hash_table", hash_table.to(self.current_device)
-                )
-                self.register_buffer(
-                    "index_remapping_hash_table_offsets", hash_table_offsets.to(self.current_device)
-                )
-
-                if use_cpu:
-                    # pyre-fixme[4]: Attribute must be annotated.
-                    self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
-                    assert T == T_
-                    self.index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T_)
-                else:
-                    self.index_remapping_hash_table_cpu = None
-                hash_table_initialized = True
-            else:
-                index_remappings_array_offsets = [0]
-                last_offset = 0
-                for mapping in index_remapping:
-                    if mapping is not None:
-                        last_offset += mapping.numel()
-                    index_remappings_array_offsets.append(last_offset)
-
-                self.index_remappings_array_offsets = torch.tensor(
-                    index_remappings_array_offsets,
-                    device=self.current_device,
-                    dtype=torch.int64
-                )
-                self.index_remappings_array = torch.empty(
-                    0, dtype=torch.int32, device=self.current_device
-                ) if self.index_remappings_array_offsets[-1] == 0 else torch.cat(
-                    [mapping for mapping in index_remapping if mapping is not None]
-                ).to(self.current_device)
-
-        if not hash_table_initialized:
-            # pyre-fixme[8]: Attribute has type `Tensor`; used as `None`.
-            self.index_remapping_hash_table = None
-            # pyre-fixme[8]: Attribute has type `Tensor`; used as `None`.
-            self.index_remapping_hash_table_offsets = None
-            self.index_remapping_hash_table_cpu = None
+            self.set_index_remappings(
+                index_remapping, load_factor, use_array_for_index_remapping
+            )
 
     def forward(
         self,
@@ -1727,7 +1663,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> Tensor:
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
-        elif self.index_remapping_hash_table is not None:
+        elif self.index_remapping_hash_table.numel() > 0:
             # Convert from raw indices to pruned indices
             indices = torch.ops.fb.pruned_hashmap_lookup(
                 indices,
@@ -1918,3 +1854,70 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dest_weight[1].copy_(input_weight[1])
             else:
                 assert dest_weight[1] is None
+
+    def set_index_remappings(
+        self,
+        index_remapping: List[Tensor],
+        load_factor: float = 0.5,
+        use_array_for_index_remapping: bool = True,
+    ) -> None:
+        rows: List[int] = [e[1] for e in self.embedding_specs]
+        T = len(self.embedding_specs)
+        if not use_array_for_index_remapping:
+            capacities = [
+                round_up(int(row * 1.0 / load_factor), 32)
+                if index_remap is not None else 0
+                for (index_remap, row) in zip(index_remapping, rows)
+            ]
+            hash_table = torch.empty(
+                (sum(capacities), 2),
+                dtype=torch.int32,
+            )
+            hash_table[:, :] = -1
+            hash_table_offsets = torch.tensor(
+                [0] + np.cumsum(capacities).tolist()
+            ).long()
+
+            merged_index_remappings = [
+                mapping if mapping is not None else Tensor(list(range(spec[1])))
+                for (mapping, spec) in zip(index_remapping, self.embedding_specs)
+            ]
+            original_feature_rows = [
+                mapping.numel() for mapping in merged_index_remappings
+            ]
+            dense_indices = torch.cat(merged_index_remappings, dim=0).int()
+            indices = torch.cat(
+                [torch.arange(row) for row in original_feature_rows], dim=0
+            ).int()
+            offsets = torch.tensor(
+                [0] + np.cumsum(original_feature_rows).tolist()
+            ).int()
+
+            if self.use_cpu:
+                self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+                self.index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T)
+            else:
+                torch.ops.fb.pruned_hashmap_insert(
+                    indices, dense_indices, offsets, hash_table, hash_table_offsets
+                )
+                self.index_remapping_hash_table = hash_table.to(self.current_device)
+                self.index_remapping_hash_table_offsets = hash_table_offsets.to(self.current_device)
+                self.index_remapping_hash_table_cpu = None
+        else:
+            index_remappings_array_offsets = [0]
+            last_offset = 0
+            for mapping in index_remapping:
+                if mapping is not None:
+                    last_offset += mapping.numel()
+                index_remappings_array_offsets.append(last_offset)
+
+            self.index_remappings_array_offsets = torch.tensor(
+                index_remappings_array_offsets,
+                device=self.current_device,
+                dtype=torch.int64
+            )
+            self.index_remappings_array = torch.empty(
+                0, dtype=torch.int32, device=self.current_device
+            ) if self.index_remappings_array_offsets[-1] == 0 else torch.cat(
+                [mapping for mapping in index_remapping if mapping is not None]
+            ).to(self.current_device)
