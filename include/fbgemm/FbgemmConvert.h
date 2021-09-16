@@ -160,4 +160,4 @@ FBGEMM_API void RoundToFloat16(
     bool clamp = false,
     bool clamp_denorms = false);
 
-}; // namespace fbgemm
+} // namespace fbgemm

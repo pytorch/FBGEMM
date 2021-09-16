@@ -1253,8 +1253,8 @@ void compressed_indices_remap(
       INDEX_TYPE* out_offsets,                       \
       float* out_weights);
 
-INSTANTIATE_REMAP_BASE(int32_t);
-INSTANTIATE_REMAP_BASE(int64_t);
+INSTANTIATE_REMAP_BASE(int32_t)
+INSTANTIATE_REMAP_BASE(int64_t)
 
 #undef INSTANTIATE_REMAP_BASE
 

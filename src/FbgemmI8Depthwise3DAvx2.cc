@@ -777,7 +777,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
     } // t
   } // for each n
   fbgemmAlignedFree(row_offsets);
-};
+}
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
 template <
@@ -1143,7 +1143,7 @@ void depthwise_3d_per_channel_quantization_same_pad(
       act_times_w_scale,
       thread_id,
       num_threads);
-};
+}
 
 template FBGEMM_API void depthwise_3d_per_channel_quantization_same_pad(
     const conv_param_t<3>& conv_p,

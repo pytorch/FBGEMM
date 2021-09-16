@@ -592,10 +592,10 @@ void compressed_indices_remap_avx512(
       INDEX_TYPE* out_offsets,                                            \
       float* out_weights);
 
-INSTANTIATE_REMAP_BASE(int32_t, true);
-INSTANTIATE_REMAP_BASE(int32_t, false);
-INSTANTIATE_REMAP_BASE(int64_t, true);
-INSTANTIATE_REMAP_BASE(int64_t, false);
+INSTANTIATE_REMAP_BASE(int32_t, true)
+INSTANTIATE_REMAP_BASE(int32_t, false)
+INSTANTIATE_REMAP_BASE(int64_t, true)
+INSTANTIATE_REMAP_BASE(int64_t, false)
 
 #undef INSTANTIATE_REMAP_BASE
 
