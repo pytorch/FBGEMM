@@ -21,6 +21,26 @@ constexpr size_t kBackwardMaxThreads = 512;
 using namespace at;
 using namespace fbgemm_gpu;
 
+__global__ void
+split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        sorted_linear_indices_num_runs,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        sorted_linear_indices_run_lengths,
+    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        long_run_ids,
+    PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        num_long_run_ids,
+    int32_t max_segment_length_per_warp) {
+  const int32_t num_runs = sorted_linear_indices_num_runs[0];
+  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs; run_id += blockDim.x * gridDim.x) {
+    if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
+        auto long_run_idx = gpuAtomicIncrement(&num_long_run_ids[0]);
+        long_run_ids[long_run_idx] = run_id;
+    }
+  }
+}
+
 template <
     typename emb_t,
     typename cache_t,
@@ -47,6 +67,10 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
         sorted_linear_indices_cumulative_run_lengths,
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
         sorted_linear_indices_run_lengths,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        long_run_ids,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        num_long_run_ids,
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> sorted_infos,
     {% if not dense %}
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
@@ -55,9 +79,6 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
     {% if weighted %}
     const PackedTensorAccessor32<acc_type<cache_t, true>, 1, RestrictPtrTraits> sorted_indice_weights,
     {% endif %}
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
-        sorted_linear_indices_num_runs,
-    int32_t max_segment_length_per_warp,
     {% if not dense %}
     bool stochastic_rounding,
     PhiloxCudaState stochastic_rounding_philox_args,
@@ -68,29 +89,15 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
     {{ args.split_kernel_args | join(", ") }}) {
   int32_t T = D_offsets.size(0) - 1;
   const int32_t B = grad_output.size(0);
-  const int32_t num_runs = sorted_linear_indices_num_runs[0];
-
-  for (int32_t run_id = blockIdx.x * kWarpSize; run_id < num_runs;
-       run_id += kWarpSize * gridDim.x) {
-        const int32_t candidate_run_id = run_id + threadIdx.x;
-        int candidate_run_active = candidate_run_id < num_runs &&
-            sorted_linear_indices_run_lengths[candidate_run_id] >=
-                max_segment_length_per_warp;
-        uint32_t candidate_mask = __ballot_sync(0xFFFFFFFF, candidate_run_active);
-    while (candidate_mask != 0) {
-        int32_t current_thread_id = __ffs(candidate_mask) - 1;
-        candidate_mask ^= (static_cast<uint32_t>(1) << current_thread_id);
-        int32_t current_run_id = run_id + current_thread_id;
+  const int32_t num_long_runs = num_long_run_ids[0];
+  for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
+        int32_t current_run_id = long_run_ids[long_run_id];
         const int64_t linear_index = sorted_linear_indices_run[current_run_id];
         const int32_t segment_start =
             sorted_linear_indices_cumulative_run_lengths[current_run_id];
         const int32_t segment_end =
             sorted_linear_indices_cumulative_run_lengths[current_run_id + 1];
         const int32_t SL = segment_end - segment_start;
-        // TODO: should never be hit!
-        if (SL < max_segment_length_per_warp) {
-            return;
-        }
         const int32_t warp_id = threadIdx.y;
         const int32_t lane_id = threadIdx.x;
 
@@ -348,7 +355,6 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
             {% endif %}
         }
     }
-  }
 }
 
 
@@ -871,6 +877,23 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                 // Otherwise we see CUDA kernel launch failures despite the above checks.
                 BT_block_size = 1;
             }
+
+
+            auto long_run_ids = at::empty_like(sorted_linear_indices_run_lengths);
+            auto num_long_run_ids = at::zeros({1}, indices.options().dtype(kLong));
+            split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments<<<
+                div_round_up(sorted_linear_indices_run_lengths.numel(), kMaxThreads),
+                kMaxThreads,
+                0,
+                at::cuda::getCurrentCUDAStream()
+            >>>(
+                sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                sorted_linear_indices_run_lengths.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                long_run_ids.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                num_long_run_ids.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                max_segment_length_per_warp);
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+
             split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
@@ -903,6 +926,8 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                         .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
                     sorted_linear_indices_run_lengths
                         .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    long_run_ids.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    num_long_run_ids.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
                     infos_sorted.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
                     {% if not dense %}
                     lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
@@ -910,9 +935,6 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                     {% if weighted %}
                     indice_weights_sorted.packed_accessor32<acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, RestrictPtrTraits>(),
                     {% endif %}
-                    sorted_linear_indices_num_runs
-                        .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-                    max_segment_length_per_warp,
                     {% if not dense %}
                     stochastic_rounding,
                     rng_engine_inputs,

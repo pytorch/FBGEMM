@@ -15,15 +15,6 @@ enum class BoundsCheckMode {
   IGNORE = 2,
 };
 
-DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
-  static_assert(
-      sizeof(int64_t) == sizeof(unsigned long long),
-      "expected int64_t to be unsigned long long");
-  return static_cast<int64_t>(atomicAdd(
-      reinterpret_cast<unsigned long long int*>(p),
-      static_cast<unsigned long long int>(1)));
-}
-
 template <typename index_t>
 __global__ void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>

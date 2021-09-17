@@ -1336,8 +1336,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for e in Es
         ]
         if long_segments and L > 0:
-            for x in xs:
-                x[:, 0] = 0
+            for x, e in zip(xs, Es):
+                x[:, 0] = np.random.randint(low=0, high=e)
 
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
