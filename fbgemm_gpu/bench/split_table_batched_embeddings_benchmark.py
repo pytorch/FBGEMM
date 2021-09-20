@@ -78,8 +78,42 @@ def generate_requests(
     alpha: float = 1.0,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
+    dataset: str = None,
+    batch_idx: int = -1,
+    min_table_size: int = 10000,
 ) -> List[Tuple[Tensor, Tensor, Optional[Tensor]]]:
-    if alpha <= 1.0:
+    if dataset:
+        rs = []
+        test_indices, test_offsets, test_lengths = torch.load(dataset)
+        assert test_lengths.shape[1] == B
+        num_batches = test_lengths.shape[0]
+        test_indices = torch.remainder(test_indices, E)
+        total_access_weights = 0
+        index_reuse = 0
+        next_batch_idx = 0 if batch_idx == -1 else batch_idx
+        for it in range(iters):
+            weights_tensor = (None)
+            found = False
+            while True:
+                indices = test_indices[test_offsets[next_batch_idx*T*B]:test_offsets[(next_batch_idx+1)*T*B]].long()
+                max_index = torch.max(indices) if len(indices)>0 else -1
+                if batch_idx == -1 and max_index < min_table_size:
+                    next_batch_idx = (next_batch_idx + 1) % num_batches
+                    continue
+                elif batch_idx >= 0:
+                    assert max_index >= min_table_size, f"{max_index} vs. {min_table_size}"
+                found = True
+                rs.append(
+                    (indices,(test_offsets[next_batch_idx*T*B:(next_batch_idx+1)*T*B+1]-test_offsets[next_batch_idx*T*B]).long())
+                    + (weights_tensor,)
+                )
+                assert test_lengths[it].shape[0] == B
+                total_access_weights += test_lengths[next_batch_idx].sum()
+                next_batch_idx = (next_batch_idx + 1) % num_batches if batch_idx == -1 else batch_idx
+                break
+            assert found
+        return rs, total_access_weights // iters
+    elif alpha <= 1.0:
         all_indices = torch.randint(
             low=0,
             high=E,
@@ -128,13 +162,14 @@ def generate_requests(
             get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
             + (weights_tensor,)
         )
-    return rs
+    return rs, B * L
 
 
 def benchmark_requests(
     requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     flush_gpu_cache_size_mb: int = 0,
+    flush_cpu_cache_size_mb: int = 0,
     check_median: bool = False,
 ) -> float:
     times = []
@@ -151,6 +186,12 @@ def benchmark_requests(
                 )
                 torch.cuda.synchronize()
             start_event.record()
+        else:
+            if flush_cpu_cache_size_mb:
+                a = torch.ones(flush_cpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+                b = torch.ones(flush_cpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float)
+                a += b
+                start_time = time.time()
         func(indices, offsets, weights)
         if torch.cuda.is_available():
             end_event.record()
@@ -231,6 +272,10 @@ def cli() -> None:
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--flush-cpu-cache-size-mb", default=0)
+@click.option("--dataset", default=None)
+@click.option("--min-table-size", default=int(10000))
+@click.option("--batch-idx", default=int(-1))
 @click.option("--dense", is_flag=True, default=False)
 def device(  # noqa C901
     alpha: float,
@@ -249,6 +294,10 @@ def device(  # noqa C901
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
     flush_gpu_cache_size_mb: int,
+    flush_cpu_cache_size_mb: int,
+    dataset: str,
+    min_table_size: int,
+    batch_idx: int,
     dense: bool,
 ) -> None:
     np.random.seed(42)
@@ -328,15 +377,7 @@ def device(  # noqa C901
 
     param_size_multiplier = PRECISION_SIZE_MULTIPLIER[weights_precision]
 
-    logging.info(
-        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * param_size_multiplier / 1.0e9: .2f}GB"
-    )
-    logging.info(
-        f"Accessed weights per batch: {B * sum(Ds) * L * param_size_multiplier / 1.0e6: .2f}MB"
-    )
-
-    requests = generate_requests(
+    requests, accessed_weights_per_iter = generate_requests(
         iters,
         B,
         T,
@@ -346,9 +387,30 @@ def device(  # noqa C901
         alpha=alpha,
         weights_precision=weights_precision,
         weighted=weighted,
+        dataset=dataset,
+        batch_idx=batch_idx,
+        min_table_size=min_table_size,
     )
 
+    logging.info(
+        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f}GB"
+    )
+    logging.info(
+        f"Accessed weights per batch: {accessed_weights_per_iter * sum(Ds) * param_size_multiplier / 1.0e6: .2f}MB"
+    )
     # forward
+    # warm up 5 iters
+    benchmark_requests(
+            requests[:5],
+        lambda indices, offsets, per_sample_weights: emb.forward(
+            indices.long(),
+            offsets.long(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+    )
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
@@ -358,11 +420,12 @@ def device(  # noqa C901
             feature_requires_grad=feature_requires_grad,
         ),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        flush_cpu_cache_size_mb=flush_cpu_cache_size_mb,
     )
     logging.info(
         f"Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
+        f"E: {E}, T: {T}, D: {D}, L: {accessed_weights_per_iter//B}, W: {weighted}, "
+        f"BW: {param_size_multiplier * accessed_weights_per_iter * sum(Ds) / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -377,10 +440,11 @@ def device(  # noqa C901
             feature_requires_grad=feature_requires_grad,
         ).backward(grad_output),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        flush_cpu_cache_size_mb=flush_cpu_cache_size_mb,
     )
     logging.info(
-        f"ForwardBackward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "
+        f"ForwardBackward, B: {B}, E: {E}, T: {T}, D: {D}, L: {accessed_weights_per_iter//B}, "
+        f"BW: {3 * param_size_multiplier * accessed_weights_per_iter * sum(Ds) / time_per_iter / 1.0e9: .2f}GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -497,7 +561,7 @@ def uvm(
         if weights_precision == SparseType.INT8:
             emb_mixed.init_embedding_weights_uniform(-0.0003, 0.0003)
 
-    requests_uvm = generate_requests(
+    requests_uvm, _ = generate_requests(
         iters,
         B,
         T_uvm,
@@ -510,7 +574,7 @@ def uvm(
     )
 
     if T_gpu > 0:
-        requests_gpu = generate_requests(
+        requests_gpu, _ = generate_requests(
             iters,
             B,
             T_gpu,
@@ -548,8 +612,6 @@ def uvm(
             offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
             per_sample_weights = None
             if weighted:
-                assert (this_rs_uvm_weights := rs_uvm[2]) is not None
-                assert (this_rs_gpu_weights := rs_gpu[2]) is not None
                 per_sample_weights = torch.cat(
                     [this_rs_uvm_weights, this_rs_gpu_weights]
                 )
@@ -693,7 +755,7 @@ def cache(  # noqa C901
         f"{B * T * L * D * param_size_multiplier / 1.0e6: .2f}MB"
     )
 
-    requests = generate_requests(
+    requests, _ = generate_requests(
         2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
@@ -848,7 +910,7 @@ def cpu(  # noqa C901
     )
     logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")
 
-    requests = generate_requests(
+    requests, _ = generate_requests(
         iters,
         B,
         T,
@@ -1002,7 +1064,7 @@ def nbit_device(  # noqa C901
 
     times = []
     for i in range(runs_of_iters):
-        requests = generate_requests(
+        requests, _ = generate_requests(
             iters,
             B,
             T,
@@ -1110,7 +1172,7 @@ def hashtable(  # noqa C901
         chosen_indices, dense_indices, offsets, hash_table, hash_table_offsets
     )
 
-    requests = generate_requests(
+    requests, _ = generate_requests(
         iters,
         B,
         T,
@@ -1251,7 +1313,7 @@ def bounds_check_indices(  # noqa C901
     E = num_embeddings
     T = num_tables
 
-    requests = generate_requests(
+    requests, _ = generate_requests(
         iters,
         B,
         T,
