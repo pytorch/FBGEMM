@@ -133,11 +133,23 @@ __forceinline__ __device__ half hmul(half a, half b) {
 // Reinterpret a  pair of uint16_t (packed into a uint32_t) as half2, and multiply by rhs.
 __device__ __forceinline__ __half2 hmul_short2(uint32_t lhs, __half rhs) {
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+  #ifndef __HALF2_TO_UI
+  // cuda_fp16.hpp
+  #define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+  #endif
+  #ifndef __HALF2_TO_CUI
+  // cuda_fp16.hpp
+  #define __HALF2_TO_CUI(var) *(reinterpret_cast<const unsigned int *>(&(var)))
+  #endif
   __half2 ret;
   __half2 rhsp = make_half2(rhs, rhs);
   asm("mul.f16x2 %0, %1, %2;" : "=r"(__HALF2_TO_UI(ret)) : "r"(__HALF2_TO_CUI(lhs)), "r"(__HALF2_TO_CUI(rhsp)));
   return ret;
 #else
+  #ifndef __HALF2_TO_UI
+  // cuda_fp16.hpp
+  #define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+  #endif
   __half2 lhs_h2;
   __HALF2_TO_UI(lhs_h2) = lhs;
   float2 fx = __half22float2(lhs_h2);
