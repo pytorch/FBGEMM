@@ -180,3 +180,13 @@ class FixedDivisor {
   uint64_t magic_;
   int shift_;
 };
+
+
+DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
+  static_assert(
+      sizeof(int64_t) == sizeof(unsigned long long),
+      "expected int64_t to be unsigned long long");
+  return static_cast<int64_t>(atomicAdd(
+      reinterpret_cast<unsigned long long int*>(p),
+      static_cast<unsigned long long int>(1)));
+}

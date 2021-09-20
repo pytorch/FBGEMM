@@ -280,19 +280,19 @@ template class FBGEMM_API
 
 #define INSTANTIATE_BASE(FNAME, RELU, Q_GRAN) \
   template class FBGEMM_API                   \
-      FNAME<std::uint8_t, std::int32_t, ReQuantizeOutput<RELU, Q_GRAN>>
+      FNAME<std::uint8_t, std::int32_t, ReQuantizeOutput<RELU, Q_GRAN>>;
 
 #define INSTANTIATE_Q_GRAN(FNAME, RELU)                           \
-  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BASE(FNAME, RELU, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_RELU(FNAME)     \
-  INSTANTIATE_Q_GRAN(FNAME, false); \
-  INSTANTIATE_Q_GRAN(FNAME, true);
+  INSTANTIATE_Q_GRAN(FNAME, false)  \
+  INSTANTIATE_Q_GRAN(FNAME, true)
 
-INSTANTIATE_RELU(DoSpmdmOnInpBuffer);
-INSTANTIATE_RELU(DoSConvOnInpBuffer);
+INSTANTIATE_RELU(DoSpmdmOnInpBuffer)
+INSTANTIATE_RELU(DoSConvOnInpBuffer)
 
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRAN
@@ -311,12 +311,12 @@ template class FBGEMM_API DoSpmdmOnInpBuffer<
   INSTANTIATE_BASE(RELU, Q_GRAN, float)
 
 #define INSTANTIATE_Q_GRAN(RELU)                             \
-  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BIAS_T(RELU, QuantizationGranularity::OUT_CHANNEL)
 
-INSTANTIATE_Q_GRAN(false);
-INSTANTIATE_Q_GRAN(true);
+INSTANTIATE_Q_GRAN(false)
+INSTANTIATE_Q_GRAN(true)
 
 #undef INSTANTIATE_Q_GRAN
 #undef INSTANTIATE_BIAS_T
@@ -336,24 +336,24 @@ INSTANTIATE_Q_GRAN(true);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, Q_GRAN) \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float); \
-  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t);
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float)  \
+  INSTANTIATE_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t)
 
 #define INSTANTIATE_Q_GRANS(PACK_A, ACC_T, RELU)                            \
-  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BIAS_T(PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_RELU(PACK_A, ACC_T)      \
-  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false); \
-  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, true);
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, false)  \
+  INSTANTIATE_Q_GRANS(PACK_A, ACC_T, true)
 
 #define INSTANTIATE_ACC_T(PACK_A)    \
-  INSTANTIATE_RELU(PACK_A, int32_t); \
-  INSTANTIATE_RELU(PACK_A, int16_t);
+  INSTANTIATE_RELU(PACK_A, int32_t)  \
+  INSTANTIATE_RELU(PACK_A, int16_t)
 
-INSTANTIATE_ACC_T(PackAMatrix);
-INSTANTIATE_ACC_T(PackAWithRowOffset);
+INSTANTIATE_ACC_T(PackAMatrix)
+INSTANTIATE_ACC_T(PackAWithRowOffset)
 
 #undef INSTANTIATE_ACC_T
 #undef INSTANTIATE_RELU
@@ -377,28 +377,28 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_BIAS_T(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float); \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t);
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float)  \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t)
 
 #define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)             \
   INSTANTIATE_BIAS_T(                                             \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR)  \
   INSTANTIATE_BIAS_T(                                             \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP)   \
   INSTANTIATE_BIAS_T(                                             \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1)        \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2)        \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3)
 
 #define INSTANTIATE_RELU(ACC_T)          \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false)  \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true)
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+INSTANTIATE_RELU(int32_t)
+INSTANTIATE_RELU(int16_t)
 
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_SPATIAL_DIM
@@ -421,15 +421,15 @@ INSTANTIATE_RELU(int16_t);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_RELU(PACK_A)      \
-  INSTANTIATE_Q_GRANS(PACK_A, false); \
-  INSTANTIATE_Q_GRANS(PACK_A, true);
+  INSTANTIATE_Q_GRANS(PACK_A, false)  \
+  INSTANTIATE_Q_GRANS(PACK_A, true)
 
-INSTANTIATE_RELU(PackAWithRowOffset);
+INSTANTIATE_RELU(PackAWithRowOffset)
 INSTANTIATE_RELU(PackAWithQuantRowOffset);
 
 #undef INSTANTIATE_RELU
@@ -452,22 +452,22 @@ INSTANTIATE_RELU(PackAWithQuantRowOffset);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(ACC_T, RELU, SPATIAL_DIM)                          \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);  \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BASE(ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP)   \
   INSTANTIATE_BASE(                                                            \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3);
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 1)        \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 2)        \
+  INSTANTIATE_Q_GRANS(ACC_T, RELU, 3)
 
 #define INSTANTIATE_RELU(ACC_T)          \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, true);
+  INSTANTIATE_SPATIAL_DIM(ACC_T, false)  \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, true)
 
-INSTANTIATE_RELU(int32_t);
-INSTANTIATE_RELU(int16_t);
+INSTANTIATE_RELU(int32_t)
+INSTANTIATE_RELU(int16_t)
 
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_SPATIAL_DIM
@@ -503,16 +503,16 @@ template FBGEMM_API void fbgemmPacked(
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(PACK_A, RELU)                          \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_RELU(PACK_A)      \
-  INSTANTIATE_Q_GRANS(PACK_A, false); \
-  INSTANTIATE_Q_GRANS(PACK_A, true);
+  INSTANTIATE_Q_GRANS(PACK_A, false)  \
+  INSTANTIATE_Q_GRANS(PACK_A, true)
 
-INSTANTIATE_RELU(PackAMatrix);
-INSTANTIATE_RELU(PackAWithRowOffset);
+INSTANTIATE_RELU(PackAMatrix)
+INSTANTIATE_RELU(PackAWithRowOffset)
 
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
@@ -534,12 +534,12 @@ INSTANTIATE_RELU(PackAWithRowOffset);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_Q_GRANS(RELU)                          \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::TENSOR)  \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::GROUP)   \
+  INSTANTIATE_BASE(RELU, QuantizationGranularity::OUT_CHANNEL)
 
-INSTANTIATE_Q_GRANS(false);
-INSTANTIATE_Q_GRANS(true);
+INSTANTIATE_Q_GRANS(false)
+INSTANTIATE_Q_GRANS(true)
 
 #undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BASE
@@ -574,8 +574,8 @@ template FBGEMM_API void fbgemmPacked(
   INSTANTIATE_BASE(PACK_A, int32_t) \
   INSTANTIATE_BASE(PACK_A, int16_t)
 
-INSTANTIATE_ACC_T(PackAMatrix);
-INSTANTIATE_ACC_T(PackAWithRowOffset);
+INSTANTIATE_ACC_T(PackAMatrix)
+INSTANTIATE_ACC_T(PackAWithRowOffset)
 
 #undef INSTANTIATE_ACC_T
 #undef INSTANTIATE_BASE
@@ -596,12 +596,12 @@ INSTANTIATE_ACC_T(PackAWithRowOffset);
       const BlockingFactors* blocking_params);
 
 #define INSTANTIATE_SPATIAL_DIM(ACC_T) \
-  INSTANTIATE_BASE(ACC_T, 1);          \
-  INSTANTIATE_BASE(ACC_T, 2);          \
-  INSTANTIATE_BASE(ACC_T, 3);
+  INSTANTIATE_BASE(ACC_T, 1)           \
+  INSTANTIATE_BASE(ACC_T, 2)           \
+  INSTANTIATE_BASE(ACC_T, 3)
 
-INSTANTIATE_SPATIAL_DIM(int32_t);
-INSTANTIATE_SPATIAL_DIM(int16_t);
+INSTANTIATE_SPATIAL_DIM(int32_t)
+INSTANTIATE_SPATIAL_DIM(int16_t)
 
 #undef INSTANTIATE_SPATIAL_DIM
 #undef INSTANTIATE_BASE

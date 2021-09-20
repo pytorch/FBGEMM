@@ -8,12 +8,21 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 
 #include <immintrin.h>
 #include <emmintrin.h>
 
 namespace {
 enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
+
+// Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
+enum {
+  DEVICE = 0,
+  MANAGED = 1,
+  MANAGED_CACHING = 2,
+  HOST = 3,
+};
 
 using namespace at;
 
@@ -115,6 +124,10 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
             for (int32_t l = 0; l < L; ++l) {
                 int32_t idx = indices_acc[indices_start + l];
                 int32_t dense_idx = dense_indices_acc[indices_start + l];
+                if (dense_idx == -1) {
+                    // -1 means this row has been pruned, do not insert it.
+                    continue;
+                }
 
                 uint32_t slot = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
                 while (true) {
@@ -141,6 +154,8 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
 
 Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -159,8 +174,15 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(total_D > 0);
-    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(true));
-    const auto* weights_acc = dev_weights.data_ptr<uint8_t>();
+    bool pined_memory = false;
+    if (globalContext().hasCUDA() && ::at::cuda::is_available()) {
+      pined_memory = true;
+    }
+    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
+
+    const int32_t* weights_placements_ptr = weights_placements.data_ptr<int32_t>();
+    const uint8_t* weights_acc;
+
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
     auto* output_acc = output.data_ptr<Half>();
@@ -182,6 +204,13 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
         for (int32_t t = 0; t < T; ++t) {
             const int32_t D_start = D_offsets_acc[t];
             const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
+            const auto placement = weights_placements_ptr[t];
+            assert(placement != DEVICE);
+            if (placement == HOST) {
+                weights_acc = dev_weights.data_ptr<uint8_t>();
+            } else {
+                weights_acc = uvm_weights.data_ptr<uint8_t>();
+            }
             const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
             auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
             const int32_t D_vecs = div_round_up(D, 8);
@@ -511,3 +540,35 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     }
     return dense_indices;
 }
+
+{% if not weighted %}
+Tensor pruned_array_lookup_cpu(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets) {
+    int32_t T = index_remappings_offsets.size(0) - 1;
+    int32_t B = (offsets.size(0) - 1) / T;
+    TORCH_CHECK(B > 0);
+    auto dense_indices = empty_like(indices);
+    const auto* indices_acc = indices.data_ptr<int32_t>();
+    auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
+    const auto* offsets_acc = offsets.data_ptr<int32_t>();
+
+    const auto index_remappings_acc = index_remappings.data_ptr<int32_t>();
+    const auto index_remappings_offsets_acc = index_remappings_offsets.data_ptr<int64_t>();
+
+    for (int32_t t = 0; t < T; ++t) {
+        int64_t index_remappings_start = index_remappings_offsets_acc[t];
+        int64_t index_remappings_end = index_remappings_offsets_acc[t + 1];
+        int64_t capacity = index_remappings_end - index_remappings_start;
+        int32_t indices_start = offsets_acc[t * B];
+        int32_t indices_end = offsets_acc[(t + 1) * B];
+        for (int32_t i = indices_start; i < indices_end; ++i) {
+            int32_t idx = indices_acc[i];
+            dense_indices[i] = capacity ? index_remappings_acc[index_remappings_start + idx] : idx;
+        }
+    }
+    return dense_indices;
+}
+{% endif %}

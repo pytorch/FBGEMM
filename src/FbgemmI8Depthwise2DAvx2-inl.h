@@ -495,7 +495,7 @@ static ALWAYS_INLINE void depthwise_2d_(
   } // for each n
 
   fbgemmAlignedFree(row_offsets);
-};
+}
 
 // Dispatch A_SYMMETRIC and B_SYMMETRIC
 template <

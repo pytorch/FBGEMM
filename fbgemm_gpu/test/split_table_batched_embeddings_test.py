@@ -352,7 +352,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=128),
@@ -1337,8 +1336,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for e in Es
         ]
         if long_segments and L > 0:
-            for x in xs:
-                x[:, 0] = 0
+            for x, e in zip(xs, Es):
+                x[:, 0] = np.random.randint(low=0, high=e)
 
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
@@ -1590,6 +1589,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward(
@@ -1604,6 +1604,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
         use_cpu: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -1638,16 +1639,41 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
 
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+        else:
+            managed = [
+                np.random.choice(
+                    [
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                    ]
+                )
+                for _ in range(T)
+            ]
+
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
         xws_acc_type = copy.deepcopy(xws)
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[("", E, D, weights_ty) for (E, D) in zip(Es, Ds)],
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    weights_ty,
+                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                )
+                for (E, D, M) in zip(Es, Ds, managed)
+            ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E) for E in Es],
+            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es],
             use_cpu=use_cpu,
+            use_array_for_index_remapping=use_array_for_index_remapping,
         )
+        # Initilize the random weights for int nbit table split embedding bag
+        cc.fill_random_weights()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
 

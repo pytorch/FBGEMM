@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ * All rights reserved.
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 #include "codegen/embedding_backward_template_helpers.cuh"
 
 using namespace at;
@@ -8,15 +14,6 @@ enum class BoundsCheckMode {
   WARNING = 1,
   IGNORE = 2,
 };
-
-DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
-  static_assert(
-      sizeof(int64_t) == sizeof(unsigned long long),
-      "expected int64_t to be unsigned long long");
-  return static_cast<int64_t>(atomicAdd(
-      reinterpret_cast<unsigned long long int*>(p),
-      static_cast<unsigned long long int>(1)));
-}
 
 template <typename index_t>
 __global__ void bounds_check_indices_kernel(
@@ -45,6 +42,10 @@ __global__ void bounds_check_indices_kernel(
   auto L = indices_end - indices_start;
   for (auto i = threadIdx.x; i < L; i += fbgemm_gpu::kWarpSize) {
     auto idx = indices[indices_start + i];
+    if (idx == -1) {
+        // -1 indicates pruned rows.
+        continue;
+    }
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
       CUDA_KERNEL_ASSERT(idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
       CUDA_KERNEL_ASSERT(idx < num_rows && "Failed idx < num_rows in bounds_check_indices");

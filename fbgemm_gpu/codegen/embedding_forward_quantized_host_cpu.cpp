@@ -21,6 +21,8 @@ using namespace at;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -32,6 +34,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -44,6 +48,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
+    Tensor uvm_weights,  // to match the interface of CUDA op using UVM
+    Tensor weights_placements,  // to match the interface of CUDA op using UVM
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -59,6 +65,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
+        uvm_weights,
+        weights_placements,
         weights_offsets,
         weights_tys,
         D_offsets,
@@ -70,6 +78,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       dev_weights,
+      uvm_weights,
+      weights_placements,
       weights_offsets,
       weights_tys,
       D_offsets,
@@ -94,7 +104,14 @@ Tensor pruned_hashmap_lookup_unweighted_cpu(
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+Tensor pruned_array_lookup_cpu(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets);
+
 TORCH_LIBRARY_FRAGMENT(fb, m) {
+
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(
@@ -111,13 +128,20 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           c10::DispatchKey::CPU,
           TORCH_FN(pruned_hashmap_insert_unweighted_cpu)));
 
-  // CPU version of Lookup isn't used. For CPUs, we should use PrunedMapCPU
-  // below.
+  // CPU version of hashmap Lookup isn't used. For CPUs, we should use
+  // PrunedMapCPU below.
   m.impl(
       "pruned_hashmap_lookup",
       torch::dispatch(
           c10::DispatchKey::CPU,
           TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
+
+  // CPU version of array lookup.
+  m.impl(
+      "pruned_array_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(pruned_array_lookup_cpu)));
 }
 
 class PrunedMapCPU : public torch::jit::CustomClassHolder {
@@ -198,6 +222,10 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
         for (int32_t l = 0; l < L; ++l) {
           int32_t slot_sparse_index = indices_acc[indices_start + l];
           int32_t slot_dense_index = dense_indices_acc[indices_start + l];
+          if (slot_dense_index == -1) {
+            // -1 means this row has been pruned, do not insert it.
+            continue;
+          }
           map.emplace(slot_sparse_index, slot_dense_index);
         }
       }
