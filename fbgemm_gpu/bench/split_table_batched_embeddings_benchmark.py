@@ -78,7 +78,7 @@ def generate_requests(
     alpha: float = 1.0,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
-) -> List[Tuple[Tensor, Tensor, Optional[Tensor]]]:
+) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
     if alpha <= 1.0:
         all_indices = torch.randint(
             low=0,
@@ -132,7 +132,7 @@ def generate_requests(
 
 
 def benchmark_requests(
-    requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
@@ -166,7 +166,7 @@ def benchmark_requests(
 
 
 def benchmark_pipelined_requests(
-    requests: List[Tuple[Tensor, Tensor, Optional[Tensor]]],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
     func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
@@ -509,6 +509,7 @@ def uvm(
         weighted=weighted,
     )
 
+    requests_gpu = None
     if T_gpu > 0:
         requests_gpu = generate_requests(
             iters,
@@ -542,6 +543,7 @@ def uvm(
 
     if T_gpu > 0:
         requests = []
+        assert requests_gpu is not None
         for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
             indices = torch.cat([rs_uvm[0], rs_gpu[0]])
             lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
@@ -557,7 +559,6 @@ def uvm(
 
         # forward
         time_per_iter = benchmark_requests(
-            # pyre-fixme[61]: `requests_gpu` may not be initialized here.
             requests_gpu,
             lambda indices, offsets, per_sample_weights: emb_gpu.forward(
                 indices.long(),
@@ -770,7 +771,7 @@ def cache(  # noqa C901
 
 
 def benchmark_cpu_requests(
-    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
 ) -> float:
     import time
@@ -864,9 +865,6 @@ def cpu(  # noqa C901
     ]
 
     time_per_iter = benchmark_cpu_requests(
-        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-        #  Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
             indices,
@@ -1017,9 +1015,6 @@ def nbit_device(  # noqa C901
 
         # forward
         time_per_iter = benchmark_requests(
-            # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-            #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-            #  Optional[Tensor]]]`.
             requests,
             lambda indices, offsets, per_sample_weights: emb.forward(
                 indices.int(),
@@ -1139,9 +1134,6 @@ def hashtable(  # noqa C901
     )
 
     time_per_iter = benchmark_requests(
-        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-        #  Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, _: torch.ops.fb.pruned_hashmap_lookup(
             indices, offsets, hash_table, hash_table_offsets
@@ -1158,9 +1150,6 @@ def hashtable(  # noqa C901
         ht.insert(chosen_indices, dense_indices, offsets, T)
 
         time_per_iter = benchmark_requests(
-            # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-            #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-            #  Optional[Tensor]]]`.
             requests,
             lambda indices, offsets, _: ht.lookup(indices, offsets),
         )
@@ -1212,9 +1201,6 @@ def pruned_array(  # noqa C901
     requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
 
     time_per_iter = benchmark_requests(
-        # pyre-fixme[6]: Expected `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`
-        #  for 1st param but got `List[Tuple[torch.IntTensor, torch.IntTensor,
-        #  Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, _: torch.ops.fb.pruned_array_lookup(
             indices,
