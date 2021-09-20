@@ -90,7 +90,7 @@ class SparseOpsTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_permute_indices(
         self, B: int, T: int, L: int, long_index: bool, has_weight: bool
     ) -> None:
@@ -157,7 +157,7 @@ class SparseOpsTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_permute_indices_with_repeats(
         self, B: int, T: int, L: int, long_index: bool, has_weight: bool
     ) -> None:
@@ -230,7 +230,7 @@ class SparseOpsTest(unittest.TestCase):
         long_index=st.booleans(),
         has_weight=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_permute_indices_multi_dimension(
         self, D: int, B: int, T: int, L: int, long_index: bool, has_weight: bool
     ) -> None:
@@ -296,7 +296,7 @@ class SparseOpsTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_permute_embeddings(self, B: int, T: int, L: int, long_index: bool) -> None:
         index_dtype = torch.int32 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
