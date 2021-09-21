@@ -58,6 +58,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
+    int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,

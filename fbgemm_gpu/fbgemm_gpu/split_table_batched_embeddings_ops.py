@@ -1476,6 +1476,7 @@ def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
 
 def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     r = {
+        SparseType.FP32.value: dim * 4,
         SparseType.FP16.value: dim * 2,
         SparseType.INT8.value: dim + 4,
         SparseType.INT4.value: dim // 2 + 4,
@@ -1600,6 +1601,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.max_int4_D: int = max_ty_D(SparseType.INT4)
         self.max_int8_D: int = max_ty_D(SparseType.INT8)
         self.max_float16_D: int = max_ty_D(SparseType.FP16)
+        self.max_float32_D: int = max_ty_D(SparseType.FP32)
 
         self.register_buffer(
             "D_offsets",
@@ -1717,6 +1719,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_int4_D=self.max_int4_D,
             max_int8_D=self.max_int8_D,
             max_float16_D=self.max_float16_D,
+            max_float32_D=self.max_float32_D,
             indices=indices,
             offsets=offsets,
             pooling_mode=self.pooling_mode,
@@ -1825,7 +1828,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     )
                 )
             else:
-                assert weight_ty == SparseType.FP16
+                assert weight_ty == SparseType.FP16 or weight_ty == SparseType.FP32
                 splits.append(
                     (
                         weights_shifts,
