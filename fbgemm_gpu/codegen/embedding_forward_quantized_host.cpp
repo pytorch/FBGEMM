@@ -24,6 +24,7 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
+    int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -41,6 +42,7 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
+    int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -59,6 +61,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
+    int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -76,6 +79,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_int4_D,
         max_int8_D,
         max_float16_D,
+        max_float32_D,
         indices,
         offsets,
         pooling_mode,
@@ -93,6 +97,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       max_int4_D,
       max_int8_D,
       max_float16_D,
+      max_float32_D,
       indices,
       offsets,
       pooling_mode,
@@ -114,7 +119,7 @@ Tensor pruned_array_lookup_cuda(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights) -> Tensor");
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(

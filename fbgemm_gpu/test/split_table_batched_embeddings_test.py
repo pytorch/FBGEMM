@@ -1586,6 +1586,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT4,
                 # TODO: implement for SparseType.INT2,
                 SparseType.FP16,
+                SparseType.FP32,
             ]
         ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
@@ -1763,6 +1764,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             elif weights_ty == SparseType.FP16:
                 comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
+                weights.copy_(torch.tensor(comps))
+            elif weights_ty == SparseType.FP32:
+                comps = bs[t].weight.detach().float().cpu().numpy().view(np.uint8)
                 weights.copy_(torch.tensor(comps))
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)

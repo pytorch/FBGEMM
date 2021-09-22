@@ -37,6 +37,7 @@ __forceinline__ __host__ __device__ uint32_t div_round_up(uint32_t a, uint32_t b
 }
 
 __host__ __device__ inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::FP32) { return dim * 4; }
     if (weight_ty == SparseType::FP16) { return dim * 2; }
     if (weight_ty == SparseType::INT8) { return dim + 4; }
     if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
@@ -51,6 +52,7 @@ __host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseT
 
 // "Effective" number of elements in the row when we include the row-wise quantization parameters.
 __device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
+    if (weight_ty == SparseType::FP32) { return dim; }
     if (weight_ty == SparseType::FP16) { return dim; }
     if (weight_ty == SparseType::INT8) { return dim + 4; }
     if (weight_ty == SparseType::INT4) { return dim + 8; }
@@ -106,6 +108,10 @@ __device__ __forceinline__ half4 to_half4(float4 v) {
 
 __device__ __forceinline__ __half2 to_half2(float2 v) {
   return __float22half2_rn(v);
+}
+
+__device__ __forceinline__ __half to_half(float v) {
+  return __float2half_rn(v);
 }
 
 __forceinline__ __device__ __half2 hfma2(const __half2 a, const __half2 b, const __half2 c) {
@@ -223,6 +229,15 @@ __forceinline__ __device__ float2 accumulate_weighted_fp16(float2 acc, __half2 v
   acc.x = fmaf(v.x, weight, acc.x);
   acc.y = fmaf(v.y, weight, acc.y);
   return acc;
+}
+
+__forceinline__ __device__ float accumulate_fp32(float acc, float vals) {
+  acc += vals;
+  return acc;
+}
+
+__forceinline__ __device__ float accumulate_weighted_fp32(float acc, float vals, float weight) {
+  return fmaf(vals, weight, acc);
 }
 
 __forceinline__ __device__ float8 accumulate_packed_int4(float8 acc,
@@ -422,6 +437,158 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
       *static_cast<AccessType *>(smem_ptr) = zeros;
     }
 #endif
+}
+
+// TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
+template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+__launch_bounds__(WarpsPerBlock * 32)
+__global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
+  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  int64_t pooling_mode,
+  {% if weighted %}
+  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+      indice_weights,
+  {% endif %}
+  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+      output // [B][total_D],
+  ) {
+
+  int32_t B = output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+      return;
+  }
+
+  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+  if (weight_ty != SparseType::FP32) {
+      return;
+  }
+
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+    return;
+  }
+
+  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+
+  int64_t weights_offset = weights_offsets[t];
+  const int32_t D_total = padded_D(D, weight_ty);
+  const int32_t D_padding = D_total - D;
+
+  uint32_t warp_idx = threadIdx.y;
+  int32_t indices_starts[OutputRowsPerThread];
+  int32_t Ls[OutputRowsPerThread];
+  int32_t max_Ls = 0;
+
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    int32_t indices_start = offsets[t * B + b];
+    int32_t indices_end = offsets[t * B + b + 1];
+    indices_starts[i] = indices_start;
+    Ls[i] = indices_end - indices_start;
+    max_Ls = max(max_Ls, Ls[i]);
+  }
+
+  const uint8_t* __restrict__ weights;
+  const auto placement = weights_placements[t];
+  if (placement == DEVICE) {
+      weights = &dev_weights[weights_offset];
+  } else {
+      weights = &uvm_weights[weights_offset];
+  }
+  constexpr size_t kOutputsPerThread = 1;
+
+  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+
+  float accumulators[OutputRowsPerThread][MaxNum128BRows];
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      accumulators[i][j] = 0.0;
+    }
+  }
+  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    __shared__ AllBuffers buffers;
+
+    {% if weighted %}
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    __shared__ AllIndiceWeights buffers_indice_weights;
+    {% endif %}
+
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
+      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        valid = valid && (idx != -1);
+        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
+        {% if weighted %}
+        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        {% endif %}
+      }
+    }
+    // equivalent to fence + wait.
+    cp_async_wait<0>();
+    __syncwarp();
+    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        {% if weighted %}
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
+        {% endif %}
+        #pragma unroll MaxNum128BRows
+        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+          float v = reinterpret_cast<const float*>(row)[kWarpSize * j + threadIdx.x];
+          {% if weighted %}
+          accumulators[i][j] = valid ? accumulate_weighted_fp32(accumulators[i][j], v, row_weight) : accumulators[i][j];
+          {% else %}
+          accumulators[i][j] = valid ? accumulate_fp32(accumulators[i][j], v) : accumulators[i][j];
+          {% endif %}
+
+        }
+      }
+    }
+  }
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      if (pooling_mode == MEAN && Ls[i] != 0) {
+          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+          accumulators[i][j] *= inv_L;
+      }
+      __half val = to_half(accumulators[i][j]);
+      if (output_d >= 0 && output_d < D) {
+        *reinterpret_cast<__half*>(&output[b][D_start + output_d]) = val;
+      }
+    }
+  }
 }
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
@@ -1052,6 +1219,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
+    int64_t max_float32_D,
     at::Tensor indices,
     at::Tensor offsets,
     int64_t pooling_mode,
@@ -1190,6 +1358,36 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
       }
     }
     #undef X
+
+    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        pooling_mode, \
+        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+
+    if (max_float32_D > 0) {
+      auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, nbit::SparseType::FP32), 128);
+      TORCH_CHECK(max_fp32_128b_rows <= 32);
+      // FP32 is used for numerical validations and tiny embeddings tables.
+      // We haven't carefully tuned the perf of FP32 embeddings.
+      X(1, 1, 0, 32);
+    }
+    #undef X
+
     // TODO: 2-bit kernels.
     return output;
 }
