@@ -9,13 +9,13 @@
 
 import enum
 import logging
-import numpy as np
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
@@ -1633,34 +1633,60 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights_tys_int, device=self.current_device, dtype=torch.uint8
             ),
         )
-        weight_split = intn_construct_split_state(
-            embedding_specs,
+        self.weight_initialized: bool = False
+
+        self.weights_dev: torch.Tensor = torch.zeros(
+            0,
+            device=self.current_device,
+            dtype=torch.uint8,
+        )
+
+        self.weights_host: torch.Tensor = torch.zeros(
+            0, device=self.current_device, dtype=torch.uint8
+        )
+
+        self.weights_uvm: torch.Tensor = torch.empty(0, device=self.current_device, dtype=torch.uint8)
+
+        weight_split: SplitState = intn_construct_split_state(
+            self.embedding_specs,
             cacheable=True,
         )
-        self._apply_split(
-            weight_split,
-        )
+
+        self.weights_physical_placements: List[int] = [
+            t.value for t in weight_split.placements
+        ]
+        self.weights_physical_offsets: List[int] = weight_split.offsets
+        self.host_size: int = weight_split.host_size
+        self.dev_size: int = weight_split.dev_size
+        self.uvm_size: int = weight_split.uvm_size
 
         # Assign weights after weights and weights_offsets are initialized.
         if weight_lists:
+            self._apply_split(
+                self.dev_size,
+                self.host_size,
+                self.uvm_size,
+                self.weights_physical_placements,
+                self.weights_physical_offsets,
+            )
             self.assign_embedding_weights(weight_lists)  # type: ignore
 
         # Handle index remapping for embedding pruning.
         self.register_buffer(
             "index_remappings_array_offsets",
-            torch.empty(0, device=self.current_device, dtype=torch.int64)
+            torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int32)
+            torch.empty(0, device=self.current_device, dtype=torch.int32),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
-            torch.empty(0, device=self.current_device, dtype=torch.int64)
+            torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int32)
+            torch.empty(0, device=self.current_device, dtype=torch.int32),
         )
         # pyre-fixme[4]: Attribute must be annotated.
         self.index_remapping_hash_table_cpu = None
@@ -1677,6 +1703,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
+        assert self.weight_initialized
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table.numel() > 0:
@@ -1728,67 +1755,50 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def _apply_split(
         self,
-        split: SplitState,
+        dev_size: int,
+        host_size: int,
+        uvm_size: int,
+        placements: List[int],
+        offsets: List[int],
     ) -> None:
-        self.weights_physical_placements = split.placements
-        self.weights_physical_offsets = split.offsets
+        assert not self.weight_initialized, "Weights have already been initialized."
+        self.weight_initialized = True
+        self.weights_physical_placements = placements
+        self.weights_physical_offsets = offsets
 
-        self.host_size = split.host_size
-        self.dev_size = split.dev_size
-        self.uvm_size = split.uvm_size
+        self.host_size = host_size
+        self.dev_size = dev_size
+        self.uvm_size = uvm_size
 
-        offsets = [split.offsets[t] for t in self.feature_table_map]
-        placements = [split.placements[t] for t in self.feature_table_map]
-        self.register_buffer(
-            "weights_offsets",
-            torch.tensor(offsets, device=self.current_device, dtype=torch.int64),
+        offsets = [offsets[t] for t in self.feature_table_map]
+        placements = [placements[t] for t in self.feature_table_map]
+        self.weights_offsets = torch.tensor(
+            offsets, device=self.D_offsets.device, dtype=torch.int64
         )
-        self.register_buffer(
-            "weights_placements",
-            torch.tensor(placements, device=self.current_device, dtype=torch.int32),
+        self.weights_placements = torch.tensor(
+            placements, device=self.D_offsets.device, dtype=torch.int32
         )
-        if split.dev_size > 0:
-            self.register_buffer(
-                "weights_dev",
-                torch.zeros(
-                    split.dev_size,
-                    device=self.current_device,
-                    dtype=torch.uint8,
-                ),
+
+        if dev_size > 0:
+            self.weights_dev = torch.zeros(
+                dev_size,
+                device=self.D_offsets.device,
+                dtype=torch.uint8,
             )
-        else:
-            self.register_buffer(
-                "weights_dev",
-                torch.empty(0, device=self.current_device, dtype=torch.uint8),
+
+        if host_size > 0:
+            self.weights_host = torch.zeros(
+                host_size, device=self.D_offsets.device, dtype=torch.uint8
             )
-        if split.host_size > 0:
-            self.register_buffer(
-                "weights_host",
-                torch.zeros(
-                    split.host_size, device=self.current_device, dtype=torch.uint8
-                ),
-            )
-        else:
-            self.register_buffer(
-                "weights_host",
-                torch.empty(0, device=self.current_device, dtype=torch.uint8),
-            )
-        if split.uvm_size > 0:
+
+        if uvm_size > 0:
             assert not self.use_cpu
-            self.register_buffer(
-                "weights_uvm",
-                torch.zeros(
-                    split.uvm_size,
-                    out=torch.ops.fb.new_managed_tensor(
-                        torch.zeros(1, device=self.current_device, dtype=torch.uint8),
-                        [split.uvm_size],
-                    ),
+            self.weights_uvm = torch.zeros(
+                uvm_size,
+                out=torch.ops.fb.new_managed_tensor(
+                    torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
+                    [uvm_size],
                 ),
-            )
-        else:
-            self.register_buffer(
-                "weights_uvm",
-                torch.empty(0, device=self.current_device, dtype=torch.uint8),
             )
 
     @torch.jit.export
@@ -1796,6 +1806,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Returns a list of weights, split by table
         """
+        assert self.weight_initialized
         splits: List[Tuple[Tensor, Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
@@ -1806,9 +1817,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 weights = self.weights_uvm
             offset = self.weights_physical_offsets[t]
-            # pyre-fixme[29]:
-            #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self, Tensor)],
-            #  Tensor], Tensor], Tensor, nn.Module]` is not a function.
             weights_shifts = weights.detach()[
                 offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
             ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
@@ -1843,6 +1851,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Fill the buffer with random weights, table by table
         FIXME: make it in-place fill.
         """
+        if not self.weight_initialized:
+            self._apply_split(
+                self.dev_size,
+                self.host_size,
+                self.uvm_size,
+                self.weights_physical_placements,
+                self.weights_physical_offsets,
+            )
+            self.weight_initialized: bool = True
         weights = self.split_embedding_weights()
         for dest_weight in weights:
             dest_weight[0].copy_(
@@ -1883,7 +1900,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not use_array_for_index_remapping:
             capacities = [
                 round_up(int(row * 1.0 / load_factor), 32)
-                if index_remap is not None else 0
+                if index_remap is not None
+                else 0
                 for (index_remap, row) in zip(index_remapping, rows)
             ]
             hash_table = torch.empty(
@@ -1912,13 +1930,17 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
-                self.index_remapping_hash_table_cpu.insert(indices, dense_indices, offsets, T)
+                self.index_remapping_hash_table_cpu.insert(
+                    indices, dense_indices, offsets, T
+                )
             else:
                 torch.ops.fb.pruned_hashmap_insert(
                     indices, dense_indices, offsets, hash_table, hash_table_offsets
                 )
                 self.index_remapping_hash_table = hash_table.to(self.current_device)
-                self.index_remapping_hash_table_offsets = hash_table_offsets.to(self.current_device)
+                self.index_remapping_hash_table_offsets = hash_table_offsets.to(
+                    self.current_device
+                )
                 self.index_remapping_hash_table_cpu = None
         else:
             index_remappings_array_offsets = [0]
@@ -1931,10 +1953,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.index_remappings_array_offsets = torch.tensor(
                 index_remappings_array_offsets,
                 device=self.current_device,
-                dtype=torch.int64
+                dtype=torch.int64,
             )
-            self.index_remappings_array = torch.empty(
-                0, dtype=torch.int32, device=self.current_device
-            ) if self.index_remappings_array_offsets[-1] == 0 else torch.cat(
-                [mapping for mapping in index_remapping if mapping is not None]
-            ).to(self.current_device)
+            self.index_remappings_array = (
+                torch.empty(0, dtype=torch.int32, device=self.current_device)
+                if self.index_remappings_array_offsets[-1] == 0
+                else torch.cat(
+                    [mapping for mapping in index_remapping if mapping is not None]
+                ).to(self.current_device)
+            )
