@@ -27,6 +27,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SplitTableBatchedEmbeddingBagsCodegen,
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from numpy.random import default_rng
 from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
@@ -106,12 +107,14 @@ def generate_requests(
                         break
             assert (len(r)) == L, "too skewed distribution (alpha too big)"
             all_indices[index_tuple][:L] = list(r)
-        all_indices = (
-            torch.as_tensor(all_indices[:, :, :, :L])
-            .to(get_device())
-            .int()
-            .reshape(iters, T, B * L)
+        # shuffle indices so we don't have unintended spatial locality
+        all_indices = torch.as_tensor(all_indices[:, :, :, :L])
+        rng = default_rng()
+        permutation = torch.as_tensor(
+            rng.choice(E, size=all_indices.max().item() + 1, replace=False)
         )
+        all_indices = permutation.gather(0, all_indices.flatten())
+        all_indices = all_indices.to(get_device()).int().reshape(iters, T, B * L)
     for it in range(iters - 1):
         for t in range(T):
             reused_indices = torch.randperm(B * L, device=get_device())[
@@ -215,6 +218,7 @@ def cli() -> None:
 
 
 @cli.command()
+# recommended value: alpha=1.15 for training and alpha=1.09 for inference
 @click.option("--alpha", default=1.0)
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
@@ -309,7 +313,9 @@ def device(  # noqa C901
                     E,
                     d,
                     managed_option,
-                    ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
+                    ComputeDevice.CUDA
+                    if torch.cuda.is_available()
+                    else ComputeDevice.CPU,
                 )
                 for d in Ds
             ],
@@ -986,7 +992,8 @@ def nbit_device(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
-        index_remapping=index_remapping, load_factor=load_factor,
+        index_remapping=index_remapping,
+        load_factor=load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
     ).cuda()
     emb.fill_random_weights()
@@ -1159,6 +1166,7 @@ def hashtable(  # noqa C901
             f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e6:.0f}MB"
         )
 
+
 @cli.command()
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=2048)
@@ -1182,12 +1190,16 @@ def pruned_array(  # noqa C901
     torch.manual_seed(42)
     assert pruning_ratio > 0 and pruning_ratio <= 1
     original_E = int(E / (1.0 - pruning_ratio))
-    index_remappings = torch.tensor([-1] * original_E * T, dtype=torch.int32, device='cuda')
-    index_remappings_offsets = torch.empty(T + 1, dtype=torch.int32, device='cuda')
+    index_remappings = torch.tensor(
+        [-1] * original_E * T, dtype=torch.int32, device="cuda"
+    )
+    index_remappings_offsets = torch.empty(T + 1, dtype=torch.int32, device="cuda")
     index_remappings_offsets[0] = 0
-    dense_indicies = torch.tensor(range(E), dtype=torch.int32, device='cuda')
+    dense_indicies = torch.tensor(range(E), dtype=torch.int32, device="cuda")
     for t in range(T):
-        selected_indices = torch.add(torch.randperm(original_E, device='cuda'), t * original_E)[:E]
+        selected_indices = torch.add(
+            torch.randperm(original_E, device="cuda"), t * original_E
+        )[:E]
         index_remappings[selected_indices] = dense_indicies
         index_remappings_offsets[t + 1] = index_remappings_offsets[t] + original_E
 
@@ -1214,6 +1226,7 @@ def pruned_array(  # noqa C901
         f"LinearTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us, Pruning Ratio: {pruning_ratio * 100:.2f}%, Table size: {original_E * T * 4 / 1.0e6:.0f}MB"
     )
+
 
 @cli.command()
 @click.option("--bag-size", default=20)
