@@ -8,7 +8,9 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
 #include <ATen/ATen.h>
+#ifdef FBGEMM_GPU_WITH_CUDA
 #include <ATen/cuda/CUDAContext.h>
+#endif
 
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -176,9 +178,12 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     TORCH_CHECK(B > 0);
     TORCH_CHECK(total_D > 0);
     bool pined_memory = false;
+#ifdef FBGEMM_GPU_WITH_CUDA
     if (globalContext().hasCUDA() && ::at::cuda::is_available()) {
       pined_memory = true;
     }
+#endif
+
     auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
 
     const int32_t* weights_placements_ptr = weights_placements.data_ptr<int32_t>();
