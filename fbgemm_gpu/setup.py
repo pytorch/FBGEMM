@@ -168,7 +168,7 @@ setup(
                 os.path.join(cur_dir, "../third_party/cpuinfo/include"),
                 cub_include_path,
             ],
-            extra_compile_args={"cxx": extra_compile_args,
+            extra_compile_args={"cxx": extra_compile_args + ["-DFBGEMM_GPU_WITH_CUDA"],
                                 "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
             libraries=["nvidia-ml"],
         ) if cub_include_path is not None else
