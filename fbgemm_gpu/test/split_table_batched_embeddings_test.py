@@ -26,6 +26,10 @@ from torch import Tensor
 
 
 MAX_EXAMPLES = 40
+
+# For long running tests reduce the number of iterations to reduce timeout errors.
+MAX_EXAMPLES_LONG_RUNNING=20
+
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
 
@@ -138,38 +142,8 @@ def generate_requests(
 
 
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
-    @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.sampled_from(
-            [SparseType.INT8, SparseType.FP16, SparseType.FP32]
-        ),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
-    )
-    def test_forward(
+
+    def execute_forward_(
         self,
         T: int,
         D: int,
@@ -351,6 +325,147 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             atol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.just(SparseType.INT8),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_forward_int8(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
+            use_cache, cache_algorithm, pooling_mode, use_cpu)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.just(SparseType.FP16),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_forward_fp16(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
+            use_cache, cache_algorithm, pooling_mode, use_cpu)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.just(SparseType.FP32),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_forward_fp32(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
+            use_cache, cache_algorithm, pooling_mode, use_cpu)
 
     @given(
         T=st.integers(min_value=1, max_value=3),
@@ -784,39 +899,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=2.0e-2 if weights_precision == SparseType.FP16 else 1.0e-5,
             )
 
-    @given(
-        T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        D_gradcheck=st.integers(min_value=1, max_value=2),
-        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
-        stochastic_rounding=st.booleans(),
-        weighted=st.booleans(),
-        row_wise=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
-        exact=st.booleans(),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
-    )
-    def test_backward_adagrad(  # noqa C901
+    def execute_backward_adagrad_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1111,6 +1194,116 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
                 )
 
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP16),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_adagrad_fp16(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(T, D, B, log_E, L, D_gradcheck, weights_precision,
+        stochastic_rounding, weighted, row_wise, mixed, use_cache, cache_algorithm,pooling_mode,
+        use_cpu, exact)
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP32),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_adagrad_fp32(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(T, D, B, log_E, L, D_gradcheck, weights_precision,
+        stochastic_rounding, weighted, row_wise, mixed, use_cache, cache_algorithm,pooling_mode,
+        use_cpu, exact)
+
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -1203,42 +1396,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
-    @given(
-        T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        optimizer=st.sampled_from(
-            [
-                OptimType.ADAM,
-                OptimType.EXACT_ADAGRAD,
-                OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.LAMB,
-                OptimType.LARS_SGD,
-                OptimType.PARTIAL_ROWWISE_ADAM,
-                OptimType.PARTIAL_ROWWISE_LAMB,
-            ]
-        ),
-        long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
-    )
-    def test_backward_optimizers(  # noqa C901
+    def execute_backward_optimizers_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1565,35 +1723,190 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-4,
                 )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
-        T=st.integers(min_value=1, max_value=50),
-        D=st.integers(min_value=2, max_value=1024 - 8),
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
         B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=2, max_value=4),
-        L=st.integers(min_value=0, max_value=32),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
         weighted=st.booleans(),
         mixed=st.booleans(),
+        optimizer=st.sampled_from(
+            [
+                OptimType.ADAM,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+             ]
+        ),
+        long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
-            ]
-        ),
-        weights_ty=st.sampled_from(
-            [
-                SparseType.INT8,
-                SparseType.INT4,
-                # TODO: implement for SparseType.INT2,
-                SparseType.FP16,
-                SparseType.FP32,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
-        use_array_for_index_remapping=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_nbit_forward(
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_optimizers_adam(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
+            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        optimizer=st.sampled_from(
+            [
+                OptimType.EXACT_ADAGRAD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+            ]
+        ),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_optimizers_adagrad(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
+            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        optimizer=st.sampled_from(
+            [
+                OptimType.LAMB,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+            ]
+        ),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_optimizers_lamb(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
+            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        optimizer=st.just(OptimType.LARS_SGD),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_backward_optimizers_lars(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+    ) -> None:
+        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
+            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+
+    def execute_nbit_forward_(
         self,
         T: int,
         D: int,
@@ -1803,6 +2116,91 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             atol=1.0e-2,
             rtol=1.0e-2,
         )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=50),
+        D=st.integers(min_value=2, max_value=1024 - 8),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=2, max_value=4),
+        L=st.integers(min_value=0, max_value=32),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            ]
+        ),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.INT8,
+                SparseType.INT4,
+                # TODO: implement for SparseType.INT2,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None)
+    def test_nbit_forward_int(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        weights_ty: SparseType,
+        use_cpu: bool,
+        use_array_for_index_remapping: bool,
+    ) -> None:
+        self.execute_nbit_forward_(T, D, B, log_E, L, weighted, mixed, pooling_mode,
+            weights_ty, use_cpu, use_array_for_index_remapping)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=50),
+        D=st.integers(min_value=2, max_value=1024 - 8),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=2, max_value=4),
+        L=st.integers(min_value=0, max_value=32),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            ]
+        ),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP16,
+                SparseType.FP32,
+            ]
+        ),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_array_for_index_remapping=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None)
+    def test_nbit_forward_fp(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        weights_ty: SparseType,
+        use_cpu: bool,
+        use_array_for_index_remapping: bool,
+    ) -> None:
+        self.execute_nbit_forward_(T, D, B, log_E, L, weighted, mixed, pooling_mode,
+            weights_ty, use_cpu, use_array_for_index_remapping)
 
     @given(
         T=st.integers(min_value=1, max_value=10),
