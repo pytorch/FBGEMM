@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type
+from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, Type
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import numpy as np
@@ -318,8 +318,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._apply_split(
             weight_split,
             prefix="weights",
-            # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param but
-            #  got `Type[typing.Union[torch.float16, torch.float32, torch.uint8]]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
         )
@@ -395,8 +393,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum1",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
                 dtype=torch.float32,
                 enforce_hbm=enforce_hbm,
             )
@@ -414,8 +410,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     cacheable=False,
                 ),
                 prefix="momentum2",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
                 dtype=torch.float32,
             )
             self.register_buffer(
@@ -531,9 +525,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # The first one is cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # The second one is the unique_cache_miss_count which records to total number of unique (dedup) cache misses
 
-        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
-        # nn.Module]`.
-        return self.cache_miss_counter
+        return cast(Tensor, self.cache_miss_counter)
 
     @torch.jit.export
     def get_table_wise_cache_miss(self) -> Tensor:
@@ -1004,7 +996,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         split: SplitState,
         prefix: str,
-        dtype: Type[torch.dtype],
+        dtype: torch.dtype,
         enforce_hbm: bool = False,
     ) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
@@ -1023,8 +1015,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if split.dev_size > 0:
             self.register_buffer(
                 f"{prefix}_dev",
-                # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 3rd
-                #  param but got `Type[Type[torch._dtype]]`.
                 torch.zeros(split.dev_size, device=self.current_device, dtype=dtype),
             )
         else:
@@ -1037,8 +1027,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     f"{prefix}_host",
                     torch.zeros(
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                        #  3rd param but got `Type[Type[torch._dtype]]`.
                         split.host_size, device=self.current_device, dtype=dtype
                     ),
                 )
@@ -1048,8 +1036,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     f"{prefix}_host",
                     nn.Parameter(
                         torch.zeros(
-                            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                            #  for 3rd param but got `Type[Type[torch._dtype]]`.
                             split.host_size, device=self.current_device, dtype=dtype
                         )
                     ),
@@ -1065,8 +1051,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     f"{prefix}_uvm",
                     torch.zeros(
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                        #  3rd param but got `Type[Type[torch._dtype]]`.
                         split.uvm_size, device=self.current_device, dtype=dtype
                     ),
                 )
@@ -1076,8 +1060,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.zeros(
                         split.uvm_size,
                         out=torch.ops.fb.new_managed_tensor(
-                            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                            #  for 3rd param but got `Type[Type[torch._dtype]]`.
                             torch.zeros(1, device=self.current_device, dtype=dtype),
                             [split.uvm_size],
                         ),
@@ -1215,9 +1197,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
-            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
-                size=(self.total_cache_hash_size + 1,)
+                (self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
                 else (cache_sets, ASSOC),
                 device=self.current_device,
