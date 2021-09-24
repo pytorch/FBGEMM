@@ -3,6 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-ignore-all-errors[56]
+
 import unittest
 
 import hypothesis.strategies as st
@@ -25,9 +27,6 @@ except Exception:
 
 
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
-    #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
-    #  100)` to decorator factory `hypothesis.given`.
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -96,7 +95,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
 
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -152,7 +150,6 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 quantized_data_numpy[:, :ncols], reference[:, :ncols]
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
