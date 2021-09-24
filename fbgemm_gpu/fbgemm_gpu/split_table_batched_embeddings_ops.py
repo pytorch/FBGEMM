@@ -1846,11 +1846,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         return splits
 
-    def fill_random_weights(self) -> None:
-        """
-        Fill the buffer with random weights, table by table
-        FIXME: make it in-place fill.
-        """
+    def initialize_weights(self) -> None:
         if not self.weight_initialized:
             self._apply_split(
                 self.dev_size,
@@ -1860,6 +1856,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_offsets,
             )
             self.weight_initialized: bool = True
+
+    def fill_random_weights(self) -> None:
+        """
+        Fill the buffer with random weights, table by table
+        FIXME: make it in-place fill.
+        """
+        self.initialize_weights()
         weights = self.split_embedding_weights()
         for dest_weight in weights:
             dest_weight[0].copy_(
