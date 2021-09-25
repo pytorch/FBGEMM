@@ -801,6 +801,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
+        table_to_replicate = None
         if exact:
             table_to_replicate = T // 2
             bs.insert(table_to_replicate, bs[table_to_replicate])
@@ -851,7 +852,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # do SGD update
         lr = 0.05
         if exact:
-            # pyre-fixme[61]: `table_to_replicate` may not be initialized here.
+            assert table_to_replicate is not None
             del bs[table_to_replicate]
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
@@ -1011,6 +1012,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
+        table_to_replicate = None
         if exact:
             # autograd with shared embedding only works for exact
             table_to_replicate = T // 2
@@ -1077,7 +1079,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         if exact:
-            # pyre-fixme[61]: `table_to_replicate` may not be initialized here.
+            assert table_to_replicate is not None
             del bs[table_to_replicate]
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
@@ -2014,9 +2016,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             np_weights = weights.contiguous().cpu().numpy()
 
             if scale_shift is not None:
-                # pyre-fixme[35]: Target cannot be annotated.
-                # pyre-fixme[11]: Annotation `array` is not defined as a type.
-                scale_shift: np.array = (
+                scale_shift: np.ndarray = (
                     scale_shift.cpu()
                     .contiguous()
                     .numpy()
@@ -2050,7 +2050,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
                 # pyre-fixme[53]: Captured variable `weights` is not annotated.
-                def comp(i: int) -> np.array:
+                def comp(i: int) -> np.ndarray:
                     subs = np_weights.view(np.uint8) >> (i * 2)
                     sub_mask = subs & 0x3
                     result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
@@ -2068,6 +2068,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             elif weights_ty == SparseType.INT8:
                 (E, D) = np_weights.shape
+                assert scale_shift is not None
                 comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
                     -1, 1
                 ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
