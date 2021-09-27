@@ -15,7 +15,6 @@ from math import log2
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
@@ -1913,7 +1912,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             hash_table[:, :] = -1
             hash_table_offsets = torch.tensor(
-                [0] + np.cumsum(capacities).tolist()
+                [0] + list(accumulate(capacities))
             ).long()
 
             merged_index_remappings = [
@@ -1928,7 +1927,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 [torch.arange(row) for row in original_feature_rows], dim=0
             ).int()
             offsets = torch.tensor(
-                [0] + np.cumsum(original_feature_rows).tolist()
+                [0] + list(accumulate(original_feature_rows))
             ).int()
 
             if self.use_cpu:
