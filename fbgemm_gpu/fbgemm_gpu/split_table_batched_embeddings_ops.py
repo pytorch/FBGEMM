@@ -1564,6 +1564,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
+        self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
 
