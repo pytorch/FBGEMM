@@ -548,9 +548,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
-        # TODO(tulloch): enable this after sufficient forward-compatibility period.
-        # if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-        #     torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
+        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
             self.prefetch(indices, offsets)
