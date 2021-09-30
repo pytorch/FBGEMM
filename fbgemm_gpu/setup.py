@@ -7,13 +7,17 @@ import glob
 import os
 import shutil
 import sysconfig
+import sys
 
 from codegen.embedding_backward_code_generator import emb_codegen
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 
+cpu_only_build = False
 cur_dir = os.path.dirname(os.path.realpath(__file__))
-cub_include_path = os.getenv("CUB_DIR")
+cub_include_path = os.getenv("CUB_DIR", None)
+if cub_include_path is None:
+    print("CUDA CUB directory environment variable not set.  Using default CUB location.")
 build_codegen_path = "build/codegen"
 py_path = "python"
 
@@ -117,6 +121,10 @@ class FBGEMM_GPU_BuildExtension(BuildExtension.with_options(no_python_abi_suffix
         generate_jinja_files()
         super().build_extension(ext)
 
+# Handle command line args before passing to main setup() method.
+if "--cpu_only" in sys.argv:
+    cpu_only_build = True
+    sys.argv.remove("--cpu_only")
 
 setup(
     name="fbgemm_gpu",
@@ -171,7 +179,7 @@ setup(
             extra_compile_args={"cxx": extra_compile_args + ["-DFBGEMM_GPU_WITH_CUDA"],
                                 "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
             libraries=["nvidia-ml"],
-        ) if cub_include_path is not None else
+        ) if not cpu_only_build else
         CppExtension(
             name="fbgemm_gpu_py",
             sources=[
