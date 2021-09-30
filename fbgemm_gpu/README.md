@@ -66,11 +66,19 @@ git submodule sync
 git submodule update --init --recursive
 # configure the NVCC and CUB path
 export CUDACXX=/usr/local/cuda/bin/nvcc
+# if using CUDA 10 or earliers set the location to the CUB installation directory
 export CUB_DIR=${CUB_DIR}
 # in fbgemm_gpu folder
 # build the table batched embedding bag op
 cd ..
 python setup.py build develop
+```
+
+FBGEMM_GPU also supports a CPU-only (no CUDA dependencies) build if so desired.  To
+enable the CPU-only build add the --cpu_only option to the python setup command.
+
+```
+python setup.py build develop --cpu_only
 ```
 
 ## Running  FBGEMM_GPU
