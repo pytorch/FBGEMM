@@ -159,7 +159,12 @@ void _permute_lengths_cpu_kernel(
   }
 }
 
-template <bool sequence, bool has_weight, typename offset_t, typename index_t, typename scalar_t>
+template <
+    bool sequence,
+    bool has_weight,
+    typename offset_t,
+    typename index_t,
+    typename scalar_t>
 void _block_bucketize_sparse_features_cpu(
     at::Tensor lengths,
     at::Tensor indices,
@@ -533,6 +538,72 @@ block_bucketize_sparse_features_cpu(
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
+// 1D exclusive scan: output[i] = input[i-1] + input[i-2] + input[i-3]
+// Used as a helper to several functions below.
+template <class T, class U>
+U exclusive_scan_ptrs_cpu(
+    const int64_t N,
+    const T* const input,
+    U* const output) {
+  U cumsum = 0;
+  for (const auto i : c10::irange(N)) {
+    output[i] = cumsum;
+    cumsum += input[i];
+  }
+  return cumsum;
+}
+
+at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in) {
+  TENSOR_ON_CPU(t_in);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = native_empty_like(*t_in_contig);
+  AT_DISPATCH_ALL_TYPES(
+      t_in_contig->type(), "asynchronous_exclusive_cumsum_cpu_kernel", ([&] {
+        exclusive_scan_ptrs_cpu(
+            t_in_contig->numel(),
+            t_in_contig->data_ptr<scalar_t>(),
+            output.data_ptr<scalar_t>());
+      }));
+  return output;
+}
+
+at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in) {
+  TENSOR_ON_CPU(t_in);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = native_empty_like(*t_in_contig);
+  AT_DISPATCH_ALL_TYPES(
+      t_in_contig->type(), "asynchronous_inclusive_cumsum_cpu_kernel", ([&] {
+        scalar_t cumsum = 0;
+        const auto* input_ptr = t_in_contig->data_ptr<scalar_t>();
+        const auto N = t_in_contig->numel();
+        auto* output_ptr = output.data_ptr<scalar_t>();
+
+        for (const auto i : c10::irange(N)) {
+          cumsum += input_ptr[i];
+          output_ptr[i] = cumsum;
+        }
+      }));
+  return output;
+}
+
+at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in) {
+  TENSOR_ON_CPU(t_in);
+  TORCH_CHECK(t_in.dim() == 1);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = at::zeros({t_in.numel() + 1}, t_in.options());
+  AT_DISPATCH_ALL_TYPES(
+      t_in_contig->type(), "asynchronous_complete_cumsum_cpu_kernel", ([&] {
+        const auto N = t_in_contig->numel();
+        const auto last_sum = exclusive_scan_ptrs_cpu(
+            N, t_in_contig->data_ptr<scalar_t>(), output.data_ptr<scalar_t>());
+        output.data_ptr<scalar_t>()[N] = last_sum;
+      }));
+  return output;
+}
+
 } // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -540,9 +611,19 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+  m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
+  m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
+  m.def("asynchronous_complete_cumsum(Tensor t_in) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("permute_sparse_data", at::permute_sparse_data_cpu);
-  m.impl("block_bucketize_sparse_features", at::block_bucketize_sparse_features_cpu);
+  m.impl(
+      "block_bucketize_sparse_features",
+      at::block_bucketize_sparse_features_cpu);
+  m.impl(
+      "asynchronous_exclusive_cumsum", at::asynchronous_exclusive_cumsum_cpu);
+  m.impl(
+      "asynchronous_inclusive_cumsum", at::asynchronous_inclusive_cumsum_cpu);
+  m.impl("asynchronous_complete_cumsum", at::asynchronous_complete_cumsum_cpu);
 }

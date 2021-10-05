@@ -12,7 +12,17 @@
 namespace at {
 
 // Return array of size T_in.numel(), representing incomplete exclusive cumsum
-Tensor asynchronous_exclusive_cumsum(const Tensor& t_in);
+at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in);
+
+at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in);
+
+at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
+
+at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
+
+at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
+
+at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
