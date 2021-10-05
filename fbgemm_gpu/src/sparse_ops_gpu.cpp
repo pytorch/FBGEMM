@@ -14,5 +14,13 @@
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("permute_sparse_data", at::permute_sparse_data_cuda);
-  DISPATCH_TO_CUDA("block_bucketize_sparse_features", at::block_bucketize_sparse_features_cuda);
+  DISPATCH_TO_CUDA(
+      "block_bucketize_sparse_features",
+      at::block_bucketize_sparse_features_cuda);
+  DISPATCH_TO_CUDA(
+      "asynchronous_exclusive_cumsum", at::asynchronous_exclusive_cumsum_gpu);
+  DISPATCH_TO_CUDA(
+      "asynchronous_complete_cumsum", at::asynchronous_complete_cumsum_gpu);
+  DISPATCH_TO_CUDA(
+      "asynchronous_inclusive_cumsum", at::asynchronous_inclusive_cumsum_gpu);
 }

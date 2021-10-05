@@ -415,6 +415,48 @@ class SparseOpsTest(unittest.TestCase):
         torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref)
         torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref)
 
+    # pyre-ignore [56]
+    @given(
+        n=st.integers(min_value=1, max_value=100),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_cumsum(self, n: int, long_index: bool) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
+        np_index_dtype = np.int64 if long_index else np.int32
+
+        # cpu tests
+        x = torch.randint(low=0, high=100, size=(n,)).type(index_dtype)
+        ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
+        zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
+        zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
+        torch.testing.assert_allclose(
+            np.cumsum(x.cpu().numpy()).astype(np_index_dtype), zi.cpu()
+        )
+        torch.testing.assert_allclose(
+            (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(np_index_dtype),
+            ze.cpu(),
+        )
+        torch.testing.assert_allclose(
+            (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype), zc.cpu()
+        )
+
+        if torch.cuda.is_available():
+            x = x.cuda()
+            ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
+            zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
+            zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
+            torch.testing.assert_allclose(
+                np.cumsum(x.cpu().numpy()).astype(np_index_dtype), zi.cpu()
+            )
+            torch.testing.assert_allclose(
+                (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(np_index_dtype),
+                ze.cpu(),
+            )
+            torch.testing.assert_allclose(
+                (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype), zc.cpu()
+            )
+
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(

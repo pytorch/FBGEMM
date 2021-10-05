@@ -21,7 +21,7 @@
 #include "cub/device/device_scan.cuh"
 
 namespace at {
-Tensor asynchronous_inclusive_cumsum(const Tensor& t_in) {
+Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -55,7 +55,7 @@ Tensor asynchronous_inclusive_cumsum(const Tensor& t_in) {
   return t_out;
 }
 
-Tensor asynchronous_exclusive_cumsum(const Tensor& t_in) {
+Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -83,6 +83,42 @@ Tensor asynchronous_exclusive_cumsum(const Tensor& t_in) {
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
             t_out.data_ptr<scalar_t>(),
+            t_in.numel(),
+            at::cuda::getCurrentCUDAStream()));
+      }));
+  return t_out;
+}
+
+Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(t_in.get_device());
+  size_t temp_storage_bytes = 0;
+  TORCH_CHECK(t_in.is_contiguous());
+  TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
+  // CUB only handles up to INT_MAX elements.
+  TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
+  TORCH_CHECK(t_in.dim() == 1);
+  auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
+  t_out[0].zero_();
+  AT_DISPATCH_INTEGRAL_TYPES(
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+            nullptr,
+            temp_storage_bytes,
+            t_in.data_ptr<scalar_t>(),
+            t_out.data_ptr<scalar_t>() + 1,
+            t_in.numel(),
+            at::cuda::getCurrentCUDAStream()));
+      }));
+  auto temp_storage = at::empty(
+      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(kByte));
+  AT_DISPATCH_INTEGRAL_TYPES(
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+            temp_storage.data_ptr(),
+            temp_storage_bytes,
+            t_in.data_ptr<scalar_t>(),
+            t_out.data_ptr<scalar_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       }));
@@ -137,8 +173,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
       }));
 
   // convert lengths to offsets
-  const auto input_offsets = asynchronous_exclusive_cumsum(lengths_contig);
-  const auto output_offsets = asynchronous_exclusive_cumsum(permuted_lengths);
+  const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
+  const auto output_offsets = asynchronous_exclusive_cumsum_gpu(permuted_lengths);
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
@@ -245,7 +281,7 @@ block_bucketize_sparse_features_cuda(
   Tensor new_pos;
   Tensor unbucketize_permute;
   // count nonzeros
-  offsets_contig = asynchronous_inclusive_cumsum(lengths);
+  offsets_contig = asynchronous_inclusive_cumsum_gpu(lengths);
   int threads_per_block = 256;
   int num_blocks = (lengths_size + threads_per_block - 1) / threads_per_block;
   AT_DISPATCH_INDEX_TYPES(
@@ -274,7 +310,7 @@ block_bucketize_sparse_features_cuda(
       }));
 
   // bucketize nonzeros
-  new_offsets = asynchronous_exclusive_cumsum(new_lengths);
+  new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (sequence) {
     const auto lengths_sum = indices.numel();
     unbucketize_permute = at::empty({lengths_sum}, indices.options());
