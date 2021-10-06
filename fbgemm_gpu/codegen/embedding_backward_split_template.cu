@@ -292,8 +292,6 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
             }
             {% endfor %}
 
-            {{ split_precomputation }}
-
             struct SharedMemory<Vec4T<acc_type<cache_t, true>>> weight_update_buffer;
             Vec4T<acc_type<cache_t, true>>* shared_weight_update_row = weight_update_buffer.getPointer();
 
@@ -315,6 +313,9 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_
             if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
                 qparams_template = weight_row_template.load_qparams();
             }
+
+            {{ split_precomputation }}
+
             float2 qparams_new;
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
@@ -506,7 +507,6 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row
     }
     {% endfor %}
 
-    {{ split_precomputation }}
     struct SharedMemory<Vec4T<acc_type<cache_t, true>>> weight_update_buffer;
     Vec4T<acc_type<cache_t, true>>* shared_weight_update_row = weight_update_buffer.getPointer();
     auto weight_row_template = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
@@ -526,6 +526,9 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row
     if (std::is_same<emb_t, uint8_t>::value && !cache_weights){
         qparams_template = weight_row_template.load_qparams();
     }
+
+    {{ split_precomputation }}
+
     float2 qparams_new;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;

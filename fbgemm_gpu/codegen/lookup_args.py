@@ -39,6 +39,7 @@ class OptimizerArgs(NamedTuple):
     beta1: float
     beta2: float
     weight_decay: float
+    weight_decay_mode: int
     eta: float
     momentum: float
 
