@@ -28,6 +28,7 @@ class CommonArgs(NamedTuple):
     indice_weights: Optional[torch.Tensor]
     feature_requires_grad: Optional[torch.Tensor]
     lxu_cache_locations: torch.Tensor
+    output_dtype: int
 
 
 class OptimizerArgs(NamedTuple):
