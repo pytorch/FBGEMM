@@ -1700,7 +1700,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         assert self.weight_initialized
         if self.index_remapping_hash_table_cpu is not None:
