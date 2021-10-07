@@ -876,7 +876,6 @@ def cpu(  # noqa C901
             indices,
             offsets,
             per_sample_weights,
-            feature_requires_grad=None,
         ),
     )
 
@@ -944,20 +943,6 @@ def nbit_device(  # noqa C901
     original_E = E
     T = num_tables
     index_remapping = None
-    if weighted_num_requires_grad:
-        assert weighted_num_requires_grad <= T
-        weighted_requires_grad_tables = np.random.choice(
-            T, replace=False, size=(weighted_num_requires_grad,)
-        ).tolist()
-        feature_requires_grad = (
-            torch.tensor(
-                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
-            )
-            .cuda()
-            .int()
-        )
-    else:
-        feature_requires_grad = None
     if mixed:
         # int4 table batched emb op can only handle mixed D where D is multiple of 8
         Ds = [
@@ -1027,7 +1012,6 @@ def nbit_device(  # noqa C901
                 indices.int(),
                 offsets.int(),
                 per_sample_weights,
-                feature_requires_grad=feature_requires_grad,
             ),
             check_median=check_median,
         )
