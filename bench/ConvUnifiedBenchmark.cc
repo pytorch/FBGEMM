@@ -80,6 +80,64 @@ vector<conv_param_t<2>> shapes_2d = {
       {1, 1}, {0, 0, 0, 0})
 };
 
+vector<conv_param_t<2>> shapes_2d_resnext_101 = {
+  // ResNext-101 (unique shapes only)
+  // conv_param_t<>(N, C, M, H, W, groups, /* kern */ {KH, KW}, /* stride */
+  //   {stride_h, stride_w}, /* padding pad_l = pad_h */ {pad_l, pad_l, pad_l, pad_l}, /* dialation */
+  //   {1, 1}, /* otpt_pad */ {0, 0}, /* trans */transpose)
+
+  conv_param_t<>(1, 3,    64,   {224, 224}, 1,  {7, 7},
+     {2, 2}, {3, 3, 3, 3}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 64,   128,  {56,  56},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 128,  128,  {56,  56},  32, {3, 3},
+     {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 128,  256,  {56,  56},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 64,   256,  {56,  56},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  128,  {56,  56},  1,  {1, 1},
+     {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  128,  {56,  56},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  256,  {56,  56},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  256,  {56,  56},  32, {3, 3},
+     {2, 2}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  512,  {28,  28},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  512,  {56,  56},  1,  {1, 1},
+     {2, 2}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  256,  {28,  28},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 256,  256,  {28,  28},  32, {3, 3},
+     {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  512,  {28,  28},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  512,  {28,  28},  32, {3, 3},
+     {2, 2}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  1024, {14,  14},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  1024, {28,  28},  1,  {1, 1},
+     {2, 2}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 512,  {14,  14},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 512,  512,  {14,  14},  32, {3, 3},
+     {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 1024, {14,  14},  1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 1024, {14,  14},  32, {3, 3},
+     {2, 2}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 2048, {7,   7},   1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 2048, {14,  14},  1,  {1, 1},
+     {2, 2}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 2048, 1024, {7,   7},   1,  {1, 1},
+     {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, false),
+  conv_param_t<>(1, 1024, 1024, {7,   7},   32, {3, 3},
+     {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, false)
+};
+
 // 3D conv shapes
 vector<conv_param_t<3>> shapes_3d = {
   // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
@@ -154,8 +212,7 @@ vector<conv_param_t<3>> shapes_3d = {
 // clang-format on
 
 template <int SPATIAL_DIM, typename Acc_t>
-void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
-  bool flush = true;
+void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes, bool flush, int repetitions) {
   std::vector<char> llc;
 
   if (flush) {
@@ -163,7 +220,7 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
   }
 
   constexpr int NWARMUP = 4;
-  constexpr int NITER = 10;
+  const int NITER = repetitions;
 
   string header = "MB, IC, OC, ";
   if (SPATIAL_DIM == 3) {
@@ -211,6 +268,8 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
   header += "transposed, ";
 
   header += "Type, M, N, K, ";
+
+  header += "#_ops, ";
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
@@ -420,9 +479,9 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
       cout << conv_p.output_pad[i] << ", ";
     }
     cout << conv_p.transposed;
-    cout << setw(13) << runType << ", " << setw(5) << fixed << setw(5)
+    cout << setw(13) << ", " << runType << ", " << setw(5) << fixed << setw(5)
          << setw(6) << MDim << ", " << setw(6) << NDim << ", " << setw(6)
-         << KDim << ", ";
+         << KDim << ", " << nops << ", ";
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
     cout << fixed << setprecision(6) << setw(8) << 0 << ", "
          << total_packing_time / (double)NITER / 1e6 << ", "
@@ -443,7 +502,20 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes) {
   } // shapes
 }
 
-int main() {
+typedef struct {
+  bool no_flush; /* if true, llc won't be flushed inbetween benchmark iterations */
+  bool run_extended_shapes; /* if true, runs additional shapes on top of the default set */
+  int benchmark_repetitions; /* specified number of timed benchmark iterations */
+} user_args_t;
+
+int main(int argc, const char* argv[]) {
+  user_args_t user_args;
+  user_args.benchmark_repetitions =
+      parseArgumentInt(argc, argv, "--repit=", 10, 10);
+  user_args.no_flush = parseArgumentBool(argc, argv, "--no-flush", false);
+  user_args.run_extended_shapes =
+      parseArgumentBool(argc, argv, "--run-extn-shapes", false);
+
 #ifdef _OPENMP
   // Use 1 thread unless OMP_NUM_THREADS is explicit set.
   const char* val = getenv("OMP_NUM_THREADS");
@@ -451,9 +523,21 @@ int main() {
     omp_set_num_threads(1);
   }
 #endif
+
+  // Add extra shapes to the runlist
+  if (user_args.run_extended_shapes) {
+    shapes_2d.insert(
+        shapes_2d.end(),
+        shapes_2d_resnext_101.begin(),
+        shapes_2d_resnext_101.end());
+  }
   // performance_test<int16_t>();
-  performance_test<1, int32_t>(shapes_1d);
-  performance_test<2, int32_t>(shapes_2d);
-  performance_test<3, int32_t>(shapes_3d);
+  performance_test<1, int32_t>(
+      shapes_1d, !user_args.no_flush, user_args.benchmark_repetitions);
+
+  performance_test<2, int32_t>(
+      shapes_2d, !user_args.no_flush, user_args.benchmark_repetitions);
+  performance_test<3, int32_t>(
+      shapes_3d, !user_args.no_flush, user_args.benchmark_repetitions);
   return 0;
 }
