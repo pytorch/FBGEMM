@@ -77,4 +77,28 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
 
+Tensor reorder_batched_ad_lengths_gpu(
+    const Tensor& cat_ad_lengths,
+    const Tensor& batch_offsets,
+    const int64_t num_ads_in_batch);
+
+Tensor reorder_batched_ad_indices_gpu(
+    const Tensor& cat_ad_offsets,
+    const Tensor& cat_ad_indices,
+    const Tensor& reordered_cat_ad_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_ads_in_batch);
+
+Tensor reorder_batched_ad_lengths_cpu(
+    const Tensor& cat_ad_lengths,
+    const Tensor& batch_offsets,
+    const int64_t num_ads_in_batch);
+
+Tensor reorder_batched_ad_indices_cpu(
+    const Tensor& cat_ad_offsets,
+    const Tensor& cat_ad_indices,
+    const Tensor& reordered_cat_ad_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_ads_in_batch);
+
 } // namespace at
