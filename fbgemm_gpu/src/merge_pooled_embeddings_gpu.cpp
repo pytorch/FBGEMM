@@ -10,12 +10,15 @@
 #include <ATen/cuda/CUDAEvent.h>
 #include <ATen/native/TensorAdvancedIndexing.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <algorithm>
 #include <c10/core/Device.h>
 #include <c10/core/TensorOptions.h>
+#include <c10/util/irange.h>
 #include <torch/library.h>
 
 #include <nvml.h>
+
+#include <algorithm>
+
 
 using namespace at;
 
@@ -43,7 +46,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
       pci_bus_ids;
   std::unordered_map<Node, uint32_t> cuda_device_to_nvml_device;
 
-  for (Node i = 0; i < device_count; ++i) {
+  for (const auto i : c10::irange(device_count)) {
     nvmlDevice_t handle;
     NVML_CHECK(nvmlDeviceGetHandleByIndex(i, &handle));
     nvmlPciInfo_t pci_info;
@@ -66,11 +69,11 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
   }
 
   std::vector<Links> links(world_size * world_size);
-  for (auto i = 0; i < world_size; ++i) {
+  for (const auto i : c10::irange(world_size)) {
     nvmlDevice_t handle;
     NVML_CHECK(
         nvmlDeviceGetHandleByIndex(cuda_device_to_nvml_device[i], &handle));
-    for (auto link = 0; link < NVML_NVLINK_MAX_LINKS; ++link) {
+    for (const auto link : c10::irange(NVML_NVLINK_MAX_LINKS)) {
       nvmlEnableState_t is_active;
       auto nvmlRet = nvmlDeviceGetNvLinkState(handle, link, &is_active);
       if (nvmlRet == NVML_ERROR_INVALID_ARGUMENT ||
@@ -111,7 +114,7 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
     }
 
     std::vector<std::pair<Node, Links>> paths;
-    for (auto k = 0; k < world_size; ++k) {
+    for (const auto k : c10::irange(world_size)) {
       if (k != i && k != j && links(i, k) != 0 && links(k, j) != 0) {
         paths.push_back({k, links(i, k) + links(k, j)});
       }
@@ -142,8 +145,8 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
   // Use a two-phase assignment protocol as the greedy approach
   // can lead to unbalanced usage.
   std::unordered_map<Node, int64_t> uses;
-  for (auto i = 0; i < world_size; ++i) {
-    for (auto j = 0; j < world_size; ++j) {
+  for (const auto i : c10::irange(world_size)) {
+    for (const auto j : c10::irange(world_size)) {
       auto ims = intermediate_node(i, j);
       if (ims.size() == 1) {
         auto v = ims.front();
@@ -155,8 +158,8 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
     }
   }
 
-  for (auto i = 0; i < world_size; ++i) {
-    for (auto j = 0; j < world_size; ++j) {
+  for (const auto i : c10::irange(world_size)) {
+    for (const auto j : c10::irange(world_size)) {
       auto ims = intermediate_node(i, j);
       if (ims.size() > 1) {
         auto v = *std::min_element(ims.begin(), ims.end(), [&](Node a, Node b) {
@@ -191,7 +194,7 @@ Tensor cat_dim_1(
   int64_t total_dim_1 = 0;
   std::vector<int64_t> cumulative_dims;
   cumulative_dims.push_back(0);
-  for (auto t : tensors) {
+  for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);
     TORCH_CHECK(t.size(0) == batch_size);
     total_dim_1 += t.size(-1);
@@ -202,7 +205,7 @@ Tensor cat_dim_1(
   auto output = at::empty(
       {batch_size, total_dim_1},
       tensors.front().options().device(output_device));
-  TORCH_CHECK(output.stride(0) * output.element_size() <= prop->memPitch);
+  TORCH_CHECK(output.stride(0) * output.element_size() <= static_cast<int64_t>(prop->memPitch));
 
   std::vector<at::cuda::CUDAEvent> copy_begin_events(tensors.size());
   std::vector<at::cuda::CUDAEvent> copy_completion_events(tensors.size());
@@ -210,16 +213,16 @@ Tensor cat_dim_1(
   Node dst_device_id = output_device.index();
   static auto intermediate_nodes = get_intermediate_node(get_nvlink_matrix());
   // Do the intermediate copies, if required by our multi-hop config.
-  for (auto i = 0; i < tensors.size(); ++i) {
-    Node src_device_id = tensors[i].device().index();
+  for (auto& ten: tensors) {
+    Node src_device_id = ten.device().index();
     auto intermediate_node = intermediate_nodes(src_device_id, dst_device_id);
     if (intermediate_node != -1) {
-      tensors[i] = tensors[i].to(at::Device(at::kCUDA, intermediate_node));
+      ten = ten.to(at::Device(at::kCUDA, intermediate_node));
     }
   }
 
   // synchronize source streams and launch copies on source stream.
-  for (auto i = 0; i < tensors.size(); ++i) {
+  for (const auto i : c10::irange(tensors.size())) {
     auto src = tensors[i];
     if (src.device() != output.device()) {
       auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
@@ -260,7 +263,7 @@ Tensor cat_dim_1(
   }
 
   // Do the same-GPU cases.
-  for (auto i = 0; i < tensors.size(); ++i) {
+  for (const auto i : c10::irange(tensors.size())) {
     auto src = tensors[i];
     if (src.device() == output.device()) {
       auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
@@ -280,7 +283,7 @@ Tensor cat_dim_1(
     }
   }
   // wait for cross-device copies to complete.
-  for (auto i = 0; i < tensors.size(); ++i) {
+  for (const auto i : c10::irange(tensors.size())) {
     auto src = tensors[i];
     if (src.device() != output.device()) {
       auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
@@ -310,11 +313,11 @@ Tensor merge_pooled_embeddings(
     Tensor batch_indices) {
   static std::once_flag flag;
   std::call_once(flag, []() {
-    for (auto i = 0; i < at::cuda::getNumGPUs(); ++i) {
-      for (auto j = 0; j < at::cuda::getNumGPUs(); ++j) {
+    for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
+      for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
           at::cuda::CUDAGuard g(i);
-          auto err = cudaDeviceEnablePeerAccess(j, 0);
+          const auto err = cudaDeviceEnablePeerAccess(j, 0);
           if (err == cudaErrorPeerAccessAlreadyEnabled) {
             // ignore and clear the error if access was already enabled
             cudaGetLastError();
