@@ -42,6 +42,21 @@ class SparseType(enum.Enum):
     def __str__(self) -> str:
         return self.value
 
+    @staticmethod
+    def from_int(ty: int) -> "SparseType":
+            if ty == 0:
+                return SparseType("fp32")
+            elif ty == 1:
+                return SparseType("fp16")
+            elif ty == 2:
+                return SparseType("int8")
+            elif ty == 3:
+                return SparseType("int4")
+            elif ty == 4:
+                return SparseType("int2")
+            else:
+                raise ValueError(f"Unsupported sparse type: {ty}")
+
     def as_int(self) -> int:
         return {
             SparseType.FP32.value: 0,
