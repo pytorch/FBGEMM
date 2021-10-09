@@ -56,7 +56,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 for stream in streams:
                     stack.enter_context(torch.cuda.stream(stream))
             output = torch.ops.fbgemm.merge_pooled_embeddings(
-                pooled_ad_embeddings, batch_indices
+                pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
             )
 
         def ref(pooled_ad_embeddings, batch_indices):
@@ -65,7 +65,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         output_ref = ref(pooled_ad_embeddings, batch_indices)
 
         output_cpu = torch.ops.fbgemm.merge_pooled_embeddings(
-            [pe.cpu() for pe in pooled_ad_embeddings], batch_indices.cpu()
+            [pe.cpu() for pe in pooled_ad_embeddings], batch_indices.size(0), batch_indices.cpu().device
         )
         self.assertEqual(output.device, torch.device(f"cuda:{dst_device}"))
         torch.testing.assert_allclose(output_ref, output.cpu())

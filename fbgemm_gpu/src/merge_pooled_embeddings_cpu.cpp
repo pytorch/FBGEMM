@@ -15,7 +15,8 @@ namespace at {
 
 at::Tensor merge_pooled_embeddings_cpu(
     std::vector<Tensor> pooled_embeddings,
-    Tensor batch_indices) {
+    int64_t batch_size,
+    at::Device target_device) {
   auto cat_host_0 = [&](const std::vector<at::Tensor>& ts) {
     int64_t n = 0;
     for (auto& t : ts) {

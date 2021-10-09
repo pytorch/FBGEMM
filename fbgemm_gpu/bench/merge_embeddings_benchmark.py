@@ -75,11 +75,11 @@ def main(num_ads, embedding_dimension, ads_tables, iters, p2p_bw, dst_device) ->
         t = benchmark_torch_function(
             iters,
             lambda: torch.ops.fbgemm.merge_pooled_embeddings(
-                pooled_ad_embeddings, batch_indices
+                pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
             ),
         )
         merged = torch.ops.fbgemm.merge_pooled_embeddings(
-            pooled_ad_embeddings, batch_indices
+            pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
         )
     print(
         f"Merge, B: {num_ads}, D: {embedding_dimension}, T: {ads_tables}, Num GPUs: {num_gpus}, Destination GPU: {dst_device} Output Size: {merged.numel() * 2 / 1.0e6:.2f}MB, BW: {merged.numel() * 2 / t / 1.0e9:.2f}GB/s, t: {t * 1.0e3:.2f}ms"

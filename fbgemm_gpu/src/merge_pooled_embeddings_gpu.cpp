@@ -307,7 +307,8 @@ Tensor cat_dim_1(
 // TODO: Add device arg.
 Tensor merge_pooled_embeddings(
     std::vector<Tensor> pooled_embeddings,
-    Tensor batch_indices) {
+    int64_t batch_size,
+    at::Device target_device) {
   static std::once_flag flag;
   std::call_once(flag, []() {
     for (auto i = 0; i < at::cuda::getNumGPUs(); ++i) {
@@ -326,16 +327,16 @@ Tensor merge_pooled_embeddings(
     }
   });
 
-  at::cuda::CUDAGuard g(batch_indices.device());
+  at::cuda::CUDAGuard g(target_device);
 
   TORCH_CHECK(!pooled_embeddings.empty());
-  auto B = batch_indices.size(0);
-  return cat_dim_1(pooled_embeddings, B, batch_indices.device());
+  auto B = batch_size;
+  return cat_dim_1(pooled_embeddings, B, target_device);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "merge_pooled_embeddings(Tensor[] pooled_embeddings, Tensor batch_indices) -> Tensor");
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int batch_size, Device target_device) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
