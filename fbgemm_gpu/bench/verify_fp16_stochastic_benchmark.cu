@@ -8,9 +8,10 @@
 #include <cuda_fp16.h>
 #include <curand.h>
 #include <curand_kernel.h>
-#include <unistd.h>
+
 #include <chrono>
 #include <iostream>
+#include <unistd.h>
 #include <vector>
 
 __device__ half float_to_sto_half_direct(float w) {
@@ -18,21 +19,21 @@ __device__ half float_to_sto_half_direct(float w) {
   curand_init((unsigned long long)(w * 100), 0, 0, &state);
   half up = __float2half_ru(w);
   half down = __float2half_rd(w);
-  float up_f32 = __half2float(up);
-  float down_f32 = __half2float(down);
+  const float up_f32 = __half2float(up);
+  const float down_f32 = __half2float(down);
   // 1 - (w - w_down) / (w_up - w_down) = (w_up - w) / (w_up - w_down) = n / m
-  float m = (up_f32 - down_f32);
-  float rand = curand_uniform(&state);
+  const float m = (up_f32 - down_f32);
+  const float rand = curand_uniform(&state);
   if (__float_as_uint(m) == 0) {
     return up;
   }
-  float n = (up_f32 - w);
+  const float n = (up_f32 - w);
   return rand > n / m ? up : down;
 }
 
 __device__ float two_to_e(float X) {
-  float Y = 16777216 * X; // 2^24
-  float U = ((Y + X) - Y) * 0.5;
+  const float Y = 16777216 * X; // 2^24
+  const float U = ((Y + X) - Y) * 0.5;
   return U == 0 ? X : U;
 }
 
@@ -46,21 +47,21 @@ __device__ half float_to_sto_half_bitcarry(float w) {
 }
 
 __device__ half float_to_sto_half_shortrand(float w, uint8_t rand) {
-  unsigned w_int = __float_as_uint(w);
-  unsigned w_new = w_int + (rand << 5);
+  const unsigned w_int = __float_as_uint(w);
+  const unsigned w_new = w_int + (rand << 5);
   return __float2half_rz(__uint_as_float(w_new));
 }
 
 __device__ half float_to_sto_half_assemblefloat(float w, uint8_t rand) {
-  unsigned w_int = __float_as_uint(w);
-  unsigned assmebles = (w_int & 0xff800000) | (rand << 5);
-  unsigned subtract = (w_int & 0xff800000);
-  float assmeble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
+  const unsigned w_int = __float_as_uint(w);
+  const unsigned assmebles = (w_int & 0xff800000) | (rand << 5);
+  const unsigned subtract = (w_int & 0xff800000);
+  const float assmeble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
   return __float2half_rz(w + assmeble_float);
 }
 
 __global__ void convert_float_to_half_direct(half* dst, float* src, int size) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_direct(src[idx]);
   }
@@ -68,7 +69,7 @@ __global__ void convert_float_to_half_direct(half* dst, float* src, int size) {
 
 __global__ void
 convert_float_to_half_bitcarry(half* dst, float* src, int size) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_bitcarry(src[idx]);
   }
@@ -76,7 +77,7 @@ convert_float_to_half_bitcarry(half* dst, float* src, int size) {
 
 __global__ void
 convert_float_to_half_shortrand(half* dst, float* src, uint8_t* r, int size) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_shortrand(src[idx], r[idx]);
   }
@@ -87,7 +88,7 @@ __global__ void convert_float_to_half_assemblefloat(
     float* src,
     uint8_t* r,
     int size) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_assemblefloat(src[idx], r[idx]);
   }
@@ -122,8 +123,8 @@ void gen_8bit_random(uint8_t* d_random_number, int test_size) {
 }
 
 __global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  char val = d_flush[idx];
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const char val = d_flush[idx];
   if (do_write * val) {
     d_flush2[idx] = val;
   }
@@ -136,7 +137,7 @@ void flush_cache(
     int cache_size,
     bool do_write = false) {
   cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice);
-  unsigned num_blocks = cache_size / 512;
+  const unsigned num_blocks = cache_size / 512;
   flush_gpu<<<num_blocks, 512>>>(d_flush, d_flush2, do_write);
   cudaDeviceSynchronize();
 }
@@ -174,7 +175,7 @@ int main(int argc, char* argv[]) {
 
   std::cout << "Start stochastic algorithm tests with test_size = " << test_size
             << std::endl;
-  int cache_size = 40 * 1024 * 1024; // A100 40MB L2 cache
+  constexpr int cache_size = 40 * 1024 * 1024; // A100 40MB L2 cache
 
   f32_array.reserve(test_size);
   f16_direct_array.reserve(test_size);
@@ -195,8 +196,8 @@ int main(int argc, char* argv[]) {
   gen_data(d_f32_array, test_size);
   gen_8bit_random(d_random_number, test_size);
 
-  int block_size = 128;
-  int num_blocks = (test_size + block_size - 1) / block_size;
+  constexpr int block_size = 128;
+  const int num_blocks = (test_size + block_size - 1) / block_size;
 
   flush_cache(flush, d_flush, d_flush2, cache_size);
   std::cout << "Starting algorithm direct..." << std::endl;
