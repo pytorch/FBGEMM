@@ -25,22 +25,74 @@
     }                                                                      \
   }
 
-#define DISPATCH_EMB_CACHE_TYPES(EMB_TYPE, CACHE_TYPE, NAME, ...)           \
-  [&] {                                                                     \
-    const auto& emb_type = EMB_TYPE;                                        \
-    const auto& cache_type = CACHE_TYPE;                                    \
-    /* don't use TYPE again in case it is an expensive or side-effect op */ \
-    at::ScalarType _emb_t = ::detail::scalar_type(emb_type);                \
-    at::ScalarType _cache_t = ::detail::scalar_type(cache_type);            \
-    switch (_emb_t) {                                                       \
-      PRIVATE_CASE_TYPE_EMB(                                                \
-          at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)       \
-      PRIVATE_CASE_TYPE_EMB(                                                \
-          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)        \
-      PRIVATE_CASE_TYPE_EMB(                                                \
-          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)      \
-      default:                                                              \
-        AT_ERROR(                                                           \
-            #NAME, " not implemented for emb_t '", toString(_emb_t), "'");  \
-    }                                                                       \
+#define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
+  at::ScalarType _emb_t = ::detail::scalar_type(emb_enum_type);               \
+  at::ScalarType _cache_t = ::detail::scalar_type(cache_enum_type);           \
+  switch (_emb_t) {                                                           \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)           \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
+    default:                                                                  \
+      AT_ERROR(#NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+  }
+
+#define DISPATCH_EMB_CACHE_TYPES(EMB_TYPE, CACHE_TYPE, NAME, ...)      \
+  [&] {                                                                \
+    const auto& emb_type = EMB_TYPE;                                   \
+    const auto& cache_type = CACHE_TYPE;                               \
+    _DISPATCH_EMB_CACHE_TYPES(emb_type, cache_type, NAME, __VA_ARGS__) \
+  }()
+
+#define PRIVATE_CASE_TYPE_OUTPUT(                            \
+    output_enum_type1,                                       \
+    emb_enum_type1,                                          \
+    cache_enum_type1,                                        \
+    output_type1,                                            \
+    NAME,                                                    \
+    ...)                                                     \
+  case output_enum_type1: {                                  \
+    using output_t = output_type1;                           \
+    _DISPATCH_EMB_CACHE_TYPES(                               \
+        emb_enum_type1, cache_enum_type1, NAME, __VA_ARGS__) \
+  }
+
+#define DISPATCH_EMB_CACHE_OUTPUT_TYPES(                           \
+    EMB_TYPE, CACHE_TYPE, OUTPUT_TYPE, NAME, ...)                  \
+  [&] {                                                            \
+    const auto& output_type = OUTPUT_TYPE;                         \
+    const auto& emb_type = EMB_TYPE;                               \
+    const auto& cache_type = CACHE_TYPE;                           \
+    at::ScalarType _output_t = ::detail::scalar_type(output_type); \
+    switch (_output_t) {                                           \
+      PRIVATE_CASE_TYPE_OUTPUT(                                    \
+          at::ScalarType::Byte,                                    \
+          emb_type,                                                \
+          cache_type,                                              \
+          uint8_t,                                                 \
+          NAME,                                                    \
+          __VA_ARGS__)                                             \
+      PRIVATE_CASE_TYPE_OUTPUT(                                    \
+          at::ScalarType::Half,                                    \
+          emb_type,                                                \
+          cache_type,                                              \
+          at::Half,                                                \
+          NAME,                                                    \
+          __VA_ARGS__)                                             \
+      PRIVATE_CASE_TYPE_OUTPUT(                                    \
+          at::ScalarType::Float,                                   \
+          emb_type,                                                \
+          cache_type,                                              \
+          float,                                                   \
+          NAME,                                                    \
+          __VA_ARGS__)                                             \
+      default:                                                     \
+        AT_ERROR(                                                  \
+            #NAME,                                                 \
+            " not implemented for output_t '",                     \
+            toString(_output_t),                                   \
+            "'");                                                  \
+    }                                                              \
   }()
