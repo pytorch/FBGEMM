@@ -28,7 +28,7 @@ from torch import Tensor
 MAX_EXAMPLES = 40
 
 # For long running tests reduce the number of iterations to reduce timeout errors.
-MAX_EXAMPLES_LONG_RUNNING=20
+MAX_EXAMPLES_LONG_RUNNING = 20
 
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
@@ -142,7 +142,6 @@ def generate_requests(
 
 
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
-
     def execute_forward_(
         self,
         T: int,
@@ -370,8 +369,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
-            use_cache, cache_algorithm, pooling_mode, use_cpu)
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
@@ -417,8 +428,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
-            use_cache, cache_algorithm, pooling_mode, use_cpu)
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
@@ -464,8 +487,135 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_forward_(T, D, B, log_E, L, weights_precision, weighted, mixed,
-            use_cache, cache_algorithm, pooling_mode, use_cpu)
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        pooled_embedding_precision=st.sampled_from([SparseType.FP16, SparseType.INT8]),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_forward_fused_pooled_emb_quant(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        pooled_embedding_precision: SparseType,
+    ) -> None:
+        Ds = [
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        E = int(10 ** log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+
+        op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            pooled_output_precision=pooled_embedding_precision,
+            device=torch.cuda.current_device(),
+        )
+        op_ref = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        E,
+                        D,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+                pooled_output_precision=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
+        )
+        # sync weights between two ops
+        split_weights = op.split_embedding_weights()
+        ref_split_weights = op_ref.split_embedding_weights()
+        for t in range(T):
+            split_weights[t].data.copy_(ref_split_weights[t])
+
+        requests = generate_requests(2, B, T, L, min(Es), reuse=0.1)
+
+        for indices, offsets, _ in requests:
+            lowp_pooled_output = op(
+                indices=indices,
+                offsets=offsets,
+            )
+            fp32_pooled_output = op_ref(
+                indices=indices,
+                offsets=offsets,
+            )
+
+            lowp_pooled_emb_split = [
+                d + 8 if pooled_embedding_precision == SparseType.INT8 else d
+                for d in op.dims
+            ]
+            lowp_pooled_output_per_table = torch.split(
+                lowp_pooled_output, lowp_pooled_emb_split, dim=1
+            )
+
+            deq_lowp_pooled_output_per_table = [
+                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
+                if pooled_embedding_precision == SparseType.INT8
+                else t.float()
+                for t in lowp_pooled_output_per_table
+            ]
+            fp32_pooled_output_per_table = torch.split(
+                fp32_pooled_output, op.dims, dim=1
+            )
+
+            dq_fp32_pooled_output_per_table = [
+                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                    torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                        t.contiguous()
+                    ).contiguous()
+                )
+                if pooled_embedding_precision == SparseType.INT8
+                else t.half().float()
+                for t in fp32_pooled_output_per_table
+            ]
+
+            cat_deq_lowp_pooled_output = torch.cat(
+                deq_lowp_pooled_output_per_table, dim=1
+            )
+
+            cat_dq_fp32_pooled_output = torch.cat(
+                dq_fp32_pooled_output_per_table, dim=1
+            )
+            assert torch.allclose(cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output)
 
     @given(
         T=st.integers(min_value=1, max_value=3),
@@ -1224,7 +1374,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_adagrad_fp16(  # noqa C901
         self,
@@ -1245,9 +1395,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         exact: bool,
     ) -> None:
-        self.execute_backward_adagrad_(T, D, B, log_E, L, D_gradcheck, weights_precision,
-        stochastic_rounding, weighted, row_wise, mixed, use_cache, cache_algorithm,pooling_mode,
-        use_cpu, exact)
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            exact,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -1279,9 +1444,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_backward_adagrad_fp32(  # noqa C901
+    def _test_backward_adagrad_fp32(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1300,9 +1465,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         exact: bool,
     ) -> None:
-        self.execute_backward_adagrad_(T, D, B, log_E, L, D_gradcheck, weights_precision,
-        stochastic_rounding, weighted, row_wise, mixed, use_cache, cache_algorithm,pooling_mode,
-        use_cpu, exact)
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            exact,
+        )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
@@ -1735,7 +1915,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 OptimType.ADAM,
                 OptimType.PARTIAL_ROWWISE_ADAM,
-             ]
+            ]
         ),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
@@ -1767,8 +1947,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
-            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -1814,8 +2005,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
-            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -1861,8 +2063,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
-            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -1903,8 +2116,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
     ) -> None:
-        self.execute_backward_optimizers_(T, D, B, log_E, L, weighted,
-            mixed, optimizer, long_segments, pooling_mode, use_cpu)
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+        )
 
     def execute_nbit_forward_(
         self,
@@ -2142,7 +2366,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         use_array_for_index_remapping=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
     def test_nbit_forward_int(
         self,
         T: int,
@@ -2157,8 +2385,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        self.execute_nbit_forward_(T, D, B, log_E, L, weighted, mixed, pooling_mode,
-            weights_ty, use_cpu, use_array_for_index_remapping)
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cpu,
+            use_array_for_index_remapping,
+        )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
@@ -2184,7 +2423,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
         use_array_for_index_remapping=st.booleans(),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
     def test_nbit_forward_fp(
         self,
         T: int,
@@ -2199,8 +2442,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        self.execute_nbit_forward_(T, D, B, log_E, L, weighted, mixed, pooling_mode,
-            weights_ty, use_cpu, use_array_for_index_remapping)
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cpu,
+            use_array_for_index_remapping,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -2289,7 +2543,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
-
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
@@ -2447,10 +2700,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans(),
-        dtype=st.sampled_from([
-            torch.int64,
-            torch.int32,
-        ])
+        dtype=st.sampled_from(
+            [
+                torch.int64,
+                torch.int32,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_bounds_check(
