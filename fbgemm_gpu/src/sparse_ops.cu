@@ -13,6 +13,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+#include <ATen/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
 
 #include <torch/library.h>
@@ -25,7 +26,7 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
-  TORCH_CHECK(t_in.is_contiguous());
+  TORCH_CHECK_TENSOR_CONTIGUOUS(t_in);
   TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
@@ -59,7 +60,7 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
-  TORCH_CHECK(t_in.is_contiguous());
+  TORCH_CHECK_TENSOR_CONTIGUOUS(t_in);
   TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
@@ -93,7 +94,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
-  TORCH_CHECK(t_in.is_contiguous());
+  TORCH_CHECK_TENSOR_CONTIGUOUS(t_in);
   TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
@@ -131,14 +132,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& indices,
     const c10::optional<Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(weights);
-
-  TENSORS_ON_SAME_DEVICE(permute, lengths);
-  TENSORS_ON_SAME_DEVICE(permute, indices);
-  TENSORS_ON_SAME_DEVICE(permute, weights);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(permute,lengths,indices,weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
@@ -257,11 +251,7 @@ block_bucketize_sparse_features_cuda(
     Tensor block_sizes,
     int64_t my_size,
     c10::optional<Tensor> weights) {
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSORS_ON_SAME_DEVICE(lengths, indices);
-  TENSOR_ON_CUDA_GPU(weights);
-  TENSORS_ON_SAME_DEVICE(lengths, weights);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(lengths,indices,weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(lengths.get_device());
@@ -652,8 +642,8 @@ block_bucketize_sparse_features_cuda(
 }
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(input);
+  TORCH_CHECK_TENSOR_CONTIGUOUS(input);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -756,8 +746,8 @@ at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input) {
 }
 
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(input);
+  TORCH_CHECK_TENSOR_CONTIGUOUS(input);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -808,7 +798,7 @@ at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
 at::Tensor _float_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
-  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -860,7 +850,7 @@ at::Tensor _float_to_fusednbitrowwise_gpu(
 at::Tensor _fusednbitrowwise_to_float_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
-  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -943,9 +933,7 @@ Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
-  TENSOR_ON_CUDA_GPU(cat_ad_lengths);
-  TENSOR_ON_CUDA_GPU(batch_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_lengths, batch_offsets);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(cat_ad_lengths, batch_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_lengths.get_device());
@@ -1027,13 +1015,9 @@ Tensor reorder_batched_ad_indices_gpu(
     const Tensor& reordered_cat_ad_offsets,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
-  TENSOR_ON_CUDA_GPU(cat_ad_offsets);
-  TENSOR_ON_CUDA_GPU(cat_ad_indices);
-  TENSOR_ON_CUDA_GPU(reordered_cat_ad_offsets);
-  TENSOR_ON_CUDA_GPU(batch_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, cat_ad_indices);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, reordered_cat_ad_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, batch_offsets);
+  TORCH_CHECK_TENSORS_ON_SAME_CUDA_GPU(
+    cat_ad_offsets, cat_ad_indices, reordered_cat_ad_offsets, batch_offsets
+  );
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_offsets.get_device());

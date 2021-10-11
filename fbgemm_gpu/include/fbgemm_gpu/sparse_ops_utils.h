@@ -71,14 +71,6 @@ inline bool torch_tensor_on_cuda_gpu_check(
       #x " must be a CUDA tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
-#define TENSORS_ON_SAME_DEVICE(x, y)                                       \
-  TORCH_CHECK(                                                             \
-      torch_tensor_on_same_device_check(x, y),                             \
-      #x " must be on the same device as " #y "! " #x " is currently on ", \
-      torch_tensor_device_name(x),                                         \
-      #y " is currently on ",                                              \
-      torch_tensor_device_name(y))
-
 #define TENSORS_HAVE_SAME_TYPE(x, y)                       \
   TORCH_CHECK(                                             \
       (x).dtype() == (y).dtype(),                          \
