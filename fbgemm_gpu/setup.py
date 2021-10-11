@@ -166,6 +166,9 @@ setup(
                 os.path.join(cur_dir, "src/merge_pooled_embeddings_gpu.cpp"),
                 os.path.join(cur_dir, "src/permute_pooled_embedding_ops.cu"),
                 os.path.join(cur_dir, "src/permute_pooled_embedding_ops_gpu.cpp"),
+                os.path.join(cur_dir, "src/layout_transform_ops_cpu.cpp"),
+                os.path.join(cur_dir, "src/layout_transform_ops_gpu.cpp"),
+                os.path.join(cur_dir, "src/layout_transform_ops.cu"),
             ],
             include_dirs=[
                 cur_dir,
