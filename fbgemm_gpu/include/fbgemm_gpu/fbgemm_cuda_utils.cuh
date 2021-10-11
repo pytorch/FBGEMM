@@ -133,6 +133,10 @@ struct Vec4T<float> {
     p[3] = acc.w;
   }
 
+  DEVICE_INLINE void store(uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
   DEVICE_INLINE static void copy(const float* src, float* dst) {
     *((float4*)dst) = *((const float4*)src);
   }
@@ -212,6 +216,10 @@ struct Vec4T<at::Half> {
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
+  }
+
+  DEVICE_INLINE void store(uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
   }
 
   DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
@@ -525,6 +533,14 @@ DEVICE_INLINE void nearest_rounding_vector(
   output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
   output[2] = std::lrintf((value.acc.z - qparams.y) * inv_scale);
   output[3] = std::lrintf((value.acc.w - qparams.y) * inv_scale);
+}
+
+template <>
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    Vec4T<double> value,
+    float2 qparams) {
+  CUDA_KERNEL_ASSERT(false);
 }
 
 template <typename dst_t, typename src_t>

@@ -9,6 +9,11 @@
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
+enum PooledEmbOutputDtype {
+    FP32 = 0,
+    FP16 = 1,
+    INT8 = 2,
+};
 {% endif %}
 enum {
   DEVICE = 0,
@@ -24,6 +29,9 @@ using namespace fbgemm_gpu;
 template <
     typename emb_t,
     typename cache_t,
+    {% if not dense %}
+    typename output_t,
+    {% endif %}
     typename index_t,
     size_t kMaxVecsPerThread>
 __launch_bounds__(kForwardMaxThreads)
@@ -48,9 +56,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
     {% if not dense %}
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
         lxu_cache_locations,
-    {% endif %}
-    PackedTensorAccessor32<acc_type<cache_t, true>, 2, RestrictPtrTraits>
+    PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
         output // [B][total_D],
+    {% else %}
+    PackedTensorAccessor32<acc_type<cache_t,true>, 2, RestrictPtrTraits>
+        output // [B][total_D],
+    {% endif %}
     ) {
     int32_t B = output.size(0);
     int32_t T = D_offsets.size(0) - 1;
@@ -166,7 +177,60 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         }
     }
 
-#pragma unroll kMaxVecsPerThread
+    {% if not dense %}
+    if (!std::is_same<output_t, uint8_t>::value) {
+        #pragma unroll kMaxVecsPerThread
+        for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+            if (pooling_mode == MEAN && L != 0) {
+                accumulators[i].acc.x /= L;
+                accumulators[i].acc.y /= L;
+                accumulators[i].acc.z /= L;
+                accumulators[i].acc.w /= L;
+            }
+            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            accumulators[i].store(&output[b][D_start + d]);
+        }
+    } else {
+        // apply per feature row-wise int8
+        float thread_local_min = std::numeric_limits<float>::max();
+        float thread_local_max = std::numeric_limits<float>::min();
+        float2 qparams;
+
+        #pragma unroll kMaxVecsPerThread
+        for (int32_t i = 0;
+            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            ++i) {
+            if (pooling_mode == MEAN && L != 0) {
+                accumulators[i].acc.x /= L;
+                accumulators[i].acc.y /= L;
+                accumulators[i].acc.z /= L;
+                accumulators[i].acc.w /= L;
+            }
+            thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
+            thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
+        }
+
+        qparams = warp_find_qparams(thread_local_min, thread_local_max);
+        int output_D_start = D_start + t * 8;
+        int output_D_end = output_D_start + D;
+
+        #pragma unroll kMaxVecsPerThread
+        for (int32_t i = 0;
+            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            ++i) {
+            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            nearest_rounding_vector<output_t, cache_t>(&output[b][output_D_start + d], accumulators[i], qparams);
+        }
+        if (threadIdx.x == 0) {
+            store_qparams_to_row(&output[b][output_D_end], qparams);
+        }
+
+    }
+    {% else %}
+    // no pooled embedding quantization fusion for dense embeddings
+    #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
@@ -179,6 +243,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         }
         accumulators[i].store(&output[b][D_start + d]);
     }
+    {% endif %}
 }
 
 Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}_cuda(
@@ -200,6 +265,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     {% endif %}
     {% if not dense %}
     Tensor lxu_cache_locations,
+    int64_t output_dtype,
     {% endif %}
     int64_t unused
 ) {
@@ -215,29 +281,45 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     TORCH_CHECK(total_D % 4 == 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
     at::Tensor output;
+
+    {% if dense %}
     if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
         output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else {
         output = empty({B, total_D}, dev_weights.options());
     }
+    {% else %}
+
+    TORCH_CHECK(output_dtype == PooledEmbOutputDtype::FP32 || output_dtype == PooledEmbOutputDtype::FP16 || output_dtype == PooledEmbOutputDtype::INT8);
+
+    if (output_dtype == PooledEmbOutputDtype::FP32) {
+        output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
+    } else if (output_dtype == PooledEmbOutputDtype::FP16) {
+        output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    } else if (output_dtype == PooledEmbOutputDtype::INT8) {
+        output = empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
+    }
+
+    {% endif %}
     if (B == 0) {
         return output;
     }
 
     {% if not dense %}
-    DISPATCH_EMB_CACHE_TYPES(
+    DISPATCH_EMB_CACHE_OUTPUT_TYPES(
     {% else %}
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     {% endif %}
         dev_weights.type(),
         {% if not dense %}
         lxu_cache_weights.type(),
+        output.type(),
         {% endif %}
         "batched_embedding_forward_kernel_2", ([&] {
         {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
         if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
             {% if not dense %}
-            split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, int64_t, {{ kMaxVecsPerThread }}><<<
+            split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, {{ kMaxVecsPerThread }}><<<
             {% else %}
             dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, {{ kMaxVecsPerThread }}><<<
             {% endif %}
@@ -261,12 +343,19 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
                 {% endif %}
                 {% if not dense %}
                 lxu_cache_locations.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-                {% endif %}
                 output.packed_accessor32<
-                    acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>,
+                    output_t,
                     2,
                     RestrictPtrTraits>()
                 );
+                {% else %}
+                output.packed_accessor32<
+                    acc_type<scalar_t, true>,
+                    2,
+                    RestrictPtrTraits>()
+                );
+                {% endif %}
+
             return;
         }
         {% endfor %}

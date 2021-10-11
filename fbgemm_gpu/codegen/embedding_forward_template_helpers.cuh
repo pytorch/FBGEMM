@@ -19,6 +19,7 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <mutex>
+#include <limits>
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"

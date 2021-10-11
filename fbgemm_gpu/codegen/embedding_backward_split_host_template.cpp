@@ -24,6 +24,7 @@ Tensor split_embedding_codegen_forward_unweighted_cuda(
     Tensor offsets,
     int64_t pooling_mode,
     Tensor lxu_cache_locations,
+    int64_t output_dtype,
     int64_t BT_block_size);
 
 Tensor split_embedding_codegen_forward_weighted_cuda(
@@ -40,6 +41,7 @@ Tensor split_embedding_codegen_forward_weighted_cuda(
     int64_t pooling_mode,
     Tensor indice_weights,
     Tensor lxu_cache_locations,
+    int64_t output_dtype,
     int64_t BT_block_size);
 
 Tensor split_embedding_codegen_grad_indice_weights_cuda(
@@ -142,11 +144,11 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     if (!indice_weights) {
         return {split_embedding_codegen_forward_unweighted_cuda(
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets,
-        D_offsets, total_D, max_D, indices, offsets, pooling_mode, lxu_cache_locations, BT_block_size)};
+        D_offsets, total_D, max_D, indices, offsets, pooling_mode, lxu_cache_locations, 0 /* hardcode output dtype to float*/, BT_block_size)};
     }  else {
         return {split_embedding_codegen_forward_weighted_cuda(
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets,
-        D_offsets, total_D, max_D, indices, offsets, pooling_mode, *indice_weights, lxu_cache_locations, BT_block_size)};
+        D_offsets, total_D, max_D, indices, offsets, pooling_mode, *indice_weights, lxu_cache_locations, 0 /* hardcode output dtype to float*/, BT_block_size)};
     }
   }
 
