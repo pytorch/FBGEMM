@@ -62,10 +62,10 @@ void _permute_indices_weights_kernel_cpu(
             [get_thread_num() * FALSE_SHARING_PAD];
         int64_t t_begin = tb_begin / B;
         int64_t t_end = (tb_end + B - 1) / B;
-        for (int t = t_begin; t < t_end; ++t) {
+        for (const auto t : c10::irange(t_begin, t_end)) {
           int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
           int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
-          for (int b = b_begin; b < b_end; ++b) {
+          for (const auto b : c10::irange(b_begin, b_end)) {
             offsets_t permuted_length = permuted_lengths[t * B + b];
             const offsets_t input_start = input_offsets[permute[t] * B + b];
             for (const auto i : c10::irange(permuted_length)) {
@@ -109,10 +109,10 @@ void _permute_lengths_cpu_kernel(
         index_t current_output_offset = 0;
         int64_t t_begin = tb_begin / B;
         int64_t t_end = (tb_end + B - 1) / B;
-        for (int t = t_begin; t < t_end; ++t) {
+        for (const auto t : c10::irange(t_begin, t_end)) {
           int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
           int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
-          for (int b = b_begin; b < b_end; ++b) {
+          for (const auto b : c10::irange(b_begin, b_end)) {
             auto permuted_length = lengths[permute[t] * B + b];
             permuted_lengths[t * B + b] = permuted_length;
             current_output_offset += permuted_length;
@@ -126,7 +126,7 @@ void _permute_lengths_cpu_kernel(
       });
 
   // Inter-thread reduction
-  for (int t = 1; t < num_threads; ++t) {
+  for (const auto t : c10::irange(1, num_threads)) {
     input_offsets_per_thread_cumsum[(t + 1) * FALSE_SHARING_PAD] +=
         input_offsets_per_thread_cumsum[t * FALSE_SHARING_PAD];
     output_offsets_per_thread_cumsum[(t + 1) * FALSE_SHARING_PAD] +=
@@ -143,7 +143,7 @@ void _permute_lengths_cpu_kernel(
         if (tb_begin < lengths_size) {
           input_offsets[tb_begin] = current_input_offset;
         }
-        for (int tb = tb_begin; tb < std::min(tb_end - 1, lengths_size); ++tb) {
+        for (const auto tb : c10::irange(tb_begin, std::min(tb_end - 1, lengths_size))) {
           current_input_offset += lengths[tb];
           input_offsets[tb + 1] = current_input_offset;
         }
@@ -154,7 +154,7 @@ void _permute_lengths_cpu_kernel(
   }
 
   // Handle cases when lengths_size > T * B
-  for (auto i = T * B; i < lengths_size; ++i) {
+  for (const auto i : c10::irange(T * B, lengths_size)) {
     input_offsets[i + 1] = lengths[i] + input_offsets[i];
   }
 }
@@ -225,8 +225,8 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-        const uindex_t p =
+        const auto idx = static_cast<int64_t>(indices_data[i]);
+        const auto p =
             idx < blk_size * my_size ? idx / blk_size : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
       }
@@ -249,8 +249,8 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-        const uindex_t p =
+        const auto idx = static_cast<int64_t>(indices_data[i]);
+        const auto p =
             idx < blk_size * my_size ? idx / blk_size : idx % my_size;
         const uindex_t new_idx = idx % blk_size;
         const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
