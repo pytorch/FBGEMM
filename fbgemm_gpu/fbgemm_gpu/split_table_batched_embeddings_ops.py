@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
@@ -1548,7 +1548,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        use_cpu: bool = False,
+        device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
         load_factor: float = 0.5,
@@ -1556,10 +1556,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
-        self.use_cpu = use_cpu
-        self.current_device: torch.device = (
-            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
-        )
+        if device is None:
+            self.current_device: torch.device = torch.device(torch.cuda.current_device())
+        elif isinstance(device, torch.device):
+            self.current_device = device
+        else:
+            # pyre-ignore [6]
+            self.current_device = torch.device(device)
+        self.use_cpu: bool = self.current_device.type == "cpu"
 
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value

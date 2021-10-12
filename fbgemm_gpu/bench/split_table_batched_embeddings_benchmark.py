@@ -843,7 +843,7 @@ def cpu(  # noqa C901
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, EmbeddingLocation.HOST) for d in Ds],
-        use_cpu=True,
+        device="cpu",
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
     ).cpu()
     emb.fill_random_weights()

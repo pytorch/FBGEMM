@@ -167,7 +167,7 @@ class SplitEmbInferenceConverter:
                     if self.pruning_ratio is not None
                     else None,
                     pooling_mode=child.pooling_mode,
-                    use_cpu=use_cpu,
+                    device="cpu" if use_cpu else torch.cuda.current_device(),
                     weight_lists=weight_lists,
                     use_array_for_index_remapping=self.use_array_for_index_remapping,
                 )
