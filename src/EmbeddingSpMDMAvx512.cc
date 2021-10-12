@@ -512,7 +512,7 @@ void compressed_indices_remap_avx512(
   constexpr int UNROLL_REM = 1;
   for (; k < offsets_len; ++k) {
     int32_t len[UNROLL_REM];
-    int32_t rem[UNROLL_REM];
+    int32_t rem[UNROLL_REM] = {0};
     for (int l = 0; l < UNROLL_REM; ++l) {
       len[l] = offsets[k + l] - offsets[k + l - 1];
     }
