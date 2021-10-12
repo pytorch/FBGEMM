@@ -236,7 +236,6 @@ def cli() -> None:
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
-@click.option("--pooled-embedding-precision", type=SparseType, default=SparseType.FP32)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -255,7 +254,6 @@ def device(  # noqa C901
     weighted_num_requires_grad: Optional[int],
     flush_gpu_cache_size_mb: int,
     dense: bool,
-    pooled_embedding_precision: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -326,7 +324,6 @@ def device(  # noqa C901
             eps=0.1,
             weights_precision=weights_precision,
             stochastic_rounding=stoc,
-            pooled_output_precision=pooled_embedding_precision,
         )
     emb = emb.to(get_device())
 
@@ -374,10 +371,6 @@ def device(  # noqa C901
         f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f}GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
-
-    if pooled_embedding_precision == SparseType.INT8:
-        # backward bench not representative
-        return
 
     grad_output = torch.randn(B, sum(Ds)).to(get_device())
     # backward
