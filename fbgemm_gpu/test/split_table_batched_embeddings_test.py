@@ -1983,7 +1983,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ],
             pooling_mode=pooling_mode,
             index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es],
-            use_cpu=use_cpu,
+            device="cpu" if use_cpu else torch.cuda.current_device(),
             use_array_for_index_remapping=use_array_for_index_remapping,
         )
         # Initilize the random weights for int nbit table split embedding bag
