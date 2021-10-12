@@ -11,6 +11,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace at {
+namespace fbgemm {
 
 namespace {
 // To avoid multiple threads are touching the same cache line.
@@ -675,6 +676,7 @@ Tensor reorder_batched_ad_indices_cpu(
   return reordered_cat_ad_indices;
 }
 
+} // namespace fbgemm
 } // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -692,15 +694,21 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_sparse_data", at::permute_sparse_data_cpu);
+  m.impl("permute_sparse_data", at::fbgemm::permute_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
-      at::block_bucketize_sparse_features_cpu);
+      at::fbgemm::block_bucketize_sparse_features_cpu);
   m.impl(
-      "asynchronous_exclusive_cumsum", at::asynchronous_exclusive_cumsum_cpu);
+      "asynchronous_exclusive_cumsum",
+      at::fbgemm::asynchronous_exclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_inclusive_cumsum", at::asynchronous_inclusive_cumsum_cpu);
-  m.impl("asynchronous_complete_cumsum", at::asynchronous_complete_cumsum_cpu);
-  m.impl("reorder_batched_ad_lengths", at::reorder_batched_ad_lengths_cpu);
-  m.impl("reorder_batched_ad_indices", at::reorder_batched_ad_indices_cpu);
+      "asynchronous_inclusive_cumsum",
+      at::fbgemm::asynchronous_inclusive_cumsum_cpu);
+  m.impl(
+      "asynchronous_complete_cumsum",
+      at::fbgemm::asynchronous_complete_cumsum_cpu);
+  m.impl(
+      "reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_cpu);
+  m.impl(
+      "reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_cpu);
 }
