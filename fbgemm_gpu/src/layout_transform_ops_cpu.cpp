@@ -11,6 +11,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace at {
+namespace fbgemm {
 
 Tensor recat_embedding_grad_output_mixed_D_cpu(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
@@ -59,6 +60,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   return sharded_grad_output;
 }
 
+} // namespace fbgemm
 } // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -73,5 +75,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl(
       "recat_embedding_grad_output_mixed_D",
-      at::recat_embedding_grad_output_mixed_D_cpu);
+      at::fbgemm::recat_embedding_grad_output_mixed_D_cpu);
 }
