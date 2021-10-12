@@ -101,4 +101,20 @@ Tensor reorder_batched_ad_indices_cpu(
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch);
 
+at::Tensor recat_embedding_grad_output_cuda(
+    at::Tensor grad_output, // [B_local][T_global][D]
+    std::vector<int64_t> num_features_per_rank);
+
+at::Tensor recat_embedding_grad_output_mixed_D_cuda(
+    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+    const std::vector<int64_t>& dim_sum_per_rank);
+
+at::Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
+    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+    const Tensor& dim_sum_per_rank,
+    const Tensor& cumsum_dim_sum_per_rank);
+
+at::Tensor recat_embedding_grad_output_mixed_D_cpu(
+    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+    const std::vector<int64_t>& dim_sum_per_rank);
 } // namespace at
