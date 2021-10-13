@@ -25,6 +25,10 @@ at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
 
 at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
+at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size);
+
+at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size);
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,

@@ -23,6 +23,70 @@
 namespace at {
 namespace fbgemm {
 
+
+std::tuple<uint32_t, uint32_t, uint32_t> calc_offsets_range_thread_block(
+    const int64_t output_size,
+    const int64_t num_seq) {
+  uint32_t threads_per_block;
+  uint32_t vector_size;
+  if (output_size / num_seq < 2) {
+    threads_per_block = 512;
+    vector_size = 2;
+  } else if (output_size / num_seq < 4) {
+    threads_per_block = 512;
+    vector_size = 4;
+  } else if (output_size / num_seq < 64) {
+    threads_per_block = 512;
+    vector_size = 8;
+  } else if (output_size / num_seq < 128) {
+    threads_per_block = 512;
+    vector_size = 16;
+  } else {
+    threads_per_block = 512;
+    vector_size = 32;
+  }
+  uint32_t rows_per_block = threads_per_block / vector_size;
+  const auto num_blocks = cuda_calc_xblock_count(num_seq, rows_per_block);
+
+  return std::make_tuple(num_blocks, rows_per_block, vector_size);
+}
+
+Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
+  TENSOR_ON_CUDA_GPU(offsets);
+  TENSOR_NDIM_EQUALS(offsets, 1);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(offsets.get_device());
+
+  auto offsets_arg = at::TensorArg(offsets, "offsets", 1);
+  checkScalarTypes("_offsets_range_cuda", offsets_arg, {at::kLong, at::kInt});
+  auto range = at::empty(range_size, offsets.options());
+  if (range_size == 0) {
+    return range;
+  }
+  auto offsets_contig = offsets.contiguous();
+  int64_t N = offsets_contig.numel();
+
+  uint32_t vector_size;
+  uint32_t rows_per_block;
+  uint32_t num_blocks;
+  std::tie(num_blocks, rows_per_block, vector_size) =
+      calc_offsets_range_thread_block(range_size, N);
+  dim3 threads(vector_size, rows_per_block);
+  AT_DISPATCH_INDEX_TYPES(
+      offsets_contig.scalar_type(), "offsets_range_kernel", [&]() {
+        _offsets_range_cuda_kernel<index_t>
+            <<<num_blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                N,
+                range_size,
+                offsets_contig.data_ptr<index_t>(),
+                range.data_ptr<index_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+
+  return range;
+}
+
 Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
@@ -176,7 +240,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
 
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
-  const auto output_offsets = asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+  const auto output_offsets =
+      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
