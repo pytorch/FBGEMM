@@ -21,6 +21,8 @@
 #include "cub/device/device_scan.cuh"
 
 namespace at {
+namespace fbgemm {
+
 Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
@@ -1062,4 +1064,5 @@ Tensor reorder_batched_ad_indices_gpu(
   return reordered_cat_ad_indices;
 }
 
+} // namespace fbgemm
 } // namespace at
