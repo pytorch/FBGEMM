@@ -333,8 +333,7 @@ Tensor merge_pooled_embeddings(
   at::cuda::CUDAGuard g(target_device);
 
   TORCH_CHECK(!pooled_embeddings.empty());
-  auto B = batch_size;
-  return cat_dim_1(pooled_embeddings, B, target_device);
+  return cat_dim_1(pooled_embeddings, batch_size, target_device);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
