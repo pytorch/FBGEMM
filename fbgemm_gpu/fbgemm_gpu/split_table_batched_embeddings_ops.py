@@ -65,6 +65,11 @@ class BoundsCheckMode(enum.IntEnum):
     NONE = 3
 
 
+class WeightDecayMode(enum.IntEnum):
+    L2 = 0
+    DECOUPLE = 1
+
+
 RecordCacheMetrics: NamedTuple = NamedTuple(
     "RecordCacheMetrics",
     [("record_cache_miss_counter", bool), ("record_tablewise_cache_miss", bool)],
@@ -202,7 +207,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         learning_rate: float = 0.01,
         eps: float = 1.0e-8,  # used by Adagrad, LAMB, and Adam
         momentum: float = 0.9,  # used by LARS-SGD
-        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, and ADAM
+        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, Adagrad, and ADAM
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,  # used by Adagrad
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
@@ -362,6 +368,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             beta1=beta1,
             beta2=beta2,
             weight_decay=weight_decay,
+            weight_decay_mode=weight_decay_mode.value,
             eta=eta,
             momentum=momentum,
         )
@@ -498,7 +505,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=cache_embedding_dtype,
         )
 
-        logging.debug(
+        logging.info(
             f"Using fused {optimizer} with optimizer_args={self.optimizer_args}"
         )
 
