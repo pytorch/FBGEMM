@@ -15,10 +15,10 @@
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "recat_embedding_grad_output_mixed_D_batch",
-      at::recat_embedding_grad_output_mixed_D_batch_cuda);
+      at::fbgemm::recat_embedding_grad_output_mixed_D_batch_cuda);
   DISPATCH_TO_CUDA(
       "recat_embedding_grad_output_mixed_D",
-      at::recat_embedding_grad_output_mixed_D_cuda);
+      at::fbgemm::recat_embedding_grad_output_mixed_D_cuda);
   DISPATCH_TO_CUDA(
-      "recat_embedding_grad_output", at::recat_embedding_grad_output_cuda);
+      "recat_embedding_grad_output", at::fbgemm::recat_embedding_grad_output_cuda);
 }

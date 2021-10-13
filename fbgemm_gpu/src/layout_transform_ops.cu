@@ -19,6 +19,7 @@
 #include "cub/device/device_scan.cuh"
 
 namespace at {
+namespace fbgemm {
 
 at::Tensor recat_embedding_grad_output_cuda(
     Tensor grad_output, // [B_local][T_global][D]
@@ -135,4 +136,5 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
   return sharded_grad_output;
 }
 
+} // namespace fbgemm
 } // namespace at
