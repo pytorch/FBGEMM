@@ -25,4 +25,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "asynchronous_inclusive_cumsum", at::fbgemm::asynchronous_inclusive_cumsum_gpu);
   DISPATCH_TO_CUDA("reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_gpu);
   DISPATCH_TO_CUDA("reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_gpu);
+  DISPATCH_TO_CUDA("offsets_range", at::fbgemm::offsets_range_cuda);
 }

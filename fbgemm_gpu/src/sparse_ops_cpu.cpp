@@ -144,7 +144,8 @@ void _permute_lengths_cpu_kernel(
         if (tb_begin < lengths_size) {
           input_offsets[tb_begin] = current_input_offset;
         }
-        for (const auto tb : c10::irange(tb_begin, std::min(tb_end - 1, lengths_size))) {
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end - 1, lengths_size))) {
           current_input_offset += lengths[tb];
           input_offsets[tb + 1] = current_input_offset;
         }
@@ -676,6 +677,33 @@ Tensor reorder_batched_ad_indices_cpu(
   return reordered_cat_ad_indices;
 }
 
+at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size) {
+  TENSOR_ON_CPU(offsets);
+  TENSOR_NDIM_EQUALS(offsets, 1);
+
+  const auto offsets_arg = at::TensorArg(offsets, "offsets", 1);
+  checkScalarTypes("_offsets_range_cpu", offsets_arg, {at::kLong, at::kInt});
+  auto range = at::empty(range_size, offsets.options());
+  if (range_size == 0) {
+    return range;
+  }
+  const auto offsets_contig = offsets.expect_contiguous();
+  const auto N = offsets_contig->numel();
+  AT_DISPATCH_INDEX_TYPES(
+      offsets_contig->scalar_type(), "offsets_range_kernel", [&]() {
+        const index_t* offsets_data = offsets_contig->data_ptr<index_t>();
+        index_t* range_data = range.data_ptr<index_t>();
+
+        index_t last = range_size;
+        for (int64_t i = N - 1; i >= 0; --i) {
+          index_t first = offsets_data[i];
+          std::iota(range_data + first, range_data + last, 0);
+          last = first;
+        }
+      });
+
+  return range;
+}
 } // namespace fbgemm
 } // namespace at
 
@@ -691,6 +719,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, int num_ads_in_batch) -> Tensor");
   m.def(
       "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch) -> Tensor");
+  m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -702,13 +731,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "asynchronous_exclusive_cumsum",
       at::fbgemm::asynchronous_exclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_inclusive_cumsum",
-      at::fbgemm::asynchronous_inclusive_cumsum_cpu);
-  m.impl(
-      "asynchronous_complete_cumsum",
-      at::fbgemm::asynchronous_complete_cumsum_cpu);
-  m.impl(
-      "reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_cpu);
-  m.impl(
-      "reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_cpu);
+      "asynchronous_inclusive_cumsum", at::fbgemm::asynchronous_inclusive_cumsum_cpu);
+  m.impl("asynchronous_complete_cumsum", at::fbgemm::asynchronous_complete_cumsum_cpu);
+  m.impl("reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_cpu);
+  m.impl("reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_cpu);
+  m.impl("offsets_range", at::fbgemm::offsets_range_cpu);
 }

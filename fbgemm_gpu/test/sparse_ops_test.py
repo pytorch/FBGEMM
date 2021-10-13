@@ -5,14 +5,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import numpy as np
-import unittest
 import random
-from typing import Optional, Tuple, Type, Union
+import unittest
 from itertools import accumulate
+from typing import Optional, Tuple, Type, Union
 
 import hypothesis.strategies as st
-
+import numpy as np
 import torch
 from hypothesis import Verbosity, given, settings
 
@@ -23,6 +22,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 np_int_types = Union[Type[np.int32], Type[np.int64]]
+
 
 def unbucketize_indices_value(
     bucketized_indices: torch.Tensor,
@@ -80,7 +80,6 @@ class SparseOpsTest(unittest.TestCase):
             permuted_weights = torch.cat(permuted_weights, dim=0).flatten()
 
         return permuted_lengths, permuted_indices, permuted_weights
-
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
@@ -454,8 +453,31 @@ class SparseOpsTest(unittest.TestCase):
                 ze.cpu(),
             )
             torch.testing.assert_allclose(
-                (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype), zc.cpu()
+                (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype),
+                zc.cpu(),
             )
+
+    # pyre-ignore [56]
+    @given(
+        N=st.integers(min_value=1, max_value=20),
+        offsets_type=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_offsets_range(
+        self, N: int, offsets_type: "Union[Type[torch.int32], Type[torch.int64]]"
+    ) -> None:
+        lengths = np.array([np.random.randint(low=0, high=20) for _ in range(N)])
+        offsets = np.cumsum(np.concatenate(([0], lengths)))[:-1]
+        range_ref = np.concatenate([np.arange(size) for size in lengths])
+        output_size = np.sum(lengths)
+
+        offsets_cpu = torch.tensor(offsets, dtype=offsets_type)
+        range_cpu = torch.ops.fbgemm.offsets_range(offsets_cpu, output_size)
+        torch.testing.assert_allclose(range_cpu, range_ref, 0, 0)
+
+        if torch.cuda.is_available():
+            range_gpu = torch.ops.fbgemm.offsets_range(offsets_cpu.cuda(), output_size)
+            torch.testing.assert_allclose(range_gpu.cpu(), range_ref, 0, 0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -469,21 +491,20 @@ class SparseOpsTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features(
         self,
-        offset_type: np_int_types,
-        index_type: np_int_types,
+        offset_type: Type[torch.dtype],
+        index_type: Type[torch.dtype],
         has_weight: bool,
         bucketize_pos: bool,
         sequence: bool,
     ) -> None:
         T = 4
         B = 2
-        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param but
-        #  got `Union[Type[np.int32], Type[np.int64]]`.
+        # pyre-fixme[6]
         lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=offset_type)
         indices = torch.tensor(
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param
-            #  but got `Union[Type[np.int32], Type[np.int64]]`.
-            [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20], dtype=index_type
+            [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20],
+            # pyre-fixme[6]
+            dtype=index_type,
         )
         weights = (
             torch.tensor(
@@ -511,20 +532,19 @@ class SparseOpsTest(unittest.TestCase):
             if has_weight
             else None
         )
-        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param but
-        #  got `Union[Type[np.int32], Type[np.int64]]`.
+        # pyre-fixme[6]
         block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
         my_size = 2
 
         new_lengths_ref = torch.tensor(
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param
-            #  but got `Union[Type[np.int32], Type[np.int64]]`.
-            [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1], dtype=index_type
+            [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1],
+            # pyre-fixme[6]
+            dtype=index_type,
         )
         new_indices_ref = torch.tensor(
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param
-            #  but got `Union[Type[np.int32], Type[np.int64]]`.
-            [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0], dtype=index_type
+            [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0],
+            # pyre-fixme[6]
+            dtype=index_type,
         )
         new_weights_ref = torch.tensor(
             [
@@ -544,14 +564,11 @@ class SparseOpsTest(unittest.TestCase):
                 14.0,
                 15.0,
             ],
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param
-            #  but got `Type[float]`.
-            dtype=float,
         )
         new_pos_ref = torch.tensor(
-            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd param
-            #  but got `Union[Type[np.int32], Type[np.int64]]`.
-            [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0], dtype=index_type
+            [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0],
+            # pyre-fixme[6]
+            dtype=index_type,
         )
 
         (
