@@ -1810,7 +1810,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
     @torch.jit.export
-    def split_embedding_weights(self) -> List[Tuple[Tensor, Optional[Tensor]]]:
+    def split_embedding_weights(
+        self, split_scale_shifts: bool = True
+    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         """
@@ -1828,29 +1830,32 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             weights_shifts = weights.detach()[
                 offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
             ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
-            # remove the padding at the end of each row.
-            weights_shifts = weights_shifts[
-                :, : unpadded_row_size_in_bytes(dim, weight_ty)
-            ]
-            if (
-                weight_ty == SparseType.INT8
-                or weight_ty == SparseType.INT4
-                or weight_ty == SparseType.INT2
-            ):
-                splits.append(
-                    (
-                        weights_shifts[:, 4:],
-                        weights_shifts[:, :4],
+            if split_scale_shifts:
+                # remove the padding at the end of each row.
+                weights_shifts = weights_shifts[
+                    :, : unpadded_row_size_in_bytes(dim, weight_ty)
+                ]
+                if (
+                    weight_ty == SparseType.INT8
+                    or weight_ty == SparseType.INT4
+                    or weight_ty == SparseType.INT2
+                ):
+                    splits.append(
+                        (
+                            weights_shifts[:, 4:],
+                            weights_shifts[:, :4],
+                        )
                     )
-                )
+                else:
+                    assert weight_ty == SparseType.FP16 or weight_ty == SparseType.FP32
+                    splits.append(
+                        (
+                            weights_shifts,
+                            None,
+                        )
+                    )
             else:
-                assert weight_ty == SparseType.FP16 or weight_ty == SparseType.FP32
-                splits.append(
-                    (
-                        weights_shifts,
-                        None,
-                    )
-                )
+                splits.append((weights_shifts, None))
 
         return splits
 
