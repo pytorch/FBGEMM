@@ -10,7 +10,6 @@
 #include <iomanip>
 #include <stdexcept>
 #include <type_traits>
-#include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

@@ -7,7 +7,6 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmSparse.h"
 
-#include <cpuinfo.h>
 #include <algorithm>
 #include <cassert>
 #include <cstdio>

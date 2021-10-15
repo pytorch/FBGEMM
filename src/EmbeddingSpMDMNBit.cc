@@ -10,7 +10,6 @@
 
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
-#include <immintrin.h>
 #include <cassert>
 #include <cmath>
 #include <iostream>

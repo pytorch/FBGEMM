@@ -9,7 +9,6 @@
 #include "./OptimizedKernelsAvx2.h"
 #include <immintrin.h>
 
-using namespace std;
 
 namespace fbgemm {
 

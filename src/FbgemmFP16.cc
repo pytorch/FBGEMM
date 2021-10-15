@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 #define FBGEMM_EXPORTS
-#include <cpuinfo.h>
 #include <array>
 #include <cmath>
 #include <utility>

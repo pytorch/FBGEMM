@@ -38,7 +38,6 @@ double naive_C_fp32_to_bf16_time = 0.0;
 double naive_run_time = 0.0;
 #endif
 
-using namespace std;
 
 namespace fbgemm {
 
