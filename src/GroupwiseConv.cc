@@ -8,7 +8,6 @@
 #include "./GroupwiseConv.h"
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
-#include <immintrin.h>
 #include <array>
 #include <iostream>
 #include <map>

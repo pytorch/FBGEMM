@@ -6,7 +6,6 @@
  */
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <immintrin.h>
 #include <cassert>
 #include <cmath>
 

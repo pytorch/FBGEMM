@@ -8,7 +8,6 @@
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
-#include <cpuinfo.h>
 #include <array>
 #include <cmath>
 #include <utility>
