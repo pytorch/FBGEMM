@@ -662,6 +662,10 @@ __host__ DEVICE_INLINE int32_t div_round_up(int32_t a, int32_t b) {
   return (a + b - 1) / b;
 }
 
+__host__ DEVICE_INLINE int32_t round_down(int32_t a, int32_t b) {
+  return a / b * b;
+}
+
 // Shared memory with template supports.
 // See https://leimao.github.io/blog/CUDA-Shared-Memory-Templated-Kernel/
 template <typename T>

@@ -32,6 +32,13 @@ args, _ = parser.parse_known_args()
 env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(os.path.dirname(os.path.abspath(__file__)))
 )
+# Upper Limit of "max_embedding_dim (max_D)":
+# BT_block_size * sizeof(float) * 4 * kWarpSize * {{ kMaxVecsPerThread }}
+# needs to be smaller than the allocated shared memory size (2/3 of 96 KB
+# on V100 and 160 KB on A100.
+# BT_block_size * 4 * 4 * 32 * (max_D // 128) <= 64 * 1024 (V100) or 96 * 1024 (A100)
+# Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
+# Note that if we increase max_D, it will increase the compilation time significantly.
 env.globals["max_embedding_dim"] = 1024
 env.globals["dense"] = False
 

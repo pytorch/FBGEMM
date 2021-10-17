@@ -658,6 +658,17 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
     TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
+    // V100: 96 KB; A100: 160 KB.
+    int max_shared_bytes = 0;
+    cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    int shared_kb = max_shared_bytes >> 10;
+    // V100: 64 KB; A100: 96 KB.
+    // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+    int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+    TORCH_CHECK(used_shared_kb > 0);
+    int used_shared_bytes = used_shared_kb << 10;
+
     auto infos = at::empty_like(indices, indices.options().dtype(kInt));
     auto infos_sorted = at::empty_like(infos);
     auto linear_indices = at::empty_like(indices);
@@ -868,16 +879,15 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             {% endif %}
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
             if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
-            // Stay under 64K of shared memory (96K in total), BT_block_size must be a power of two.
-            // B
-            while(BT_block_size * sizeof(acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= 64 * 1024) {
+            // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB), BT_block_size must be a power of two.
+            while (BT_block_size * sizeof(acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= used_shared_bytes) {
                 BT_block_size /= 2;
             }
+            TORCH_CHECK(BT_block_size >= 1);
             if (std::is_same<{{ "scalar_t" if dense else "emb_t" }}, double>::value) {
                 // Otherwise we see CUDA kernel launch failures despite the above checks.
                 BT_block_size = 1;
             }
-
 
             auto long_run_ids = at::empty_like(sorted_linear_indices_run_lengths);
             auto num_long_run_ids = at::zeros({1}, indices.options().dtype(kLong));
@@ -894,6 +904,26 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                 max_segment_length_per_warp);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 
+            // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+            // "Compute capability 7.x devices allow a single thread block to
+            // address the full capacity of shared memory: 96 KB on Volta,
+            // 64 KB on Turing. Kernels relying on shared memory allocations
+            // over 48 KB per block are architecture-specific, as such they
+            // must use dynamic shared memory (rather than statically sized
+            // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+            cudaFuncSetAttribute(
+                split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                {% if not dense %}
+                emb_t,
+                cache_t,
+                {% else %}
+                scalar_t,
+                scalar_t,
+                {% endif %}
+                {{ kMaxVecsPerThread }}>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
@@ -943,6 +973,19 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
                     {% endif %}
                     FixedDivisor(B),
                     {{ args.split_kernel_arg_constructors | join(", ") }});
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            cudaFuncSetAttribute(
+                split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                {% if not dense %}
+                emb_t,
+                cache_t,
+                {% else %}
+                scalar_t,
+                scalar_t,
+                {% endif %}
+                {{ kMaxVecsPerThread }}>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
