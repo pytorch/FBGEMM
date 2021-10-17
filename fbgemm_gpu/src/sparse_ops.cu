@@ -265,7 +265,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
-                AT_DISPATCH_FLOATING_TYPES(
+                AT_DISPATCH_ALL_TYPES(
                     weights_value.scalar_type(), "permute_data_kernel_3", ([&] {
                       using weights_t = scalar_t;
                       permute_data_kernel<true, offsets_t, indices_t, weights_t>
