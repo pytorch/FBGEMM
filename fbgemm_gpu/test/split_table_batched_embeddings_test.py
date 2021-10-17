@@ -199,7 +199,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [int(1e4)] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -329,7 +329,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -353,7 +353,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_int8(
         self,
@@ -376,7 +376,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -400,7 +400,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_fp16(
         self,
@@ -423,7 +423,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -447,7 +447,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_forward_fp32(
         self,
@@ -469,7 +469,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=3),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=32),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=10),
@@ -490,7 +490,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=10,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_dense(
         self,
@@ -546,7 +546,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -671,7 +671,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -697,7 +697,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_sgd(  # noqa C901
         self,
@@ -759,7 +759,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -969,7 +969,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1196,7 +1196,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1224,7 +1224,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_adagrad_fp16(  # noqa C901
         self,
@@ -1251,7 +1251,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1279,7 +1279,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_adagrad_fp32(  # noqa C901
         self,
@@ -1307,7 +1307,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=64),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=1, max_value=20),
@@ -1335,7 +1335,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1457,7 +1457,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [E] * T
         else:
             Ds = [
-                round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
                 for _ in range(T)
             ]
             Es = [
@@ -1725,7 +1725,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1751,7 +1751,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_adam(  # noqa C901
         self,
@@ -1772,7 +1772,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1798,7 +1798,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_adagrad(  # noqa C901
         self,
@@ -1819,7 +1819,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1845,7 +1845,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_lamb(  # noqa C901
         self,
@@ -1866,7 +1866,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1887,7 +1887,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     def test_backward_optimizers_lars(  # noqa C901
         self,
@@ -1940,7 +1940,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             Ds = [
                 round_up(
-                    np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), D_alignment
+                    np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), D_alignment
                 )
                 for _ in range(T)
             ]
