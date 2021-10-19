@@ -6,19 +6,12 @@
  */
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include "codegen/embedding_common.h"
 
 namespace nbit {
 
 using namespace at;
 using namespace fbgemm_gpu;
-// Keep in sync with split_embedding_configs.py:SparseType
-enum class SparseType : uint8_t {
-    FP32 = 0,
-    FP16 = 1,
-    INT8 = 2,
-    INT4 = 3,
-    INT2 = 4,
-};
 
 // Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
 enum {
@@ -1267,7 +1260,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
     if (max_int4_D > 0) {
-      auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, nbit::SparseType::INT4), 128);
+      auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4), 128);
       TORCH_CHECK(max_int4_128b_rows <= 4);
       if (max_int4_128b_rows > 0) {
         X(2, 8, 0, 1);
@@ -1303,7 +1296,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
     if (max_int8_D > 0) {
-      auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, nbit::SparseType::INT8), 128);
+      auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8), 128);
       TORCH_CHECK(max_int8_128b_rows <= 8);
       if (max_int8_128b_rows > 0) {
         X(2, 8, 0, 1);
@@ -1342,7 +1335,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
     if (max_float16_D > 0) {
-      auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, nbit::SparseType::FP16), 128);
+      auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16), 128);
       TORCH_CHECK(max_fp16_128b_rows <= 16);
       if (max_fp16_128b_rows > 0) {
         X(2, 8, 0, 2);
@@ -1380,7 +1373,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
     if (max_float32_D > 0) {
-      auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, nbit::SparseType::FP32), 128);
+      auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32), 128);
       TORCH_CHECK(max_fp32_128b_rows <= 32);
       // FP32 is used for numerical validations and tiny embeddings tables.
       // We haven't carefully tuned the perf of FP32 embeddings.

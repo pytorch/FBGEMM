@@ -12,6 +12,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #endif
 
+#include "codegen/embedding_common.h"
+
 #include <immintrin.h>
 #include <emmintrin.h>
 
@@ -52,14 +54,6 @@ __attribute__((always_inline)) inline __m256i cvt_byte_SKL(uint64_t x) {
     return _mm256_cvtepu8_epi32(_mm_set1_epi64x(x));
 }
 
-// Keep in sync with split_embedding_configs.py:SparseType
-enum class SparseType : uint8_t {
-    FP32 = 0,
-    FP16 = 1,
-    INT8 = 2,
-    INT4 = 3,
-    INT2 = 4,
-};
 
 inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
     if (weight_ty == SparseType::FP32) { return dim * 4; }
