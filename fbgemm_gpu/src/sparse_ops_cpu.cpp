@@ -10,10 +10,8 @@
 
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-namespace at {
-namespace fbgemm {
-
 namespace {
+
 // To avoid multiple threads are touching the same cache line.
 // Assume cache line size is 64B and element size is at least 4B like float or
 // int32.
@@ -21,7 +19,9 @@ constexpr int FALSE_SHARING_PAD = 16;
 
 } // namespace
 
-Tensor native_empty_like(const Tensor& self) {
+namespace fbgemm {
+
+at::Tensor native_empty_like(const at::Tensor& self) {
   return at::native::empty_like(
       self,
       optTypeMetaToScalarType(self.options().dtype_opt()),
@@ -60,7 +60,7 @@ void _permute_indices_weights_kernel_cpu(
   at::parallel_for(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         offsets_t output_start = output_offsets_per_thread_cumsum
-            [get_thread_num() * FALSE_SHARING_PAD];
+            [at::get_thread_num() * FALSE_SHARING_PAD];
         int64_t t_begin = tb_begin / B;
         int64_t t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
@@ -91,7 +91,7 @@ void _permute_lengths_cpu_kernel(
     index_t* const __restrict__ permuted_lengths,
     index_t* const __restrict__ input_offsets,
     int64_t* const __restrict__ output_offsets_per_thread_cumsum) {
-  int num_threads = get_num_threads();
+  int num_threads = at::get_num_threads();
   std::vector<int> input_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -120,9 +120,9 @@ void _permute_lengths_cpu_kernel(
           }
         }
         input_offsets_per_thread_cumsum
-            [(get_thread_num() + 1) * FALSE_SHARING_PAD] = current_input_offset;
+            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] = current_input_offset;
         output_offsets_per_thread_cumsum
-            [(get_thread_num() + 1) * FALSE_SHARING_PAD] =
+            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] =
                 current_output_offset;
       });
 
@@ -140,7 +140,7 @@ void _permute_lengths_cpu_kernel(
   at::parallel_for(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         index_t current_input_offset = input_offsets_per_thread_cumsum
-            [get_thread_num() * FALSE_SHARING_PAD];
+            [at::get_thread_num() * FALSE_SHARING_PAD];
         if (tb_begin < lengths_size) {
           input_offsets[tb_begin] = current_input_offset;
         }
@@ -272,11 +272,11 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
-    const Tensor& permute,
-    const Tensor& lengths,
-    const Tensor& indices,
-    const c10::optional<Tensor>& weights,
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
@@ -291,16 +291,16 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   const auto T = permute.numel();
   const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
 
-  Tensor permuted_lengths;
-  Tensor permuted_indices;
-  Tensor permuted_weights;
+  at::Tensor permuted_lengths;
+  at::Tensor permuted_indices;
+  at::Tensor permuted_weights;
 
   permuted_lengths = at::empty({T, B}, lengths.options());
 
   const auto lengths_size = lengths.numel();
   auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
 
-  int num_threads = get_num_threads();
+  int num_threads = at::get_num_threads();
   std::vector<int64_t> output_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -333,7 +333,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
               using indices_t = scalar_t;
               AT_DISPATCH_FLOATING_TYPES(
                   weights.has_value() ? weights.value().scalar_type()
-                                      : ScalarType::Float,
+                                      : at::ScalarType::Float,
                   "permute_indices_weights_kernel_3",
                   ([&] {
                     using weights_t = scalar_t;
@@ -398,15 +398,15 @@ block_bucketize_sparse_features_cpu(
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
   auto new_indices = native_empty_like(indices);
-  Tensor new_weights;
-  Tensor new_pos;
-  Tensor unbucketize_permute;
+  at::Tensor new_weights;
+  at::Tensor new_pos;
+  at::Tensor unbucketize_permute;
   if (bucketize_pos) {
     new_pos = native_empty_like(indices);
   }
   if (weights.has_value()) {
     const auto lengths_sum = indices.numel();
-    Tensor weights_value = weights.value();
+    at::Tensor weights_value = weights.value();
     new_weights = native_empty_like(weights_value);
     if (sequence) {
       unbucketize_permute = at::empty({lengths_sum}, indices.options());
@@ -606,13 +606,13 @@ at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in) {
   return output;
 }
 
-Tensor reorder_batched_ad_lengths_cpu(
-    const Tensor& cat_ad_lengths,
-    const Tensor& batch_offsets,
+at::Tensor reorder_batched_ad_lengths_cpu(
+    const at::Tensor& cat_ad_lengths,
+    const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = cat_ad_lengths.numel() / num_ads_in_batch;
-  Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
+  at::Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
 
   const auto* batch_offsets_data = batch_offsets.data_ptr<int32_t>();
 
@@ -633,15 +633,15 @@ Tensor reorder_batched_ad_lengths_cpu(
   return reordered_cat_ad_lengths;
 }
 
-Tensor reorder_batched_ad_indices_cpu(
-    const Tensor& cat_ad_offsets,
-    const Tensor& cat_ad_indices,
-    const Tensor& reordered_cat_ad_offsets,
-    const Tensor& batch_offsets,
+at::Tensor reorder_batched_ad_indices_cpu(
+    const at::Tensor& cat_ad_offsets,
+    const at::Tensor& cat_ad_indices,
+    const at::Tensor& reordered_cat_ad_offsets,
+    const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = (cat_ad_offsets.numel() - 1) / num_ads_in_batch;
-  Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  at::Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
 
   const auto* batch_offsets_data = batch_offsets.data_ptr<int32_t>();
   const auto* cat_ad_offsets_data = cat_ad_offsets.data_ptr<int32_t>();
@@ -705,7 +705,6 @@ at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size) {
   return range;
 }
 } // namespace fbgemm
-} // namespace at
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
@@ -723,17 +722,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_sparse_data", at::fbgemm::permute_sparse_data_cpu);
+  m.impl("permute_sparse_data", fbgemm::permute_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
-      at::fbgemm::block_bucketize_sparse_features_cpu);
+      fbgemm::block_bucketize_sparse_features_cpu);
   m.impl(
       "asynchronous_exclusive_cumsum",
-      at::fbgemm::asynchronous_exclusive_cumsum_cpu);
+      fbgemm::asynchronous_exclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_inclusive_cumsum", at::fbgemm::asynchronous_inclusive_cumsum_cpu);
-  m.impl("asynchronous_complete_cumsum", at::fbgemm::asynchronous_complete_cumsum_cpu);
-  m.impl("reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_cpu);
-  m.impl("reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_cpu);
-  m.impl("offsets_range", at::fbgemm::offsets_range_cpu);
+      "asynchronous_inclusive_cumsum", fbgemm::asynchronous_inclusive_cumsum_cpu);
+  m.impl("asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_cpu);
+  m.impl("reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_cpu);
+  m.impl("reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_cpu);
+  m.impl("offsets_range", fbgemm::offsets_range_cpu);
 }

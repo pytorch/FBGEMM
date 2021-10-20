@@ -31,7 +31,6 @@ def unbucketize_indices_value(
     W: int,
     B: int,
 ) -> torch.Tensor:
-    lengths_sum = bucketized_indices.size()[0]
     block_size_expand = torch.empty_like(bucketized_indices)
     bucket_expand = torch.empty_like(bucketized_indices)
     T = block_sizes.size()[0]
@@ -345,14 +344,9 @@ class SparseOpsTest(unittest.TestCase):
         self,
         long_indices: bool,
     ) -> None:
-        has_weight = False
         bucketize_pos = False
         sequence = False
         index_type = torch.long
-
-        # 3 features, 2 batches
-        T = 3
-        B = 2
 
         # 3 GPUs
         my_size = 3
@@ -479,10 +473,8 @@ class SparseOpsTest(unittest.TestCase):
             range_gpu = torch.ops.fbgemm.offsets_range(offsets_cpu.cuda(), output_size)
             torch.testing.assert_allclose(range_gpu.cpu(), range_ref, 0, 0)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
-        offset_type=st.sampled_from([torch.int, torch.long]),
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
         bucketize_pos=st.booleans(),
@@ -491,19 +483,17 @@ class SparseOpsTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features(
         self,
-        offset_type: Type[torch.dtype],
         index_type: Type[torch.dtype],
         has_weight: bool,
         bucketize_pos: bool,
         sequence: bool,
     ) -> None:
-        T = 4
         B = 2
-        # pyre-fixme[6]
-        lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=offset_type)
+        # pyre-ignore [6]
+        lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
         indices = torch.tensor(
             [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20],
-            # pyre-fixme[6]
+            # pyre-ignore [6]
             dtype=index_type,
         )
         weights = (
@@ -525,25 +515,23 @@ class SparseOpsTest(unittest.TestCase):
                     14.0,
                     15.0,
                 ],
-                # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 2nd
-                #  param but got `Type[float]`.
-                dtype=float,
+                dtype=torch.float,
             )
             if has_weight
             else None
         )
-        # pyre-fixme[6]
+        # pyre-ignore [6]
         block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
         my_size = 2
 
         new_lengths_ref = torch.tensor(
             [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1],
-            # pyre-fixme[6]
+            # pyre-ignore [6]
             dtype=index_type,
         )
         new_indices_ref = torch.tensor(
             [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0],
-            # pyre-fixme[6]
+            # pyre-ignore [6]
             dtype=index_type,
         )
         new_weights_ref = torch.tensor(
@@ -564,46 +552,71 @@ class SparseOpsTest(unittest.TestCase):
                 14.0,
                 15.0,
             ],
+            dtype=torch.float,
         )
         new_pos_ref = torch.tensor(
             [0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0],
-            # pyre-fixme[6]
+            # pyre-ignore [6]
             dtype=index_type,
         )
-
         (
-            new_lengths_gpu,
-            new_indices_gpu,
-            new_weights_gpu,
-            new_pos_gpu,
-            unbucketize_permute_gpu,
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda(),
-            indices.cuda(),
-            bucketize_pos,
-            sequence,
-            block_sizes.cuda(),
-            my_size,
-            weights.cuda() if has_weight else None,
+            lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights
         )
-        torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
-        torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+        torch.testing.assert_allclose(new_lengths_cpu, new_lengths_ref, 0, 0)
+        torch.testing.assert_allclose(new_indices_cpu, new_indices_ref, 0, 0)
         if has_weight:
-            torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_ref)
+            torch.testing.assert_allclose(new_weights_cpu, new_weights_ref)
         if bucketize_pos:
-            torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_ref)
+            torch.testing.assert_allclose(new_pos_cpu, new_pos_ref)
         if sequence:
             value_unbucketized_indices = unbucketize_indices_value(
-                new_indices_gpu.cpu(),
-                new_lengths_gpu.cpu(),
-                block_sizes,
-                my_size,
-                B,
+                new_indices_cpu, new_lengths_cpu, block_sizes, my_size, B
             )
             unbucketized_indices = torch.index_select(
-                value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
+                value_unbucketized_indices, 0, unbucketize_permute
             )
             torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
+
+        if torch.cuda.is_available():
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                weights.cuda() if has_weight else None,
+            )
+            torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
+            torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+            if has_weight:
+                torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_cpu)
+            if bucketize_pos:
+                torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_cpu)
+            if sequence:
+                value_unbucketized_indices = unbucketize_indices_value(
+                    new_indices_gpu.cpu(),
+                    new_lengths_gpu.cpu(),
+                    block_sizes,
+                    my_size,
+                    B,
+                )
+                unbucketized_indices = torch.index_select(
+                    value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
+                )
+                torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument

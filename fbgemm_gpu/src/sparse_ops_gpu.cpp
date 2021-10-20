@@ -13,17 +13,17 @@
 #include <torch/library.h>
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  DISPATCH_TO_CUDA("permute_sparse_data", at::fbgemm::permute_sparse_data_cuda);
+  DISPATCH_TO_CUDA("permute_sparse_data", fbgemm::permute_sparse_data_cuda);
   DISPATCH_TO_CUDA(
       "block_bucketize_sparse_features",
-      at::fbgemm::block_bucketize_sparse_features_cuda);
+      fbgemm::block_bucketize_sparse_features_cuda);
   DISPATCH_TO_CUDA(
-      "asynchronous_exclusive_cumsum", at::fbgemm::asynchronous_exclusive_cumsum_gpu);
+      "asynchronous_exclusive_cumsum", fbgemm::asynchronous_exclusive_cumsum_gpu);
   DISPATCH_TO_CUDA(
-      "asynchronous_complete_cumsum", at::fbgemm::asynchronous_complete_cumsum_gpu);
+      "asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_gpu);
   DISPATCH_TO_CUDA(
-      "asynchronous_inclusive_cumsum", at::fbgemm::asynchronous_inclusive_cumsum_gpu);
-  DISPATCH_TO_CUDA("reorder_batched_ad_lengths", at::fbgemm::reorder_batched_ad_lengths_gpu);
-  DISPATCH_TO_CUDA("reorder_batched_ad_indices", at::fbgemm::reorder_batched_ad_indices_gpu);
-  DISPATCH_TO_CUDA("offsets_range", at::fbgemm::offsets_range_cuda);
+      "asynchronous_inclusive_cumsum", fbgemm::asynchronous_inclusive_cumsum_gpu);
+  DISPATCH_TO_CUDA("reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_gpu);
+  DISPATCH_TO_CUDA("reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_gpu);
+  DISPATCH_TO_CUDA("offsets_range", fbgemm::offsets_range_cuda);
 }

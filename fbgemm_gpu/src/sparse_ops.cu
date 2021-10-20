@@ -20,9 +20,7 @@
 #include "ATen/Parallel.h"
 #include "cub/device/device_scan.cuh"
 
-namespace at {
 namespace fbgemm {
-
 
 std::tuple<uint32_t, uint32_t, uint32_t> calc_offsets_range_thread_block(
     const int64_t output_size,
@@ -51,7 +49,7 @@ std::tuple<uint32_t, uint32_t, uint32_t> calc_offsets_range_thread_block(
   return std::make_tuple(num_blocks, rows_per_block, vector_size);
 }
 
-Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
+at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size) {
   TENSOR_ON_CUDA_GPU(offsets);
   TENSOR_NDIM_EQUALS(offsets, 1);
 
@@ -87,12 +85,12 @@ Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   return range;
 }
 
-Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
+at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
-  TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
+  TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
@@ -107,7 +105,7 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(kByte));
+      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
@@ -121,12 +119,12 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
+at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
-  TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
+  TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
@@ -141,7 +139,7 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(kByte));
+      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
@@ -155,12 +153,12 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
+at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
-  TORCH_CHECK(t_in.dtype() == kInt || t_in.dtype() == kLong);
+  TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   TORCH_CHECK(t_in.dim() == 1);
@@ -177,7 +175,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(kByte));
+      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
@@ -191,11 +189,11 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
-    const Tensor& permute,
-    const Tensor& lengths,
-    const Tensor& indices,
-    const c10::optional<Tensor>& weights,
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CUDA_GPU(permute);
   TENSOR_ON_CUDA_GPU(lengths);
@@ -218,9 +216,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   const auto T_ = lengths.size(0);
   const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
 
-  Tensor permuted_lengths;
-  Tensor permuted_indices;
-  Tensor permuted_weights;
+  at::Tensor permuted_lengths;
+  at::Tensor permuted_indices;
+  at::Tensor permuted_weights;
 
   permuted_lengths = at::empty({T, B}, lengths.options());
 
@@ -239,9 +237,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
       }));
 
   // convert lengths to offsets
-  const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
-  const auto output_offsets =
-      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+  const auto input_offsets = fbgemm::asynchronous_exclusive_cumsum_gpu(lengths_contig);
+  const auto output_offsets = fbgemm::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
@@ -261,7 +258,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
             indices.scalar_type(), "permute_data_kernel_2", ([&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
-                const Tensor weights_value = weights.value();
+                const at::Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
@@ -311,19 +308,19 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
 // This function partitions sparse features
 // continuously along the sparse dimension into my_size blocks
 std::tuple<
-    Tensor,
-    Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
 block_bucketize_sparse_features_cuda(
-    Tensor lengths,
-    Tensor indices,
+    at::Tensor lengths,
+    at::Tensor indices,
     bool bucketize_pos,
     bool sequence,
-    Tensor block_sizes,
+    at::Tensor block_sizes,
     int64_t my_size,
-    c10::optional<Tensor> weights) {
+    c10::optional<at::Tensor> weights) {
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(indices);
   TENSORS_ON_SAME_DEVICE(lengths, indices);
@@ -344,9 +341,9 @@ block_bucketize_sparse_features_cuda(
   auto lengths_contig = lengths.contiguous();
   auto indices_contig = indices.contiguous();
   auto offsets_contig = offsets.contiguous();
-  Tensor new_weights;
-  Tensor new_pos;
-  Tensor unbucketize_permute;
+  at::Tensor new_weights;
+  at::Tensor new_pos;
+  at::Tensor unbucketize_permute;
   // count nonzeros
   offsets_contig = asynchronous_inclusive_cumsum_gpu(lengths);
   int threads_per_block = 256;
@@ -382,7 +379,7 @@ block_bucketize_sparse_features_cuda(
     const auto lengths_sum = indices.numel();
     unbucketize_permute = at::empty({lengths_sum}, indices.options());
     if (weights.has_value() & bucketize_pos) {
-      Tensor weights_value = weights.value();
+      at::Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
       new_weights = at::empty_like(weights_value);
       new_pos = at::empty_like(indices);
@@ -427,7 +424,7 @@ block_bucketize_sparse_features_cuda(
                 }));
           }));
     } else if (weights.has_value()) {
-      Tensor weights_value = weights.value();
+      at::Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
       new_weights = at::empty_like(weights_value);
       AT_DISPATCH_INDEX_TYPES(
@@ -548,7 +545,7 @@ block_bucketize_sparse_features_cuda(
     }
   } else {
     if (weights.has_value() & bucketize_pos) {
-      Tensor weights_value = weights.value();
+      at::Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
       new_weights = at::empty_like(weights_value);
       new_pos = at::empty_like(indices);
@@ -594,7 +591,7 @@ block_bucketize_sparse_features_cuda(
           }));
 
     } else if (weights.has_value()) {
-      Tensor weights_value = weights.value();
+      at::Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
       new_weights = at::empty_like(weights_value);
       AT_DISPATCH_INDEX_TYPES(
@@ -980,9 +977,9 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
 __global__ void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
     // [T][B][#num_ads_b], i.e. [T][sum(#num_ads_b)].
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> cat_ad_lengths,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> batch_offsets,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_lengths,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> batch_offsets,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_lengths,
     int32_t T) {
   const int32_t B = batch_offsets.size(0) - 1;
@@ -1006,9 +1003,9 @@ __global__ void reorder_batched_ad_lengths_kernel(
   }
 }
 
-Tensor reorder_batched_ad_lengths_gpu(
-    const Tensor& cat_ad_lengths,
-    const Tensor& batch_offsets,
+at::Tensor reorder_batched_ad_lengths_gpu(
+    const at::Tensor& cat_ad_lengths,
+    const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   TENSOR_ON_CUDA_GPU(cat_ad_lengths);
   TENSOR_ON_CUDA_GPU(batch_offsets);
@@ -1020,7 +1017,7 @@ Tensor reorder_batched_ad_lengths_gpu(
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = cat_ad_lengths.numel() / num_ads_in_batch;
 
-  Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
+  at::Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
 
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
@@ -1030,10 +1027,10 @@ Tensor reorder_batched_ad_lengths_gpu(
       threads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_lengths.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      cat_ad_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       reordered_cat_ad_lengths
-          .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       T);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
@@ -1044,13 +1041,13 @@ __global__ void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
     // laid out as [T][B][A][L] (if all lengths were equal).
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> cat_ad_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> cat_ad_indices,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_offsets,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> batch_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> batch_offsets,
     int32_t T) {
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
@@ -1088,11 +1085,11 @@ __global__ void reorder_batched_ad_indices_kernel(
   }
 }
 
-Tensor reorder_batched_ad_indices_gpu(
-    const Tensor& cat_ad_offsets,
-    const Tensor& cat_ad_indices,
-    const Tensor& reordered_cat_ad_offsets,
-    const Tensor& batch_offsets,
+at::Tensor reorder_batched_ad_indices_gpu(
+    const at::Tensor& cat_ad_offsets,
+    const at::Tensor& cat_ad_indices,
+    const at::Tensor& reordered_cat_ad_offsets,
+    const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   TENSOR_ON_CUDA_GPU(cat_ad_offsets);
   TENSOR_ON_CUDA_GPU(cat_ad_indices);
@@ -1107,7 +1104,7 @@ Tensor reorder_batched_ad_indices_gpu(
 
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = (cat_ad_offsets.numel() - 1) / num_ads_in_batch;
-  Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  at::Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
 
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
@@ -1117,17 +1114,16 @@ Tensor reorder_batched_ad_indices_gpu(
       threads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      cat_ad_indices.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      cat_ad_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       reordered_cat_ad_offsets
-          .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       reordered_cat_ad_indices
-          .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       T);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return reordered_cat_ad_indices;
 }
 
 } // namespace fbgemm
-} // namespace at
