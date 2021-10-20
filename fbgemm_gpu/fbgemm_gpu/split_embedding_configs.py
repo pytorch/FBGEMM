@@ -44,18 +44,18 @@ class SparseType(enum.Enum):
 
     @staticmethod
     def from_int(ty: int) -> "SparseType":
-            if ty == 0:
-                return SparseType("fp32")
-            elif ty == 1:
-                return SparseType("fp16")
-            elif ty == 2:
-                return SparseType("int8")
-            elif ty == 3:
-                return SparseType("int4")
-            elif ty == 4:
-                return SparseType("int2")
-            else:
-                raise ValueError(f"Unsupported sparse type: {ty}")
+        if ty == 0:
+            return SparseType("fp32")
+        elif ty == 1:
+            return SparseType("fp16")
+        elif ty == 2:
+            return SparseType("int8")
+        elif ty == 3:
+            return SparseType("int4")
+        elif ty == 4:
+            return SparseType("int2")
+        else:
+            raise ValueError(f"Unsupported sparse type: {ty}")
 
     def as_int(self) -> int:
         return {
@@ -83,6 +83,12 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
         }[self.value]
+
+    def is_float(self) -> bool:
+        if self.value == SparseType.FP32.value or self.value == SparseType.FP16.value:
+            return True
+        else:
+            return False
 
 
 ELEMENT_SIZE: Dict[SparseType, int] = {

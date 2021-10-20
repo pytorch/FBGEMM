@@ -238,7 +238,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
         if self.use_cpu:
-            assert pooled_output_precision == SparseType.FP32, "Fused pooled embedding quantization only supported for cuda."
+            assert (
+                pooled_output_precision == SparseType.FP32
+            ), "Fused pooled embedding quantization only supported for cuda."
 
         if device is not None:
             self.current_device: torch.device = device
@@ -554,7 +556,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            torch.ops.fb.bounds_check_indices(self.rows_per_table, indices, offsets, self.bounds_check_mode_int, self.bounds_check_warning)
+            torch.ops.fb.bounds_check_indices(
+                self.rows_per_table,
+                indices,
+                offsets,
+                self.bounds_check_mode_int,
+                self.bounds_check_warning,
+            )
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
             self.prefetch(indices, offsets)
@@ -1041,9 +1049,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     f"{prefix}_host",
                     torch.zeros(
+                        split.host_size,
+                        device=self.current_device,
                         # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
                         #  3rd param but got `Type[Type[torch._dtype]]`.
-                        split.host_size, device=self.current_device, dtype=dtype
+                        dtype=dtype,
                     ),
                 )
             else:
@@ -1052,9 +1062,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     f"{prefix}_host",
                     nn.Parameter(
                         torch.zeros(
+                            split.host_size,
+                            device=self.current_device,
                             # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
                             #  for 3rd param but got `Type[Type[torch._dtype]]`.
-                            split.host_size, device=self.current_device, dtype=dtype
+                            dtype=dtype,
                         )
                     ),
                 )
@@ -1069,9 +1081,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     f"{prefix}_uvm",
                     torch.zeros(
+                        split.uvm_size,
+                        device=self.current_device,
                         # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
                         #  3rd param but got `Type[Type[torch._dtype]]`.
-                        split.uvm_size, device=self.current_device, dtype=dtype
+                        dtype=dtype,
                     ),
                 )
             else:
@@ -1557,7 +1571,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
         if device is None:
-            self.current_device: torch.device = torch.device(torch.cuda.current_device())
+            self.current_device: torch.device = torch.device(
+                torch.cuda.current_device()
+            )
         elif isinstance(device, torch.device):
             self.current_device = device
         else:
@@ -1585,7 +1601,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         assert T_ > 0
         for (dim, weight_ty) in zip(dims, weights_tys):
-            assert dim % weight_ty.align_size() == 0
+            assert (
+                dim % weight_ty.align_size() == 0
+            ), f"{dim} % {weight_ty.align_size() } != 0"
 
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
@@ -1599,6 +1617,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
+        for weight_ty in weights_tys:
+            if not weight_ty.is_float():
+                assert (
+                    self.total_D % 2 == 0
+                ), "the total_D needs to be even so the FP16 output will be aligned with 4 bytes"
+                break
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
@@ -1654,7 +1678,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.uint8
         )
 
-        self.weights_uvm: torch.Tensor = torch.empty(0, device=self.current_device, dtype=torch.uint8)
+        self.weights_uvm: torch.Tensor = torch.empty(
+            0, device=self.current_device, dtype=torch.uint8
+        )
 
         weight_split: SplitState = intn_construct_split_state(
             self.embedding_specs,
@@ -1925,9 +1951,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int32,
             )
             hash_table[:, :] = -1
-            hash_table_offsets = torch.tensor(
-                [0] + list(accumulate(capacities))
-            ).long()
+            hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()
 
             merged_index_remappings = [
                 mapping if mapping is not None else Tensor(list(range(spec[1])))
@@ -1940,9 +1964,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices = torch.cat(
                 [torch.arange(row) for row in original_feature_rows], dim=0
             ).int()
-            offsets = torch.tensor(
-                [0] + list(accumulate(original_feature_rows))
-            ).int()
+            offsets = torch.tensor([0] + list(accumulate(original_feature_rows))).int()
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
