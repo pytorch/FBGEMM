@@ -2133,9 +2133,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             np_weights = weights.contiguous().cpu().numpy()
 
             if scale_shift is not None:
-                # pyre-fixme[35]: Target cannot be annotated.
-                # pyre-fixme[11]: Annotation `array` is not defined as a type.
-                scale_shift: np.array = (
+                scale_shift: np.ndarray = (
                     scale_shift.cpu()
                     .contiguous()
                     .numpy()
@@ -2147,7 +2145,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 (E, D_2) = np_weights.shape
                 D = D_2 * 2
 
-                def comp(i: int) -> np.array:
+                def comp(i: int) -> np.ndarray:
                     subs = np_weights.view(np.uint16) >> (i * 4)
                     sub_mask = subs & 0xF
                     result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
@@ -2169,7 +2167,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
                 # pyre-fixme[53]: Captured variable `weights` is not annotated.
-                def comp(i: int) -> np.array:
+                def comp(i: int) -> np.ndarray:
                     subs = np_weights.view(np.uint8) >> (i * 2)
                     sub_mask = subs & 0x3
                     result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
@@ -2187,6 +2185,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             elif weights_ty_list[t] == SparseType.INT8:
                 (E, D) = np_weights.shape
+                # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                 comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
                     -1, 1
                 ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
