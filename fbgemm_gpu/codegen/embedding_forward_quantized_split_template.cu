@@ -892,6 +892,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
       bool aligned_16b = intptr_t(&output[b][D_start + output_d]) % 16 == 0;
       bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
+      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
 
       if (pooling_mode == MEAN && Ls[i] != 0) {
           float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
@@ -912,12 +913,21 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
           auto v = *reinterpret_cast<const int4*>(&val);
           *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
           *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v.z, v.w);
-        } else {
+        } else if (aligned_4b) {
           auto v = *reinterpret_cast<const int4*>(&val);
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 4]) = v.z;
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 6]) = v.w;
+        } else {
+          output[b][D_start + output_d + 0] = val.vals[0].x;
+          output[b][D_start + output_d + 1] = val.vals[0].y;
+          output[b][D_start + output_d + 2] = val.vals[1].x;
+          output[b][D_start + output_d + 3] = val.vals[1].y;
+          output[b][D_start + output_d + 4] = val.vals[2].x;
+          output[b][D_start + output_d + 5] = val.vals[2].y;
+          output[b][D_start + output_d + 6] = val.vals[3].x;
+          output[b][D_start + output_d + 7] = val.vals[3].y;
         }
       }
     }
@@ -1090,7 +1100,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
         } else {
-          output[b][D_start + output_d] = val.vals[0].x;
+          output[b][D_start + output_d + 0] = val.vals[0].x;
           output[b][D_start + output_d + 1] = val.vals[0].y;
           output[b][D_start + output_d + 2] = val.vals[1].x;
           output[b][D_start + output_d + 3] = val.vals[1].y;
