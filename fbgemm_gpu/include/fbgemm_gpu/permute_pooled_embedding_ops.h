@@ -4,11 +4,18 @@
 
 #include <ATen/ATen.h>
 
-namespace at {
-Tensor permute_pooled_embs(
-    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const Tensor& offset_dim_list,
-    const Tensor& permute_list,
-    const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list);
-}
+namespace fbgemm {
+at::Tensor permute_pooled_embs_cpu(
+    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const at::Tensor& offset_dim_list,
+    const at::Tensor& permute_list,
+    const at::Tensor& inv_offset_dim_list,
+    const at::Tensor& inv_permute_list);
+
+at::Tensor permute_pooled_embs_gpu(
+    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const at::Tensor& offset_dim_list,
+    const at::Tensor& permute_list,
+    const at::Tensor& inv_offset_dim_list,
+    const at::Tensor& inv_permute_list);
+} // namespace fbgemm

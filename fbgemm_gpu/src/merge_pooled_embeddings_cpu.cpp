@@ -9,12 +9,10 @@
 #include <c10/core/TensorOptions.h>
 #include <torch/library.h>
 
-using namespace at;
-
-namespace at {
+namespace fbgemm {
 
 at::Tensor merge_pooled_embeddings_cpu(
-    std::vector<Tensor> pooled_embeddings,
+    std::vector<at::Tensor> pooled_embeddings,
     int64_t batch_size,
     at::Device target_device) {
   auto cat_host_0 = [&](const std::vector<at::Tensor>& ts) {
@@ -34,8 +32,8 @@ at::Tensor merge_pooled_embeddings_cpu(
   return cat_host_0(pooled_embeddings);
 }
 
-} // namespace at
+} // namespace fbgemm
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("merge_pooled_embeddings", at::merge_pooled_embeddings_cpu);
+  m.impl("merge_pooled_embeddings", fbgemm::merge_pooled_embeddings_cpu);
 }

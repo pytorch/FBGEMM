@@ -10,16 +10,15 @@
 #include "ATen/Parallel.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-namespace at {
 namespace fbgemm {
 
-Tensor recat_embedding_grad_output_mixed_D_cpu(
-    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+at::Tensor recat_embedding_grad_output_mixed_D_cpu(
+    const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
   TORCH_CHECK(grad_output.is_contiguous());
   const auto B_local = grad_output.sizes()[0];
 
-  Tensor sharded_grad_output =
+  at::Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
 
   int n = dim_sum_per_rank.size();
@@ -61,7 +60,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
 }
 
 } // namespace fbgemm
-} // namespace at
+
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
@@ -75,5 +74,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl(
       "recat_embedding_grad_output_mixed_D",
-      at::fbgemm::recat_embedding_grad_output_mixed_D_cpu);
+      fbgemm::recat_embedding_grad_output_mixed_D_cpu);
 }
