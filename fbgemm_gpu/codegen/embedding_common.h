@@ -8,4 +8,5 @@ enum class SparseType : uint8_t {
     INT8 = 2,
     INT4 = 3,
     INT2 = 4,
+    INVALID = 5,
 };

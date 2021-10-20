@@ -1072,6 +1072,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
       int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
       bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
+      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
 
       if (pooling_mode == MEAN && Ls[i] != 0) {
           float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
@@ -1084,10 +1085,15 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       if (output_d >= 0 && output_d < D) {
         if (aligned_8b) {
           *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
-        } else {
+        } else if (aligned_4b) {
           auto v = *reinterpret_cast<const int2*>(&val);
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
           *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
+        } else {
+          output[b][D_start + output_d] = val.vals[0].x;
+          output[b][D_start + output_d + 1] = val.vals[0].y;
+          output[b][D_start + output_d + 2] = val.vals[1].x;
+          output[b][D_start + output_d + 3] = val.vals[1].y;
         }
       }
     }
