@@ -169,7 +169,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK(B >= 0);
     TORCH_CHECK(total_D > 0);
     bool pined_memory = false;
 #ifdef FBGEMM_GPU_WITH_CUDA
@@ -179,6 +179,9 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 #endif
 
     auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
+    if (B == 0) {
+        return output;
+    }
 
     const int32_t* weights_placements_ptr = weights_placements.data_ptr<int32_t>();
     const uint8_t* weights_acc;

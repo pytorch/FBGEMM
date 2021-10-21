@@ -1244,12 +1244,16 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK(B >= 0);
 
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(max_int2_D == 0);
 
     auto output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    if (B == 0) {
+      return output;
+    }
+
     using index_t = int32_t;
 
     // launch 4-bit kernel
