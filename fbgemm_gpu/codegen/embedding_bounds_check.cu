@@ -53,12 +53,16 @@ __global__ void bounds_check_indices_kernel(
       if (idx < 0 || idx >= num_rows) {
         if (gpuAtomicIncrement(&warning[0]) == 0) {
           printf(
-              "EmbeddingBoundsCheck: (at least one) Out of bounds access for batch: %lld, table: %lld, bag element: %lld, idx: %lld, num_rows: %lld. Setting idx to zero.\n",
+              "EmbeddingBoundsCheck: (at least one) Out of bounds access for batch: %lld, table: %lld, bag element: %lld, idx: %lld, num_rows: %lld, indices_start: %lld, T: %d, B: %d, b_t: %d. Setting idx to zero.\n",
               int64_t(b),
               int64_t(t),
               int64_t(i),
               int64_t(idx),
-              num_rows);
+              num_rows,
+              int64_t(indices_start),
+              T,
+              B,
+              b_t);
         }
         indices[indices_start + i] = 0;
       }
@@ -76,6 +80,9 @@ void bounds_check_indices_cuda(
     Tensor offsets,
     int64_t bounds_check_mode_,
     Tensor warning) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(rows_per_table.get_device());
+
   int32_t T = rows_per_table.size(0);
   int32_t B = (offsets.size(0) - 1) / T;
   if (B == 0 || T == 0) {
