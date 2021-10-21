@@ -2101,7 +2101,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es],
+            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es] if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             use_array_for_index_remapping=use_array_for_index_remapping,
         )
@@ -2219,6 +2219,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
             )
 
+        if B == 0:
+            self.assertEqual(fc2.size(), (0, cc.total_D))
+            return
+
         fs = (
             [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
             if not weighted
@@ -2239,7 +2243,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),
-        B=st.integers(min_value=1, max_value=128),
+        B=st.integers(min_value=0, max_value=128),
         log_E=st.integers(min_value=2, max_value=4),
         L=st.integers(min_value=0, max_value=32),
         weighted=st.booleans(),
@@ -2300,7 +2304,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),
-        B=st.integers(min_value=1, max_value=128),
+        B=st.integers(min_value=0, max_value=128),
         log_E=st.integers(min_value=2, max_value=4),
         L=st.integers(min_value=0, max_value=32),
         weighted=st.booleans(),
