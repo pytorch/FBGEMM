@@ -335,6 +335,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert optimizer in (
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.ROWWISE_ADAGRAD,
                 OptimType.SGD,
@@ -344,6 +345,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.ADAM,
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.LAMB,
                 OptimType.LARS_SGD,
@@ -397,7 +399,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 construct_split_state(
                     embedding_specs,
                     rowwise=optimizer
-                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD],
+                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD, OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD],
                     cacheable=False,
                 ),
                 prefix="momentum1",
@@ -423,9 +425,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
                 #  but got `Type[torch.float32]`.
                 dtype=torch.float32,
-            )
-            self.register_buffer(
-                "iter", torch.zeros(1, dtype=torch.int64, device=self.current_device)
             )
         else:
             # NOTE: make TorchScript work!
@@ -454,6 +453,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
                 persistent=False,
             )
+        if optimizer in (
+            OptimType.ADAM,
+            OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+            OptimType.LAMB,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+            OptimType.PARTIAL_ROWWISE_LAMB,
+        ):
+            self.register_buffer("iter", torch.zeros(1, dtype=torch.int64, device=self.current_device))
+        else:
             self.register_buffer(
                 "iter",
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
@@ -651,6 +659,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.iter = self.iter.cpu()
         self.iter[0] += 1
 
+        if self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
+            return invokers.lookup_rowwise_weighted_adagrad.invoke(
+                # pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,
+                #  int]`.
+                common_args, self.optimizer_args, momentum1, self.iter.item(),
+            )
         if self.optimizer == OptimType.ADAM:
             return invokers.lookup_adam.invoke(
                 common_args,
@@ -891,6 +905,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or self.optimizer == OptimType.ROWWISE_ADAGRAD
+            or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
         ):
             list_of_state_dict = [
                 {"sum": _sum[0]} for _sum in self.split_optimizer_states()
@@ -951,7 +966,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     #  `Union[Tensor, nn.Module]`.
                     self.momentum1_physical_placements,
                     rowwise=self.optimizer
-                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD],
+                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD, OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD],
                 )
             )
         if self.optimizer in (
@@ -992,6 +1007,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
         return 0.0
+
+    @torch.jit.export
+    def set_optimizer_step(self, step: int) -> None:
+        """
+        Sets the optimizer step.
+        """
+        self.iter[0] = step
 
     @torch.jit.export
     def flush(self) -> None:

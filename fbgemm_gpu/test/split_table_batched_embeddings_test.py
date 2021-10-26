@@ -1599,6 +1599,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
             optimizer_kwargs["eps"] = eps
 
+        if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
+            optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["weight_decay"] = weight_decay
+
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             optimizer_kwargs["eps"] = eps
             optimizer_kwargs["beta1"] = beta1
@@ -1677,6 +1681,37 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     weights_ref.float(),
                     atol=1.0e-2,
                     rtol=1.0e-2,
+                )
+
+        if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
+            for t in range(T):
+                (m1,) = split_optimizer_states[t]
+                # to_dense in GPU is non-deterministic due to atmomics used in
+                # coalescing and floating point non-associativity.
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                dense_cpu_grad += weight_decay * bs[t].weight.cpu()
+                iter_ = cc.iter.item()
+                lambda_ = (iter_ + 1) ** 0.5
+                m1_ref = dense_cpu_grad.pow(2).mean(dim=1)
+                m1_ref *= lambda_
+                torch.testing.assert_allclose(
+                    m1.float().index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    m1_ref.float().index_select(dim=0, index=x[t].view(-1).cpu()),
+                    atol=1.0e-4,
+                    rtol=1.0e-4
+                )
+                weights_new = split_weights[t]
+                weights_ref = bs[t].weight.cpu() - lr * lambda_ * dense_cpu_grad / (
+                    torch.pow(
+                        m1_ref.view(m1_ref.numel(), 1), 1.0 / 3
+                    )
+                    + eps
+                )
+                torch.testing.assert_allclose(
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
+                    atol=1.0e-4,
+                    rtol=1.0e-4,
                 )
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
@@ -1858,6 +1893,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
             ]
         ),
         long_segments=st.booleans(),
