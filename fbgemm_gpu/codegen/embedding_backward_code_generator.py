@@ -439,6 +439,69 @@ def rowwise_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
+def rowwise_weighted_adagrad() -> None:
+    split_weight_update = """
+      weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
+      weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
+      weight_new.acc.z = correction * weight_new.acc.z - multiplier * grad.acc.z;
+      weight_new.acc.w = correction * weight_new.acc.w - multiplier * grad.acc.w;
+    """
+    split_precomputation = """
+    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    #pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        Vec4T<acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        auto gx = grad_sum[i].acc.x + weight_decay * weight.acc.x;
+        auto gy = grad_sum[i].acc.y + weight_decay * weight.acc.y;
+        auto gz = grad_sum[i].acc.z + weight_decay * weight.acc.z;
+        auto gw = grad_sum[i].acc.w + weight_decay * weight.acc.w;
+        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+    }
+    const acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+
+    acc_type<cache_t, true> multiplier;
+    acc_type<cache_t, true> correction;
+    if (threadIdx.x == 0) {
+        acc_type<cache_t, true> lambda = sqrtf(iter + 1);
+        acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + lambda * g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
+        correction = 1.0 - multiplier * weight_decay;
+    }
+    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
+    correction = __shfl_sync(0xFFFFFFFF, correction, 0);
+    """
+    split_weight_update_cpu = """
+        // weight_decay not supported for cpu version
+        acc_type<scalar_t, true> g_local_sum_square = 0.0;
+        for (int64_t d = 0; d < D; ++d) {
+            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
+        }
+        auto g_avg_square = g_local_sum_square / D;
+        acc_type<scalar_t, true> lambda = sqrtf(iter + 1);
+        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + lambda * g_avg_square;
+        momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
+        acc_type<scalar_t, true> multiplier;
+        multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
+        for (int64_t d = 0; d < D; ++d) {
+            host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
+        }
+    """
+
+    generate(
+        optimizer="rowwise_weighted_adagrad",
+        args=make_args(
+            [(TENSOR, "momentum1"), (FLOAT, "eps"), (FLOAT, "learning_rate"), (FLOAT, "weight_decay"), (INT, "iter")]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
 
 def sgd() -> None:
     split_weight_update = """
@@ -866,6 +929,7 @@ def emb_codegen(install_dir: Optional[str] = None, is_fbcode: bool = True) -> No
     partial_rowwise_adam()
     partial_rowwise_lamb()
     rowwise_adagrad()
+    rowwise_weighted_adagrad()
     sgd()
 
     gen__init__py()
