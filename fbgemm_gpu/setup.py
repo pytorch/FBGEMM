@@ -163,6 +163,7 @@ setup(
                 os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops.cu"),
+                os.path.join(cur_dir, "src/input_combine_cpu.cpp"),
                 os.path.join(cur_dir, "src/merge_pooled_embeddings_gpu.cpp"),
                 os.path.join(cur_dir, "src/permute_pooled_embedding_ops.cu"),
                 os.path.join(cur_dir, "src/permute_pooled_embedding_ops_gpu.cpp"),
