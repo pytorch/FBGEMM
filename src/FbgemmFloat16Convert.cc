@@ -71,8 +71,7 @@ void RoundToFloat16(
     const float* input,
     float* output,
     size_t size,
-    bool clamp,
-    bool clamp_denorms) {
+    bool clamp) {
   std::vector<fbgemm::float16> data_fp16(size);
   // clamp_denorms is always true, since we use FloatToFloat16_simd function
   // with _mm256_cvtps_ph.

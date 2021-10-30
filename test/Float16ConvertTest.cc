@@ -161,8 +161,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
       A_fp32_ref[1] = 1e-10;
     }
 
-    RoundToFloat16(
-        A_fp32_ref.data(), A_fp32_final.data(), m, do_clip, do_clip);
+    RoundToFloat16(A_fp32_ref.data(), A_fp32_final.data(), m, do_clip);
 
     for (int i = 0; i < m; ++i) {
       // The relative error should be less than 1/(2^10) since float16
