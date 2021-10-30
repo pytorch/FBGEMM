@@ -12,6 +12,7 @@
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "include/fbgemm_gpu/cpu_utils.h"
 
 using namespace at;
 

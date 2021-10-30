@@ -399,18 +399,25 @@ def rowwise_adagrad() -> None:
     multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
     """
     split_weight_update_cpu = """
-        acc_type<scalar_t, true> g_local_sum_square = 0.0;
-        for (int64_t d = 0; d < D; ++d) {
-            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
-        }
+        acc_type<scalar_t, true> g_local_sum_square = fbgemm_gpu::sq_reduce_ker(grad_buffer, D);
         auto g_avg_square = g_local_sum_square / D;
         acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
         acc_type<scalar_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        for (int64_t d = 0; d < D; ++d) {
-            host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
-        }
+        // update
+        if (host_weights.scalar_type() == at::kHalf)
+          fbgemm_gpu::madd_ker_stochastic(
+              (scalar_t*)&host_weights_data[embedding_begin],
+              grad_buffer,
+              D,
+              -multiplier);
+        else
+          fbgemm_gpu::madd_ker(
+              (scalar_t*)&host_weights_data[embedding_begin],
+              grad_buffer,
+              D,
+              -multiplier);
     """
 
     generate(

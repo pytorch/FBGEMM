@@ -10,6 +10,9 @@
 #include <omp.h>
 #include <cstdint>
 #include <utility>
+#include <immintrin.h>
+#include <ATen/ATen.h>
+#include <fbgemm/Utils.h>
 
 template <typename T>
 using Radix_Sort_Pair = std::pair<T, T>;
@@ -116,3 +119,160 @@ Radix_Sort_Pair<T>* radix_sort_parallel(
   }
   return (num_passes % 2 == 0 ? inp_buf : tmp_buf);
 }
+
+namespace fbgemm_gpu {
+
+  template <typename T>
+inline float toFloat(T val) {
+  float ret = float(val);
+  return ret;
+}
+
+template <>
+inline float toFloat(at::Half val) {
+  float ret = _cvtsh_ss(val);
+  return ret;
+}
+template <typename T1, typename T2>
+inline void madd_ker_ref(T1* inout, T2* in, int len, float alpha) {
+  for (long v = 0; v < len; v++) {
+    inout[v] += toFloat(in[v]) * alpha;
+  }
+}
+
+template <typename T1, typename T2>
+inline void madd_ker(T1* inout, T2* in, int len, float alpha) {
+  madd_ker_ref(inout, in, len, alpha);
+}
+
+template <>
+inline void madd_ker(at::Half* inout, at::Half* in, int len, float alpha) {
+  static bool a512 = fbgemm::fbgemmHasAvx512Support();
+  if (!a512) madd_ker_ref(inout, in, len, alpha);
+  __m512 vAlpha = _mm512_set1_ps(alpha);
+  int i = 0;
+  for (; i < len - 15; i += 16) {
+    __m512 y1 = _mm512_cvtph_ps(_mm256_loadu_si256((__m256i*)(inout + i)));
+    __m512 y2 = _mm512_cvtph_ps(_mm256_loadu_si256((__m256i*)(in + i)));
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm256_storeu_si256(
+        (__m256i*)(inout + i),
+        _mm512_cvtps_ph(y1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+  }
+  if (i < len) {
+    int rem = len - i;
+    __mmask16 mask = (1 << rem) - 1;
+    __m512 y1 = _mm512_cvtph_ps(_mm256_maskz_loadu_epi16(mask, inout + i));
+    __m512 y2 = _mm512_cvtph_ps(_mm256_maskz_loadu_epi16(mask, in + i));
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm256_mask_storeu_epi16(
+        inout + i,
+        mask,
+        _mm512_cvtps_ph(y1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+  }
+}
+
+template <>
+inline void madd_ker(float* inout, at::Half* in, int len, float alpha) {
+  static bool a512 = fbgemm::fbgemmHasAvx512Support();
+  if (!a512) madd_ker_ref(inout, in, len, alpha);
+  __m512 vAlpha = _mm512_set1_ps(alpha);
+  int i = 0;
+  for (; i < len - 15; i += 16) {
+    __m512 y1 = _mm512_loadu_ps(inout + i);
+    __m512 y2 = _mm512_cvtph_ps(_mm256_loadu_si256((__m256i*)(in + i)));
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm512_storeu_ps(inout + i, y1);
+  }
+  if (i < len) {
+    int rem = len - i;
+    __mmask16 mask = (1 << rem) - 1;
+    __m512 y1 = _mm512_maskz_loadu_ps(mask, inout + i);
+    __m512 y2 = _mm512_cvtph_ps(_mm256_maskz_loadu_epi16(mask, in + i));
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm512_mask_storeu_ps(inout + i, mask, y1);
+  }
+}
+
+template <>
+inline void madd_ker(float* inout, float* in, int len, float alpha) {
+  static bool a512 = fbgemm::fbgemmHasAvx512Support();
+  if (!a512) madd_ker_ref(inout, in, len, alpha);
+  __m512 vAlpha = _mm512_set1_ps(alpha);
+  int i = 0;
+  for (; i < len - 15; i += 16) {
+    __m512 y1 = _mm512_loadu_ps(inout + i);
+    __m512 y2 = _mm512_loadu_ps(in + i);
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm512_storeu_ps(inout + i, y1);
+  }
+  if (i < len) {
+    int rem = len - i;
+    __mmask16 mask = (1 << rem) - 1;
+    __m512 y1 = _mm512_maskz_loadu_ps(mask, inout + i);
+    __m512 y2 = _mm512_maskz_loadu_ps(mask, in + i);
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm512_mask_storeu_ps(inout + i, mask, y1);
+  }
+}
+
+template <typename T>
+static inline T sq_reduce_ker(T* in, int len) {
+  T g_local_sum_square = 0.0;
+#pragma omp simd reduction(+ : g_local_sum_square)
+  for (int d = 0; d < len; d++) {
+    g_local_sum_square += in[d] * in[d];
+  }
+  return g_local_sum_square;
+}
+
+static inline c10::Half sq_reduce_ker(c10::Half* in, int len) {
+  c10::Half g_local_sum_square = 0.0;
+  for (int d = 0; d < len; d++) {
+    g_local_sum_square += in[d] * in[d];
+  }
+  return g_local_sum_square;
+}
+
+void init_threadlocal_rnd_state(unsigned int seed=0x42);
+__m256i _mm512_cvtps_ph_stoc(__m512 src);
+
+template <typename T1, typename T2>
+inline void madd_ker_stochastic_ref(T1* inout, T2* in, int len, float alpha) {
+#pragma omp simd
+  for (long v = 0; v < len; v++) {
+    inout[v] += toFloat(in[v]) * alpha;
+  }
+}
+template <typename T1, typename T2>
+inline void madd_ker_stochastic(T1* inout, T2* in, int len, float alpha) {
+  madd_ker_stochastic_ref(inout, in, len, alpha);
+}
+
+template <>
+inline void madd_ker_stochastic(
+    at::Half* inout,
+    float* in,
+    int len,
+    float alpha) {
+  static bool a512 = fbgemm::fbgemmHasAvx512Support();
+  if (!a512) madd_ker_stochastic_ref(inout, in, len, alpha);
+  init_threadlocal_rnd_state();
+  __m512 vAlpha = _mm512_set1_ps(alpha);
+  int i = 0;
+  for (; i < len - 15; i += 16) {
+    __m512 y1 = _mm512_cvtph_ps(_mm256_loadu_si256((__m256i*)(inout + i)));
+    __m512 y2 = _mm512_loadu_ps(in + i);
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm256_storeu_si256((__m256i*)(inout + i), _mm512_cvtps_ph_stoc(y1));
+  }
+  if (i < len) {
+    int rem = len - i;
+    __mmask16 mask = (1 << rem) - 1;
+    __m512 y1 = _mm512_cvtph_ps(_mm256_maskz_loadu_epi16(mask, inout + i));
+    __m512 y2 = _mm512_maskz_loadu_ps(mask, in + i);
+    y1 = _mm512_fmadd_ps(vAlpha, y2, y1);
+    _mm256_mask_storeu_epi16(inout + i, mask, _mm512_cvtps_ph_stoc(y1));
+  }
+}
+} // namespace fbgemm_gpu

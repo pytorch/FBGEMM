@@ -158,6 +158,7 @@ setup(
                 os.path.join(cur_dir, "src/split_table_batched_embeddings.cpp"),
                 os.path.join(cur_dir, "src/cumem_utils.cu"),
                 os.path.join(cur_dir, "src/cumem_utils_host.cpp"),
+                os.path.join(cur_dir, "src/cpu_utils.cpp"),
                 os.path.join(cur_dir, "src/quantize_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/quantize_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
@@ -198,6 +199,7 @@ setup(
                 os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
+                os.path.join(cur_dir, "src/cpu_utils.cpp"),
             ],
             include_dirs=[
                 cur_dir,
