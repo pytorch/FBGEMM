@@ -11,7 +11,7 @@ import unittest
 import hypothesis.strategies as st
 
 import torch
-from hypothesis import given, settings
+from hypothesis import Verbosity, given, settings
 
 try:
     torch.ops.load_library("fbgemm_gpu_py.so")
@@ -19,7 +19,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
-MAX_EXAMPLES = 15
+MAX_EXAMPLES = 20
 
 class LayoutTransformOpsTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
@@ -30,7 +30,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=20),
         W=st.integers(min_value=1, max_value=20),
     )
-    @settings(max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output(self, B: int, T: int, D: int, W: int) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         grad_output = torch.randn(B, sum(num_features_per_rank), D).float().cuda()
@@ -45,7 +45,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output(
             grad_output, num_features_per_rank
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl, sharded_grad_output)
+        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-fixme[56]
@@ -54,7 +54,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         W=st.integers(min_value=1, max_value=20),
         cuda=st.booleans(),
     )
-    @settings(max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output_mixed_D(self, B: int, W: int, cuda: bool) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)
@@ -84,7 +84,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output_mixed_D(
             grad_output, dim_sum_per_rank
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl, sharded_grad_output)
+        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-fixme[56]
@@ -92,7 +92,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=20),
         W=st.integers(min_value=1, max_value=20),
     )
-    @settings(max_examples=MAX_EXAMPLES, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_recat_embedding_grad_output_mixed_D_batch(self, B: int, W: int) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)
@@ -129,7 +129,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
                 cumsum_dim_sum_per_rank_tensor.cuda(),
             )
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl, sharded_grad_output)
+        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)
         mixed_D_list = np.random.randint(low=1, high=10, size=(global_T,))
@@ -161,7 +161,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output_mixed_D_batch(
             grad_output, dim_sum_per_rank_tensor, cumsum_dim_sum_per_rank_tensor
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl, sharded_grad_output)
+        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
 
 if __name__ == "__main__":
     unittest.main()
