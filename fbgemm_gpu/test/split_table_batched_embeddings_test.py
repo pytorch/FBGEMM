@@ -502,6 +502,124 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        # FIXME: switch to
+        # pooled_embedding_precision=st.sampled_from([SparseType.FP16, SparseType.INT8]),
+        # after v0/v2 is landed.
+        pooled_embedding_precision=st.sampled_from([SparseType.FP32]),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_forward_fused_pooled_emb_quant(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        pooled_embedding_precision: SparseType,
+    ) -> None:
+        Ds = [
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        E = int(10 ** log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+
+        op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            pooled_output_precision=pooled_embedding_precision,
+            device=torch.cuda.current_device(),
+        )
+        op_ref = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        E,
+                        D,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+                pooled_output_precision=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
+        )
+        # sync weights between two ops
+        split_weights = op.split_embedding_weights()
+        ref_split_weights = op_ref.split_embedding_weights()
+        for t in range(T):
+            split_weights[t].data.copy_(ref_split_weights[t])
+
+        requests = generate_requests(2, B, T, L, min(Es), reuse=0.1)
+
+        for indices, offsets, _ in requests:
+            lowp_pooled_output = op(
+                indices=indices,
+                offsets=offsets,
+            )
+            fp32_pooled_output = op_ref(
+                indices=indices,
+                offsets=offsets,
+            )
+
+            lowp_pooled_emb_split = [
+                d + 8 if pooled_embedding_precision == SparseType.INT8 else d
+                for d in op.dims
+            ]
+            lowp_pooled_output_per_table = torch.split(
+                lowp_pooled_output, lowp_pooled_emb_split, dim=1
+            )
+
+            deq_lowp_pooled_output_per_table = [
+                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
+                if pooled_embedding_precision == SparseType.INT8
+                else t.float()
+                for t in lowp_pooled_output_per_table
+            ]
+            fp32_pooled_output_per_table = torch.split(
+                fp32_pooled_output, op.dims, dim=1
+            )
+
+            dq_fp32_pooled_output_per_table = [
+                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                    torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                        t.contiguous()
+                    ).contiguous()
+                )
+                if pooled_embedding_precision == SparseType.INT8
+                else t.half().float()
+                for t in fp32_pooled_output_per_table
+            ]
+
+            cat_deq_lowp_pooled_output = torch.cat(
+                deq_lowp_pooled_output_per_table, dim=1
+            )
+
+            cat_dq_fp32_pooled_output = torch.cat(
+                dq_fp32_pooled_output_per_table, dim=1
+            )
+            assert torch.allclose(cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output)
+
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),
