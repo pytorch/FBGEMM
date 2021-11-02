@@ -94,14 +94,14 @@ class TBEInputPrepareReference(torch.nn.Module):
 
 
 class InputCombineTest(unittest.TestCase):
-    def _get_inputs(self, dtype):
+    def _get_inputs(self, dtypes):
         indices_list = [
-            torch.tensor([1, 2, 3], dtype=dtype),
-            torch.tensor([1, 2, 3, 4], dtype=dtype),
+            torch.tensor([1, 2, 3], dtype=dtypes[0]),
+            torch.tensor([1, 2, 3, 4], dtype=dtypes[1]),
         ]
         offsets_list = [
-            torch.tensor([0, 2], dtype=dtype),
-            torch.tensor([0, 1, 4], dtype=dtype),
+            torch.tensor([0, 2], dtype=dtypes[0]),
+            torch.tensor([0, 1, 4], dtype=dtypes[1]),
         ]
         include_last_offsets = [False, True]
         per_sample_weights = [
@@ -114,26 +114,36 @@ class InputCombineTest(unittest.TestCase):
         ]
         return indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets
 
-    def _run_test(self, dtype) -> None:
-        indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets = self._get_inputs(dtype)
+    def _run_test(self, dtypes) -> None:
+        indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets = self._get_inputs(dtypes)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         outputs = torch.ops.fbgemm.tbe_input_combine(indices_list, offsets_list, per_sample_weights, torch.BoolTensor(include_last_offsets))
         ref_outputs = ref_mod(indices_list, offsets_list, per_sample_weights)
         for i, j in zip(outputs, ref_outputs):
             torch.testing.assert_allclose(i, j)
+        self.assertTrue(outputs[0].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int32)
+
 
         outputs = torch.ops.fbgemm.tbe_input_combine(indices_list, offsets_list, empty_per_sample_weights, torch.BoolTensor(include_last_offsets))
         ref_outputs = ref_mod(indices_list, offsets_list, empty_per_sample_weights)
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
             torch.testing.assert_allclose(i, j)
+            self.assertTrue(j.dtype == torch.int32)
+
+        self.assertTrue(outputs[0].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
     def test_input_combine_int64(self):
-        self._run_test(torch.int64)
+        self._run_test((torch.int64, torch.int64))
 
     def test_input_combine_int32(self):
-        self._run_test(torch.int32)
+        self._run_test((torch.int64, torch.int64))
+
+    def test_input_combined_mix(self):
+        self._run_test((torch.int64, torch.int32))
 
 
 if __name__ == "__main__":
