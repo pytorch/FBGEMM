@@ -44,8 +44,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
 #endif
 
   for (size_t i = 0; i < indices_list.size(); i++) {
-    TORCH_CHECK(indices_list[i].dtype() == indices_list[0].dtype());
-    TORCH_CHECK(offsets_list[i].dtype() == offsets_list[0].dtype());
+    TORCH_CHECK(
+        indices_list[i].dtype() == c10::kInt ||
+        indices_list[i].dtype() == c10::kLong);
+    TORCH_CHECK(
+        offsets_list[i].dtype() == c10::kInt ||
+        offsets_list[i].dtype() == c10::kLong);
     TORCH_CHECK(indices_list[i].ndimension() == 1);
     TORCH_CHECK(offsets_list[i].ndimension() == 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
@@ -70,23 +74,21 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
           .device(indices_list[0].device())
           .pinned_memory(pin_memory));
 
-  if (indices_list[0].dtype() == c10::kInt) {
-    at::cat_out(combined_indices, indices_list);
-  } else if (indices_list[0].dtype() == c10::kLong) {
-    auto combined_indices_acc = combined_indices.accessor<int32_t, 1>();
-    size_t idx = 0;
+  auto combined_indices_acc = combined_indices.accessor<int32_t, 1>();
+  size_t idx = 0;
 
-    for (size_t i = 0; i < indices_list.size(); i++) {
-      auto indices_acc = indices_list[i].accessor<int64_t, 1>();
-      for (auto j = 0; j < indices_list[i].numel(); j++) {
-        combined_indices_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
-      }
-    }
-  } else {
-    AT_ERROR(
-        "Only support Int or Long type for indices, found ",
-        indices_list[0].dtype());
+  for (size_t i = 0; i < indices_list.size(); i++) {
+    AT_DISPATCH_INDEX_TYPES(
+        indices_list[i].scalar_type(),
+        "tbe_input_indices_",
+        [&]() {
+          auto indices_acc = indices_list[i].accessor<index_t, 1>();
+          for (auto j = 0; j < indices_list[i].numel(); j++) {
+            combined_indices_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
+          }
+        });
   }
+
 
   auto combined_offsets = at::empty(
       {total_offsets},
@@ -95,29 +97,28 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  AT_DISPATCH_INDEX_TYPES(
-      offsets_list[0].scalar_type(), "tbe_input_combine_offsets", [&]() {
-        auto combined_offsets_acc = combined_offsets.accessor<int32_t, 1>();
-        int32_t offset = 0;
-        size_t idx = 0;
-        combined_offsets_acc[idx++] = 0;
+  auto combined_offsets_acc = combined_offsets.accessor<int32_t, 1>();
+  int32_t offset = 0;
+  size_t offsets_acc_idx = 0;
+  combined_offsets_acc[offsets_acc_idx++] = 0;
 
-        for (size_t i = 0; i < offsets_list.size(); i++) {
+  for (size_t i = 0; i < offsets_list.size(); i++) {
+    AT_DISPATCH_INDEX_TYPES(
+        offsets_list[i].scalar_type(), "tbe_input_offsets_", [&]() {
           auto offsets_acc = offsets_list[i].accessor<index_t, 1>();
-
           for (int64_t j = 1,
                        size = offsets_list[i].numel() -
                    (include_last_offsets_acc[i] ? 1 : 0);
                j < size;
                j++) {
-            combined_offsets_acc[idx++] =
+            combined_offsets_acc[offsets_acc_idx++] =
                 offset + static_cast<int32_t>(offsets_acc[j]);
           }
 
           offset += static_cast<int32_t>(indices_list[i].numel());
-          combined_offsets_acc[idx++] = offset;
-        }
-      });
+          combined_offsets_acc[offsets_acc_idx++] = offset;
+        });
+  }
 
   if (need_weights) {
     auto combined_weights = at::ones(
