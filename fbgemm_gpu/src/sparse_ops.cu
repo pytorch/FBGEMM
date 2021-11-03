@@ -8,6 +8,7 @@
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/batched_unary_embedding_ops.cuh"
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
@@ -1124,6 +1125,97 @@ at::Tensor reorder_batched_ad_indices_gpu(
       T);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return reordered_cat_ad_indices;
+}
+
+at::Tensor batched_unary_embeddings_forward_cuda(
+    const at::Tensor& weight,
+    const at::Tensor& table_offsets,
+    const at::Tensor& offsets,
+    const at::Tensor& indices) {
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(table_offsets);
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(weight);
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(offsets);
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(indices);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(weight.get_device());
+  // N: number of tasks, T: number of tables, B: batch size
+  const int32_t N = weight.size(0);
+  const int32_t T = table_offsets.numel() - 1;
+  const int32_t B = (offsets.numel() - 1) / T;
+  TORCH_CHECK(N > 0);
+  TORCH_CHECK(B > 0);
+  TORCH_CHECK(T > 0);
+  TORCH_CHECK(T <= 65535);
+  TORCH_CHECK(N <= 65535);
+  int32_t threads = std::min<int32_t>(B, 512);
+  dim3 blocks(cuda_calc_xblock_count(B, threads), T, N);
+  auto output = at::empty({N, B, T}, weight.options());
+  AT_DISPATCH_INDEX_TYPES(
+      indices.type(), "batched_unary_embeddings_forward_kernel", ([&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            weight.type(), "batched_unary_embeddings_forward_kernel", ([&] {
+              batched_unary_embeddings_forward_kernel<scalar_t>
+                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                      N,
+                      B,
+                      T,
+                      weight.data_ptr<scalar_t>(),
+                      table_offsets.data_ptr<index_t>(),
+                      offsets.data_ptr<index_t>(),
+                      indices.data_ptr<index_t>(),
+                      output.data_ptr<scalar_t>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            }));
+      }));
+  return output;
+}
+
+at::Tensor batched_unary_embeddings_backward_cuda(
+    const at::Tensor& grad_output,
+    const at::Tensor& weight,
+    const at::Tensor& table_offsets,
+    const at::Tensor& offsets,
+    const at::Tensor& indices) {
+  TENSOR_ON_CUDA_GPU(grad_output);
+  TENSOR_ON_CUDA_GPU(weight);
+  TENSOR_ON_CUDA_GPU(table_offsets);
+  TENSOR_ON_CUDA_GPU(offsets);
+  TENSOR_ON_CUDA_GPU(indices);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(grad_output.get_device());
+
+  // N: number of tasks, T: number of tables, B: batch size
+  const int32_t N = grad_output.size(0);
+  const int32_t B = grad_output.size(1);
+  const int32_t T = grad_output.size(2);
+  TORCH_CHECK(N > 0);
+  TORCH_CHECK(B > 0);
+  TORCH_CHECK(T > 0);
+  int threads = std::min<int32_t>(N * T, 512);
+  dim3 blocks(cuda_calc_xblock_count(N * T, threads));
+  auto grad_weight = at::zeros_like(weight);
+  AT_DISPATCH_INDEX_TYPES(
+      indices.type(), "batched_unary_embeddings_backward_kernel", ([&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            grad_output.type(),
+            "batched_unary_embeddings_backward_kernel",
+            ([&] {
+              batched_unary_embeddings_backward_kernel<scalar_t>
+                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                      N,
+                      B,
+                      T,
+                      grad_output.data_ptr<scalar_t>(),
+                      table_offsets.data_ptr<index_t>(),
+                      offsets.data_ptr<index_t>(),
+                      indices.data_ptr<index_t>(),
+                      grad_weight.data_ptr<scalar_t>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            }));
+      }));
+  return grad_weight;
 }
 
 } // namespace fbgemm
