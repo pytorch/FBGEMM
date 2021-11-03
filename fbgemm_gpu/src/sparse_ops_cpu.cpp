@@ -704,6 +704,82 @@ at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size) {
 
   return range;
 }
+
+/// CPU version of batched_unary_embeddings forward pass.
+///
+/// Sums up `weight` embeddings according to `offsets` and `indices`.
+/// `table_offests` is a helper struct to quickly navigate through tables in
+/// `weight` -- it is caller's responsibility to keep it in sync with `weight`.
+/// Visualization of op semantics: https://fburl.com/9a4uktmb
+///
+/// This version is only for numerical verification so not optimized for
+/// performance.
+///
+/// @param weight        - Weight for the embeddings.
+/// @param table_offsets - Index offsets for each table entry in `weight`.
+/// @param offsets       - Offsets for the starting point of each summation.
+/// @param indices       - Indices for the embeddings to fetch (from `weight`).
+/// @return The sumed embeddings.
+at::Tensor batched_unary_embeddings_forward_cpu(
+    const at::Tensor& weight,
+    const at::Tensor& table_offsets,
+    const at::Tensor& offsets,
+    const at::Tensor& indices) {
+  TENSOR_ON_CPU(weight);
+  TENSOR_ON_CPU(table_offsets);
+  TENSOR_ON_CPU(offsets);
+  TENSOR_ON_CPU(indices);
+
+  // N: number of tasks, T: number of tables, B: batch size
+  const int32_t N = weight.sizes()[0];
+  const int32_t T = table_offsets.numel() - 1;
+  const int32_t B = (offsets.numel() - 1) / T;
+  TORCH_CHECK(N > 0);
+  TORCH_CHECK(T > 0);
+  TORCH_CHECK(B > 0);
+
+  // Only supporting limited data types for now.
+  TORCH_CHECK(weight.scalar_type() == at::ScalarType::Float);
+
+  // Make sure the index_t are consistent among table_offsets, offsets and
+  // indices
+  TORCH_CHECK(table_offsets.scalar_type() == offsets.scalar_type());
+  TORCH_CHECK(table_offsets.scalar_type() == indices.scalar_type());
+
+  auto output = at::empty({N, B, T}, weight.options());
+  auto* output_data = output.data_ptr<float>();
+  const auto* weight_data = weight.data_ptr<float>();
+
+  AT_DISPATCH_INDEX_TYPES(
+      table_offsets.scalar_type(), "unary_indices", ([&] {
+        const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
+        const index_t* offsets_data = offsets.data_ptr<index_t>();
+        const index_t* indices_data = indices.data_ptr<index_t>();
+        const index_t sum_E = table_offsets_data[T];
+
+        for (const auto n : c10::irange(N)) {
+          for (const auto b : c10::irange(B)) {
+            for (const auto t : c10::irange(T)) {
+              const index_t indices_start = offsets_data[t * B + b];
+              const index_t indices_end = offsets_data[t * B + b + 1];
+              float sum = 0;
+              for (const auto l : c10::irange(indices_start, indices_end)) {
+                const index_t idx =
+                    n * sum_E + table_offsets_data[t] + indices_data[l];
+                // Since we don't care about the performance of CPU impl, adding
+                // the boundary check here. OOB will result in undefined
+                // behavior for GPU impl.
+                TORCH_CHECK(idx < weight.numel());
+                sum += weight_data[idx];
+              }
+              output_data[(n * B + b) * T + t] = sum;
+            }
+          }
+        }
+      }));
+
+  return output;
+}
 } // namespace fbgemm
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -719,6 +795,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch) -> Tensor");
   m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
+  m.def(
+      "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -735,4 +813,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_cpu);
   m.impl("reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_cpu);
   m.impl("offsets_range", fbgemm::offsets_range_cpu);
+  m.impl("batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
 }

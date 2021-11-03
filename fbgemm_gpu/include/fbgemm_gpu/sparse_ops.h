@@ -127,4 +127,18 @@ at::Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
 at::Tensor recat_embedding_grad_output_mixed_D_cpu(
     const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank);
+
+at::Tensor batched_unary_embeddings_forward_cuda(
+    const at::Tensor& weight,
+    const at::Tensor& table_offsets,
+    const at::Tensor& offsets,
+    const at::Tensor& indices);
+
+at::Tensor batched_unary_embeddings_backward_cuda(
+    const at::Tensor& grad_output,
+    const at::Tensor& weight,
+    const at::Tensor& table_offsets,
+    const at::Tensor& offsets,
+    const at::Tensor& indices);
+
 } // namespace fbgemm
