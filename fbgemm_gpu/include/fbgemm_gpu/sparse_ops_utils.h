@@ -95,6 +95,13 @@ inline bool torch_tensor_on_cuda_gpu_check(
       "Found ",                            \
       (ten).ndimension())
 
+#define TENSOR_CONTIGUOUS(x) \
+  TORCH_CHECK((x).is_contiguous(), #x " must be contiguous")
+
+#define TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(x) \
+  TENSOR_ON_CUDA_GPU(x);                     \
+  TENSOR_CONTIGUOUS(x)
+
 /// Determine an appropriate CUDA block count along the x axis
 ///
 /// When launching CUDA kernels the number of blocks B is often calculated
