@@ -530,6 +530,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[b * total_D + D_start + 8 * (D_vecs - 1)]);
                     }
                 }
+            } else
+                throw std::logic_error("Unsupported SparseType: " + (int)weight_ty);
             }
         }
         return;
