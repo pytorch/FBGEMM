@@ -11,7 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
-#include "autograd/custom_function.h"
+#include <torch/csrc/autograd/custom_function.h>
 
 namespace fbgemm {
 
