@@ -1207,27 +1207,27 @@ void compressed_indices_remap(
 
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
-    if (weights == nullptr) {
-      internal::compressed_indices_remap_avx512<IndexType, false>(
-          offsets_len,
-          indices,
-          compressed_indices_mapping,
-          offsets,
-          weights,
-          out_indices,
-          out_offsets,
-          out_weights);
-    } else {
-      internal::compressed_indices_remap_avx512<IndexType, true>(
-          offsets_len,
-          indices,
-          compressed_indices_mapping,
-          offsets,
-          weights,
-          out_indices,
-          out_offsets,
-          out_weights);
-    }
+    // if (weights == nullptr) {
+    //   internal::compressed_indices_remap_avx512<IndexType, false>(
+    //       offsets_len,
+    //       indices,
+    //       compressed_indices_mapping,
+    //       offsets,
+    //       weights,
+    //       out_indices,
+    //       out_offsets,
+    //       out_weights);
+    // } else {
+    //   internal::compressed_indices_remap_avx512<IndexType, true>(
+    //       offsets_len,
+    //       indices,
+    //       compressed_indices_mapping,
+    //       offsets,
+    //       weights,
+    //       out_indices,
+    //       out_offsets,
+    //       out_weights);
+    // }
   } else {
     compressed_indices_remap_ref<IndexType>(
         offsets_len,
