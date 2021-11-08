@@ -5,9 +5,11 @@
 
 import struct
 import math
-from typing import Callable
+from typing import Callable, List, Tuple
 
+import hypothesis.strategies as st
 import numpy as np
+import torch
 
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[np.ndarray], np.ndarray] = np.vectorize(round)
@@ -138,3 +140,28 @@ def fused_rowwise_nbit_quantize_dequantize_reference(data: np.ndarray, bit: int)
             ) & ((1 << bit) - 1)
 
     return scale * unpacked_data + bias
+
+
+# Used for `@unittest.skipIf`
+gpu_unavailable: Tuple[bool, str] = (
+    not torch.cuda.is_available() or torch.cuda.device_count() == 0,
+    "CUDA is not available or no GPUs detected",
+)
+# Used for `if` statements inside tests
+gpu_available: bool = not gpu_unavailable[0]
+
+
+def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
+    gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
+    # st.sampled_from is not guaranteed to test all the values passed to it.
+    # However, Hypothesis, by default, generates 100 test cases from the specified strategies.
+    # If st.sampled_from contains >100 items or if it's used in conjunction with other strategies
+    # then it may not test all values; however, for smaller tests it may work fine.
+    # This is still a stopgap solution until we figure out a way to parameterize UnitTestCase.
+    return st.sampled_from(
+        [torch.device("cpu")] + ([torch.device("cuda")] if gpu_available else [])
+    )
+
+
+def cpu_only() -> st.SearchStrategy[List[torch.device]]:
+    return st.sampled_from([torch.device("cpu")])

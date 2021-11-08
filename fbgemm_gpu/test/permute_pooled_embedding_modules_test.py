@@ -1,18 +1,12 @@
 import inspect
 import sys
 import unittest
-from typing import List, Tuple
 
-import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
+from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable
 from hypothesis import HealthCheck, given, settings
 from torch import nn, Tensor
-
-gpu_unavailable: Tuple[bool, str] = (
-    not torch.cuda.is_available() or torch.cuda.device_count() == 0,
-    "CUDA is not available or no GPUs detected",
-)
 
 INTERN_MODULE = "fbgemm_gpu.permute_pooled_embedding_modules"
 FIXED_EXTERN_API = {
@@ -36,14 +30,6 @@ FWD_COMPAT_MSG = (
     "\t4. Once step 3. is complete, you can push the rest of your changes that use the new"
     " changes."
 )
-
-
-def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
-    gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
-    return st.sampled_from(
-        [torch.device("cpu")]
-        + ([torch.device("cuda")] if gpu_available else [torch.device("cpu")])
-    )
 
 
 class Net(torch.nn.Module):
