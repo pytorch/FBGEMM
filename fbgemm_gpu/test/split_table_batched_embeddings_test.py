@@ -21,6 +21,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     RecordCacheMetrics,
     BoundsCheckMode,
 )
+from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
 
@@ -325,7 +327,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=256),
@@ -346,7 +348,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -384,7 +386,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=256),
@@ -405,7 +407,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -443,7 +445,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=256),
@@ -464,7 +466,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -502,7 +504,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -637,7 +639,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -843,7 +845,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
     )
     @settings(
@@ -1370,7 +1372,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
     )
     @settings(
@@ -1440,7 +1442,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
     )
     @settings(
@@ -1487,7 +1489,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             exact,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -1928,7 +1930,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1986,7 +1988,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2044,7 +2046,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2097,7 +2099,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2357,7 +2359,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-2,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),
@@ -2379,7 +2381,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # TODO: implement for SparseType.INT2,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
     )
@@ -2418,7 +2420,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed_weights_ty,
         )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),
@@ -2439,7 +2441,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP32,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
     )
@@ -2482,7 +2484,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=10),
         B=st.integers(min_value=1, max_value=64),
         L=st.integers(min_value=0, max_value=64),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         use_cpu_hashtable=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -2566,7 +2568,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )
@@ -2577,7 +2579,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
     )

@@ -14,6 +14,7 @@ from fbgemm_gpu.test.test_utils import (
     fused_rowwise_nbit_quantize_reference,
     fused_rowwise_nbit_quantize_dequantize_reference,
     bytes_to_half_floats,
+    gpu_available,
 )
 from hypothesis import HealthCheck, given, assume, settings
 
@@ -44,7 +45,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         reference = fused_rowwise_8bit_quantize_reference(input_data.numpy())
         np.testing.assert_array_almost_equal(quantized_data.numpy(), reference)
 
-        if torch.cuda.is_available():
+        if gpu_available:
             input_data_gpu = input_data.cuda()
             quantized_data_gpu = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
                 input_data_gpu
@@ -78,7 +79,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             fused_rowwise_8bit_dequantize_reference(quantized_data.numpy())
         )
 
-        if torch.cuda.is_available():
+        if gpu_available:
             input_data_gpu = input_data.cuda()
             quantized_data_gpu = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
                 input_data_gpu
@@ -141,7 +142,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             quantized_data[:, interleaved_dim + 2], reference[:, interleaved_dim + 2]
         )
 
-        if torch.cuda.is_available():
+        if gpu_available:
             input_data_gpu = input_data.cuda()
             quantized_data_gpu = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
                 input_data_gpu, bit_rate
@@ -181,7 +182,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         )
         torch.testing.assert_allclose(dequantized_data, reference)
 
-        if torch.cuda.is_available():
+        if gpu_available:
             input_data_gpu = input_data.cuda()
             quantized_data_gpu = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
                 input_data_gpu, bit_rate
@@ -208,7 +209,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             )
         )
 
-        if torch.cuda.is_available():
+        if gpu_available:
             input_data_gpu = input_data.cuda()
             quantized_data_gpu = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
                 input_data_gpu, bit_rate

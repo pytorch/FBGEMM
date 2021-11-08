@@ -12,6 +12,7 @@ import hypothesis.strategies as st
 
 import torch
 from hypothesis import Verbosity, given, settings
+from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 try:
     torch.ops.load_library("fbgemm_gpu_py.so")
@@ -22,7 +23,7 @@ except Exception:
 MAX_EXAMPLES = 20
 
 class LayoutTransformOpsTest(unittest.TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -47,7 +48,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         )
         torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -86,7 +87,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         )
         torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),

@@ -14,6 +14,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from hypothesis import Verbosity, given, settings
+from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
 try:
     torch.ops.load_library("fbgemm_gpu_py.so")
@@ -123,7 +124,7 @@ class SparseOpsTest(unittest.TestCase):
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
-        if torch.cuda.is_available():
+        if gpu_available:
             (
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
@@ -195,7 +196,7 @@ class SparseOpsTest(unittest.TestCase):
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
-        if torch.cuda.is_available():
+        if gpu_available:
             (
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
@@ -263,7 +264,7 @@ class SparseOpsTest(unittest.TestCase):
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
-        if torch.cuda.is_available():
+        if gpu_available:
             (
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
@@ -316,7 +317,7 @@ class SparseOpsTest(unittest.TestCase):
         torch.testing.assert_allclose(permuted_embeddings_cpu, permuted_embeddings_ref)
         torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
 
-        if torch.cuda.is_available():
+        if gpu_available:
             (
                 permuted_lengths_gpu,
                 permuted_embeddings_gpu,
@@ -334,7 +335,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu.cpu(), permuted_lengths_cpu
             )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         long_indices=st.booleans(),
@@ -434,7 +435,7 @@ class SparseOpsTest(unittest.TestCase):
             (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype), zc.cpu()
         )
 
-        if torch.cuda.is_available():
+        if gpu_available:
             x = x.cuda()
             ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
             zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
@@ -469,7 +470,7 @@ class SparseOpsTest(unittest.TestCase):
         range_cpu = torch.ops.fbgemm.offsets_range(offsets_cpu, output_size)
         torch.testing.assert_allclose(range_cpu, range_ref, 0, 0)
 
-        if torch.cuda.is_available():
+        if gpu_available:
             range_gpu = torch.ops.fbgemm.offsets_range(offsets_cpu.cuda(), output_size)
             torch.testing.assert_allclose(range_gpu.cpu(), range_ref, 0, 0)
 
@@ -583,7 +584,7 @@ class SparseOpsTest(unittest.TestCase):
             )
             torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
 
-        if torch.cuda.is_available():
+        if gpu_available:
             (
                 new_lengths_gpu,
                 new_indices_gpu,
@@ -618,7 +619,7 @@ class SparseOpsTest(unittest.TestCase):
                 )
                 torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -670,7 +671,7 @@ class SparseOpsTest(unittest.TestCase):
         )
         torch.testing.assert_allclose(cat_ad_lengths, reordered_batched_ad_lengths)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),

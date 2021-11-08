@@ -8,6 +8,8 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import Verbosity, given, settings
 
+from fbgemm_gpu.test.test_utils import gpu_unavailable
+
 try:
     torch.ops.load_library("fbgemm_gpu_py.so")
 except Exception:
@@ -15,7 +17,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu")
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+@unittest.skipIf(*gpu_unavailable)
 class MergePooledEmbeddingsTest(unittest.TestCase):
     @given(
         num_ads=st.integers(min_value=1, max_value=10),
