@@ -13,6 +13,7 @@
 #endif
 
 #include "codegen/embedding_common.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -149,6 +150,71 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     return;
 }
 
+template <typename output_t>
+struct VecT {};
+
+template <>
+struct VecT<float> {
+    void store_vec(at::Half* output_acc, __m256& acci) {
+        // Error;
+        TORCH_CHECK(false);
+    }
+    void store_vec(float* output_acc, __m256& acci) {
+        _mm256_storeu_ps(output_acc, acci);
+    }
+};
+
+template <>
+struct VecT<at::Half> {
+    void store_vec(at::Half* output_acc, __m256& acci) {
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(output_acc), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+    }
+    void store_vec(float* output_acc, __m256& acci) {
+        // Error;
+        TORCH_CHECK(false);
+    }
+};
+
+// TODO: add uint8 store instructions
+
+template <typename output_t>
+void store_result(
+    const int32_t D_vecs,
+    const int32_t D_tail_elements,
+    const std::vector<__m256>& acc,
+    __m256& scale_vec,
+    output_t* output_acc,
+    const bool acc_scaling
+) {
+    if (D_tail_elements == 0) {
+        for (auto i = 0; i < D_vecs; ++i) {
+            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
+            VecT<output_t> vec_st;
+            vec_st.store_vec(&output_acc[8 * i], acci);
+        }
+    } else {
+        for (auto i = 0; i < D_vecs - 1; ++i) {
+            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
+            VecT<output_t> vec_st;
+            vec_st.store_vec(&output_acc[8 * i], acci);
+        }
+        if (std::is_same<output_t, float>::value) {
+            std::array<float, 8> vs;
+            auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
+            VecT<output_t> vec_st;
+            vec_st.store_vec(vs.data(), acci);
+            // To check D_tail_elements size
+            std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
+        } else if (std::is_same<output_t, at::Half>::value) {
+            std::array<Half, 8> vs;
+            auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
+            VecT<output_t> vec_st;
+            vec_st.store_vec(vs.data(), acci);
+            std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
+        }
+    }
+}
+
 Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -163,6 +229,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
+    int64_t output_dtype,
     int64_t unused
 ) {
     int32_t T = D_offsets.numel() - 1;
@@ -171,14 +238,23 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
     TORCH_CHECK(total_D > 0);
-    bool pined_memory = false;
+    bool pinned_memory = false;
 #ifdef FBGEMM_GPU_WITH_CUDA
     if (globalContext().hasCUDA() && ::at::cuda::is_available()) {
-      pined_memory = true;
+      pinned_memory = true;
     }
 #endif
 
-    auto output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pined_memory));
+    at::Tensor output;
+    SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16);
+    if (o_dtype == SparseType::FP32) {
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat).pinned_memory(pinned_memory));
+    } else if (o_dtype == SparseType::FP16) {
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pinned_memory));
+    }
+
+
     if (B == 0) {
         return output;
     }
@@ -188,354 +264,300 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
-    auto* output_acc = output.data_ptr<Half>();
-    {% if weighted %}
-    const float* indice_weights_acc = indice_weights.data_ptr<float>();
-    {% endif %}
-    // Empty array filled with zeros (thus accumulating to zero).
-    // max-D = 1024, max-sizeof(T) = sizeof(float) = 4.
-    alignas(32) static constexpr std::array<uint8_t, 1024 * 4> zero_row = {0};
-    std::vector<__m256> acc; //, {{ kMaxVecsPerThread }} > acc;
+    DISPATCH_OUTPUT_TYPES(output.type(), "intn_split_embedding_codegen_forward_kernel", ([&] {
+        auto* output_acc = output.data_ptr<output_t>();
+        {% if weighted %}
+        const float* indice_weights_acc = indice_weights.data_ptr<float>();
+        {% endif %}
+        // Empty array filled with zeros (thus accumulating to zero).
+        // max-D = 1024, max-sizeof(T) = sizeof(float) = 4.
+        alignas(32) static constexpr std::array<uint8_t, 1024 * 4> zero_row = {0};
+        std::vector<__m256> acc; //, {{ kMaxVecsPerThread }} > acc;
 
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
-        const auto* indices_acc = indices.data_ptr<index_t>();
-        const auto* offsets_acc = offsets.data_ptr<index_t>();
-        const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
-        const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
+            const auto* indices_acc = indices.data_ptr<index_t>();
+            const auto* offsets_acc = offsets.data_ptr<index_t>();
+            const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
+            const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
 
-        int32_t num_indices_m_1 = indices.numel() - 1;
+            int32_t num_indices_m_1 = indices.numel() - 1;
 
-        for (int32_t t = 0; t < T; ++t) {
-            const int32_t D_start = D_offsets_acc[t];
-            const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
-            const auto placement = weights_placements_ptr[t];
-            assert(placement != DEVICE);
-            if (placement == HOST) {
-                weights_acc = dev_weights.data_ptr<uint8_t>();
-            } else {
-                weights_acc = uvm_weights.data_ptr<uint8_t>();
+            for (int32_t t = 0; t < T; ++t) {
+                const int32_t D_start = D_offsets_acc[t];
+                const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
+                const auto placement = weights_placements_ptr[t];
+                TORCH_CHECK(placement != DEVICE);
+                if (placement == HOST) {
+                    weights_acc = dev_weights.data_ptr<uint8_t>();
+                } else {
+                    weights_acc = uvm_weights.data_ptr<uint8_t>();
+                }
+                const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
+                auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
+                const int32_t D_vecs = div_round_up(D, 8);
+                const int32_t D_tail_elements = D % 8;
+                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+                if (weight_ty == SparseType::FP32) {
+                    for (int32_t b = 0; b < B; ++b) {
+                        int32_t indices_start = offsets_acc[t * B + b];
+                        int32_t indices_end = offsets_acc[t * B + b + 1];
+                        int32_t L = indices_end - indices_start;
+                        acc.resize(D_vecs);
+                        for (auto i = 0; i < D_vecs; ++i) {
+                            acc[i] = _mm256_setzero_ps();
+                        }
+                        for (int32_t l = 0; l < L; ++l) {
+                            int64_t idx = indices_acc[indices_start + l];
+                            const __m256* row = idx == -1 ? reinterpret_cast<const __m256*>(zero_row.data()) : reinterpret_cast<const __m256*>(&weights[idx * D_bytes]);
+
+                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
+
+                            {% if weighted %}
+                            auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                // Note that we don't guarantee 32-byte alignment for row starts (just 16-byte), and therefore use unaligned loads.
+                                {% if weighted %}
+                                acc[i] = _mm256_fmadd_ps(scale, _mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
+                                {% else %}
+                                acc[i] = _mm256_add_ps(_mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
+                                {% endif %}
+                            }
+                        }
+
+                        const bool acc_scaling = (pooling_mode == MEAN && L > 0);
+                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
+                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
+                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
+                    }
+                } else if (weight_ty == SparseType::FP16) {
+                    for (int32_t b = 0; b < B; ++b) {
+                        int32_t indices_start = offsets_acc[t * B + b];
+                        int32_t indices_end = offsets_acc[t * B + b + 1];
+                        int32_t L = indices_end - indices_start;
+                        acc.resize(D_vecs);
+                        for (auto i = 0; i < D_vecs; ++i) {
+                            acc[i] = _mm256_setzero_ps();
+                        }
+                        int32_t l = 0;
+                        int32_t LUnroll = (L / 2) * 2;
+                        for (; l < LUnroll; l += 2) {
+                            int64_t idx0 = indices_acc[indices_start + l + 0];
+                            int64_t idx1 = indices_acc[indices_start + l + 1];
+
+                            const __m128i* row0 = idx0 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx0 * D_bytes]);
+                            const __m128i* row1 = idx1 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx1 * D_bytes]);
+
+                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
+                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
+                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
+
+                            {% if weighted %}
+                            auto scale0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
+                            auto scale1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
+                            {% endif %}
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                {% if weighted %}
+                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtph_ps(row0[i]), acc[i]);
+                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtph_ps(row1[i]), acc[i]);
+                                {% else %}
+                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row0[i]), acc[i]);
+                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row1[i]), acc[i]);
+                                {% endif %}
+                            }
+                        }
+                        for (; l < L; ++l) {
+                            int64_t idx = indices_acc[indices_start + l];
+                            const __m128i* row = idx == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx * D_bytes]);
+
+                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
+
+                            {% if weighted %}
+                            auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                {% if weighted %}
+                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtph_ps(row[i]), acc[i]);
+                                {% else %}
+                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row[i]), acc[i]);
+                                {% endif %}
+                            }
+                        }
+
+                        const bool acc_scaling = (pooling_mode == MEAN && L > 0);
+                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
+                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
+                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
+                    }
+                } else if (weight_ty == SparseType::INT8) {
+                    for (int32_t b = 0; b < B; ++b) {
+                        int32_t indices_start = offsets_acc[t * B + b];
+                        int32_t indices_end = offsets_acc[t * B + b + 1];
+                        int32_t L = indices_end - indices_start;
+                        acc.resize(D_vecs);
+                        for (auto i = 0; i < D_vecs; ++i) {
+                            acc[i] = _mm256_setzero_ps();
+                        }
+
+                        int32_t l = 0;
+                        int32_t LUnroll = (L / 2) * 2;
+                        for (; l < LUnroll; l += 2) {
+                            int64_t idx0 = indices_acc[indices_start + l + 0];
+                            int64_t idx1 = indices_acc[indices_start + l + 1];
+
+                            const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
+                            const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
+
+                            // note: unaligned accesses
+                            const uint64_t* vrow0 = reinterpret_cast<const uint64_t*>(row0 + 1);
+                            const uint64_t* vrow1 = reinterpret_cast<const uint64_t*>(row1 + 1);
+
+                            uint32_t scale_shift0 = row0[0];
+                            uint32_t scale_shift1 = row1[0];
+
+                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
+                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
+                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
+
+                            auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
+                            auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
+                            auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
+                            auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
+
+                            {% if weighted %}
+                            auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
+                            auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
+                            scale0 = _mm256_mul_ps(scale0, idx_weight0);
+                            scale1 = _mm256_mul_ps(scale1, idx_weight1);
+
+                            shift0 = _mm256_mul_ps(shift0, idx_weight0);
+                            shift1 = _mm256_mul_ps(shift1, idx_weight1);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
+                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
+                            }
+                        }
+                        for (; l < L; ++l) {
+                            int64_t idx = indices_acc[indices_start + l];
+                            const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
+                            const uint64_t* vrow = reinterpret_cast<const uint64_t*>(row + 1);
+                            uint32_t scale_shift = row[0];
+
+                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
+
+                            auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
+                            auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
+
+                            {% if weighted %}
+                            auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
+                            scale = _mm256_mul_ps(scale, idx_weight);
+                            shift = _mm256_mul_ps(shift, idx_weight);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
+                            }
+                        }
+
+                        const bool acc_scaling = (pooling_mode == MEAN && L > 0);
+                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
+                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
+                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
+                    }
+                } else if (weight_ty == SparseType::INT4) {
+                    for (int32_t b = 0; b < B; ++b) {
+                        int32_t indices_start = offsets_acc[t * B + b];
+                        int32_t indices_end = offsets_acc[t * B + b + 1];
+                        int32_t L = indices_end - indices_start;
+                        acc.resize(D_vecs);
+                        for (auto i = 0; i < D_vecs; ++i) {
+                            acc[i] = _mm256_setzero_ps();
+                        }
+
+                        int32_t l = 0;
+                        int32_t LUnroll = (L / 2) * 2;
+                        for (; l < LUnroll; l += 2) {
+                            int64_t idx0 = indices_acc[indices_start + l + 0];
+                            int64_t idx1 = indices_acc[indices_start + l + 1];
+
+                            const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
+                            const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
+                            const uint32_t* vrow0 = reinterpret_cast<const uint32_t*>(row0 + 1);
+                            const uint32_t* vrow1 = reinterpret_cast<const uint32_t*>(row1 + 1);
+
+                            uint32_t scale_shift0 = row0[0];
+                            uint32_t scale_shift1 = row1[0];
+
+                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
+                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
+                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
+
+                            auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
+                            auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
+                            auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
+                            auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
+
+                            {% if weighted %}
+                            auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
+                            auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
+                            scale0 = _mm256_mul_ps(scale0, idx_weight0);
+                            scale1 = _mm256_mul_ps(scale1, idx_weight1);
+
+                            shift0 = _mm256_mul_ps(shift0, idx_weight0);
+                            shift1 = _mm256_mul_ps(shift1, idx_weight1);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
+                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
+                            }
+                        }
+                        for (; l < L; ++l) {
+                            int64_t idx = indices_acc[indices_start + l];
+                            const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
+                            const uint32_t* vrow = reinterpret_cast<const uint32_t*>(row + 1);
+                            uint32_t scale_shift = row[0];
+
+                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
+                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
+
+                            auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
+                            auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
+
+                            {% if weighted %}
+                            auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
+                            scale = _mm256_mul_ps(scale, idx_weight);
+                            shift = _mm256_mul_ps(shift, idx_weight);
+                            {% endif %}
+
+                            for (auto i = 0; i < D_vecs; ++i) {
+                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
+                            }
+                        }
+
+                        const bool acc_scaling = (pooling_mode == MEAN && L > 0);
+                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
+                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
+                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
+                    }
+                } else {
+                    throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
+                }
             }
-            const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
-            auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
-            const int32_t D_vecs = div_round_up(D, 8);
-            const int32_t D_tail_elements = D % 8;
-            const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
-
-            if (weight_ty == SparseType::FP16) {
-                for (int32_t b = 0; b < B; ++b) {
-                    int32_t indices_start = offsets_acc[t * B + b];
-                    int32_t indices_end = offsets_acc[t * B + b + 1];
-                    int32_t L = indices_end - indices_start;
-                    acc.resize(D_vecs);
-                    for (auto i = 0; i < D_vecs; ++i) {
-                        acc[i] = _mm256_setzero_ps();
-                    }
-                    int32_t l = 0;
-                    int32_t LUnroll = (L / 2) * 2;
-                    for (; l < LUnroll; l += 2) {
-                        int64_t idx0 = indices_acc[indices_start + l + 0];
-                        int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                        const __m128i* row0 = idx0 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx0 * D_bytes]);
-                        const __m128i* row1 = idx1 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx1 * D_bytes]);
-
-                        int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                        int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                        _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                        {% if weighted %}
-                        auto scale0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                        auto scale1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                        {% endif %}
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            {% if weighted %}
-                            acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtph_ps(row0[i]), acc[i]);
-                            acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtph_ps(row1[i]), acc[i]);
-                            {% else %}
-                            acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row0[i]), acc[i]);
-                            acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row1[i]), acc[i]);
-                            {% endif %}
-                        }
-                    }
-                    for (; l < L; ++l) {
-                        int64_t idx = indices_acc[indices_start + l];
-                        const __m128i* row = idx == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx * D_bytes]);
-
-                        int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                        {% if weighted %}
-                        auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            {% if weighted %}
-                            acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtph_ps(row[i]), acc[i]);
-                            {% else %}
-                            acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row[i]), acc[i]);
-                            {% endif %}
-                        }
-                    }
-
-                    const bool acc_scaling = (pooling_mode == MEAN && L > 0);
-                    const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                    __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                    if (D_tail_elements == 0) {
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                    } else {
-                        for (auto i = 0; i < D_vecs - 1; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                        std::array<Half, 8> vs;
-                        auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-                        _mm_storeu_si128(reinterpret_cast<__m128i*>(vs.data()), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[b * total_D + D_start + 8 * (D_vecs - 1)]);
-                    }
-                }
-            } else if (weight_ty == SparseType::FP32) {
-                for (int32_t b = 0; b < B; ++b) {
-                    int32_t indices_start = offsets_acc[t * B + b];
-                    int32_t indices_end = offsets_acc[t * B + b + 1];
-                    int32_t L = indices_end - indices_start;
-                    acc.resize(D_vecs);
-                    for (auto i = 0; i < D_vecs; ++i) {
-                        acc[i] = _mm256_setzero_ps();
-                    }
-                    for (int32_t l = 0; l < L; ++l) {
-                        int64_t idx = indices_acc[indices_start + l];
-                        const __m256* row = idx == -1 ? reinterpret_cast<const __m256*>(zero_row.data()) : reinterpret_cast<const __m256*>(&weights[idx * D_bytes]);
-
-                        int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                        {% if weighted %}
-                        auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            // Note that we don't guarantee 32-byte alignment for row starts (just 16-byte), and therefore use unaligned loads.
-                            {% if weighted %}
-                            acc[i] = _mm256_fmadd_ps(scale, _mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
-                            {% else %}
-                            acc[i] = _mm256_add_ps(_mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
-                            {% endif %}
-                        }
-                    }
-
-                    const bool acc_scaling = (pooling_mode == MEAN && L > 0);
-                    const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                    __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                    if (D_tail_elements == 0) {
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                    } else {
-                        for (auto i = 0; i < D_vecs - 1; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                        std::array<Half, 8> vs;
-                        auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-                        _mm_storeu_si128(reinterpret_cast<__m128i*>(vs.data()), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[b * total_D + D_start + 8 * (D_vecs - 1)]);
-                    }
-                }
-            } else if (weight_ty == SparseType::INT4) {
-                for (int32_t b = 0; b < B; ++b) {
-                    int32_t indices_start = offsets_acc[t * B + b];
-                    int32_t indices_end = offsets_acc[t * B + b + 1];
-                    int32_t L = indices_end - indices_start;
-                    acc.resize(D_vecs);
-                    for (auto i = 0; i < D_vecs; ++i) {
-                        acc[i] = _mm256_setzero_ps();
-                    }
-
-                    int32_t l = 0;
-                    int32_t LUnroll = (L / 2) * 2;
-                    for (; l < LUnroll; l += 2) {
-                        int64_t idx0 = indices_acc[indices_start + l + 0];
-                        int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                        const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
-                        const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
-                        const uint32_t* vrow0 = reinterpret_cast<const uint32_t*>(row0 + 1);
-                        const uint32_t* vrow1 = reinterpret_cast<const uint32_t*>(row1 + 1);
-
-                        uint32_t scale_shift0 = row0[0];
-                        uint32_t scale_shift1 = row1[0];
-
-                        int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                        int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                        _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                        auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
-                        auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
-                        auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
-                        auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
-
-                        {% if weighted %}
-                        auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                        auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                        scale0 = _mm256_mul_ps(scale0, idx_weight0);
-                        scale1 = _mm256_mul_ps(scale1, idx_weight1);
-
-                        shift0 = _mm256_mul_ps(shift0, idx_weight0);
-                        shift1 = _mm256_mul_ps(shift1, idx_weight1);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
-                            acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
-                        }
-                    }
-                    for (; l < L; ++l) {
-                        int64_t idx = indices_acc[indices_start + l];
-                        const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
-                        const uint32_t* vrow = reinterpret_cast<const uint32_t*>(row + 1);
-                        uint32_t scale_shift = row[0];
-
-                        int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                        auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
-                        auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
-
-                        {% if weighted %}
-                        auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                        scale = _mm256_mul_ps(scale, idx_weight);
-                        shift = _mm256_mul_ps(shift, idx_weight);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
-                        }
-                    }
-
-                    const bool acc_scaling = (pooling_mode == MEAN && L > 0);
-                    const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                    __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                    if (D_tail_elements == 0) {
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                    } else {
-                        for (auto i = 0; i < D_vecs - 1; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                        std::array<Half, 8> vs;
-                        auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-                        _mm_storeu_si128(reinterpret_cast<__m128i*>(vs.data()), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[b * total_D + D_start + 8 * (D_vecs - 1)]);
-                    }
-                }
-            } else if (weight_ty == SparseType::INT8) {
-                for (int32_t b = 0; b < B; ++b) {
-                    int32_t indices_start = offsets_acc[t * B + b];
-                    int32_t indices_end = offsets_acc[t * B + b + 1];
-                    int32_t L = indices_end - indices_start;
-                    acc.resize(D_vecs);
-                    for (auto i = 0; i < D_vecs; ++i) {
-                        acc[i] = _mm256_setzero_ps();
-                    }
-
-                    int32_t l = 0;
-                    int32_t LUnroll = (L / 2) * 2;
-                    for (; l < LUnroll; l += 2) {
-                        int64_t idx0 = indices_acc[indices_start + l + 0];
-                        int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                        const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
-                        const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
-
-                        // note: unaligned accesses
-                        const uint64_t* vrow0 = reinterpret_cast<const uint64_t*>(row0 + 1);
-                        const uint64_t* vrow1 = reinterpret_cast<const uint64_t*>(row1 + 1);
-
-                        uint32_t scale_shift0 = row0[0];
-                        uint32_t scale_shift1 = row1[0];
-
-                        int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                        int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                        _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                        auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
-                        auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
-                        auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
-                        auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
-
-                        {% if weighted %}
-                        auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                        auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                        scale0 = _mm256_mul_ps(scale0, idx_weight0);
-                        scale1 = _mm256_mul_ps(scale1, idx_weight1);
-
-                        shift0 = _mm256_mul_ps(shift0, idx_weight0);
-                        shift1 = _mm256_mul_ps(shift1, idx_weight1);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
-                            acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
-                        }
-                    }
-                    for (; l < L; ++l) {
-                        int64_t idx = indices_acc[indices_start + l];
-                        const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
-                        const uint64_t* vrow = reinterpret_cast<const uint64_t*>(row + 1);
-                        uint32_t scale_shift = row[0];
-
-                        int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                        _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                        auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
-                        auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
-
-                        {% if weighted %}
-                        auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                        scale = _mm256_mul_ps(scale, idx_weight);
-                        shift = _mm256_mul_ps(shift, idx_weight);
-                        {% endif %}
-
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
-                        }
-                    }
-
-                    const bool acc_scaling = (pooling_mode == MEAN && L > 0);
-                    const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                    __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                    if (D_tail_elements == 0) {
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                    } else {
-                        for (auto i = 0; i < D_vecs - 1; ++i) {
-                            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-                            _mm_storeu_si128(reinterpret_cast<__m128i*>(&output_acc[b * total_D + D_start + 8 * i]), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        }
-                        std::array<Half, 8> vs;
-                        auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-                        _mm_storeu_si128(reinterpret_cast<__m128i*>(vs.data()), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-                        std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[b * total_D + D_start + 8 * (D_vecs - 1)]);
-                    }
-                }
-            } else {
-                throw std::logic_error("Unsupported SparseType: " + std::to_string((int)weight_ty));
-            }
-        }
-        return;
-    });
+            return;
+        });
+    }));
     return output;
 }
 

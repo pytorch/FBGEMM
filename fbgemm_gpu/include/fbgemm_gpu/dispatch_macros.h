@@ -96,3 +96,25 @@
             "'");                                                  \
     }                                                              \
   }()
+
+#define PRIVATE_CASE_TYPE_OUTPUT2(enum_type, type, ...) \
+  case enum_type: {                                     \
+    using output_t = type;                              \
+    return __VA_ARGS__();                               \
+  }
+
+#define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
+  [&] {                                                                      \
+    const auto& output_type = OUTPUT_TYPE;                                   \
+    at::ScalarType _output_t = ::detail::scalar_type(output_type);           \
+    switch (_output_t) {                                                     \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
+      default:                                                               \
+        AT_ERROR(                                                            \
+            #NAME,                                                           \
+            " not implemented for output_t '",                               \
+            toString(_output_t),                                             \
+            "'");                                                            \
+    }                                                                        \
+  }()
