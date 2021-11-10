@@ -313,6 +313,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     {% if not dense %}
     Tensor placeholder_autograd_tensor,
+    int64_t output_dtype,
     {% endif %}
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -337,7 +338,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       {% if not dense %}
       placeholder_autograd_tensor,
-      0 /* hardcode output dtype to float*/,
+      output_dtype,
       {% endif %}
       dev_weights,
       uvm_weights,
@@ -414,7 +415,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_v2(
 }
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function({% if not dense %} Tensor placeholder_autograd_tensor, {% endif %}Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function({% if not dense %} Tensor placeholder_autograd_tensor, int output_dtype, {% endif %}Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
     m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function", torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
     m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_v2({% if not dense %} Tensor placeholder_autograd_tensor, int output_dtype, {% endif %}Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
     m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function_v2", torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_v2)));

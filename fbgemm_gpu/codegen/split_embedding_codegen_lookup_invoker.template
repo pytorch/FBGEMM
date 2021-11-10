@@ -95,11 +95,11 @@ def invoke(
             {% endif %}
         )
     else:
-        return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function(
+        return torch.ops.fb.split_embedding_codegen_lookup_{{ optimizer }}_function_v2(
             # common_args
             {% if not dense %}
             placeholder_autograd_tensor=common_args.placeholder_autograd_tensor,
-            # output_dtype=common_args.output_dtype,
+            output_dtype=common_args.output_dtype,
             {% endif %}
             dev_weights=common_args.dev_weights,
             uvm_weights=common_args.uvm_weights,
