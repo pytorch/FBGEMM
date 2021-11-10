@@ -975,12 +975,13 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
 
 
 
+template <typename Dtype>
 __global__ void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
     // [T][B][#num_ads_b], i.e. [T][sum(#num_ads_b)].
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_lengths,
+    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits> cat_ad_lengths,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> batch_offsets,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_lengths,
     int32_t T) {
   const int32_t B = batch_offsets.size(0) - 1;
@@ -1023,16 +1024,31 @@ at::Tensor reorder_batched_ad_lengths_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  reorder_batched_ad_lengths_kernel<<<
-      blocks,
-      threads,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_lengths
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      T);
+  if (cat_ad_lengths.dtype() == at::kInt) {
+    reorder_batched_ad_lengths_kernel<int32_t><<<
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        cat_ad_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        reordered_cat_ad_lengths
+            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        T);
+  } else if (cat_ad_lengths.dtype() == at::kFloat) {
+    reorder_batched_ad_lengths_kernel<float><<<
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        cat_ad_lengths.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
+        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        reordered_cat_ad_lengths
+            .packed_accessor32<float, 1, at::RestrictPtrTraits>(),
+        T);
+  } else {
+    TORCH_CHECK(false, "not implmented for ", cat_ad_lengths.dtype().name());
+  }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return reordered_cat_ad_lengths;
