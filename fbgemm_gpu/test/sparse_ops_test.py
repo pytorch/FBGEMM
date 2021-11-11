@@ -13,8 +13,8 @@ from typing import Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import Verbosity, given, settings
 from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+from hypothesis import Verbosity, given, settings
 
 try:
     torch.ops.load_library("fbgemm_gpu_py.so")
@@ -45,6 +45,33 @@ def unbucketize_indices_value(
                     bucket_expand[i] = w
                 offset += seg_length
     return bucket_expand * block_size_expand + bucketized_indices
+
+
+def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
+    return torch.repeat_interleave(
+        torch._dim_arange(lengths, 0).long(),
+        lengths.long(),
+    )
+
+
+# Converts lengths + values format to COO format
+# [B], [N, D] -> [B, N', D].
+# pyre-ignore Missing return annotation [3]
+def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int):
+    rows = lengths_to_segment_ids(lengths)
+    num_rows = lengths.size()[0]
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    output_size = lengths.sum()
+    # This does D&H sync
+    cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
+    indices = torch.stack([rows, cols])
+    dims = [num_rows, N, D]
+    # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
+    return torch.sparse_coo_tensor(
+        indices=indices,
+        values=values,
+        size=dims,
+    )
 
 
 class SparseOpsTest(unittest.TestCase):
@@ -760,6 +787,239 @@ class SparseOpsTest(unittest.TestCase):
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
             cat_ad_indices.view(B, T, A, L),
         )
+
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(min_value=1, max_value=128),
+        D=st.integers(min_value=1, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=200),
+        is_half=st.booleans(),
+    )
+    def test_jagged_2d_to_dense(
+        self,
+        B: int,
+        D: int,
+        max_sequence_length: int,
+        is_half: bool,
+    ) -> None:
+        D = D * 4
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        ref_embeddings = torch.rand(total_lengths, D)
+        ref_output_embeddings = var_list_to_coo(
+            lengths,
+            ref_embeddings,
+            max_sequence_length,
+            D,
+        ).to_dense()
+
+        # test cpu forward
+        if is_half:
+            embeddings = ref_embeddings.clone().half().detach().requires_grad_(True)
+        else:
+            embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+        output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
+            embeddings=embeddings,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+        )
+        torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+
+        if torch.cuda.is_available():
+            # test gpu forward
+            ref_embeddings = ref_embeddings.cuda()
+            if is_half:
+                embeddings = ref_embeddings.clone().half().detach().requires_grad_(True)
+            else:
+                embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+            offsets = offsets.cuda()
+            ref_output_embeddings = ref_output_embeddings.cuda()
+            output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
+                embeddings=embeddings,
+                offsets=offsets,
+                max_sequence_length=max_sequence_length,
+            )
+            torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+
+            # test gpu backward
+            output_embeddings.backward(ref_output_embeddings)
+            torch.testing.assert_allclose(ref_embeddings, embeddings.grad)
+
+    def test_jagged_2d_to_dense_truncation(self) -> None:
+        # Test the case where max_sequence_length < max(lengths[i])
+        lengths_ = np.array([2, 3, 0, 1])
+        lengths = torch.from_numpy(lengths_)
+        total_lengths = lengths_.sum()
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        embedding_dim = 16
+        max_sequence_length = 2
+        ref_embeddings = torch.rand(total_lengths, embedding_dim)
+        ref_output_embeddings = var_list_to_coo(
+            lengths,
+            ref_embeddings,
+            3,
+            embedding_dim,
+        ).to_dense()[:, :max_sequence_length, :]
+
+        # test cpu forward
+        embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+        output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
+            embeddings=embeddings,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+        )
+        torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+
+        if torch.cuda.is_available():
+            # test gpu forward
+            ref_embeddings = ref_embeddings.cuda()
+            embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+            offsets = offsets.cuda()
+            ref_output_embeddings = ref_output_embeddings.cuda()
+            output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
+                embeddings=embeddings,
+                offsets=offsets,
+                max_sequence_length=max_sequence_length,
+            )
+            torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+
+            # test gpu backward
+            expected_grad = ref_embeddings
+            expected_grad[4, :] = 0  # due to truncation
+            expected_grad = expected_grad.cuda()
+            output_embeddings.backward(ref_output_embeddings)
+            torch.testing.assert_allclose(expected_grad, embeddings.grad)
+
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(min_value=1, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=500),
+        padding_value=st.integers(min_value=-100000, max_value=100000),
+    )
+    def test_jagged_1d_to_dense(
+        self,
+        B: int,
+        max_sequence_length: int,
+        padding_value: int,
+    ) -> None:
+        def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
+            return torch.repeat_interleave(
+                torch._dim_arange(lengths, 0).long(),
+                lengths.long(),
+            )
+
+        # Converts lengths + values format to COO format
+        # [B], [N] -> [B, N'].
+        # pyre-ignore Missing return annotation [3]
+        def var_list_to_coo(
+            lengths: torch.Tensor,
+            values: torch.Tensor,
+            N: int,
+        ):
+            rows = lengths_to_segment_ids(lengths)
+            num_rows = lengths.size()[0]
+            # This does D&H sync
+            offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+            output_size = lengths.sum()
+            # This does D&H sync
+            cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
+            indices = torch.stack([rows, cols])
+            dims = [num_rows, N]
+            # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
+            return torch.sparse_coo_tensor(
+                indices=indices,
+                values=values,
+                size=dims,
+            )
+
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,))
+        ref_values_mask = var_list_to_coo(
+            lengths, torch.ones_like(ref_values), max_sequence_length
+        ).to_dense()
+        ref_output_values = (
+            var_list_to_coo(
+                lengths,
+                ref_values,
+                max_sequence_length,
+            ).to_dense()
+            + (1 - ref_values_mask) * torch.ones_like(ref_values_mask) * padding_value
+        )
+
+        # test cpu forward
+        values = ref_values.clone().detach().requires_grad_(False)
+        output_values = torch.ops.fbgemm.jagged_1d_to_dense(
+            values=values,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+            padding_value=padding_value,
+        )
+        torch.testing.assert_allclose(ref_output_values, output_values)
+
+        if torch.cuda.is_available():
+            # test gpu forward
+            ref_values = ref_values.cuda()
+            values = ref_values.clone().detach().requires_grad_(False)
+            offsets = offsets.cuda()
+            ref_output_values = ref_output_values.cuda()
+            output_values = torch.ops.fbgemm.jagged_1d_to_dense(
+                values=values,
+                offsets=offsets,
+                max_sequence_length=max_sequence_length,
+                padding_value=padding_value,
+            )
+            torch.testing.assert_allclose(ref_output_values, output_values)
+
+    def test_jagged_1d_to_dense_truncation(self) -> None:
+        lengths_ = np.array([1, 3, 0, 1])
+        lengths = torch.from_numpy(lengths_)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        ref_values = torch.from_numpy(np.array([100, 3, 4, 5, 6]))
+        ref_output = torch.from_numpy(np.array([100, 3, -1, 6])).reshape(-1, 1)
+
+        # test cpu forward
+        values = ref_values.clone().detach().requires_grad_(False)
+        output = torch.ops.fbgemm.jagged_1d_to_dense(
+            values=values,
+            offsets=offsets,
+            max_sequence_length=1,
+            padding_value=-1,
+        )
+        torch.testing.assert_allclose(ref_output, output)
+
+        if torch.cuda.is_available():
+            # test gpu forward
+            ref_values = ref_values.cuda()
+            values = ref_values.clone().detach().requires_grad_(False)
+            offsets = offsets.cuda()
+            ref_output = ref_output.cuda()
+            output = torch.ops.fbgemm.jagged_1d_to_dense(
+                values=values,
+                offsets=offsets,
+                max_sequence_length=1,
+                padding_value=-1,
+            )
+            torch.testing.assert_allclose(ref_output, output)
+
 
 if __name__ == "__main__":
     unittest.main()
