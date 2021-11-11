@@ -336,8 +336,8 @@ void batched_csr2csc(
     int64_t num_embeddings) {
   int num_tables = 1;
   batched_csc.num_tables = num_tables;
-  batched_csc.table_ptr =
-      (int*)fbgemm::fbgemmAlignedAlloc(64, (num_tables + 1) * sizeof(int));
+  batched_csc.table_ptr = static_cast<int*>(
+      fbgemm::fbgemmAlignedAlloc(64, (num_tables + 1) * sizeof(int)));
   batched_csc.table_ptr[0] = 0;
   int64_t nnz = batched_csr_offsets[table_to_feature_offset[num_tables] * B] -
       batched_csr_offsets[table_to_feature_offset[0] * B];
@@ -346,27 +346,31 @@ void batched_csr2csc(
     return;
   }
   batched_csc.row_indices =
-      (int*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int));
+      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
   bool has_weights = batched_csr_weights.data() != nullptr;
   if (has_weights || pooling_mode == MEAN) {
-    batched_csc.weights =
-        (float*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float));
+    batched_csc.weights = static_cast<float*>(
+        fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
+  batched_csc.column_segment_ids =
+      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
 
   int column_ptr_curr = 0;
   int t = 0;
+  bool is_shared_table =
+      table_to_feature_offset[t + 1] > table_to_feature_offset[t] + 1;
   auto NS = batched_csr_offsets[table_to_feature_offset[t + 1] * B] -
       batched_csr_offsets[table_to_feature_offset[t] * B];
   int num_non_empty_segments = 0;
   if (!batched_csc.weights) {
-    int* tmpBufKeys = reinterpret_cast<int*>(
-        fbgemm::fbgemmAlignedAlloc(64, 4 * NS * sizeof(int)));
-    int* tmpBufValues = reinterpret_cast<int*>(
-        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-    int* tmpBuf1Keys = reinterpret_cast<int*>(
-        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-    int* tmpBuf1Values = reinterpret_cast<int*>(
-        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBufKeys =
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBufValues =
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBuf1Keys =
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBuf1Values =
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
     const auto FBo = batched_csr_offsets[table_to_feature_offset[t] * B];
     for (int feature = table_to_feature_offset[t];
          feature < table_to_feature_offset[t + 1];
@@ -387,7 +391,7 @@ void batched_csr2csc(
     int* sorted_col_row_index_keys = nullptr;
     int* sorted_col_row_index_values = nullptr;
     std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
-        radix_sort_parallel<int>(
+        fbgemm::radix_sort_parallel(
             tmpBufKeys,
             tmpBufValues,
             tmpBuf1Keys,
@@ -418,12 +422,10 @@ void batched_csr2csc(
       U = num_uniq[max_thds - 1][0];
     }
 
-    batched_csc.column_segment_ptr =
-        (int*)fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int));
+    batched_csc.column_segment_ptr = static_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int)));
     batched_csc.column_segment_indices =
-        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
-    batched_csc.column_segment_ids =
-        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int64_t));
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
 
     batched_csc.column_segment_ptr[0] = 0;
     batched_csc.row_indices[0] = sorted_col_row_index_values[0] % B;
@@ -432,7 +434,7 @@ void batched_csr2csc(
 #pragma omp parallel
     {
       int tid = omp_get_thread_num();
-      int64_t* tstart =
+      int* tstart =
           (tid == 0
                ? batched_csc.column_segment_indices + 1
                : batched_csc.column_segment_indices + num_uniq[tid - 1][0]);
@@ -441,22 +443,34 @@ void batched_csr2csc(
           (tid == 0 ? batched_csc.column_segment_ptr + 1
                     : batched_csc.column_segment_ptr + num_uniq[tid - 1][0]);
 
+      if (!is_shared_table) {
+        // For non shared table, no need for computing modulo.
+        // As an optimization, pointer swap instead of copying.
+#pragma omp master
+        std::swap(
+            batched_csc.row_indices,
+            sorted_col_row_index_values == tmpBufValues ? tmpBufValues
+                                                        : tmpBuf1Values);
+      } else {
 #ifdef FBCODE_CAFFE2
-      libdivide::divider<int> divisor(B);
+        libdivide::divider<int> divisor(B);
 #endif
 
 #pragma omp for schedule(static)
-      for (int i = 1; i < NS; ++i) {
+        for (int i = 1; i < NS; ++i) {
+          int v = sorted_col_row_index_values[i];
 #ifdef FBCODE_CAFFE2
-        batched_csc.column_segment_ids[i] =
-            sorted_col_row_index_values[i] / divisor;
-        batched_csc.row_indices[i] = sorted_col_row_index_values[i] -
-            batched_csc.column_segment_ids[i] * B;
+          int q = v / divisor;
 #else
-        batched_csc.row_indices[i] = sorted_col_row_index_values[i] % B;
-        batched_csc.column_segment_ids[i] =
-            sorted_col_row_index_values[i] / B;
+          int q = v / B;
 #endif
+          batched_csc.column_segment_ids[i] = q;
+          batched_csc.row_indices[i] = v - q * B;
+        }
+      }
+
+#pragma omp for schedule(static)
+      for (int i = 1; i < NS; ++i) {
         if (sorted_col_row_index_keys[i] != sorted_col_row_index_keys[i - 1]) {
           *tstart = sorted_col_row_index_keys[i];
           *t_offs = i;
@@ -469,7 +483,7 @@ void batched_csr2csc(
         // Special handling of single thread case
         U = t_offs - batched_csc.column_segment_ptr;
       }
-    }
+    } // omp parallel
     batched_csc.table_ptr[t + 1] = batched_csc.table_ptr[t] + U;
     batched_csc.column_segment_ptr[U] = NS;
     column_ptr_curr += NS;
@@ -478,7 +492,7 @@ void batched_csr2csc(
     fbgemm::fbgemmAlignedFree(tmpBuf1Keys);
     fbgemm::fbgemmAlignedFree(tmpBuf1Values);
   } else {
-    // !batched_csc.weights.empty()
+    // batched_csc.weights
 #ifdef FBCODE_CAFFE2
     folly::F14FastMap<
 #else
@@ -518,13 +532,13 @@ void batched_csr2csc(
 
     batched_csc.table_ptr[t + 1] =
         batched_csc.table_ptr[t] + num_non_empty_segments;
-    batched_csc.column_segment_ptr =
-        (int*)fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int));
+    batched_csc.column_segment_ptr = static_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, (NS + 1) * sizeof(int)));
     batched_csc.column_segment_ptr[0] = 0;
     batched_csc.column_segment_indices =
-        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
     batched_csc.column_segment_ids =
-        (int64_t*)fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int64_t));
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
     int k = 1;
     for (auto const& column : non_empty_columns) {
       int feature = f_begin;
