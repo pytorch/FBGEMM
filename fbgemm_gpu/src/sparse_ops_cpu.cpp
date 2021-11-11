@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <ATen/ATen.h>
+#include <ATen/TypeDefault.h>
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
@@ -120,7 +121,8 @@ void _permute_lengths_cpu_kernel(
           }
         }
         input_offsets_per_thread_cumsum
-            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] = current_input_offset;
+            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] =
+                current_input_offset;
         output_offsets_per_thread_cumsum
             [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] =
                 current_output_offset;
@@ -272,7 +274,8 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cpu(
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
@@ -780,6 +783,144 @@ at::Tensor batched_unary_embeddings_forward_cpu(
 
   return output;
 }
+
+template <typename index_t, typename scalar_t>
+void jagged_2d_to_dense_forward_kernel(
+    int32_t B,
+    int32_t max_L,
+    int32_t D,
+    const index_t* offsets,
+    const scalar_t* embeddings_data,
+    scalar_t* padded_embeddings_data) {
+  const auto block_size = max_L * D;
+  const auto embedding_byte_size = D * sizeof(scalar_t);
+  for (auto b = 0; b < B; ++b) {
+    auto start_idx = offsets[b];
+    auto end_idx = offsets[b + 1];
+    auto length = end_idx - start_idx;
+    if (length > max_L) {
+      length = max_L;
+    }
+    auto padding_length = max_L - length;
+    memcpy(
+        &padded_embeddings_data[b * block_size],
+        &embeddings_data[start_idx * D],
+        length * embedding_byte_size);
+    memset(
+        &padded_embeddings_data[b * block_size + length * D],
+        0,
+        padding_length * embedding_byte_size);
+  }
+}
+
+at::Tensor jagged_2d_to_dense_forward_cpu(
+    at::Tensor embeddings,
+    at::Tensor offsets,
+    int64_t max_L) {
+  TORCH_CHECK(embeddings.dim() == 2);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+
+  const auto B = offsets.numel() - 1;
+  const auto D = embeddings.size(1);
+  const auto embeddings_contig = embeddings.expect_contiguous();
+  const auto offsets_contig = offsets.expect_contiguous();
+
+  if (embeddings.size(0) == 0) {
+    return at::zeros({B, max_L, D}, embeddings.options());
+  }
+
+  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
+  AT_DISPATCH_INDEX_TYPES(
+      offsets_contig->scalar_type(),
+      "jagged_2d_to_dense_forward_by_offsets",
+      ([&]() {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            embeddings_contig->scalar_type(),
+            "jagged_2d_to_dense_forward_by_embeddings",
+            ([&]() {
+              jagged_2d_to_dense_forward_kernel(
+                  B,
+                  max_L,
+                  D,
+                  offsets_contig->data_ptr<index_t>(),
+                  embeddings_contig->data_ptr<scalar_t>(),
+                  padded_embeddings.data_ptr<scalar_t>());
+            }));
+      }));
+
+  return padded_embeddings;
+}
+
+template <typename index_t, typename scalar_t>
+void jagged_1d_to_dense_kernel(
+    int64_t B,
+    int64_t max_L,
+    scalar_t padding_value,
+    const index_t* offsets,
+    const scalar_t* values_data,
+    scalar_t* padded_values_data) {
+  const auto block_size = max_L;
+  const auto value_byte_size = sizeof(scalar_t);
+  for (auto b = 0; b < B; ++b) {
+    auto start_idx = offsets[b];
+    auto end_idx = offsets[b + 1];
+    auto length = end_idx - start_idx;
+    if (length > max_L) {
+      // Guard against the case that lengths[b] > max_L. This is
+      // a valid use case.
+      length = max_L;
+    }
+    auto padding_length = max_L - length;
+    memcpy(
+        &padded_values_data[b * block_size],
+        &values_data[start_idx],
+        length * value_byte_size);
+    for (int l = 0, offset = b * block_size + length;
+         l < padding_length; ++l, ++offset) {
+      padded_values_data[offset] = padding_value;
+    }
+  }
+}
+
+at::Tensor jagged_1d_to_dense_cpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+
+  const auto B = offsets.numel() - 1;
+  const auto values_contig = values.expect_contiguous();
+  const auto offsets_contig = offsets.expect_contiguous();
+
+  if (values.size(0) == 0 && padding_value == 0) {
+    return at::zeros({B, max_L}, values.options());
+  }
+
+  auto padded_values = at::empty({B, max_L}, values.options());
+  AT_DISPATCH_INDEX_TYPES(
+      offsets_contig->scalar_type(),
+      "jagged_1d_to_dense_1",
+      ([&]() {
+        AT_DISPATCH_ALL_TYPES(
+            values_contig->scalar_type(),
+            "jagged_1d_to_dense_2",
+            ([&]() {
+              jagged_1d_to_dense_kernel<index_t, scalar_t>(
+                  B,
+                  max_L,
+                  padding_value,
+                  offsets_contig->data_ptr<index_t>(),
+                  values_contig->data_ptr<scalar_t>(),
+                  padded_values.data_ptr<scalar_t>());
+            }));
+      }));
+
+  return padded_values;
+}
 } // namespace fbgemm
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -797,6 +938,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
+  m.def(
+      "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
+   m.def(
+      "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -808,10 +953,15 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "asynchronous_exclusive_cumsum",
       fbgemm::asynchronous_exclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_inclusive_cumsum", fbgemm::asynchronous_inclusive_cumsum_cpu);
-  m.impl("asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_cpu);
+      "asynchronous_inclusive_cumsum",
+      fbgemm::asynchronous_inclusive_cumsum_cpu);
+  m.impl(
+      "asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_cpu);
   m.impl("reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_cpu);
   m.impl("reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_cpu);
   m.impl("offsets_range", fbgemm::offsets_range_cpu);
-  m.impl("batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
+  m.impl(
+      "batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
+  m.impl("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_forward_cpu);
+  m.impl("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_cpu);
 }

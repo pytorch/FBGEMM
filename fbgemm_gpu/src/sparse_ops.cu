@@ -4,11 +4,11 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include "fbgemm_gpu/batched_unary_embedding_ops.cuh"
 #include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
-#include "fbgemm_gpu/batched_unary_embedding_ops.cuh"
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
@@ -20,6 +20,10 @@
 
 #include "ATen/Parallel.h"
 #include "cub/device/device_scan.cuh"
+
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+
+using namespace fbgemm_gpu;
 
 namespace fbgemm {
 
@@ -106,7 +110,8 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
+      {static_cast<int64_t>(temp_storage_bytes)},
+      t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
@@ -140,7 +145,8 @@ at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
+      {static_cast<int64_t>(temp_storage_bytes)},
+      t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
@@ -176,7 +182,8 @@ at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in) {
             at::cuda::getCurrentCUDAStream()));
       }));
   auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)}, t_in.options().dtype(at::kByte));
+      {static_cast<int64_t>(temp_storage_bytes)},
+      t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
         AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
@@ -190,7 +197,8 @@ at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in) {
   return t_out;
 }
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cuda(
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
@@ -238,8 +246,10 @@ std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_dat
       }));
 
   // convert lengths to offsets
-  const auto input_offsets = fbgemm::asynchronous_exclusive_cumsum_gpu(lengths_contig);
-  const auto output_offsets = fbgemm::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+  const auto input_offsets =
+      fbgemm::asynchronous_exclusive_cumsum_gpu(lengths_contig);
+  const auto output_offsets =
+      fbgemm::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
@@ -973,13 +983,13 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
   return output;
 }
 
-
-
 __global__ void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
     // [T][B][#num_ads_b], i.e. [T][sum(#num_ads_b)].
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> batch_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        cat_ad_lengths,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_lengths,
     int32_t T) {
@@ -1042,13 +1052,16 @@ __global__ void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
     // laid out as [T][B][A][L] (if all lengths were equal).
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cat_ad_indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        cat_ad_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        cat_ad_indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_offsets,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> batch_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
     int32_t T) {
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
@@ -1216,6 +1229,226 @@ at::Tensor batched_unary_embeddings_backward_cuda(
             }));
       }));
   return grad_weight;
+}
+
+template <typename index_t, typename scalar_t>
+__global__ void jagged_2d_to_dense_forward_kernel(
+    int32_t B,
+    int32_t max_L,
+    int32_t D,
+    at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor64<scalar_t, 2> embeddings,
+    at::PackedTensorAccessor64<scalar_t, 3> padded_embeddings) {
+  int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
+  int32_t l = b_l / B;
+  int32_t b = b_l % B;
+  if (b_l >= B * max_L) {
+    return;
+  }
+  int32_t row_start = offsets[b];
+  int32_t row_end = offsets[b + 1];
+  int32_t length = row_end - row_start;
+  if (l < length) {
+    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
+      if (d + threadIdx.x < D) {
+        padded_embeddings[b][l][d + threadIdx.x] =
+            embeddings[row_start + l][d + threadIdx.x];
+      }
+    }
+  } else {
+    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
+      if (d + threadIdx.x < D) {
+        padded_embeddings[b][l][d + threadIdx.x] = 0.0;
+      }
+    }
+  }
+}
+
+at::Tensor jagged_2d_to_dense_forward_cuda(
+    at::Tensor embeddings,
+    at::Tensor offsets,
+    int32_t max_L) {
+  TORCH_CHECK(embeddings.dim() == 2);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(embeddings.get_device());
+
+  int32_t D = embeddings.size(1);
+  int32_t B = offsets.numel() - 1;
+  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
+  const auto embeddings_contig = embeddings.contiguous();
+  const auto offsets_contig = offsets.contiguous();
+
+  AT_DISPATCH_INDEX_TYPES(
+      offsets.scalar_type(),
+      "jagged_2d_to_dense_forward_kernel_1",
+      ([&]() {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            embeddings.scalar_type(),
+            "jagged_2d_to_dense_forward_kernel_2",
+            ([&]() {
+              jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
+                  <<<fbgemm_gpu::div_round_up(
+                         (B * max_L),
+                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                     dim3(
+                         fbgemm_gpu::kWarpSize,
+                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      B,
+                      max_L,
+                      D,
+                      offsets_contig.packed_accessor32<index_t, 1>(),
+                      embeddings_contig.packed_accessor64<scalar_t, 2>(),
+                      padded_embeddings.packed_accessor64<scalar_t, 3>());
+            }));
+      }));
+
+  return padded_embeddings;
+}
+
+template <typename index_t, typename scalar_t>
+__global__ void jagged_2d_to_dense_backward_kernel(
+    int32_t B,
+    int32_t max_L,
+    int32_t D,
+    at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor64<scalar_t, 3> grad_padded_embeddings,
+    at::PackedTensorAccessor64<scalar_t, 2> grad_embeddings) {
+  int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
+  int32_t l = b_l / B;
+  int32_t b = b_l % B;
+  if (b_l >= B * max_L) {
+    return;
+  }
+  int32_t row_start = offsets[b];
+  int32_t row_end = offsets[b + 1];
+  int32_t length = row_end - row_start;
+  if (l < length) {
+    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
+      if (d + threadIdx.x < D) {
+        grad_embeddings[row_start + l][d + threadIdx.x] =
+            grad_padded_embeddings[b][l][d + threadIdx.x];
+      }
+    }
+  }
+}
+
+at::Tensor jagged_2d_to_dense_backward_cuda(
+    at::Tensor grad_padded_embeddings,
+    at::Tensor offsets,
+    int32_t total_L) {
+  TORCH_CHECK(grad_padded_embeddings.dim() == 3);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(total_L >= 0);
+  TORCH_CHECK(offsets.numel() == grad_padded_embeddings.size(0) + 1);
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(grad_padded_embeddings.get_device());
+
+  int32_t B = grad_padded_embeddings.size(0);
+  int32_t max_L = grad_padded_embeddings.size(1);
+  int32_t D = grad_padded_embeddings.size(2);
+  auto grad_embeddings =
+      at::zeros({total_L, D}, grad_padded_embeddings.options());
+  const auto grad_padded_embeddings_config =
+      grad_padded_embeddings.contiguous();
+  const auto offsets_contig = offsets.contiguous();
+
+  AT_DISPATCH_INDEX_TYPES(
+      offsets.scalar_type(),
+      "jagged_2d_to_dense_backward_kernel_1",
+      ([&]() {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            grad_padded_embeddings.scalar_type(),
+            "jagged_2d_to_dense_backward_kernel_2",
+            ([&]() {
+              jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
+                  <<<fbgemm_gpu::div_round_up(
+                         (B * max_L),
+                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                     dim3(
+                         fbgemm_gpu::kWarpSize,
+                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      B,
+                      max_L,
+                      D,
+                      offsets_contig.packed_accessor32<index_t, 1>(),
+                      grad_padded_embeddings_config
+                          .packed_accessor64<scalar_t, 3>(),
+                      grad_embeddings.packed_accessor64<scalar_t, 2>());
+            }));
+      }));
+
+  return grad_embeddings;
+}
+
+template <typename index_t, typename data_t>
+__global__ void jagged_1d_to_dense_kernel(
+    int32_t B,
+    int32_t max_L,
+    data_t padding_value,
+    at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor64<data_t, 1> values,
+    at::PackedTensorAccessor64<data_t, 2> padded_values) {
+  const int32_t b_l = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b_l >= B * max_L) {
+    return;
+  }
+  int32_t b = b_l / max_L;
+  int32_t l = b_l % max_L;
+  int32_t row_start = offsets[b];
+  int32_t row_end = offsets[b + 1];
+  int32_t length = row_end - row_start;
+  if (l < length) {
+    padded_values[b][l] = values[row_start + l];
+  } else {
+    padded_values[b][l] = padding_value;
+  }
+}
+
+at::Tensor jagged_1d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(values.get_device());
+
+  int32_t B = offsets.numel() - 1;
+  auto padded_values = at::empty({B, max_L}, values.options());
+  const auto values_contig = values.contiguous();
+  const auto offsets_contig = offsets.contiguous();
+  const int32_t num_threads = 512;  // 256~1024 per xingl
+  AT_DISPATCH_INDEX_TYPES(
+      offsets.scalar_type(),
+      "jagged_1d_to_dense_kernel_1",
+      ([&]() {
+        AT_DISPATCH_ALL_TYPES(
+            values.scalar_type(),
+            "jagged_1d_to_dense_kernel_2",
+            ([&]() {
+              jagged_1d_to_dense_kernel<index_t, scalar_t>
+                  <<<div_round_up(B * max_L, num_threads),
+                     num_threads,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                       B,
+                       max_L,
+                       padding_value,
+                       offsets_contig.packed_accessor32<index_t, 1>(),
+                       values_contig.packed_accessor64<scalar_t, 1>(),
+                       padded_values.packed_accessor64<scalar_t, 2>());
+            }));
+      }));
+
+  return padded_values;
 }
 
 } // namespace fbgemm

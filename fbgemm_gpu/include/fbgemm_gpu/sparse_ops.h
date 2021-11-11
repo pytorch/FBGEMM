@@ -141,4 +141,20 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& offsets,
     const at::Tensor& indices);
 
+at::Tensor jagged_2d_to_dense_forward_cuda(
+    at::Tensor embeddings,
+    at::Tensor offsets,
+    int32_t max_L);
+
+at::Tensor jagged_2d_to_dense_backward_cuda(
+    at::Tensor grad_padded_embeddings,
+    at::Tensor offsets,
+    int32_t total_L);
+
+at::Tensor jagged_1d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value);
+
 } // namespace fbgemm
