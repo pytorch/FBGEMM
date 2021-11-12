@@ -653,13 +653,14 @@ class SparseOpsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_reorder_batched_ad_lengths(self, B: int, T: int, L: int, A: int) -> None:
+    def test_reorder_batched_ad_lengths(self, B: int, T: int, L: int, A: int, Dtype: torch.dtype) -> None:
         cat_ad_lengths = (
             torch.cat([torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0)
-            .int()
             .cuda()
+            .to(Dtype)
         )
         batch_offsets = torch.tensor([A * b for b in range(B + 1)]).int().cuda()
         num_ads_in_batch = B * A
