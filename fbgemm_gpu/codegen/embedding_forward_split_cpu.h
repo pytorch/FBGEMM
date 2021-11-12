@@ -45,8 +45,8 @@ struct BatchedHyperCompressedSparseColumn {
   // feature sharing the table. In this case, the segments will have the
   // same column_segment_indices but different column_segment_ids.
   int* column_segment_ptr = nullptr;
-  int64_t* column_segment_indices = nullptr; // length table_ptr[T]
-  int64_t* column_segment_ids = nullptr; // length table_ptr[T]
+  int* column_segment_indices = nullptr; // length table_ptr[T]
+  int* column_segment_ids = nullptr; // length table_ptr[T]
   int* row_indices = nullptr; // length column_ptr[table_ptr[T]]
   float* weights = nullptr; // length column_ptr[table_ptr[T]]
   ~BatchedHyperCompressedSparseColumn() {
