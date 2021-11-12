@@ -359,12 +359,14 @@ void batched_csr2csc(
       batched_csr_offsets[table_to_feature_offset[t] * B];
   int num_non_empty_segments = 0;
   if (!batched_csc.weights) {
-    Radix_Sort_Pair<int>* tmpBuf =
-        (Radix_Sort_Pair<int>*)fbgemm::fbgemmAlignedAlloc(
-            64, (NS) * sizeof(Radix_Sort_Pair<int>));
-    Radix_Sort_Pair<int>* tmpBuf1 =
-        (Radix_Sort_Pair<int>*)fbgemm::fbgemmAlignedAlloc(
-            64, (NS) * sizeof(Radix_Sort_Pair<int>));
+    int* tmpBufKeys = reinterpret_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, 4 * NS * sizeof(int)));
+    int* tmpBufValues = reinterpret_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBuf1Keys = reinterpret_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
+    int* tmpBuf1Values = reinterpret_cast<int*>(
+        fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
     const auto FBo = batched_csr_offsets[table_to_feature_offset[t] * B];
     for (int feature = table_to_feature_offset[t];
          feature < table_to_feature_offset[t + 1];
@@ -376,14 +378,22 @@ void batched_csr2csc(
         int64_t pool_begin = batched_csr_offsets[FBb];
         int64_t pool_end = batched_csr_offsets[FBb + 1];
         for (int64_t p = pool_begin; p < pool_end; ++p) {
-          tmpBuf[p - FBo].first = batched_csr_indices[p];
-          tmpBuf[p - FBo].second = FBs + b;
+          tmpBufKeys[p - FBo] = batched_csr_indices[p];
+          tmpBufValues[p - FBo] = FBs + b;
         }
       }
     }
 
-    Radix_Sort_Pair<int>* sorted_col_row_index_pairs =
-        radix_sort_parallel<int>(&tmpBuf[0], &tmpBuf1[0], NS, num_embeddings);
+    int* sorted_col_row_index_keys = nullptr;
+    int* sorted_col_row_index_values = nullptr;
+    std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
+        radix_sort_parallel<int>(
+            tmpBufKeys,
+            tmpBufValues,
+            tmpBuf1Keys,
+            tmpBuf1Values,
+            NS,
+            num_embeddings);
 
     int max_thds = omp_get_max_threads();
     int num_uniq[max_thds][64];
@@ -396,9 +406,10 @@ void batched_csr2csc(
         num_uniq[tid][0] = 0;
 #pragma omp for schedule(static)
         for (int i = 1; i < NS; i++) {
-          if (sorted_col_row_index_pairs[i].first !=
-              sorted_col_row_index_pairs[i - 1].first)
+          if (sorted_col_row_index_keys[i] !=
+              sorted_col_row_index_keys[i - 1]) {
             num_uniq[tid][0]++;
+          }
         }
       }
       num_uniq[0][0] += 1;
@@ -415,10 +426,9 @@ void batched_csr2csc(
         (int64_t*)fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int64_t));
 
     batched_csc.column_segment_ptr[0] = 0;
-    batched_csc.row_indices[0] = sorted_col_row_index_pairs[0].second % B;
-    batched_csc.column_segment_indices[0] = sorted_col_row_index_pairs[0].first;
-    batched_csc.column_segment_ids[0] =
-        sorted_col_row_index_pairs[0].second / B;
+    batched_csc.row_indices[0] = sorted_col_row_index_values[0] % B;
+    batched_csc.column_segment_indices[0] = sorted_col_row_index_keys[0];
+    batched_csc.column_segment_ids[0] = sorted_col_row_index_values[0] / B;
 #pragma omp parallel
     {
       int tid = omp_get_thread_num();
@@ -436,20 +446,19 @@ void batched_csr2csc(
 #endif
 
 #pragma omp for schedule(static)
-      for (int i = 1; i < NS; i++) {
+      for (int i = 1; i < NS; ++i) {
 #ifdef FBCODE_CAFFE2
         batched_csc.column_segment_ids[i] =
-            sorted_col_row_index_pairs[i].second / divisor;
-        batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second -
+            sorted_col_row_index_values[i] / divisor;
+        batched_csc.row_indices[i] = sorted_col_row_index_values[i] -
             batched_csc.column_segment_ids[i] * B;
 #else
-        batched_csc.row_indices[i] = sorted_col_row_index_pairs[i].second % B;
+        batched_csc.row_indices[i] = sorted_col_row_index_values[i] % B;
         batched_csc.column_segment_ids[i] =
-            sorted_col_row_index_pairs[i].second / B;
+            sorted_col_row_index_values[i] / B;
 #endif
-        if (sorted_col_row_index_pairs[i].first !=
-            sorted_col_row_index_pairs[i - 1].first) {
-          *tstart = sorted_col_row_index_pairs[i].first;
+        if (sorted_col_row_index_keys[i] != sorted_col_row_index_keys[i - 1]) {
+          *tstart = sorted_col_row_index_keys[i];
           *t_offs = i;
           tstart++;
           t_offs++;
@@ -464,8 +473,10 @@ void batched_csr2csc(
     batched_csc.table_ptr[t + 1] = batched_csc.table_ptr[t] + U;
     batched_csc.column_segment_ptr[U] = NS;
     column_ptr_curr += NS;
-    fbgemm::fbgemmAlignedFree(tmpBuf);
-    fbgemm::fbgemmAlignedFree(tmpBuf1);
+    fbgemm::fbgemmAlignedFree(tmpBufKeys);
+    fbgemm::fbgemmAlignedFree(tmpBufValues);
+    fbgemm::fbgemmAlignedFree(tmpBuf1Keys);
+    fbgemm::fbgemmAlignedFree(tmpBuf1Values);
   } else {
     // !batched_csc.weights.empty()
 #ifdef FBCODE_CAFFE2
