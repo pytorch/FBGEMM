@@ -1567,6 +1567,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
         load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
+        output_dtype: SparseType = SparseType.FP16,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1584,6 +1585,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
+        self.output_dtype: int = output_dtype.as_int()
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -1781,6 +1783,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_int8_D=self.max_int8_D,
             max_float16_D=self.max_float16_D,
             max_float32_D=self.max_float32_D,
+            output_dtype=self.output_dtype,
             indices=indices,
             offsets=offsets,
             pooling_mode=self.pooling_mode,

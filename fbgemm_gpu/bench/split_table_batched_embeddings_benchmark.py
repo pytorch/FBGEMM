@@ -917,6 +917,7 @@ def cpu(  # noqa C901
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
 @click.option("--warmup-runs", default=2)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -940,6 +941,7 @@ def nbit_device(  # noqa C901
     iters: int,
     runs_of_iters: int,
     warmup_runs: int,
+    output_dtype: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -987,6 +989,7 @@ def nbit_device(  # noqa C901
         index_remapping=index_remapping,
         load_factor=load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
+        output_dtype=output_dtype,
     ).cuda()
     emb.fill_random_weights()
 

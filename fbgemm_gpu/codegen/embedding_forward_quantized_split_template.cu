@@ -433,7 +433,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 }
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
@@ -449,7 +449,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   PackedTensorAccessor32<float, 1, RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output // [B][total_D],
   ) {
 
@@ -576,16 +576,29 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
           float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
           accumulators[i][j] *= inv_L;
       }
-      __half val = to_half(accumulators[i][j]);
-      if (output_d >= 0 && output_d < D) {
-        *reinterpret_cast<__half*>(&output[b][D_start + output_d]) = val;
+      static_assert(
+        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
+        "output_t can only be float or half now"
+      );
+      if (std::is_same<output_t, float>::value) {
+        float val = accumulators[i][j];
+        if (output_d >= 0 && output_d < D) {
+          output[b][D_start + output_d] = val;
+        }
+      } else if (std::is_same<output_t, at::Half>::value) {
+        __half val = to_half(accumulators[i][j]);
+        if (output_d >= 0 && output_d < D) {
+          *reinterpret_cast<__half*>(&output[b][D_start + output_d]) = val;
+        }
+      } else {
+        // INT8/4: not implemented yet
       }
     }
   }
 }
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
@@ -601,7 +614,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   PackedTensorAccessor32<float, 1, RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output // [B][total_D],
   ) {
   int32_t B = output.size(0);
@@ -736,15 +749,229 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
           accumulators[i][j].x *= inv_L;
           accumulators[i][j].y *= inv_L;
       }
-      half2 val = to_half2(accumulators[i][j]);
-      if (output_d >= 0 && output_d < D) {
-        *reinterpret_cast<int1*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int1*>(&val);
+      static_assert(
+        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
+        "output_t can only be float or half now"
+      );
+      if (std::is_same<output_t, float>::value) {
+        float2 val = accumulators[i][j];
+        if (output_d >= 0 && output_d < D) {
+          *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
+        }
+      } else if (std::is_same<output_t, at::Half>::value) {
+        half2 val = to_half2(accumulators[i][j]);
+        if (output_d >= 0 && output_d < D) {
+          *reinterpret_cast<int1*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int1*>(&val);
+        }
+      } else {
+        // INT8/4: not implemented yet
       }
     }
   }
 }
 
-template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+__launch_bounds__(WarpsPerBlock * 32)
+__global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
+  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
+  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
+  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  int64_t pooling_mode,
+  {% if weighted %}
+  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+      indice_weights,
+  {% endif %}
+  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+      output // [B][total_D],
+  ) {
+  int32_t B = output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+      return;
+  }
+
+  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+  if (weight_ty != SparseType::INT8) {
+      return;
+  }
+
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
+    return;
+  }
+
+  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+
+  int64_t weights_offset = weights_offsets[t];
+  const int32_t D_total = padded_D(D, weight_ty);
+  const int32_t D_padding = D_total - D;
+
+  uint32_t warp_idx = threadIdx.y;
+  int32_t indices_starts[OutputRowsPerThread];
+  int32_t Ls[OutputRowsPerThread];
+  int32_t max_Ls = 0;
+
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    int32_t indices_start = offsets[t * B + b];
+    int32_t indices_end = offsets[t * B + b + 1];
+    indices_starts[i] = indices_start;
+    Ls[i] = indices_end - indices_start;
+    max_Ls = max(max_Ls, Ls[i]);
+  }
+
+  const uint8_t* __restrict__ weights;
+  const auto placement = weights_placements[t];
+  if (placement == DEVICE) {
+      weights = &dev_weights[weights_offset];
+  } else {
+      weights = &uvm_weights[weights_offset];
+  }
+  constexpr size_t kOutputsPerThread = 4;
+
+  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+
+  float4 accumulators[OutputRowsPerThread][MaxNum128BRows];
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      accumulators[i][j] = make_zero_float4();
+    }
+  }
+
+  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    __shared__ AllBuffers buffers;
+
+    {% if weighted %}
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    __shared__ AllIndiceWeights buffers_indice_weights;
+    {% endif %}
+
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
+      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
+
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        valid = valid && (idx != -1);
+        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
+
+        {% if weighted %}
+        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        {% endif %}
+
+      }
+    }
+    // equivalent to fence + wait.
+    cp_async_wait<0>();
+    __syncwarp();
+    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      #pragma unroll OutputRowsPerThread
+      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        bool valid = L_start + input_row_idx < Ls[i];
+        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
+
+        {% if weighted %}
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
+        {% endif %}
+
+        #pragma unroll MaxNum128BRows
+        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
+          {% if weighted %}
+          accumulators[i][j] = valid ? accumulate_weighted_packed_int8(accumulators[i][j], v, shift_scale, row_weight) : accumulators[i][j];
+          {% else %}
+          accumulators[i][j] = valid ? accumulate_packed_int8(accumulators[i][j], v, shift_scale) : accumulators[i][j];
+          {% endif %}
+        }
+      }
+    }
+  }
+
+  #pragma unroll OutputRowsPerThread
+  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+
+    #pragma unroll MaxNum128BRows
+    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      bool aligned_16b = intptr_t(&output[b][D_start + output_d]) % 16 == 0;
+      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
+      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
+
+      if (pooling_mode == MEAN && Ls[i] != 0) {
+          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+          accumulators[i][j].x *= inv_L;
+          accumulators[i][j].y *= inv_L;
+          accumulators[i][j].z *= inv_L;
+          accumulators[i][j].w *= inv_L;
+      }
+      static_assert(
+        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
+        "output_t can only be float or half now"
+      );
+      if (std::is_same<output_t, float>::value) {
+        float4 val = accumulators[i][j];
+        if (output_d >= 0 && output_d < D) {
+          if (aligned_16b) {
+            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
+          } else if (aligned_8b) {
+            auto v = *reinterpret_cast<const int4*>(&val);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 2]) = make_int2(v.z, v.w);
+          } else {
+            output[b][D_start + output_d + 0] = val.x;
+            output[b][D_start + output_d + 1] = val.y;
+            output[b][D_start + output_d + 2] = val.z;
+            output[b][D_start + output_d + 3] = val.w;
+          }
+        }
+      } else if (std::is_same<output_t, at::Half>::value) {
+        half4 val = to_half4(accumulators[i][j]);
+        if (output_d >= 0 && output_d < D) {
+          if (aligned_8b) {
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
+          } else if (aligned_4b) {
+            auto v = *reinterpret_cast<const int2*>(&val);
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
+          } else {
+            output[b][D_start + output_d + 0] = val.vals[0].x;
+            output[b][D_start + output_d + 1] = val.vals[0].y;
+            output[b][D_start + output_d + 2] = val.vals[1].x;
+            output[b][D_start + output_d + 3] = val.vals[1].y;
+          }
+        }
+      } else {
+        // INT8/4: not implemented yet
+      }
+    }
+  }
+}
+
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
@@ -760,7 +987,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   PackedTensorAccessor32<float, 1, RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
+  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output // [B][total_D],
   ) {
   int32_t B = output.size(0);
@@ -905,212 +1132,66 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
           accumulators[i][j].vals[1].z *= inv_L;
           accumulators[i][j].vals[1].w *= inv_L;
       }
-      half8 val = to_half8(accumulators[i][j]);
-      if (output_d >= 0 && output_d < D) {
-        if (aligned_16b) {
-          *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
-        } else if (aligned_8b) {
-          auto v = *reinterpret_cast<const int4*>(&val);
-          *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
-          *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v.z, v.w);
-        } else if (aligned_4b) {
-          auto v = *reinterpret_cast<const int4*>(&val);
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 4]) = v.z;
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 6]) = v.w;
-        } else {
-          output[b][D_start + output_d + 0] = val.vals[0].x;
-          output[b][D_start + output_d + 1] = val.vals[0].y;
-          output[b][D_start + output_d + 2] = val.vals[1].x;
-          output[b][D_start + output_d + 3] = val.vals[1].y;
-          output[b][D_start + output_d + 4] = val.vals[2].x;
-          output[b][D_start + output_d + 5] = val.vals[2].y;
-          output[b][D_start + output_d + 6] = val.vals[3].x;
-          output[b][D_start + output_d + 7] = val.vals[3].y;
+      static_assert(
+        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
+        "output_t can only be float or half now"
+      );
+      if (std::is_same<output_t, float>::value) {
+        float8 val = accumulators[i][j];
+        if (output_d >= 0 && output_d < D) {
+          if (aligned_16b) { // 128 bit cache line
+            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&(val.vals[0]));
+            *reinterpret_cast<int4*>(&output[b][D_start + output_d + 4]) = *reinterpret_cast<const int4*>(&(val.vals[1]));
+          } else if (aligned_8b) {
+            auto v0 = *reinterpret_cast<const int4*>(&(val.vals[0]));
+            auto v1 = *reinterpret_cast<const int4*>(&(val.vals[1]));
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v0.x, v0.y);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 2]) = make_int2(v0.z, v0.w);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v1.x, v1.y);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 6]) = make_int2(v1.z, v1.w);
+          } else {
+            output[b][D_start + output_d + 0] = val.vals[0].x;
+            output[b][D_start + output_d + 1] = val.vals[0].y;
+            output[b][D_start + output_d + 2] = val.vals[0].z;
+            output[b][D_start + output_d + 3] = val.vals[0].w;
+            output[b][D_start + output_d + 4] = val.vals[1].x;
+            output[b][D_start + output_d + 5] = val.vals[1].y;
+            output[b][D_start + output_d + 6] = val.vals[1].z;
+            output[b][D_start + output_d + 7] = val.vals[1].w;
+          }
         }
+      } else if (std::is_same<output_t, at::Half>::value) {
+        half8 val = to_half8(accumulators[i][j]);
+        if (output_d >= 0 && output_d < D) {
+          if (aligned_16b) {
+            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
+          } else if (aligned_8b) {
+            auto v = *reinterpret_cast<const int4*>(&val);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
+            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v.z, v.w);
+          } else if (aligned_4b) {
+            auto v = *reinterpret_cast<const int4*>(&val);
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 4]) = v.z;
+            *reinterpret_cast<int*>(&output[b][D_start + output_d + 6]) = v.w;
+          } else {
+            output[b][D_start + output_d + 0] = val.vals[0].x;
+            output[b][D_start + output_d + 1] = val.vals[0].y;
+            output[b][D_start + output_d + 2] = val.vals[1].x;
+            output[b][D_start + output_d + 3] = val.vals[1].y;
+            output[b][D_start + output_d + 4] = val.vals[2].x;
+            output[b][D_start + output_d + 5] = val.vals[2].y;
+            output[b][D_start + output_d + 6] = val.vals[3].x;
+            output[b][D_start + output_d + 7] = val.vals[3].y;
+          }
+        }
+      } else {
+        // INT8/4: not implemented yet
       }
     }
   }
 }
-
-template<typename index_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
-__global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
-  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
-  int64_t pooling_mode,
-  {% if weighted %}
-  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
-      indice_weights,
-  {% endif %}
-  PackedTensorAccessor32<Half, 2, RestrictPtrTraits>
-      output // [B][total_D],
-  ) {
-  int32_t B = output.size(0);
-  int32_t T = D_offsets.size(0) - 1;
-  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-      return;
-  }
-
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
-
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::INT8) {
-      return;
-  }
-
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
-
-  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
-    return;
-  }
-
-  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
-
-  int64_t weights_offset = weights_offsets[t];
-  const int32_t D_total = padded_D(D, weight_ty);
-  const int32_t D_padding = D_total - D;
-
-  uint32_t warp_idx = threadIdx.y;
-  int32_t indices_starts[OutputRowsPerThread];
-  int32_t Ls[OutputRowsPerThread];
-  int32_t max_Ls = 0;
-
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    int32_t indices_start = offsets[t * B + b];
-    int32_t indices_end = offsets[t * B + b + 1];
-    indices_starts[i] = indices_start;
-    Ls[i] = indices_end - indices_start;
-    max_Ls = max(max_Ls, Ls[i]);
-  }
-
-  const uint8_t* __restrict__ weights;
-  const auto placement = weights_placements[t];
-  if (placement == DEVICE) {
-      weights = &dev_weights[weights_offset];
-  } else {
-      weights = &uvm_weights[weights_offset];
-  }
-  constexpr size_t kOutputsPerThread = 4;
-
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
-  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
-
-  float4 accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      accumulators[i][j] = make_zero_float4();
-    }
-  }
-
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
-
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
-    __shared__ AllBuffers buffers;
-
-    {% if weighted %}
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
-    __shared__ AllIndiceWeights buffers_indice_weights;
-    {% endif %}
-
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
-        valid = valid && (idx != -1);
-        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
-        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
-
-        {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        {% endif %}
-
-      }
-    }
-    // equivalent to fence + wait.
-    cp_async_wait<0>();
-    __syncwarp();
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
-
-        {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
-        {% endif %}
-
-        #pragma unroll MaxNum128BRows
-        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
-          {% if weighted %}
-          accumulators[i][j] = valid ? accumulate_weighted_packed_int8(accumulators[i][j], v, shift_scale, row_weight) : accumulators[i][j];
-          {% else %}
-          accumulators[i][j] = valid ? accumulate_packed_int8(accumulators[i][j], v, shift_scale) : accumulators[i][j];
-          {% endif %}
-        }
-      }
-    }
-  }
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
-      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
-
-      if (pooling_mode == MEAN && Ls[i] != 0) {
-          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
-          accumulators[i][j].x *= inv_L;
-          accumulators[i][j].y *= inv_L;
-          accumulators[i][j].z *= inv_L;
-          accumulators[i][j].w *= inv_L;
-      }
-      half4 val = to_half4(accumulators[i][j]);
-      if (output_d >= 0 && output_d < D) {
-        if (aligned_8b) {
-          *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
-        } else if (aligned_4b) {
-          auto v = *reinterpret_cast<const int2*>(&val);
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
-          *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
-        } else {
-          output[b][D_start + output_d + 0] = val.vals[0].x;
-          output[b][D_start + output_d + 1] = val.vals[0].y;
-          output[b][D_start + output_d + 2] = val.vals[1].x;
-          output[b][D_start + output_d + 3] = val.vals[1].y;
-        }
-      }
-    }
-  }
-}
-
-
 
 __device__ inline uint32_t pruned_hash_function(uint32_t h) {
     // MurmorHash3 32-bit mixing function.
@@ -1235,6 +1316,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     {% if weighted %}
     at::Tensor indice_weights,
     {% endif %}
+    int64_t output_dtype,
     int64_t unused
 ) {
     at::cuda::OptionalCUDAGuard device_guard;
@@ -1249,7 +1331,15 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(max_int2_D == 0);
 
-    auto output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    at::Tensor output;
+    SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16);
+    if (o_dtype == SparseType::FP32) {
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
+    } else if (o_dtype == SparseType::FP16) {
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    }
+
     if (B == 0) {
       return output;
     }
@@ -1260,7 +1350,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     constexpr int32_t kWarpsPerBlock = 4;
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(nbit::kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1275,28 +1365,30 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    if (max_int4_D > 0) {
-      auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4), 128);
-      TORCH_CHECK(max_int4_128b_rows <= 4);
-      if (max_int4_128b_rows > 0) {
-        X(2, 8, 0, 1);
+    DISPATCH_OUTPUT_TYPES(output.type(), "int4_split_embedding_codegen_forward_kernel", ([&] {
+      if (max_int4_D > 0) {
+        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4), 128);
+        TORCH_CHECK(max_int4_128b_rows <= 4);
+        if (max_int4_128b_rows > 0) {
+          X(2, 8, 0, 1);
+        }
+        if (max_int4_128b_rows > 1) {
+          X(2, 4, 1, 2);
+        }
+        if (max_int4_128b_rows > 2) {
+          X(1, 4, 2, 4);
+        }
       }
-      if (max_int4_128b_rows > 1) {
-        X(2, 4, 1, 2);
-      }
-      if (max_int4_128b_rows > 2) {
-        X(1, 4, 2, 4);
-      }
-    }
+    }));
     #undef X
 
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(nbit::kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1311,31 +1403,32 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    if (max_int8_D > 0) {
-      auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8), 128);
-      TORCH_CHECK(max_int8_128b_rows <= 8);
-      if (max_int8_128b_rows > 0) {
-        X(2, 8, 0, 1);
+    DISPATCH_OUTPUT_TYPES(output.type(), "int8_split_embedding_codegen_forward_kernel", ([&] {
+      if (max_int8_D > 0) {
+        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8), 128);
+        TORCH_CHECK(max_int8_128b_rows <= 8);
+        if (max_int8_128b_rows > 0) {
+          X(2, 8, 0, 1);
+        }
+        if (max_int8_128b_rows > 1) {
+          X(2, 4, 1, 2);
+        }
+        if (max_int8_128b_rows > 2) {
+          X(2, 4, 2, 4);
+        }
+        if (max_int8_128b_rows > 4) {
+          X(2, 4, 4, 8);
+        }
       }
-      if (max_int8_128b_rows > 1) {
-        X(2, 4, 1, 2);
-      }
-      if (max_int8_128b_rows > 2) {
-        X(2, 4, 2, 4);
-      }
-      if (max_int8_128b_rows > 4) {
-        X(2, 4, 4, 8);
-      }
-
-    }
+    }));
     #undef X
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(nbit::kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1350,30 +1443,32 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    if (max_float16_D > 0) {
-      auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16), 128);
-      TORCH_CHECK(max_fp16_128b_rows <= 16);
-      if (max_fp16_128b_rows > 0) {
-        X(2, 8, 0, 2);
+    DISPATCH_OUTPUT_TYPES(output.type(), "fp16_split_embedding_codegen_forward_kernel", ([&] {
+      if (max_float16_D > 0) {
+        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16), 128);
+        TORCH_CHECK(max_fp16_128b_rows <= 16);
+        if (max_fp16_128b_rows > 0) {
+          X(2, 8, 0, 2);
+        }
+        if (max_fp16_128b_rows > 2) {
+          X(2, 8, 2, 4);
+        }
+        if (max_fp16_128b_rows > 4) {
+          X(2, 4, 4, 8);
+        }
+        if (max_fp16_128b_rows > 8) {
+          X(2, 2, 8, 16);
+        }
       }
-      if (max_fp16_128b_rows > 2) {
-        X(2, 8, 2, 4);
-      }
-      if (max_fp16_128b_rows > 4) {
-        X(2, 4, 4, 8);
-      }
-      if (max_fp16_128b_rows > 8) {
-        X(2, 2, 8, 16);
-      }
-    }
+    }));
     #undef X
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(nbit::kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1388,17 +1483,19 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<at::Half, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    if (max_float32_D > 0) {
-      auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32), 128);
-      TORCH_CHECK(max_fp32_128b_rows <= 32);
-      // FP32 is used for numerical validations and tiny embeddings tables.
-      // We haven't carefully tuned the perf of FP32 embeddings.
-      X(1, 1, 0, 32);
-    }
+    DISPATCH_OUTPUT_TYPES(output.type(), "fp32_split_embedding_codegen_forward_kernel", ([&] {
+      if (max_float32_D > 0) {
+        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32), 128);
+        TORCH_CHECK(max_fp32_128b_rows <= 32);
+        // FP32 is used for numerical validations and tiny embeddings tables.
+        // We haven't carefully tuned the perf of FP32 embeddings.
+        X(1, 1, 0, 32);
+      }
+    }));
     #undef X
 
     // TODO: 2-bit kernels.

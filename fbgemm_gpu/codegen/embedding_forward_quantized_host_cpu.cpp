@@ -30,6 +30,7 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t output_dtype,
     int64_t unused);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
@@ -44,6 +45,7 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor offsets,
     int64_t pooling_mode,
     Tensor indice_weights,
+    int64_t output_dtype,
     int64_t unused);
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
@@ -62,7 +64,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights) {
+    c10::optional<Tensor> indice_weights,
+    int64_t output_dtype) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
@@ -75,6 +78,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         indices,
         offsets,
         pooling_mode,
+        output_dtype,
         0);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
@@ -89,6 +93,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       offsets,
       pooling_mode,
       *indice_weights,
+      output_dtype,
       0);
 }
 

@@ -532,7 +532,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooled_embedding_precision: SparseType,
     ) -> None:
         Ds = [
-            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            round_up(np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)), 4)
             for _ in range(T)
         ]
         E = int(10 ** log_E)
@@ -2149,6 +2149,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
+        output_dtype: SparseType,
     ) -> None:
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
@@ -2178,7 +2179,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             Ds = [
                 round_up(
-                    np.random.randint(low=int(max(0.25 * D,1)), high=int(1.0 * D)), D_alignment
+                    np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                    D_alignment,
                 )
                 for _ in range(T)
             ]
@@ -2221,9 +2223,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es] if B != 0 else None,
+            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es]
+            if B != 0
+            else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             use_array_for_index_remapping=use_array_for_index_remapping,
+            output_dtype=output_dtype,
         )
         # Initilize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
@@ -2384,6 +2389,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+            ]
+        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2404,6 +2415,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
+        output_dtype: SparseType,
     ) -> None:
         self.execute_nbit_forward_(
             T,
@@ -2418,6 +2430,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
             use_array_for_index_remapping,
             mixed_weights_ty,
+            output_dtype,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -2444,6 +2457,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+            ]
+        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2464,6 +2483,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
+        output_dtype: SparseType,
     ) -> None:
         self.execute_nbit_forward_(
             T,
@@ -2478,6 +2498,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
             use_array_for_index_remapping,
             mixed_weights_ty,
+            output_dtype,
         )
 
     @given(
