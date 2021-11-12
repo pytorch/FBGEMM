@@ -8,12 +8,8 @@
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 {% if not dense %}
+#include "codegen/embedding_common.h"
 constexpr int32_t kCacheLocationMissing = -1;
-enum PooledEmbOutputDtype {
-    FP32 = 0,
-    FP16 = 1,
-    INT8 = 2,
-};
 {% endif %}
 enum {
   DEVICE = 0,
@@ -290,13 +286,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     }
     {% else %}
 
-    TORCH_CHECK(output_dtype == PooledEmbOutputDtype::FP32 || output_dtype == PooledEmbOutputDtype::FP16 || output_dtype == PooledEmbOutputDtype::INT8);
-
-    if (output_dtype == PooledEmbOutputDtype::FP32) {
+    SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    if (o_dtype == SparseType::FP32) {
         output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
-    } else if (output_dtype == PooledEmbOutputDtype::FP16) {
+    } else if (o_dtype == SparseType::FP16) {
         output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
-    } else if (output_dtype == PooledEmbOutputDtype::INT8) {
+    } else if (o_dtype == SparseType::INT8) {
         output = empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
     }
 
