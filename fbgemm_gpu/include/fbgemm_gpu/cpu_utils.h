@@ -11,21 +11,22 @@
 #include <cstdint>
 #include <utility>
 
-template <typename T>
-using Radix_Sort_Pair = std::pair<T, T>;
 // histogram size per thread
-const int RDX_HIST_SIZE = 256;
+constexpr int RDX_HIST_SIZE = 256;
 template <typename T>
-Radix_Sort_Pair<T>* radix_sort_parallel(
-    Radix_Sort_Pair<T>* inp_buf,
-    Radix_Sort_Pair<T>* tmp_buf,
+std::pair<T*, T*> radix_sort_parallel(
+    T* inp_key_buf,
+    T* inp_value_buf,
+    T* tmp_key_buf,
+    T* tmp_value_buf,
     int64_t elements_count,
     int64_t max_value) {
   int maxthreads = omp_get_max_threads();
   alignas(64) int histogram[RDX_HIST_SIZE * maxthreads],
       histogram_ps[RDX_HIST_SIZE * maxthreads + 1];
-  if (max_value == 0)
-    return inp_buf;
+  if (max_value == 0) {
+    return std::make_pair(inp_key_buf, inp_value_buf);
+  }
   int num_bits = sizeof(T) * 8 - __builtin_clz(max_value);
   unsigned int num_passes = (num_bits + 7) / 8;
 
@@ -37,8 +38,10 @@ Radix_Sort_Pair<T>* radix_sort_parallel(
     int* local_histogram = &histogram[RDX_HIST_SIZE * tid];
     int* local_histogram_ps = &histogram_ps[RDX_HIST_SIZE * tid];
     int elements_count_4 = elements_count / 4 * 4;
-    Radix_Sort_Pair<T>* input = inp_buf;
-    Radix_Sort_Pair<T>* output = tmp_buf;
+    T* input_keys = inp_key_buf;
+    T* input_values = inp_value_buf;
+    T* output_keys = tmp_key_buf;
+    T* output_values = tmp_value_buf;
 
     for (unsigned int pass = 0; pass < num_passes; pass++) {
       // Step 1: compute histogram
@@ -47,20 +50,20 @@ Radix_Sort_Pair<T>* radix_sort_parallel(
 
 #pragma omp for schedule(static)
       for (int64_t i = 0; i < elements_count_4; i += 4) {
-        T val_1 = input[i].first;
-        T val_2 = input[i + 1].first;
-        T val_3 = input[i + 2].first;
-        T val_4 = input[i + 3].first;
+        T key_1 = input_keys[i];
+        T key_2 = input_keys[i + 1];
+        T key_3 = input_keys[i + 2];
+        T key_4 = input_keys[i + 3];
 
-        local_histogram[(val_1 >> (pass * 8)) & 0xFF]++;
-        local_histogram[(val_2 >> (pass * 8)) & 0xFF]++;
-        local_histogram[(val_3 >> (pass * 8)) & 0xFF]++;
-        local_histogram[(val_4 >> (pass * 8)) & 0xFF]++;
+        local_histogram[(key_1 >> (pass * 8)) & 0xFF]++;
+        local_histogram[(key_2 >> (pass * 8)) & 0xFF]++;
+        local_histogram[(key_3 >> (pass * 8)) & 0xFF]++;
+        local_histogram[(key_4 >> (pass * 8)) & 0xFF]++;
       }
       if (tid == (nthreads - 1)) {
         for (int64_t i = elements_count_4; i < elements_count; i++) {
-          T val = input[i].first;
-          local_histogram[(val >> (pass * 8)) & 0xFF]++;
+          T key = input_keys[i];
+          local_histogram[(key >> (pass * 8)) & 0xFF]++;
         }
       }
 #pragma omp barrier
@@ -82,37 +85,48 @@ Radix_Sort_Pair<T>* radix_sort_parallel(
       // Step 3: scatter
 #pragma omp for schedule(static)
       for (int64_t i = 0; i < elements_count_4; i += 4) {
-        T val_1 = input[i].first;
-        T val_2 = input[i + 1].first;
-        T val_3 = input[i + 2].first;
-        T val_4 = input[i + 3].first;
-        T bin_1 = (val_1 >> (pass * 8)) & 0xFF;
-        T bin_2 = (val_2 >> (pass * 8)) & 0xFF;
-        T bin_3 = (val_3 >> (pass * 8)) & 0xFF;
-        T bin_4 = (val_4 >> (pass * 8)) & 0xFF;
+        T key_1 = input_keys[i];
+        T key_2 = input_keys[i + 1];
+        T key_3 = input_keys[i + 2];
+        T key_4 = input_keys[i + 3];
+        T bin_1 = (key_1 >> (pass * 8)) & 0xFF;
+        T bin_2 = (key_2 >> (pass * 8)) & 0xFF;
+        T bin_3 = (key_3 >> (pass * 8)) & 0xFF;
+        T bin_4 = (key_4 >> (pass * 8)) & 0xFF;
         int pos;
         pos = local_histogram_ps[bin_1]++;
-        output[pos] = input[i];
+        output_keys[pos] = key_1;
+        output_values[pos] = input_values[i];
         pos = local_histogram_ps[bin_2]++;
-        output[pos] = input[i + 1];
+        output_keys[pos] = key_2;
+        output_values[pos] = input_values[i + 1];
         pos = local_histogram_ps[bin_3]++;
-        output[pos] = input[i + 2];
+        output_keys[pos] = key_3;
+        output_values[pos] = input_values[i + 2];
         pos = local_histogram_ps[bin_4]++;
-        output[pos] = input[i + 3];
+        output_keys[pos] = key_4;
+        output_values[pos] = input_values[i + 3];
       }
       if (tid == (nthreads - 1)) {
         for (int64_t i = elements_count_4; i < elements_count; i++) {
-          T val = input[i].first;
-          int pos = local_histogram_ps[(val >> (pass * 8)) & 0xFF]++;
-          output[pos] = input[i];
+          T key = input_keys[i];
+          int pos = local_histogram_ps[(key >> (pass * 8)) & 0xFF]++;
+          output_keys[pos] = key;
+          output_values[pos] = input_values[i];
         }
       }
 
-      Radix_Sort_Pair<T>* temp = input;
-      input = output;
-      output = temp;
+      T* temp = input_keys;
+      input_keys = output_keys;
+      output_keys = temp;
+
+      temp = input_values;
+      input_values = output_values;
+      output_values = temp;
 #pragma omp barrier
     }
   }
-  return (num_passes % 2 == 0 ? inp_buf : tmp_buf);
+  return (
+      num_passes % 2 == 0 ? std::make_pair(inp_key_buf, inp_value_buf)
+                          : std::make_pair(tmp_key_buf, tmp_value_buf));
 }
