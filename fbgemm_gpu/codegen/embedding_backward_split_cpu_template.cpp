@@ -72,24 +72,28 @@ void split_embedding_backward_exact_cpu_kernel(
           hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[feature_begin];
       ++t_temp;
     } while (hash_size == 0);
+    TORCH_CHECK(
+        hash_size < ((1L << 31) - 1),
+        "CPU exact rowwise adagrad currently doesn't support embedding tables "
+        "with more than 2B rows");
     return hash_size;
   };
 
   for (int t = 0; t < num_tables; ++t) {
-      int feature_begin = table_to_feature_offset[t];
-      int64_t hash_size = get_hash_size(feature_begin);
+    int feature_begin = table_to_feature_offset[t];
+    int64_t hash_size = get_hash_size(feature_begin);
 
-      ::internal::batched_csr2csc(
-          batched_cscs[t],
-          B,
-          offsets.accessor<int64_t, 1>(),
-          indices.accessor<int64_t, 1>(),
-          indice_weights.defined()
-              ? indice_weights.accessor<grad_t, 1>()
-              : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
-          pooling_mode,
-          table_to_feature_offset + t,
-          hash_size);
+    ::internal::batched_csr2csc(
+        batched_cscs[t],
+        B,
+        offsets.accessor<int64_t, 1>(),
+        indices.accessor<int64_t, 1>(),
+        indice_weights.defined()
+            ? indice_weights.accessor<grad_t, 1>()
+            : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
+        pooling_mode,
+        table_to_feature_offset + t,
+        hash_size);
   }
   // sort based csr2csc handles segment_ids differently
   bool is_csr2csc_sort = batched_cscs[0].weights == nullptr;
@@ -100,7 +104,7 @@ void split_embedding_backward_exact_cpu_kernel(
     int c_begin = batched_cscs[t].table_ptr[0];
     int c_end = batched_cscs[t].table_ptr[1];
     int* col_segment_ptr = batched_cscs[t].column_segment_ptr;
-    int64_t* col_segment_indices = batched_cscs[t].column_segment_indices;
+    int* col_segment_indices = batched_cscs[t].column_segment_indices;
 
     auto hash_size = get_hash_size(feature_begin);
 
@@ -108,12 +112,13 @@ void split_embedding_backward_exact_cpu_kernel(
     const auto D =
         D_offsets_data[feature_begin + 1] - D_offsets_data[feature_begin];
     const auto table_begin = weights_offsets_data[feature_begin];
+    bool is_shared_table =
+        table_to_feature_offset[t + 1] > table_to_feature_offset[t] + 1;
 
     {% if optimizer == "rowwise_adagrad" %}
     constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value;
     // || std::is_same<scalar_t, at::Half>::value;
-    if (use_fbgemm &&
-        table_to_feature_offset[t + 1] == table_to_feature_offset[t] + 1) {
+    if (use_fbgemm && !is_shared_table) {
       // fbgemm handles common case of no shared table
       using fbgemm_weight_t = typename ::internal::half2float16<scalar_t>::type;
       auto spmdm_kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
@@ -129,8 +134,7 @@ void split_embedding_backward_exact_cpu_kernel(
           /*output_stride=*/-1,
           /*input_stride=*/grad_stride);
       auto rowwise_adagrad_kernel =
-          fbgemm::GenerateSparseAdaGrad</*IndexType=*/int64_t>(
-              D, /*rowwise=*/true);
+          fbgemm::GenerateSparseAdaGrad</*IndexType=*/int>(D, /*rowwise=*/true);
 
       constexpr int C_BLOCK = 64;
       at::parallel_for(c_begin, c_end, C_BLOCK, [&](int64_t c0, int64_t c1) {
@@ -183,8 +187,11 @@ void split_embedding_backward_exact_cpu_kernel(
         }
         const int64_t embedding_begin = table_begin + idx * D;
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
-          int D_offset = D_begin +
-              batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
+          int D_offset = D_begin;
+          if (is_shared_table) {
+            D_offset +=
+                batched_cscs[t].column_segment_ids[is_csr2csc_sort ? r : c] * D;
+          }
           int b = batched_cscs[t].row_indices[r];
           for (int64_t d = 0; d < D; ++d) {
             grad_buffer[d] += batched_cscs[t].weights != nullptr
@@ -230,8 +237,8 @@ void split_embedding_backward_exact_cpu_dense_kernel(
 
   at::parallel_for(0, num_tables, 0, [&](int64_t t_begin, int64_t t_end) {
     for (int64_t t = table_to_feature_offset[t_begin];
-          t < table_to_feature_offset[t_end];
-          ++t) {
+         t < table_to_feature_offset[t_end];
+         ++t) {
       const auto D_begin = D_offsets_data[t];
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
