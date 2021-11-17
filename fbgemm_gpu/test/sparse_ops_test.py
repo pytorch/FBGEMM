@@ -706,11 +706,12 @@ class SparseOpsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_reorder_batched_ad_indices(self, B: int, T: int, L: int, A: int) -> None:
+    def test_reorder_batched_ad_indices(self, B: int, T: int, L: int, A: int, Dtype: torch.dtype) -> None:
         cat_ad_indices = (
-            torch.randint(low=0, high=100, size=(B * T * A * L,)).int().cuda()
+            torch.randint(low=0, high=100, size=(B * T * A * L,)).int().cuda().to(Dtype)
         )
         cat_ad_lengths = (
             torch.cat([torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0)
@@ -740,17 +741,6 @@ class SparseOpsTest(unittest.TestCase):
             cat_ad_indices.view(B, T, A, L),
         )
 
-        reordered_cat_ad_indices_cpu = torch.ops.fbgemm.reorder_batched_ad_indices(
-            cat_ad_offsets.cpu(),
-            cat_ad_indices.cpu(),
-            reordered_cat_ad_offsets.cpu(),
-            batch_offsets.cpu(),
-            num_ads_in_batch,
-        )
-        torch.testing.assert_allclose(
-            reordered_cat_ad_indices_cpu.view(T, B, A, L).permute(1, 0, 2, 3),
-            cat_ad_indices.view(B, T, A, L).cpu(),
-        )
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
