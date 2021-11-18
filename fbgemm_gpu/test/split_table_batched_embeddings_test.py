@@ -22,7 +22,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
 )
 from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
-
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
 
@@ -512,9 +511,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
         # FIXME: switch to
-        # pooled_embedding_precision=st.sampled_from([SparseType.FP16, SparseType.INT8]),
+        # output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
         # after v0/v2 is landed.
-        pooled_embedding_precision=st.sampled_from([SparseType.FP32]),
+        output_dtype=st.sampled_from([SparseType.FP32]),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -529,7 +528,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B: int,
         log_E: int,
         L: int,
-        pooled_embedding_precision: SparseType,
+        output_dtype: SparseType,
     ) -> None:
         Ds = [
             round_up(np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)), 4)
@@ -548,7 +547,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
-            pooled_output_precision=pooled_embedding_precision,
+            output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
         op_ref = (
@@ -562,7 +561,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                     for (E, D) in zip(Es, Ds)
                 ],
-                pooled_output_precision=SparseType.FP32,
+                output_dtype=SparseType.FP32,
                 device=torch.cuda.current_device(),
             )
         )
@@ -583,40 +582,34 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 indices=indices,
                 offsets=offsets,
             )
-
             lowp_pooled_emb_split = [
-                d + 8 if pooled_embedding_precision == SparseType.INT8 else d
-                for d in op.dims
+                d + 8 if output_dtype == SparseType.INT8 else d for d in op.dims
             ]
             lowp_pooled_output_per_table = torch.split(
                 lowp_pooled_output, lowp_pooled_emb_split, dim=1
             )
-
             deq_lowp_pooled_output_per_table = [
                 torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
-                if pooled_embedding_precision == SparseType.INT8
+                if output_dtype == SparseType.INT8
                 else t.float()
                 for t in lowp_pooled_output_per_table
             ]
             fp32_pooled_output_per_table = torch.split(
                 fp32_pooled_output, op.dims, dim=1
             )
-
             dq_fp32_pooled_output_per_table = [
                 torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
                     torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
                         t.contiguous()
                     ).contiguous()
                 )
-                if pooled_embedding_precision == SparseType.INT8
+                if output_dtype == SparseType.INT8
                 else t.half().float()
                 for t in fp32_pooled_output_per_table
             ]
-
             cat_deq_lowp_pooled_output = torch.cat(
                 deq_lowp_pooled_output_per_table, dim=1
             )
-
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
