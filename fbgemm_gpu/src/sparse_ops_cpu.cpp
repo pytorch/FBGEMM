@@ -921,44 +921,6 @@ at::Tensor jagged_1d_to_dense_cpu(
 
   return padded_values;
 }
-
-template <typename scalar_t>
-void _segment_sum_csr_cpu_kernel(
-    const int num_segments,
-    const int batch_size,
-    const int* const csr_seg_data,
-    const scalar_t* const values_data,
-    scalar_t* const output_data) {
-  for (const auto i : c10::irange(num_segments)) {
-    const int seg_start = csr_seg_data[i] * batch_size;
-    const int seg_end = csr_seg_data[i + 1] * batch_size;
-    scalar_t v = 0;
-    for (const auto j : c10::irange(seg_start, seg_end)) {
-      v += values_data[j];
-    }
-    output_data[i] = v;
-  }
-}
-
-at::Tensor segment_sum_csr_cpu(
-    const int64_t batch_size,
-    const at::Tensor& csr_seg,
-    const at::Tensor& values) {
-  TENSOR_ON_CPU(csr_seg);
-  TENSOR_ON_CPU(values);
-
-  auto output = at::empty(csr_seg.numel() - 1, values.options());
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cpu", ([&] {
-                          _segment_sum_csr_cpu_kernel<scalar_t>(
-                              csr_seg.numel() - 1,
-                              batch_size,
-                              csr_seg.data_ptr<int>(),
-                              values.data_ptr<scalar_t>(),
-                              output.data_ptr<scalar_t>());
-                        }));
-  return output;
-}
-
 } // namespace fbgemm
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -980,7 +942,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
    m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
-  m.def("segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1003,5 +964,4 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
   m.impl("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_forward_cpu);
   m.impl("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_cpu);
-  m.impl("segment_sum_csr", fbgemm::segment_sum_csr_cpu);
 }

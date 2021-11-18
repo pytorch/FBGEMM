@@ -28,14 +28,6 @@ at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size);
 
 at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size);
 
-at::Tensor segment_sum_csr_cuda(const int64_t batch_size,
-                                const at::Tensor& csr_seg,
-                                const at::Tensor& values);
-
-at::Tensor segment_sum_csr_cpu(const int64_t batch_size,
-                               const at::Tensor& csr_seg,
-                               const at::Tensor& values);
-
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
