@@ -124,5 +124,4 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm::lookup_batched_unary_embedding_function);
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_gpu);
-  DISPATCH_TO_CUDA("segment_sum_csr", fbgemm::segment_sum_csr_cuda);
 }
