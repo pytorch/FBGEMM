@@ -236,7 +236,7 @@ def cli() -> None:
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
-@click.option("--pooled-embedding-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -255,7 +255,7 @@ def device(  # noqa C901
     weighted_num_requires_grad: Optional[int],
     flush_gpu_cache_size_mb: int,
     dense: bool,
-    pooled_embedding_precision: SparseType,
+    output_dtype: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -326,7 +326,7 @@ def device(  # noqa C901
             eps=0.1,
             weights_precision=weights_precision,
             stochastic_rounding=stoc,
-            pooled_output_precision=pooled_embedding_precision,
+            output_dtype=output_dtype,
         )
     emb = emb.to(get_device())
 
@@ -375,7 +375,7 @@ def device(  # noqa C901
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
-    if pooled_embedding_precision == SparseType.INT8:
+    if output_dtype == SparseType.INT8:
         # backward bench not representative
         return
 
@@ -811,7 +811,6 @@ def benchmark_cpu_requests(
 @click.option("--reuse", default=0.0)
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
-@click.option("--int4", is_flag=True, default=False)
 @click.option("--index-remapping", is_flag=True, default=False)
 def cpu(  # noqa C901
     alpha: float,
@@ -828,7 +827,6 @@ def cpu(  # noqa C901
     reuse: float,
     row_wise: bool,
     weighted: bool,
-    int4: bool,
     index_remapping: bool,
 ) -> None:
     np.random.seed(42)
@@ -857,7 +855,7 @@ def cpu(  # noqa C901
 
     nparams = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     logging.info(
-        f"Int4 Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
+        f"Int NBit Embedding parameters: {nparams * 2 / 1.0e9: .2f} GParam, "
         f"{nparams / 1.0e9: .2f}GB"
     )
     logging.info(f"Accessed weights per batch: {B * T * L * D * 0.5 / 1.0e6: .2f}MB")

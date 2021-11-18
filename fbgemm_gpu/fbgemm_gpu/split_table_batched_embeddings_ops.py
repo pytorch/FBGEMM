@@ -191,7 +191,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
         weights_precision: SparseType = SparseType.FP32,
-        pooled_output_precision: SparseType = SparseType.FP32,
+        output_dtype: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
@@ -215,7 +215,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
-        self.pooled_output_precision: int = pooled_output_precision.as_int()
+        self.output_dtype: int = output_dtype.as_int()
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -239,7 +239,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
         if self.use_cpu:
             assert (
-                pooled_output_precision == SparseType.FP32
+                output_dtype == SparseType.FP32
             ), "Fused pooled embedding quantization only supported for cuda."
 
         if device is not None:
@@ -604,7 +604,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_locations,
-            output_dtype=self.pooled_output_precision,
+            output_dtype=self.output_dtype,
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
