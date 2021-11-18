@@ -76,10 +76,17 @@ class SplitEmbInferenceConverter:
     def _quantize_embs(
         self, weight: Tensor, weight_ty: SparseType
     ) -> Tuple[Tensor, Optional[Tensor]]:
-        if weight_ty == SparseType.FP16:
-            q_weight = weight.half()
+        if weight_ty == SparseType.FP32:
+            q_weight = weight.float()
             # FIXME: How to view the PyTorch Tensor as a different type (e.g., uint8)
             # Here it uses numpy and it will introduce DtoH/HtoD overhead.
+            res_weight = torch.tensor(
+                q_weight.cpu().numpy().view(np.uint8)
+            ).contiguous()
+            return (res_weight, None)
+
+        elif weight_ty == SparseType.FP16:
+            q_weight = weight.half()
             res_weight = torch.tensor(
                 q_weight.cpu().numpy().view(np.uint8)
             ).contiguous()
