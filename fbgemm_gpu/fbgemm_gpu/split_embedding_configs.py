@@ -26,6 +26,7 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
     MADGRAD = "madgrad"
+    EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"
 
     def __str__(self) -> str:
         return self.value
