@@ -684,14 +684,15 @@ class SparseOpsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_reorder_batched_ad_lengths_cpu(
-        self, B: int, T: int, L: int, A: int
+        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
     ) -> None:
         cat_ad_lengths = torch.cat(
             [torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0
-        ).int()
+        ).int().to(Dtype)
         batch_offsets = torch.tensor([A * b for b in range(B + 1)]).int()
         num_ads_in_batch = B * A
         reordered_batched_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
@@ -748,12 +749,13 @@ class SparseOpsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_reorder_batched_ad_indices_cpu(
-        self, B: int, T: int, L: int, A: int
+        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
     ) -> None:
-        cat_ad_indices = torch.randint(low=0, high=100, size=(B * T * A * L,)).int()
+        cat_ad_indices = torch.randint(low=0, high=100, size=(B * T * A * L,)).int().to(Dtype)
         cat_ad_lengths = torch.cat(
             [torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0
         ).int()

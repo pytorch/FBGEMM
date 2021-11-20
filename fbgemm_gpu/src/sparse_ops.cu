@@ -1036,44 +1036,17 @@ at::Tensor reorder_batched_ad_lengths_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  if (cat_ad_lengths.dtype() == at::kInt) {
-    reorder_batched_ad_lengths_kernel<int32_t><<<
-        blocks,
-        threads,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        cat_ad_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+  AT_DISPATCH_ALL_TYPES(
+    cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", ([&] {
+      reorder_batched_ad_lengths_kernel<scalar_t>
+        <<<blocks,threads,0,at::cuda::getCurrentCUDAStream()>>>(
+        cat_ad_lengths.packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
         batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
         reordered_cat_ad_lengths
-            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
         T);
-  } else if (cat_ad_lengths.dtype() == at::kLong) {
-    reorder_batched_ad_lengths_kernel<int64_t><<<
-        blocks,
-        threads,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        cat_ad_lengths.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        reordered_cat_ad_lengths
-            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        T);
-  } else if (cat_ad_lengths.dtype() == at::kFloat) {
-    reorder_batched_ad_lengths_kernel<float><<<
-        blocks,
-        threads,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        cat_ad_lengths.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
-        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        reordered_cat_ad_lengths
-            .packed_accessor32<float, 1, at::RestrictPtrTraits>(),
-        T);
-  } else {
-    TORCH_CHECK(false, "not implmented for ", cat_ad_lengths.dtype().name());
-  }
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }));
   return reordered_cat_ad_lengths;
 }
 
@@ -1153,52 +1126,20 @@ at::Tensor reorder_batched_ad_indices_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  if (cat_ad_indices.dtype() == at::kInt) {
-      reorder_batched_ad_indices_kernel<int32_t><<<
-      blocks,
-      threads,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cat_ad_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_offsets
+  AT_DISPATCH_ALL_TYPES(
+    cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", ([&] {
+      reorder_batched_ad_indices_kernel<scalar_t>
+        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+        cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        cat_ad_indices.packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+        reordered_cat_ad_offsets
           .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_indices
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      T);
-  } else if (cat_ad_indices.dtype() == at::kLong) {
-      reorder_batched_ad_indices_kernel<int64_t><<<
-      blocks,
-      threads,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cat_ad_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_offsets
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_indices
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      T);
-  } else if (cat_ad_indices.dtype() == at::kFloat) {
-      reorder_batched_ad_indices_kernel<float><<<
-      blocks,
-      threads,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cat_ad_indices.packed_accessor32<float, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_offsets
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      reordered_cat_ad_indices
-          .packed_accessor32<float, 1, at::RestrictPtrTraits>(),
-      batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      T);
-  } else {
-    TORCH_CHECK(false, "not implmented for ", cat_ad_indices.dtype().name());
-  }
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+        reordered_cat_ad_indices
+          .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        T);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }));
   return reordered_cat_ad_indices;
 }
 
