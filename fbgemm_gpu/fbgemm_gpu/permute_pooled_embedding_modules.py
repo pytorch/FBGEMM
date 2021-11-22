@@ -7,7 +7,10 @@ from typing import List, Optional
 import torch
 from torch import nn
 
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu")
+try:
+    torch.ops.load_library("fbgemm_gpu_py.so")
+except Exception:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu")
 
 
 class PermutePooledEmbeddings(nn.Module):
