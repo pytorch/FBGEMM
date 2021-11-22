@@ -14,7 +14,8 @@ from torch import Tensor
 logging.basicConfig(level=logging.DEBUG)
 
 try:
-    torch.ops.load_library("fbgemm_gpu_py.so")
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")

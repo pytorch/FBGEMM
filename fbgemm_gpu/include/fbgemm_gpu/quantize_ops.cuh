@@ -6,13 +6,37 @@
  */
 #pragma once
 
+#include <cstdint> 
 #include <cuda.h>
-#include <thrust/device_ptr.h>
-#include <thrust/extrema.h>
+#include <cuda_fp16.h>
 #include <math_constants.h>
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define QUANTIZE_OPS_MIN(a, b) ((a) < (b) ? (a) : (b))
+
+namespace fbgemm_gpu {
+template<typename T>
+__device__ inline T min(const T* from,const  T* to) {
+  T result = *(from++);
+  while(from < to) {
+    T next = *(from++);
+    result = (result <= next) ? result : next;
+  }
+  return result;
+}
+
+template<typename T>
+__device__ inline T max(const T* from,const  T* to) {
+  T result = *(from++);
+  while(from < to) {
+    T next = *(from++);
+    result = (result >= next) ? result : next;
+  }
+  return result;
+}
+
+} // namespace fbgemm_gpu
+
 
 template <typename T>
 __device__ inline __attribute__((always_inline)) T quantize_ops_shfl_xor(const T val, int laneMask, int width) {
@@ -128,10 +152,8 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + ncols_aligned);
 
-    float minimum_element =
-        *thrust::min_element(thrust::device, input_row, input_row + ncols);
-    float maximum_element =
-        *thrust::max_element(thrust::device, input_row, input_row + ncols);
+    float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
+    float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
     float range = maximum_element - minimum_element;
 
     output_row_scale_bias[0] = range / 255.0f;
@@ -183,10 +205,8 @@ __global__ inline void _fake_8bit_quantize_cuda_kernel(
     const int col_incre = blockDim.x * gridDim.x;
     for (int col = blockIdx.y * blockDim.y + threadIdx.y; col < ncols;
          col += col_incre) {
-      float minimum_element =
-          *thrust::min_element(thrust::device, input_row, input_row + ncols);
-      float maximum_element =
-          *thrust::max_element(thrust::device, input_row, input_row + ncols);
+      float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
+      float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
       float range = maximum_element - minimum_element;
       const auto inverse_scale = 255.0f / (range + kEpsilon);
       std::uint8_t quantized_val =
@@ -215,11 +235,9 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
     __half* output_row_scale_bias = reinterpret_cast<__half*>(
         output_row + (ncols + num_elem_per_byte - 1) / num_elem_per_byte);
 
-    float minimum_element =
-        *thrust::min_element(thrust::device, input_row, input_row + ncols);
-    float maximum_element =
-        *thrust::max_element(thrust::device, input_row, input_row + ncols);
-
+   
+    float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
+    float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
     minimum_element = __half2float(__float2half(minimum_element));
     const float range = maximum_element - minimum_element;
 

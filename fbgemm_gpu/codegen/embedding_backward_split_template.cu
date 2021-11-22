@@ -690,7 +690,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     {
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
             nullptr,
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -705,7 +705,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(kByte));
-        AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -722,7 +722,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
     if (lxu_cache_locations.size(0) > 0) {
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
             nullptr,
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -737,7 +737,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(kByte));
-        AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -759,7 +759,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
 
     {
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(cub::DeviceRunLengthEncode::Encode(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
             nullptr,
             temp_storage_bytes,
             linear_indices_sorted.data_ptr<int64_t>(),
@@ -773,7 +773,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(kByte));
         // Run encoding
-        AT_CUDA_CHECK(cub::DeviceRunLengthEncode::Encode(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             linear_indices_sorted.data_ptr<int64_t>(),
@@ -803,7 +803,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
             size_t temp_storage_bytes = 0;
-            AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+            AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
                 nullptr,
                 temp_storage_bytes,
                 linear_indices.data_ptr<int64_t>(),
@@ -823,7 +823,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(kByte));
-            AT_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(
+            AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
                 linear_indices.data_ptr<int64_t>(),

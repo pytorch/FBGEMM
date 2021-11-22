@@ -1,4 +1,4 @@
-# FBGEMM_GPU
+# FBGEMM_GPU [WIP]
 
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
 high-performance CUDA GPU operator library for GPU training and inference.
@@ -7,20 +7,78 @@ The library provides efficient table batched embedding bag,
 data layout transformation, and quantization supports.
 
 
+Currently tested with pytorch 1.10 and cuda 11.3
+( previously tested with pytorch 1.9 and automated testing planned)
+
+Only Intel/AMD with AVX2 extensions are currently supported.
+
+
+General build instructions are as follows:
+
+Build dependencies:
+      "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
+ and for testing:
+    "hypothesis"
+
+Additional dependencies:
+   Currently cuDNN is required to be installed.
+
+```
+git clone --recursive https://github.com/pytorch/FBGEMM.git
+cd FBGEMM/fbgemm_gpu
+# if you are updating an existing checkout
+git submodule sync
+git submodule update --init --recursive
+
+# Specify cuda version to use
+# (may not be needed with only a single version installed)
+export CUDA_BIN_PATH=/usr/local/cuda-11.3/
+export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
+
+# if using CUDA 10 or earliers set the location to the CUB installation directory
+export CUB_DIR=${CUB_DIR}
+# in fbgemm_gpu folder
+# build the table batched embedding bag op for multiple cuda architectures
+python setup.py install
+# or build it for specific cuda architectures
+python setup.py install -Dcuda_architectures="70;80"
+
+```
+
+
+# Usage Example:
+```bash
+cd bench
+python split_table_batched_embeddings_benchmark.py uvm
+```
+# Issues
+
+Building is CMAKE based and keeps state across install runs.
+Specifying the CUDA architectures in the command line once is enough.
+However on failed builds (missing dependencies ..) this can cause problems
+and using
+```bash
+python setup.py clean
+```
+to remove stale cached state can be helpfull.
+
+
 ## Examples
 
 The tests (in test folder) and benchmarks (in bench folder) are some great
 examples of using FBGEMM_GPU.
 
 ## Build Notes
-FBGEMM_GPU uses the standard CMAKE-based build flow
-and [PyTorch TorchScript extension with custom C++ operator][0] build flow.
+FBGEMM_GPU uses a scikit-build CMAKE-based build flow
 
 ### Dependencies
 FBGEMM_GPU requires nvcc and a Nvidia GPU with
 compute capability of 3.5+.
 
 + ###### CUB
+
+CUB is now included with cuda 11.1 - the section below will still be needed for lower cuda versions (once they are tested)
+
 For the [CUB][1] build time dependency, if you are using conda, you can continue with
 ```
 conda install -c bottler nvidiacub
@@ -39,47 +97,18 @@ required** if you don't want to run FBGEMM_GPU tests. By default, building of te
 is **on**. Turn it off by setting FBGEMMGPU\_BUILD\_TESTS to off.
 
 
-+ ###### PyTorch, Jinja2
-[PyTorch][3] and [Jinja2][4] are **required** to build and run the table
++ ###### PyTorch, Jinja2, scikit-build
+[PyTorch][3], [Jinja2][4] and are scikit-build **required** to build and run the table
 batched embedding bag operator. One thing to note is that the implementation
-of this op relies on the latest version of PyTorch (1.8+), so it requires the
-installation with PyTorch Nightly:
+of this op relies on the version of PyTorch 1.9 or later
 ```
-conda uninstall pytorch
-# update with the corresponding CUDA version
-conda install pytorch cudatoolkit=9.2 -c pytorch-nightly
-conda install jinja2
-```
+
 
 You can download [googletest][2] and set
 GOOGLETEST\_SOURCE\_DIR respectively for
 cmake to find these libraries. If any of these variables is not set, cmake will
 build the git submodules found in the third\_party directory.
 
-General build instructions are as follows:
-
-```
-git clone --recursive https://github.com/pytorch/FBGEMM.git
-cd FBGEMM/fbgemm_gpu
-# if you are updating an existing checkout
-git submodule sync
-git submodule update --init --recursive
-# configure the NVCC and CUB path
-export CUDACXX=/usr/local/cuda/bin/nvcc
-# if using CUDA 10 or earliers set the location to the CUB installation directory
-export CUB_DIR=${CUB_DIR}
-# in fbgemm_gpu folder
-# build the table batched embedding bag op
-cd ..
-python setup.py build develop
-```
-
-FBGEMM_GPU also supports a CPU-only (no CUDA dependencies) build if so desired.  To
-enable the CPU-only build add the --cpu_only option to the python setup command.
-
-```
-python setup.py build develop --cpu_only
-```
 
 ## Running  FBGEMM_GPU
 
@@ -88,12 +117,13 @@ are built), use the following command:
 ```
 # run the tests and benchmarks of table batched embedding bag op,
 # data layout transform op, quantized ops, etc.
-cd ..
-python test/split_table_batched_embeddings_test.py
-python test/quantize_ops_test.py
-python test/sparse_ops_test.py
-python test/split_embedding_inference_converter_test.py
-python bench/split_table_batched_embeddings_benchmark.py
+cd test
+python split_table_batched_embeddings_test.py
+python quantize_ops_test.py
+python sparse_ops_test.py
+python split_embedding_inference_converter_test.py
+cd ../bench
+python split_table_batched_embeddings_benchmark.py
 ```
 
 ## How FBGEMM_GPU works

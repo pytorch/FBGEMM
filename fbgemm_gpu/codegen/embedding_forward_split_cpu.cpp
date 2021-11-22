@@ -12,6 +12,8 @@
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #include "folly/container/F14Map.h"
+#else
+#include <omp.h>
 #endif
 
 #include <ATen/AccumulateType.h>

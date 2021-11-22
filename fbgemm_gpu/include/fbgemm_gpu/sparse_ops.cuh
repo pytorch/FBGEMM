@@ -7,7 +7,11 @@
 #pragma once
 
 #include <cuda.h>
+
+#include "./cub_namespace_prefix.cuh"
 #include "cub/block/block_reduce.cuh"
+#include "./cub_namespace_postfix.cuh"
+
 
 // Kernel for index hashing (template type scalar_t)
 template <typename scalar_t>
@@ -238,7 +242,7 @@ __global__ void _segment_sum_csr_cuda_kernel(
     const int* csr_seg_data,
     const scalar_t* values_data,
     scalar_t* output_data) {
-  typedef cub::BlockReduce<scalar_t, 256> BlockReduce;
+  typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<scalar_t, 256> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
   int seg_start = csr_seg_data[blockIdx.x] * batch_size;
   int seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;

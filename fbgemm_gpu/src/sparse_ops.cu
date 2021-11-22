@@ -19,7 +19,11 @@
 #include <torch/library.h>
 
 #include "ATen/Parallel.h"
+
+#include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include "cub/device/device_scan.cuh"
+#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
@@ -101,7 +105,7 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in) {
   auto t_out = at::empty_like(t_in);
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -114,7 +118,7 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in) {
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -136,7 +140,7 @@ at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in) {
   auto t_out = at::empty_like(t_in);
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper1", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             nullptr,
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -149,7 +153,7 @@ at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in) {
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper2", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -173,7 +177,7 @@ at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in) {
   t_out[0].zero_();
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -186,7 +190,7 @@ at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in) {
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),

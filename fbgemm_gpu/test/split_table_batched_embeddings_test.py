@@ -11,6 +11,7 @@ import copy
 import unittest
 from typing import Callable, List, Optional, Tuple, TypeVar
 
+import fbgemm_gpu
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
@@ -21,7 +22,16 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     RecordCacheMetrics,
     BoundsCheckMode,
 )
-from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+
+
+open_source : bool = getattr(fbgemm_gpu, "open_source", False)
+
+if open_source:
+    # pyre-ignore[21]
+    from test_utils import gpu_available, gpu_unavailable
+else:
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
 from torch import Tensor
 

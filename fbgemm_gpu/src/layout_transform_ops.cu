@@ -4,6 +4,11 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
+#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "cub/device/device_scan.cuh"
+#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 
@@ -16,7 +21,6 @@
 #include <torch/library.h>
 
 #include "ATen/Parallel.h"
-#include "cub/device/device_scan.cuh"
 
 namespace fbgemm {
 

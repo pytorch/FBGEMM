@@ -4,6 +4,14 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
+
+#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_run_length_encode.cuh>
+#include <cub/device/device_scan.cuh>
+#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/CUDAGeneratorImpl.h>
@@ -13,9 +21,6 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <THC/THCAtomics.cuh>
-#include <cub/device/device_radix_sort.cuh>
-#include <cub/device/device_run_length_encode.cuh>
-#include <cub/device/device_scan.cuh>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -50,7 +55,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   t_out[0].zero_();
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),
@@ -63,7 +68,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
-        AT_CUDA_CHECK(cub::DeviceScan::InclusiveSum(
+        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             t_in.data_ptr<scalar_t>(),

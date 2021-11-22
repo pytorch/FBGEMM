@@ -10,10 +10,9 @@
 #include <ATen/AccumulateType.h>
 
 #include <cuda.h>
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <thrust/device_ptr.h>
-#include <thrust/extrema.h>
 
 namespace fbgemm_gpu {
 
@@ -729,10 +728,18 @@ DEVICE_INLINE bool is_aligned(const void* ptr) {
 template <typename scalar_t>
 __device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
   float2 qparams;
-  float minimum_element =
-      *thrust::min_element(thrust::device, input_row, input_row + D);
-  float maximum_element =
-      *thrust::max_element(thrust::device, input_row, input_row + D);
+
+  scalar_t scalar_minimum = *(input_row++);
+  scalar_t scalar_maximum = scalar_minimum;
+
+  while(--D > 0) {
+    scalar_t next = *(input_row++);
+    scalar_minimum = (scalar_minimum <= next) ? scalar_minimum : next;
+    scalar_maximum = (scalar_maximum >= next) ? scalar_maximum : next;
+  }
+  float minimum_element = scalar_minimum;
+  float maximum_element = scalar_maximum;
+
   float range = maximum_element - minimum_element;
   qparams.x = range / 255.0f;
   qparams.y = minimum_element;
