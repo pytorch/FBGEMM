@@ -12,13 +12,18 @@ import hypothesis.strategies as st
 
 import torch
 from hypothesis import Verbosity, given, settings
-from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 try:
-    torch.ops.load_library("fbgemm_gpu_py.so")
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source   # noqa: F401
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable
+
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
+
 
 MAX_EXAMPLES = 20
 

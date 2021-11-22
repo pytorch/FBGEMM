@@ -8,22 +8,32 @@ import unittest
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.test.test_utils import (
-    fused_rowwise_8bit_quantize_reference,
-    fused_rowwise_8bit_dequantize_reference,
-    fused_rowwise_nbit_quantize_reference,
-    fused_rowwise_nbit_quantize_dequantize_reference,
-    bytes_to_half_floats,
-    gpu_available,
-)
+
 from hypothesis import HealthCheck, given, assume, settings
 
+
 try:
-    torch.ops.load_library("fbgemm_gpu_py.so")
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source  # noqa: F401
+    from test_utils import (  # pyre-ignore[21]
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        bytes_to_half_floats,
+        gpu_available,
+    )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-
+    from fbgemm_gpu.test.test_utils import (
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        bytes_to_half_floats,
+        gpu_available,
+    )
 
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -219,3 +229,6 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             )
             # compare quantized data
             torch.testing.assert_allclose(dequantized_data_gpu.cpu(), reference)
+
+if __name__ == "__main__":
+    unittest.main()
