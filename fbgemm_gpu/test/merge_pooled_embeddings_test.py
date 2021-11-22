@@ -8,16 +8,20 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import Verbosity, given, settings
 
-from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 try:
-    torch.ops.load_library("fbgemm_gpu_py.so")
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source  # noqa: F401
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu")
-
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    open_source = False
 
 @unittest.skipIf(*gpu_unavailable)
+@unittest.skipIf(open_source, "Not supported in open source yet")
 class MergePooledEmbeddingsTest(unittest.TestCase):
     @given(
         num_ads=st.integers(min_value=1, max_value=10),

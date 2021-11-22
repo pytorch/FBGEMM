@@ -26,6 +26,7 @@ parser = argparse.ArgumentParser()
 # embedding_backward_code_generator.py;
 # The install dir is by default the same as the current folder.
 parser.add_argument("--install_dir", default=".", help="where to put generated file")
+parser.add_argument('--opensource', action='store_false', dest='is_fbcode')
 args, _ = parser.parse_known_args()
 
 
@@ -914,10 +915,11 @@ def gen__init__py() -> None:
     write("__init__.py", src_py)
 
 
-def emb_codegen(install_dir: Optional[str] = None, is_fbcode: bool = True) -> None:
+def emb_codegen(install_dir: Optional[str] = None, is_fbcode: Optional[bool] = None) -> None:
     if install_dir is not None and len(install_dir) != 0:
         args.install_dir = install_dir
-    args.is_fbcode = is_fbcode
+    if is_fbcode is not None:
+        args.is_fbcode = is_fbcode
     adagrad()
     adam()
     backward_indices()

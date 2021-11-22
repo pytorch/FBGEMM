@@ -1,0 +1,18 @@
+# Placeholder for real pyproject.toml file
+
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "scikit-build",
+    "cmake",
+    "ninja",
+    "jinja2",
+    "torch>0.9",
+    "cudatoolkit",
+]
+
+[project.optional-dependencies]
+test = [
+    "hypothesis",
+]

@@ -1,12 +1,21 @@
 import inspect
 import sys
+from typing import Tuple
 import unittest
 
 import torch
+import fbgemm_gpu
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
-from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable
 from hypothesis import HealthCheck, given, settings
 from torch import nn, Tensor
+
+if getattr(fbgemm_gpu, "open_source", False):
+    # pyre-ignore[21]
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable
+else:
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable
+
+typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
 
 INTERN_MODULE = "fbgemm_gpu.permute_pooled_embedding_modules"
 FIXED_EXTERN_API = {
@@ -56,7 +65,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
     def setUp(self, device_type: torch.device) -> None:
         self.device = device_type
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_permutation(self) -> None:
         net = Net().to(self.device)
 
@@ -66,7 +75,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
         )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)
 
@@ -101,7 +110,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
                     f"{FWD_COMPAT_MSG}",
                 )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_pooled_table_batched_embedding(self) -> None:
         num_emb_bags = 5
         num_embeddings = 10
