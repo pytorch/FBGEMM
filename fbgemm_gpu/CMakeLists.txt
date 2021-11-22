@@ -56,6 +56,7 @@ set(OPTIMIZERS
   partial_rowwise_adam
   partial_rowwise_lamb
   rowwise_adagrad
+  rowwise_weighted_adagrad
   sgd)
 
 set(gen_gpu_source_files
