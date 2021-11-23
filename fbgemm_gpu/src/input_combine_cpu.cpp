@@ -19,6 +19,60 @@
 
 namespace fbgemm {
 
+at::Tensor _cat_int_tensors(
+  const std::vector<at::Tensor>& tensor_list,
+  int64_t total_num,
+  bool use_pin_memory
+) {
+  auto combined_tensors = at::empty(
+      {total_num},
+      at::TensorOptions()
+          .dtype(c10::kInt)
+          .device(tensor_list[0].device())
+          .pinned_memory(use_pin_memory));
+
+  auto combined_tensors_acc = combined_tensors.accessor<int32_t, 1>();
+  size_t idx = 0;
+
+  for (size_t i = 0; i < tensor_list.size(); i++) {
+    AT_DISPATCH_INDEX_TYPES(
+        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&]() {
+          auto indices_acc = tensor_list[i].accessor<index_t, 1>();
+          for (auto j = 0; j < tensor_list[i].numel(); j++) {
+            combined_tensors_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
+          }
+        });
+  }
+  return combined_tensors;
+}
+
+at::Tensor _cat_per_sample_weights_list (
+  const std::vector<at::Tensor>& per_sample_weights,
+  const std::vector<at::Tensor>& indices_list,
+  int64_t total_num,
+  bool use_pin_memory
+) {
+  auto combined_weights = at::ones(
+      {total_num},
+      at::TensorOptions()
+          .dtype(c10::kFloat)
+          .device(per_sample_weights[0].device())
+          .pinned_memory(use_pin_memory));
+  auto* combined_weights_ptr = combined_weights.data_ptr<float>();
+
+  for (size_t i = 0; i < per_sample_weights.size(); i++) {
+    auto element_size = per_sample_weights[i].numel();
+    if (element_size != 0) {
+      memcpy(
+          combined_weights_ptr,
+          per_sample_weights[i].data_ptr<float>(),
+          element_size * sizeof(float));
+    }
+    combined_weights_ptr += indices_list[i].numel();
+  }
+  return combined_weights;
+}
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
     const std::vector<at::Tensor>& indices_list,
     const std::vector<at::Tensor>& offsets_list,
@@ -63,28 +117,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
     }
   }
 
-  auto combined_indices = at::empty(
-      {total_indices},
-      at::TensorOptions()
-          .dtype(c10::kInt)
-          .device(indices_list[0].device())
-          .pinned_memory(pin_memory));
-
-  auto combined_indices_acc = combined_indices.accessor<int32_t, 1>();
-  size_t idx = 0;
-
-  for (size_t i = 0; i < indices_list.size(); i++) {
-    AT_DISPATCH_INDEX_TYPES(
-        indices_list[i].scalar_type(),
-        "tbe_input_indices_",
-        [&]() {
-          auto indices_acc = indices_list[i].accessor<index_t, 1>();
-          for (auto j = 0; j < indices_list[i].numel(); j++) {
-            combined_indices_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
-          }
-        });
-  }
-
+  auto combined_indices = _cat_int_tensors(
+    indices_list,
+    total_indices,
+    pin_memory
+  );
 
   auto combined_offsets = at::empty(
       {total_offsets},
@@ -117,36 +154,82 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
   }
 
   if (need_weights) {
-    auto combined_weights = at::ones(
-        {total_indices},
-        at::TensorOptions()
-            .dtype(c10::kFloat)
-            .device(per_sample_weights[0].device())
-            .pinned_memory(pin_memory));
-    auto* combined_weights_ptr = combined_weights.data_ptr<float>();
+    return {
+        std::move(combined_indices),
+        std::move(combined_offsets),
+        _cat_per_sample_weights_list(
+            per_sample_weights, indices_list, total_indices, pin_memory)};
+  }
+  return {combined_indices, combined_offsets, at::empty({0})};
+}
 
-    for (size_t i = 0; i < per_sample_weights.size(); i++) {
-      auto element_size = per_sample_weights[i].numel();
-      if (element_size != 0) {
-        memcpy(
-            combined_weights_ptr,
-            per_sample_weights[i].data_ptr<float>(),
-            element_size * sizeof(float));
-      }
-      combined_weights_ptr += indices_list[i].numel();
+std::tuple<at::Tensor, at::Tensor, at::Tensor>
+tbe_input_combine_with_length_cpu(
+    const std::vector<at::Tensor>& indices_list,
+    const std::vector<at::Tensor>& lengths_list,
+    const std::vector<at::Tensor>& per_sample_weights) {
+  TORCH_CHECK(indices_list.size() > 0);
+  TORCH_CHECK(lengths_list.size() == indices_list.size());
+  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  int64_t total_indices = 0;
+  int64_t total_lengths = 0;
+  bool need_weights = false;
+  bool pin_memory = false;
+#ifdef FBGEMM_GPU_WITH_CUDA
+  if (at::globalContext().hasCUDA() && at::cuda::is_available()) {
+    pin_memory = true;
+  }
+#endif
+
+  for (size_t i = 0; i < indices_list.size(); i++) {
+    TORCH_CHECK(
+        indices_list[i].dtype() == c10::kInt ||
+        indices_list[i].dtype() == c10::kLong);
+    TORCH_CHECK(
+        lengths_list[i].dtype() == c10::kInt ||
+        lengths_list[i].dtype() == c10::kLong);
+    TORCH_CHECK(indices_list[i].ndimension() == 1);
+    TORCH_CHECK(lengths_list[i].ndimension() == 1);
+    TORCH_CHECK(indices_list[i].is_contiguous());
+    TORCH_CHECK(lengths_list[i].is_contiguous());
+    total_indices += indices_list[i].numel();
+    total_lengths += lengths_list[i].numel();
+
+    if (per_sample_weights[i].numel() > 0) {
+      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
+      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK(per_sample_weights[i].is_contiguous());
+      need_weights = true;
     }
-    return {combined_indices, combined_offsets, combined_weights};
   }
 
-  return {combined_indices, combined_offsets, at::empty({0})};
+  auto combined_indices =
+      _cat_int_tensors(indices_list, total_indices, pin_memory);
+
+  auto combined_lengths = _cat_int_tensors(lengths_list, total_lengths, pin_memory);
+
+  if (need_weights) {
+    return {
+        std::move(combined_indices),
+        std::move(combined_lengths),
+        _cat_per_sample_weights_list(
+            per_sample_weights, indices_list, total_indices, pin_memory)};
+  }
+  return {combined_indices, combined_lengths, at::empty({0})};
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
+    "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
+  m.def(
+    "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)"
+  );
   m.impl(
-      "tbe_input_combine",
-      torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_cpu)));
+    "tbe_input_combine",
+    torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_cpu)));
+  m.impl(
+    "tbe_input_combine_with_length",
+    torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_with_length_cpu)));
 }
 
 } // namespace fbgemm

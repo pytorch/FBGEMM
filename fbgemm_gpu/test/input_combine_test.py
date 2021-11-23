@@ -18,7 +18,6 @@ try:
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
 
-
 class TBEInputPrepareReference(torch.nn.Module):
     def __init__(self, include_last_offsets: List[bool]):
         super().__init__()
@@ -142,6 +141,35 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
+    def _offsets_to_lengths(self, offsets, indices, include_last_offsets):
+        if include_last_offsets:
+            offsets_complete = offsets
+        else:
+            offsets_complete = torch.cat([offsets, torch.tensor([indices.numel()], dtype=offsets.dtype)])
+        return offsets_complete[1:] - offsets_complete[:-1]
+
+    def _run_test_with_length(self, dtypes):
+        indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets = self._get_inputs(dtypes)
+        ref_mod = TBEInputPrepareReference(include_last_offsets)
+
+        lengths_list = [
+                self._offsets_to_lengths(
+                    offsets, indices, include_last_offsets)
+                for offsets, indices, include_last_offsets in zip(
+                    offsets_list, indices_list, include_last_offsets
+                )
+            ]
+        outputs = torch.ops.fbgemm.tbe_input_combine_with_length(indices_list, lengths_list, per_sample_weights)
+
+        ref_outputs = ref_mod(indices_list, offsets_list, per_sample_weights)
+        # indices
+        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        # per sample weights
+        self.assertTrue(ref_outputs[2].allclose(outputs[2]))
+
+        ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
+        self.assertTrue(ref_lengths.allclose(outputs[1]))
+
     def test_input_combine_int64(self):
         self._run_test((torch.int64, torch.int64))
 
@@ -150,6 +178,16 @@ class InputCombineTest(unittest.TestCase):
 
     def test_input_combined_mix(self):
         self._run_test((torch.int64, torch.int32))
+
+    def test_input_combine_int64_with_length(self):
+        self._run_test_with_length((torch.int64, torch.int64))
+
+    def test_input_combine_int32_with_length(self):
+        self._run_test_with_length((torch.int64, torch.int64))
+
+    def test_input_combined_mix_with_length(self):
+        self._run_test_with_length((torch.int64, torch.int32))
+
 
 
 if __name__ == "__main__":
