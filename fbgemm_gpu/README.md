@@ -100,8 +100,7 @@ is **on**. Turn it off by setting FBGEMMGPU\_BUILD\_TESTS to off.
 + ###### PyTorch, Jinja2, scikit-build
 [PyTorch][3], [Jinja2][4] and are scikit-build **required** to build and run the table
 batched embedding bag operator. One thing to note is that the implementation
-of this op relies on the version of PyTorch 1.9 or later
-```
+of this op relies on the version of PyTorch 1.9 or later.
 
 
 You can download [googletest][2] and set
