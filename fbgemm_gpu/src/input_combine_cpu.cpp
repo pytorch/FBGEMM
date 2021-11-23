@@ -15,9 +15,7 @@
 #include <c10/core/TensorOptions.h>
 #include <c10/util/Exception.h>
 #include <torch/script.h>
-#ifdef FBGEMM_GPU_WITH_CUDA
-#include <ATen/cuda/CUDAContext.h>
-#endif
+#include <ATen/Context.h>
 
 namespace fbgemm {
 
@@ -37,11 +35,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
   int64_t total_offsets = 1;
   bool need_weights = false;
   bool pin_memory = false;
-#ifdef FBGEMM_GPU_WITH_CUDA
-  if (at::globalContext().hasCUDA() && at::cuda::is_available()) {
+  if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
     pin_memory = true;
   }
-#endif
 
   for (size_t i = 0; i < indices_list.size(); i++) {
     TORCH_CHECK(
