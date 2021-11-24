@@ -8,10 +8,11 @@
 
 #include <cuda.h>
 
+// clang-format off
 #include "./cub_namespace_prefix.cuh"
 #include "cub/block/block_reduce.cuh"
 #include "./cub_namespace_postfix.cuh"
-
+// clang-format on
 
 // Kernel for index hashing (template type scalar_t)
 template <typename scalar_t>

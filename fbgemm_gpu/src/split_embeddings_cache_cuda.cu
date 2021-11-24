@@ -5,11 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include "cub/device/device_radix_sort.cuh"
 #include "cub/device/device_run_length_encode.cuh"
 #include "cub/device/device_select.cuh"
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
+// clang-format on
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
