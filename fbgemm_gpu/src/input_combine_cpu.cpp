@@ -175,11 +175,9 @@ tbe_input_combine_with_length_cpu(
   int64_t total_lengths = 0;
   bool need_weights = false;
   bool pin_memory = false;
-#ifdef FBGEMM_GPU_WITH_CUDA
-  if (at::globalContext().hasCUDA() && at::cuda::is_available()) {
+  if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
     pin_memory = true;
   }
-#endif
 
   for (size_t i = 0; i < indices_list.size(); i++) {
     TORCH_CHECK(
