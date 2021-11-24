@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-
 #undef FBGEMM_GPU_CUB_NS_PREFIX
 
 #ifdef FBGEMM_CUB_USE_NAMESPACE

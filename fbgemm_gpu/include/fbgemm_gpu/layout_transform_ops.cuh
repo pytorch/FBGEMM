@@ -10,7 +10,6 @@
 
 #include "./fbgemm_cuda_utils.cuh"
 
-
 // Kernel for recat the embedding gradient output with the mixed dimension
 // support
 template <typename scalar_t>

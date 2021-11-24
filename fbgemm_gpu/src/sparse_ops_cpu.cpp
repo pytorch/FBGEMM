@@ -645,7 +645,11 @@ at::Tensor reorder_batched_ad_lengths_cpu(
   at::Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
   AT_DISPATCH_ALL_TYPES(
       batch_offsets.type(), "reorder_batched_ad_lengths_cpu_kernel", ([&] {
-        reorder_batched_ad_lengths_<scalar_t>(cat_ad_lengths, batch_offsets, num_ads_in_batch, reordered_cat_ad_lengths);
+        reorder_batched_ad_lengths_<scalar_t>(
+            cat_ad_lengths,
+            batch_offsets,
+            num_ads_in_batch,
+            reordered_cat_ad_lengths);
       }));
 
   return reordered_cat_ad_lengths;
@@ -708,7 +712,13 @@ at::Tensor reorder_batched_ad_indices_cpu(
   at::Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   AT_DISPATCH_ALL_TYPES(
       cat_ad_indices.type(), "reorder_batched_ad_indices_cpu_kernel", ([&] {
-        reorder_batched_ad_indices_cpu_<scalar_t>(cat_ad_offsets, cat_ad_indices, reordered_cat_ad_offsets, batch_offsets, num_ads_in_batch, reordered_cat_ad_indices);
+        reorder_batched_ad_indices_cpu_<scalar_t>(
+            cat_ad_offsets,
+            cat_ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            reordered_cat_ad_indices);
       }));
 
   return reordered_cat_ad_indices;
@@ -910,8 +920,8 @@ void jagged_1d_to_dense_kernel(
         &padded_values_data[b * block_size],
         &values_data[start_idx],
         length * value_byte_size);
-    for (int l = 0, offset = b * block_size + length;
-         l < padding_length; ++l, ++offset) {
+    for (int l = 0, offset = b * block_size + length; l < padding_length;
+         ++l, ++offset) {
       padded_values_data[offset] = padding_value;
     }
   }
@@ -936,13 +946,9 @@ at::Tensor jagged_1d_to_dense_cpu(
 
   auto padded_values = at::empty({B, max_L}, values.options());
   AT_DISPATCH_INDEX_TYPES(
-      offsets_contig->scalar_type(),
-      "jagged_1d_to_dense_1",
-      ([&]() {
+      offsets_contig->scalar_type(), "jagged_1d_to_dense_1", ([&]() {
         AT_DISPATCH_ALL_TYPES(
-            values_contig->scalar_type(),
-            "jagged_1d_to_dense_2",
-            ([&]() {
+            values_contig->scalar_type(), "jagged_1d_to_dense_2", ([&]() {
               jagged_1d_to_dense_kernel<index_t, scalar_t>(
                   B,
                   max_L,
@@ -974,7 +980,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
   m.def(
       "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
-   m.def(
+  m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
 }
 

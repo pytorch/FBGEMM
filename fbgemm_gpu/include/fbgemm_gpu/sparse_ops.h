@@ -28,7 +28,8 @@ at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size);
 
 at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size);
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cuda(
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
@@ -65,7 +66,8 @@ block_bucketize_sparse_features_cpu(
     int64_t my_size,
     c10::optional<at::Tensor> weights);
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>> permute_sparse_data_cpu(
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,

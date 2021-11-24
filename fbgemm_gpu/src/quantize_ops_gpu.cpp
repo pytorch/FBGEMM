@@ -12,11 +12,15 @@
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
-      "FloatToFused8BitRowwiseQuantized", fbgemm::_float_to_fused8bitrowwise_gpu);
+      "FloatToFused8BitRowwiseQuantized",
+      fbgemm::_float_to_fused8bitrowwise_gpu);
   DISPATCH_TO_CUDA(
-      "Fused8BitRowwiseQuantizedToFloat", fbgemm::_fused8bitrowwise_to_float_gpu);
+      "Fused8BitRowwiseQuantizedToFloat",
+      fbgemm::_fused8bitrowwise_to_float_gpu);
   DISPATCH_TO_CUDA(
-      "FloatToFusedNBitRowwiseQuantizedSBHalf", fbgemm::_float_to_fusednbitrowwise_gpu);
+      "FloatToFusedNBitRowwiseQuantizedSBHalf",
+      fbgemm::_float_to_fusednbitrowwise_gpu);
   DISPATCH_TO_CUDA(
-      "FusedNBitRowwiseQuantizedSBHalfToFloat", fbgemm::_fusednbitrowwise_to_float_gpu);
+      "FusedNBitRowwiseQuantizedSBHalfToFloat",
+      fbgemm::_fusednbitrowwise_to_float_gpu);
 }

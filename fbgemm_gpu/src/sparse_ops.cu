@@ -20,10 +20,11 @@
 
 #include "ATen/Parallel.h"
 
+// clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include "cub/device/device_scan.cuh"
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
-
+// clang-format on
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
@@ -987,8 +988,6 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
   return output;
 }
 
-
-
 template <typename Dtype>
 __global__ void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
@@ -1041,15 +1040,17 @@ at::Tensor reorder_batched_ad_lengths_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-    cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", ([&] {
-      reorder_batched_ad_lengths_kernel<scalar_t>
-        <<<blocks,threads,0,at::cuda::getCurrentCUDAStream()>>>(
-        cat_ad_lengths.packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        reordered_cat_ad_lengths
-            .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-        T);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", ([&] {
+        reorder_batched_ad_lengths_kernel<scalar_t>
+            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                cat_ad_lengths
+                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                batch_offsets
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                reordered_cat_ad_lengths
+                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                T);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
   return reordered_cat_ad_lengths;
 }
@@ -1131,18 +1132,21 @@ at::Tensor reorder_batched_ad_indices_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-    cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", ([&] {
-      reorder_batched_ad_indices_kernel<scalar_t>
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-        cat_ad_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        cat_ad_indices.packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-        reordered_cat_ad_offsets
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        reordered_cat_ad_indices
-          .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-        batch_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        T);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", ([&] {
+        reorder_batched_ad_indices_kernel<scalar_t>
+            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                cat_ad_offsets
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                cat_ad_indices
+                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                reordered_cat_ad_offsets
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                reordered_cat_ad_indices
+                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                batch_offsets
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                T);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
   return reordered_cat_ad_indices;
 }
@@ -1288,9 +1292,7 @@ at::Tensor jagged_2d_to_dense_forward_cuda(
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(),
-      "jagged_2d_to_dense_forward_kernel_1",
-      ([&]() {
+      offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             embeddings.scalar_type(),
             "jagged_2d_to_dense_forward_kernel_2",
@@ -1364,9 +1366,7 @@ at::Tensor jagged_2d_to_dense_backward_cuda(
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(),
-      "jagged_2d_to_dense_backward_kernel_1",
-      ([&]() {
+      offsets.scalar_type(), "jagged_2d_to_dense_backward_kernel_1", ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             grad_padded_embeddings.scalar_type(),
             "jagged_2d_to_dense_backward_kernel_2",
@@ -1432,26 +1432,22 @@ at::Tensor jagged_1d_to_dense_gpu(
   auto padded_values = at::empty({B, max_L}, values.options());
   const auto values_contig = values.contiguous();
   const auto offsets_contig = offsets.contiguous();
-  const int32_t num_threads = 512;  // 256~1024 per xingl
+  const int32_t num_threads = 512; // 256~1024 per xingl
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(),
-      "jagged_1d_to_dense_kernel_1",
-      ([&]() {
+      offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", ([&]() {
         AT_DISPATCH_ALL_TYPES(
-            values.scalar_type(),
-            "jagged_1d_to_dense_kernel_2",
-            ([&]() {
+            values.scalar_type(), "jagged_1d_to_dense_kernel_2", ([&]() {
               jagged_1d_to_dense_kernel<index_t, scalar_t>
                   <<<div_round_up(B * max_L, num_threads),
                      num_threads,
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
-                       B,
-                       max_L,
-                       padding_value,
-                       offsets_contig.packed_accessor32<index_t, 1>(),
-                       values_contig.packed_accessor64<scalar_t, 1>(),
-                       padded_values.packed_accessor64<scalar_t, 2>());
+                      B,
+                      max_L,
+                      padding_value,
+                      offsets_contig.packed_accessor32<index_t, 1>(),
+                      values_contig.packed_accessor64<scalar_t, 1>(),
+                      padded_values.packed_accessor64<scalar_t, 2>());
             }));
       }));
 

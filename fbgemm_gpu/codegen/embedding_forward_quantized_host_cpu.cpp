@@ -50,8 +50,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
-    Tensor uvm_weights,  // to match the interface of CUDA op using UVM
-    Tensor weights_placements,  // to match the interface of CUDA op using UVM
+    Tensor uvm_weights, // to match the interface of CUDA op using UVM
+    Tensor weights_placements, // to match the interface of CUDA op using UVM
     Tensor weights_offsets,
     Tensor weights_tys,
     Tensor D_offsets,
@@ -117,7 +117,6 @@ Tensor pruned_array_lookup_cpu(
     Tensor index_remappings_offsets);
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(
@@ -146,8 +145,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.impl(
       "pruned_array_lookup",
       torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(pruned_array_lookup_cpu)));
+          c10::DispatchKey::CPU, TORCH_FN(pruned_array_lookup_cpu)));
 }
 
 class PrunedMapCPU : public torch::jit::CustomClassHolder {

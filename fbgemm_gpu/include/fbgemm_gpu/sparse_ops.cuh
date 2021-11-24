@@ -8,10 +8,11 @@
 
 #include <cuda.h>
 
+// clang-format off
 #include "./cub_namespace_prefix.cuh"
 #include "cub/block/block_reduce.cuh"
 #include "./cub_namespace_postfix.cuh"
-
+// clang-format on
 
 // Kernel for index hashing (template type scalar_t)
 template <typename scalar_t>
@@ -86,7 +87,8 @@ __global__ void _bucketize_sparse_features_cuda_kernel1(
     scalar_t rowstart = (r == 0 ? 0 : offsets_data[r - 1]);
     scalar_t rowend = offsets_data[r];
     for (scalar_t i = rowstart; i < rowend; ++i) {
-      // Need to handle negative indices if we use raw indices instead of hashed indices, convert to unsigned
+      // Need to handle negative indices if we use raw indices instead of hashed
+      // indices, convert to unsigned
       uscalar_t idx = static_cast<uscalar_t>(indices_data[i]);
       uscalar_t p = idx % my_size;
       new_lengths_data[p * lengths_size + r]++;
@@ -115,12 +117,13 @@ __global__ void _bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ new_pos_data) {
   int start_r = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
-  using uindex_t= std::make_unsigned_t<index_t>;
+  using uindex_t = std::make_unsigned_t<index_t>;
   for (int r = start_r; r < lengths_size; r += stride) {
     index_t rowstart = r == 0 ? 0 : offsets_data[r - 1];
     index_t rowend = offsets_data[r];
     for (index_t i = rowstart; i < rowend; ++i) {
-      // Need to handle negative indices if we use raw indices instead of hashed indices, convert to unsigned
+      // Need to handle negative indices if we use raw indices instead of hashed
+      // indices, convert to unsigned
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = idx % my_size;
       uindex_t new_idx = idx / my_size;
@@ -152,7 +155,7 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel1(
     offset_t* __restrict__ new_lengths_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
-  using uindex_t= std::make_unsigned_t<index_t>;
+  using uindex_t = std::make_unsigned_t<index_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
@@ -199,8 +202,8 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     index_t* __restrict__ unbucketize_permute_data) {
   int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
   const int stride = gridDim.x * blockDim.x;
-  using uindex_t= std::make_unsigned_t<index_t>;
-  using uoffset_t= std::make_unsigned_t<offset_t>;
+  using uindex_t = std::make_unsigned_t<index_t>;
+  using uoffset_t = std::make_unsigned_t<offset_t>;
   for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
@@ -216,12 +219,12 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
       uindex_t new_idx =
-            idx < blk_size * my_size ? idx % blk_size : idx / my_size;
+          idx < blk_size * my_size ? idx % blk_size : idx / my_size;
       uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
       if (sequence) {
-          unbucketize_permute_data[i] = pos;
+        unbucketize_permute_data[i] = pos;
       }
       if (has_weight) {
         new_weights_data[pos] = weights_data[i];
@@ -302,7 +305,11 @@ __global__ void permute_indices_weights_kernel(
 
 // Kernel for permuting the indices and weights. Used for permutation of sparse
 // data
-template <bool has_weight, typename offsets_t, typename indices_t, typename weights_t>
+template <
+    bool has_weight,
+    typename offsets_t,
+    typename indices_t,
+    typename weights_t>
 __global__ void permute_data_kernel(
     int32_t len,
     int32_t T,
@@ -336,7 +343,8 @@ __global__ void permute_data_kernel(
   }
 }
 
-// Kernel for permuting the indices and weights. Used for permutation of table-wise partitioned sequence embeddings
+// Kernel for permuting the indices and weights. Used for permutation of
+// table-wise partitioned sequence embeddings
 
 template <typename index_t, typename scalar_t>
 __global__ void permute_embeddings_kernel(
@@ -384,8 +392,6 @@ __global__ void permute_lengths_kernel(
     permuted_lengths[b_t] = lengths[permute[t] * B + b];
   }
 }
-
-
 
 // Construct the 1D offset (T * B + 1, the global offset starts at 0 from Table
 // 0) from 2D batched offsets for each table (T * B, in each table, the offsets
