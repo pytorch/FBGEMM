@@ -7,6 +7,7 @@
 #include "fbgemm_gpu/input_combine.h"
 
 #include <ATen/ATen.h>
+#include <ATen/Context.h>
 #include <ATen/Dispatch.h>
 #include <ATen/Functions.h>
 #include <ATen/TypeDefault.h>
@@ -15,15 +16,13 @@
 #include <c10/core/TensorOptions.h>
 #include <c10/util/Exception.h>
 #include <torch/script.h>
-#include <ATen/Context.h>
 
 namespace fbgemm {
 
 at::Tensor _cat_int_tensors(
-  const std::vector<at::Tensor>& tensor_list,
-  int64_t total_num,
-  bool use_pin_memory
-) {
+    const std::vector<at::Tensor>& tensor_list,
+    int64_t total_num,
+    bool use_pin_memory) {
   auto combined_tensors = at::empty(
       {total_num},
       at::TensorOptions()
@@ -46,12 +45,11 @@ at::Tensor _cat_int_tensors(
   return combined_tensors;
 }
 
-at::Tensor _cat_per_sample_weights_list (
-  const std::vector<at::Tensor>& per_sample_weights,
-  const std::vector<at::Tensor>& indices_list,
-  int64_t total_num,
-  bool use_pin_memory
-) {
+at::Tensor _cat_per_sample_weights_list(
+    const std::vector<at::Tensor>& per_sample_weights,
+    const std::vector<at::Tensor>& indices_list,
+    int64_t total_num,
+    bool use_pin_memory) {
   auto combined_weights = at::ones(
       {total_num},
       at::TensorOptions()
@@ -117,11 +115,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tbe_input_combine_cpu(
     }
   }
 
-  auto combined_indices = _cat_int_tensors(
-    indices_list,
-    total_indices,
-    pin_memory
-  );
+  auto combined_indices =
+      _cat_int_tensors(indices_list, total_indices, pin_memory);
 
   auto combined_offsets = at::empty(
       {total_offsets},
@@ -204,7 +199,8 @@ tbe_input_combine_with_length_cpu(
   auto combined_indices =
       _cat_int_tensors(indices_list, total_indices, pin_memory);
 
-  auto combined_lengths = _cat_int_tensors(lengths_list, total_lengths, pin_memory);
+  auto combined_lengths =
+      _cat_int_tensors(lengths_list, total_lengths, pin_memory);
 
   if (need_weights) {
     return {
@@ -218,16 +214,16 @@ tbe_input_combine_with_length_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-    "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
+      "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
   m.def(
-    "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)"
-  );
+      "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)");
   m.impl(
-    "tbe_input_combine",
-    torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_cpu)));
+      "tbe_input_combine",
+      torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_cpu)));
   m.impl(
-    "tbe_input_combine_with_length",
-    torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_with_length_cpu)));
+      "tbe_input_combine_with_length",
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(tbe_input_combine_with_length_cpu)));
 }
 
 } // namespace fbgemm

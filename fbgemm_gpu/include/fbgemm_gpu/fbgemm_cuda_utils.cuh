@@ -368,7 +368,6 @@ stochastic_rounding_scalar(float x, uint32_t random_value) {
   return __float2half_rz(x + assmeble_float);
 }
 
-
 static DEVICE_INLINE uint8_t
 stochastic_rounding_scalar_uint8(float x, uint32_t random_bits) {
   typedef union {
@@ -483,10 +482,14 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 qparams) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-  output[0] = stochastic_rounding_scalar_uint8((value.acc.x - qparams.y) * inv_scale, random_bits.x);
-  output[1] = stochastic_rounding_scalar_uint8((value.acc.y - qparams.y) * inv_scale, random_bits.y);
-  output[2] = stochastic_rounding_scalar_uint8((value.acc.z - qparams.y) * inv_scale, random_bits.z);
-  output[3] = stochastic_rounding_scalar_uint8((value.acc.w - qparams.y) * inv_scale, random_bits.w);
+  output[0] = stochastic_rounding_scalar_uint8(
+      (value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8(
+      (value.acc.y - qparams.y) * inv_scale, random_bits.y);
+  output[2] = stochastic_rounding_scalar_uint8(
+      (value.acc.z - qparams.y) * inv_scale, random_bits.z);
+  output[3] = stochastic_rounding_scalar_uint8(
+      (value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
 template <>
@@ -497,10 +500,14 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 qparams) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-  output[0] = stochastic_rounding_scalar_uint8((value.acc.x - qparams.y) * inv_scale, random_bits.x);
-  output[1] = stochastic_rounding_scalar_uint8((value.acc.y - qparams.y) * inv_scale, random_bits.y);
-  output[2] = stochastic_rounding_scalar_uint8((value.acc.z - qparams.y) * inv_scale, random_bits.z);
-  output[3] = stochastic_rounding_scalar_uint8((value.acc.w - qparams.y) * inv_scale, random_bits.w);
+  output[0] = stochastic_rounding_scalar_uint8(
+      (value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8(
+      (value.acc.y - qparams.y) * inv_scale, random_bits.y);
+  output[2] = stochastic_rounding_scalar_uint8(
+      (value.acc.z - qparams.y) * inv_scale, random_bits.z);
+  output[3] = stochastic_rounding_scalar_uint8(
+      (value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
 // begin nearest rounding and store implementations
@@ -535,10 +542,8 @@ DEVICE_INLINE void nearest_rounding_vector(
 }
 
 template <>
-DEVICE_INLINE void nearest_rounding_vector(
-    uint8_t* output,
-    Vec4T<double> value,
-    float2 qparams) {
+DEVICE_INLINE void
+nearest_rounding_vector(uint8_t* output, Vec4T<double> value, float2 qparams) {
   CUDA_KERNEL_ASSERT(false);
 }
 
@@ -732,7 +737,7 @@ __device__ float2 thrust_find_qparams(scalar_t* input_row, int D) {
   scalar_t scalar_minimum = *(input_row++);
   scalar_t scalar_maximum = scalar_minimum;
 
-  while(--D > 0) {
+  while (--D > 0) {
     scalar_t next = *(input_row++);
     scalar_minimum = (scalar_minimum <= next) ? scalar_minimum : next;
     scalar_maximum = (scalar_maximum >= next) ? scalar_maximum : next;

@@ -61,7 +61,6 @@ at::Tensor recat_embedding_grad_output_mixed_D_cpu(
 
 } // namespace fbgemm
 
-
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "recat_embedding_grad_output_mixed_D_batch(Tensor grad_output, Tensor dim_sum_per_rank, Tensor cumsum_dim_sum_per_rank) -> Tensor");

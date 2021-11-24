@@ -144,6 +144,5 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.impl(
       "pruned_array_lookup",
       torch::dispatch(
-          c10::DispatchKey::CUDA,
-          TORCH_FN(pruned_array_lookup_cuda)));
+          c10::DispatchKey::CUDA, TORCH_FN(pruned_array_lookup_cuda)));
 }

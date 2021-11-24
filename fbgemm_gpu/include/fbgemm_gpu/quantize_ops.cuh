@@ -6,29 +6,29 @@
  */
 #pragma once
 
-#include <cstdint> 
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <math_constants.h>
+#include <cstdint>
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define QUANTIZE_OPS_MIN(a, b) ((a) < (b) ? (a) : (b))
 
 namespace fbgemm_gpu {
-template<typename T>
-__device__ inline T min(const T* from,const  T* to) {
+template <typename T>
+__device__ inline T min(const T* from, const T* to) {
   T result = *(from++);
-  while(from < to) {
+  while (from < to) {
     T next = *(from++);
     result = (result <= next) ? result : next;
   }
   return result;
 }
 
-template<typename T>
-__device__ inline T max(const T* from,const  T* to) {
+template <typename T>
+__device__ inline T max(const T* from, const T* to) {
   T result = *(from++);
-  while(from < to) {
+  while (from < to) {
     T next = *(from++);
     result = (result >= next) ? result : next;
   }
@@ -37,9 +37,9 @@ __device__ inline T max(const T* from,const  T* to) {
 
 } // namespace fbgemm_gpu
 
-
 template <typename T>
-__device__ inline __attribute__((always_inline)) T quantize_ops_shfl_xor(const T val, int laneMask, int width) {
+__device__ inline __attribute__((always_inline)) T
+quantize_ops_shfl_xor(const T val, int laneMask, int width) {
 #if CUDA_VERSION >= 9000
   return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #else
@@ -62,8 +62,8 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
   float minimum_element = CUDART_INF_F;
   float maximum_element = -CUDART_INF_F;
 
-  // always a power of 2 up to size 32. Multiple rows can share the same warp when
-  // smaller than 32.
+  // always a power of 2 up to size 32. Multiple rows can share the same warp
+  // when smaller than 32.
   const int lane_width = blockDim.x;
 
   // March warp-wise through the row, doing thread local min and max reductions.
@@ -79,16 +79,21 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
     }
   }
 
-  // Perform warp-wide min and max reductions. All threads in the warp participate,
-  // even if they aren't assigned to a row, since we can't assume the existence of
-  // the `*_sync` warp primitives with support for masking.
+  // Perform warp-wide min and max reductions. All threads in the warp
+  // participate, even if they aren't assigned to a row, since we can't assume
+  // the existence of the `*_sync` warp primitives with support for masking.
   for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
-    minimum_element = fminf(minimum_element, quantize_ops_shfl_xor(minimum_element, offset, lane_width));
-    maximum_element = fmaxf(maximum_element, quantize_ops_shfl_xor(maximum_element, offset, lane_width));
+    minimum_element = fminf(
+        minimum_element,
+        quantize_ops_shfl_xor(minimum_element, offset, lane_width));
+    maximum_element = fmaxf(
+        maximum_element,
+        quantize_ops_shfl_xor(maximum_element, offset, lane_width));
   }
 
-  // only the leading thread in the warp is needed to return the final result in output.
-  // Additionally, threads mapped to non-existent rows do not write to the output array.
+  // only the leading thread in the warp is needed to return the final result in
+  // output. Additionally, threads mapped to non-existent rows do not write to
+  // the output array.
   if (threadIdx.x != 0 || row >= nrows) {
     return;
   }
@@ -235,7 +240,6 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
     __half* output_row_scale_bias = reinterpret_cast<__half*>(
         output_row + (ncols + num_elem_per_byte - 1) / num_elem_per_byte);
 
-   
     float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
     float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
     minimum_element = __half2float(__float2half(minimum_element));
@@ -465,8 +469,8 @@ __global__ inline void _float_to_hfp8_cuda_kernel(
     uint8_t* output_row = output + row * ncols;
     for (int col = blockIdx.x * blockDim.x + threadIdx.x; col < ncols;
          col += col_incre) {
-      output_row[col] = float_to_hfp8(
-          input_row[col], ebits, mbits, bias, min_pos, max_pos);
+      output_row[col] =
+          float_to_hfp8(input_row[col], ebits, mbits, bias, min_pos, max_pos);
     }
   }
 }

@@ -9,16 +9,15 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 #include <ATen/native/TensorAdvancedIndexing.h>
-#include <c10/cuda/CUDAGuard.h>
 #include <c10/core/Device.h>
 #include <c10/core/TensorOptions.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
 #include <nvml.h>
 
 #include <algorithm>
-
 
 using namespace at;
 
@@ -205,7 +204,9 @@ Tensor cat_dim_1(
   auto output = at::empty(
       {batch_size, total_dim_1},
       tensors.front().options().device(output_device));
-  TORCH_CHECK(output.stride(0) * output.element_size() <= static_cast<int64_t>(prop->memPitch));
+  TORCH_CHECK(
+      output.stride(0) * output.element_size() <=
+      static_cast<int64_t>(prop->memPitch));
 
   std::vector<at::cuda::CUDAEvent> copy_begin_events(tensors.size());
   std::vector<at::cuda::CUDAEvent> copy_completion_events(tensors.size());
@@ -213,7 +214,7 @@ Tensor cat_dim_1(
   Node dst_device_id = output_device.index();
   static auto intermediate_nodes = get_intermediate_node(get_nvlink_matrix());
   // Do the intermediate copies, if required by our multi-hop config.
-  for (auto& ten: tensors) {
+  for (auto& ten : tensors) {
     Node src_device_id = ten.device().index();
     auto intermediate_node = intermediate_nodes(src_device_id, dst_device_id);
     if (intermediate_node != -1) {

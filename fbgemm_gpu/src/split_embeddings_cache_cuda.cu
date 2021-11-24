@@ -5,11 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include "cub/device/device_radix_sort.cuh"
 #include "cub/device/device_run_length_encode.cuh"
 #include "cub/device/device_select.cuh"
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
+// clang-format on
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
@@ -278,7 +280,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
 
   // sort indices
   size_t temp_storage_bytes_0 = 0;
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
       nullptr,
       temp_storage_bytes_0,
       linear_indices.data_ptr<int64_t>(),
@@ -291,7 +293,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
   auto temp_storage_0 = at::empty(
       {static_cast<int64_t>(temp_storage_bytes_0)},
       linear_indices.options().dtype(kByte));
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
       temp_storage_0.data_ptr(),
       temp_storage_bytes_0,
       linear_indices.data_ptr<int64_t>(),
@@ -304,7 +306,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
   // get unique indices
   if (compute_count) {
     size_t temp_storage_bytes_1 = 0;
-    AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
+    AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
         nullptr,
         temp_storage_bytes_1,
         sorted_indices.data_ptr<int64_t>(),
@@ -317,7 +319,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
     auto temp_storage_1 = at::empty(
         {static_cast<int64_t>(temp_storage_bytes_1)},
         linear_indices.options().dtype(kByte));
-    AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
+    AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
         temp_storage_1.data_ptr(),
         temp_storage_bytes_1,
         sorted_indices.data_ptr<int64_t>(),
@@ -329,7 +331,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
         false));
   } else {
     size_t temp_storage_bytes_1 = 0;
-    AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
+    AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
         nullptr,
         temp_storage_bytes_1,
         sorted_indices.data_ptr<int64_t>(),
@@ -341,7 +343,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
     auto temp_storage_1 = at::empty(
         {static_cast<int64_t>(temp_storage_bytes_1)},
         linear_indices.options().dtype(kByte));
-    AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
+    AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
         temp_storage_1.data_ptr(),
         temp_storage_bytes_1,
         sorted_indices.data_ptr<int64_t>(),
@@ -433,7 +435,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   // Sort the cache sets and ids
   size_t temp_storage_bytes = 0;
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       nullptr,
       temp_storage_bytes,
       cache_sets.data_ptr<int32_t>(),
@@ -448,7 +450,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       unique_indices.options().dtype(kByte));
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       temp_storage.data_ptr(),
       temp_storage_bytes,
       cache_sets.data_ptr<int32_t>(),
@@ -869,7 +871,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   // Sort the cache sets and ids
   size_t temp_storage_bytes = 0;
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       nullptr,
       temp_storage_bytes,
       (uint64_t*)cache_sets.data_ptr<int64_t>(),
@@ -884,7 +886,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       unique_indices.options().dtype(kByte));
-  AT_CUDA_CHECK( FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       temp_storage.data_ptr(),
       temp_storage_bytes,
       (uint64_t*)cache_sets.data_ptr<int64_t>(),

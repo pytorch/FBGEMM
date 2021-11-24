@@ -12,17 +12,19 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <THC/THCAtomics.cuh>
 
+// clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
+// clang-format on
 
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <mutex>
 #include <limits>
+#include <mutex>
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"

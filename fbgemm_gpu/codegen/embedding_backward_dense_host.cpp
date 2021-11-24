@@ -162,9 +162,8 @@ class SplitLookupFunction_Dense_Op
 
     auto grad_output = grad_outputs[0];
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 ||
-        grad_output.stride(0) % 4 != 0) {
-        grad_output = grad_output.contiguous();
+        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
+      grad_output = grad_output.contiguous();
     }
 
     if (!indice_weights.defined()) {
@@ -271,6 +270,11 @@ at::Tensor split_embedding_codegen_lookup_dense_function(
 }
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
-    m.impl("dense_embedding_codegen_lookup_function", torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(split_embedding_codegen_lookup_dense_function)));
+  m.def(
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+  m.impl(
+      "dense_embedding_codegen_lookup_function",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(split_embedding_codegen_lookup_dense_function)));
 }
