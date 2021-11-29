@@ -10,6 +10,8 @@
 
 #include "codegen/embedding_forward_split_cpu.h"
 
+#include "codegen/embedding_common.h"
+
 using namespace at;
 
 void split_embedding_backward_codegen_{{ optimizer }}_cpu(

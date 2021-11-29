@@ -28,3 +28,4 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "codegen/embedding_common.h"
