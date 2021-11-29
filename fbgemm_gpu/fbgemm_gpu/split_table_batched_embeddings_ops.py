@@ -229,6 +229,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         T_ = len(self.embedding_specs)
         self.dims: List[int] = dims
         assert T_ > 0
+        # mixed D is not supported by no bag kernels
+        mixed_D = False
+        D = self.dims[0]
+        for d in self.dims:
+            if d != D:
+                mixed_D = False
+        if mixed_D:
+            assert (
+                self.pooling_mode != PoolingMode.NONE
+            ), "Mixed dimension tables only supported for pooling tables."
 
         assert all(
             cd == compute_devices[0] for cd in compute_devices
@@ -237,7 +247,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
-        if self.use_cpu:
+        if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert (
                 output_dtype == SparseType.FP32
             ), "Fused pooled embedding quantization only supported for cuda."
@@ -1202,6 +1212,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets = (
                 int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
             ) // ASSOC
+            cache_sets = 1 if cache_sets == 0 else cache_sets
             cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (

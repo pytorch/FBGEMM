@@ -10,8 +10,6 @@
 #include <ATen/Parallel.h>
 #include "fbgemm/Utils.h"
 
-enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
-
 at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights,
     at::Tensor weights_offsets,

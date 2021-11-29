@@ -30,9 +30,6 @@ will be stored at the end of each row in FP32 formats, appending a total of
 */
 static constexpr float kINT8QparamsBytes = 8;
 
-// Pooling Mode: currently SUM and MEAN pooling are supported
-enum PoolingMode { SUM, MEAN, NONE };
-
 // Customized Half4 data types with two half2 (64-bit in total)
 struct Half4 {
   half2 a;

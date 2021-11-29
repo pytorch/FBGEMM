@@ -9,6 +9,8 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include "codegen/embedding_common.h"
+
 using namespace at;
 
 Tensor dense_embedding_codegen_forward_unweighted_cuda(
@@ -241,6 +243,106 @@ class SplitLookupFunction_Dense_Op
   }
 };
 
+/******** nobag ops ********/
+Tensor dense_embedding_nobag_codegen_forward_unweighted_cuda(
+    Tensor dev_weights,
+    Tensor weights_offsets,
+    int64_t D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t unused);
+
+Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
+    Tensor grad_output,
+    Tensor dev_weights,
+    Tensor weights_offsets,
+    int64_t D,
+    Tensor hash_size_cumsum,
+    int64_t total_hash_size_bits,
+    Tensor indices,
+    Tensor offsets,
+    int64_t BT_block_size,
+    int64_t max_segment_length_per_warp,
+    double unused);
+
+class SplitNoBagLookupFunction_Dense_Op
+    : public torch::autograd::Function<SplitNoBagLookupFunction_Dense_Op> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      Tensor dev_weights,
+      Tensor weights_offsets,
+      int64_t D,
+      Tensor hash_size_cumsum,
+      int64_t total_hash_size_bits,
+      Tensor indices,
+      Tensor offsets) {
+    ctx->save_for_backward({
+        dev_weights,
+        weights_offsets,
+        hash_size_cumsum,
+        indices,
+        offsets,
+    });
+
+    ctx->saved_data["D"] = D;
+    ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
+
+    return {dense_embedding_nobag_codegen_forward_unweighted_cuda(
+        dev_weights, weights_offsets, D, indices, offsets, 0)};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    auto dev_weights = *savedItr++;
+    auto weights_offsets = *savedItr++;
+    auto hash_size_cumsum = *savedItr++;
+    auto indices = *savedItr++;
+    auto offsets = *savedItr++;
+
+    auto D = ctx->saved_data["D"].toInt();
+    auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
+
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    constexpr int32_t BT_block_size = 32;
+    constexpr int32_t max_segment_length_per_warp = 32;
+    using torch::autograd::Variable;
+
+    auto grad_output = grad_outputs[0];
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
+      grad_output = grad_output.contiguous();
+    }
+
+    auto grad_dev_weights =
+        split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
+            grad_output,
+            dev_weights,
+            weights_offsets,
+            D,
+            hash_size_cumsum,
+            total_hash_size_bits,
+            indices,
+            offsets,
+            BT_block_size,
+            max_segment_length_per_warp,
+            0);
+    return {
+        grad_dev_weights, // grad_dev_weights
+        Variable(), // weights_offsets
+        Variable(), // D
+        Variable(), // hash_size_cumsum
+        Variable(), // total_hash_size_bits
+        Variable(), // indices
+        Variable(), // offsets
+    };
+  }
+};
+
 at::Tensor split_embedding_codegen_lookup_dense_function(
     Tensor dev_weights,
     Tensor weights_offsets,
@@ -254,7 +356,17 @@ at::Tensor split_embedding_codegen_lookup_dense_function(
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
     c10::optional<Tensor> feature_requires_grad) {
-  return SplitLookupFunction_Dense_Op::apply(
+  if (pooling_mode == NONE) {
+    return SplitNoBagLookupFunction_Dense_Op::apply(
+        dev_weights,
+        weights_offsets,
+        max_D,
+        hash_size_cumsum,
+        total_hash_size_bits,
+        indices,
+        offsets)[0];
+  } else {
+    return SplitLookupFunction_Dense_Op::apply(
       dev_weights,
       weights_offsets,
       D_offsets,
@@ -267,6 +379,7 @@ at::Tensor split_embedding_codegen_lookup_dense_function(
       pooling_mode,
       indice_weights,
       feature_requires_grad)[0];
+  }
 }
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
