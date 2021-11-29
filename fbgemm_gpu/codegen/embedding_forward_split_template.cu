@@ -22,16 +22,21 @@ constexpr size_t kForwardMaxThreads = 512;
 using namespace at;
 using namespace fbgemm_gpu;
 
+{% for nobag in [True, False] %}
+{% if not nobag or not weighted %}
 template <
     typename emb_t,
     typename cache_t,
     {% if not dense %}
     typename output_t,
     {% endif %}
-    typename index_t,
-    size_t kMaxVecsPerThread>
+    typename index_t
+    {% if not nobag %}
+    ,size_t kMaxVecsPerThread
+    {% endif %}
+    >
 __launch_bounds__(kForwardMaxThreads)
-__global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}_kernel(
+__global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel(
     const PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> dev_weights,
     {% if not dense %}
     const PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> uvm_weights,
@@ -41,10 +46,16 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         weights_placements,
     {% endif %}
     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    {% if not nobag %}
     const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    {% else %}
+    int64_t D,
+    {% endif %}
     const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
     const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+    {% if not nobag %}
     int64_t pooling_mode,
+    {% endif %}
     {% if weighted %}
     PackedTensorAccessor32<acc_type<cache_t, true>, 1, RestrictPtrTraits>
         indice_weights,
@@ -59,8 +70,13 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         output // [B][total_D],
     {% endif %}
     ) {
+    {% if not nobag %}
     int32_t B = output.size(0);
     int32_t T = D_offsets.size(0) - 1;
+    {% else %}
+    int32_t T = weights_offsets.size(0);
+    int32_t B = (offsets.size(0) - 1) / T;
+    {% endif %}
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
     int32_t t = b_t / B;
     int32_t b = b_t % B;
@@ -69,9 +85,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         return;
     }
     int64_t weights_offset = weights_offsets[t];
+    {% if not nobag %}
     int32_t D_start = D_offsets[t];
     int32_t D_end = D_offsets[t + 1];
     int32_t D = D_end - D_start;
+    {% endif %}
     index_t indices_start = offsets[t * B + b];
     index_t indices_end = offsets[t * B + b + 1];
     int32_t L = indices_end - indices_start;
@@ -87,8 +105,14 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
     weights = &dev_weights[weights_offset];
     {% endif %}
 
+    int32_t D_emb = D;
+    if (std::is_same<emb_t, uint8_t>::value) {
+        D_emb += kINT8QparamsBytes;
+    }
 
+    {% if not nobag %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+    {% endif %}
     for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
@@ -100,7 +124,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
             int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
-
+            {% if nobag %}
+            int64_t output_j = indices_start + l_start + j;
+            {% endif %}
             {% if not dense %}
             int32_t cache_idx_j = __shfl_sync(0xFFFFFFFF, cache_idx, j);
             {% endif %}
@@ -109,10 +135,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
             acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
             {% endif %}
 
-            int32_t D_emb = D;
-            if (std::is_same<emb_t, uint8_t>::value) {
-                D_emb += kINT8QparamsBytes;
-            }
             {% if not dense %}
             auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
                 const_cast<emb_t*>(&weights[idx_j * D_emb]),
@@ -131,6 +153,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
             if (std::is_same<emb_t, uint8_t>::value) {
                 qparams_emb = weight_row_emb.load_qparams();
             }
+
+            {% if not nobag %}
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -170,9 +194,29 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
                     {% endif %}
                 {% endif %}
             }
+            {% else %}
+            for (int32_t i = 0; i < D; i+=4 * kWarpSize) {
+                int32_t d = i + threadIdx.x * 4;
+                if (d < D) {
+                    {% if not dense %}
+                    if (placement == MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                        Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
+                        weight.store(&output[output_j][d]);
+                    } else {
+                        Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                        weight.store(&output[output_j][d]);
+                    }
+                    {% else %}
+                        Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                        weight.store(&output[output_j][d]);
+                    {% endif %}
+                }
+            }
+            {% endif %}
         }
     }
 
+    {% if not nobag %}
     {% if not dense %}
     if (!std::is_same<output_t, uint8_t>::value) {
         #pragma unroll kMaxVecsPerThread
@@ -240,9 +284,10 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{
         accumulators[i].store(&output[b][D_start + d]);
     }
     {% endif %}
+    {% endif %}
 }
 
-Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}_cuda(
+Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_cuda(
     Tensor dev_weights,
     {% if not dense %}
     Tensor uvm_weights,
@@ -250,17 +295,25 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     Tensor weights_placements,
     {% endif %}
     Tensor weights_offsets,
+    {% if not nobag %}
     Tensor D_offsets,
     int64_t total_D,
     int64_t max_D,
+    {% else %}
+    int64_t D,
+    {% endif %}
     Tensor indices,
     Tensor offsets,
+    {% if not nobag %}
     int64_t pooling_mode,
+    {% endif %}
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
     {% if not dense %}
     Tensor lxu_cache_locations,
+    {% endif %}
+    {% if not dense and not nobag %}
     int64_t output_dtype,
     {% endif %}
     int64_t unused
@@ -268,16 +321,29 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
+    {% if not nobag %}
     int32_t T = D_offsets.numel() - 1;
+    {% else %}
+    int32_t total_L = indices.numel();
+    int32_t T = weights_offsets.numel();
+    {% endif %}
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
+    {% if not nobag %}
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(total_D % 4 == 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
-    at::Tensor output;
+    {% else %}
+    TORCH_CHECK(D > 0);
+    TORCH_CHECK(D % 4 == 0);
+    {% endif %}
 
+    {% if nobag %}
+    at::Tensor output = empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
+    {% else %}
+    at::Tensor output;
     {% if dense %}
     if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
         output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
@@ -285,7 +351,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
         output = empty({B, total_D}, dev_weights.options());
     }
     {% else %}
-
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
     if (o_dtype == SparseType::FP32) {
@@ -295,8 +360,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
     } else if (o_dtype == SparseType::INT8) {
         output = empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
     }
-
     {% endif %}
+    {% endif %}
+
     if (B == 0) {
         return output;
     }
@@ -311,7 +377,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
         lxu_cache_weights.type(),
         output.type(),
         {% endif %}
-        "batched_embedding_forward_kernel_2", ([&] {
+        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", ([&] {
+        {% if not nobag %}
         {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
         if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
             {% if not dense %}
@@ -355,8 +422,47 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}
             return;
         }
         {% endfor %}
+        {% else %}
+        {% if not dense %}
+        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t><<<
+        {% else %}
+        dense_embedding_nobag_codegen_forward_unweighted_kernel<scalar_t, scalar_t, int64_t><<<
+        {% endif %}
+            div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, RestrictPtrTraits>(),
+            {% if not dense %}
+            uvm_weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
+            lxu_cache_weights.packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
+            weights_placements.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+            {% endif %}
+            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            D,
+            indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            {% if not dense %}
+            lxu_cache_locations.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+            output.packed_accessor32<
+                output_t,
+                2,
+                RestrictPtrTraits>()
+            );
+            {% else %}
+            output.packed_accessor32<
+                acc_type<scalar_t, true>,
+                2,
+                RestrictPtrTraits>()
+            );
+            {% endif %}
+
+            return;
+        {% endif %}
         }));
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;
 }
+{% endif %}
+{% endfor %}

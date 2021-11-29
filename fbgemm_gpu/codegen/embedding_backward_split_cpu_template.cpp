@@ -15,6 +15,8 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 
+#include "codegen/embedding_common.h"
+
 using namespace at;
 
 namespace internal {

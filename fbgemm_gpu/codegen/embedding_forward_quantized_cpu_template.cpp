@@ -19,7 +19,6 @@
 #include <emmintrin.h>
 
 namespace {
-enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
 
 // Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
 enum {

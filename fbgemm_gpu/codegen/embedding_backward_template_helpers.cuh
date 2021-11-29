@@ -30,6 +30,7 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "codegen/embedding_common.h"
 
 template <typename scalar_t>
 DEVICE_INLINE fbgemm_gpu::Vec4T<scalar_t> vec4_acc(
@@ -113,6 +114,42 @@ __global__ void linearize_index_kernel(
     }
   }
 }
+
+template <typename index_t>
+__global__ void nobag_linearize_index_kernel(
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        hash_size_cumsum,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> infos,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        linear_indices) {
+  int32_t T = hash_size_cumsum.size(0) - 1;
+  int32_t B = (offsets.size(0) - 1) / T;
+  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  int32_t b = b_t % B;
+  int32_t t = b_t / B;
+  bool valid = t < T;
+
+  index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
+  index_t indices_start = valid ? offsets[t * B + b] : -1;
+  int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
+  int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+
+  for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+    index_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
+    int32_t t_warp = __shfl_sync(0xFFFFFFFF, t, j);
+    int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
+    index_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
+    for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+      index_t idx = __ldg(&indices[indices_start_warp + i]);
+      int64_t l_t = (indices_start_warp + i) * T + t_warp;
+      infos[indices_start_warp + i] = l_t;
+      linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+    }
+  }
+}
+
 
 class FixedDivisor {
  public:
