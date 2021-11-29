@@ -14,15 +14,14 @@ from typing import List, Tuple
 import numpy as np
 import torch
 
+import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
+
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source # noqa: F401
-    # pyre-ignore[21]
-    import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    import deeplearning.fbgemm.fbgemm_gpu.fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
     class RefEmb(torch.nn.Module):
@@ -108,7 +107,6 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         )
         # forward with int_32
         ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
-        # pyre-ignore[16]
         unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
             num_tasks, hash_sizes
         ).to(device)
@@ -120,7 +118,6 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
 
         # forward with int_64
         ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
-        # pyre-ignore[16]
         unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
             num_tasks=num_tasks, hash_sizes=hash_sizes, long_index=True
         ).to(device)
