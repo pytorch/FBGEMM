@@ -79,7 +79,20 @@ def generate_requests(
     alpha: float = 1.0,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
+    requests_data_file: Optional[str] = None,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
+    if requests_data_file:
+      indices_tensor, offsets_tensor, _ = torch.load(requests_data_file)
+
+      assert (np.prod(offsets_tensor.size()) - 1) == np.prod((B, T)), (
+          f"Data file (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}, lengths = {_.size()}) "
+          f"does not conform to inputs (T, B) = ({T}, {B})."
+      )
+      logging.warning("Ignoring L and E parameters as requests data file has been provided")
+
+      weights_tensor = (None if not weighted else torch.randn(indices_tensor.size(), device = get_device()))
+      return [(indices_tensor, offsets_tensor, weights_tensor)]
+
     if alpha <= 1.0:
         all_indices = torch.randint(
             low=0,
@@ -237,6 +250,7 @@ def cli() -> None:
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option("--requests_data_file", type=str, default=None)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -256,6 +270,7 @@ def device(  # noqa C901
     flush_gpu_cache_size_mb: int,
     dense: bool,
     output_dtype: SparseType,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -355,6 +370,7 @@ def device(  # noqa C901
         alpha=alpha,
         weights_precision=weights_precision,
         weighted=weighted,
+        requests_data_file=requests_data_file,
     )
 
     # forward
@@ -414,6 +430,7 @@ def device(  # noqa C901
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--requests_data_file", type=str, default=None)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -430,6 +447,7 @@ def uvm(
     uvm_bag_size: int,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -520,6 +538,7 @@ def uvm(
         alpha=alpha,
         weights_precision=weights_precision,
         weighted=weighted,
+        requests_data_file=requests_data_file,
     )
 
     requests_gpu = None
@@ -534,6 +553,7 @@ def uvm(
             alpha=alpha,
             weights_precision=weights_precision,
             weighted=False,
+            requests_data_file=requests_data_file,
         )
 
     param_size_multiplier = PRECISION_SIZE_MULTIPLIER[weights_precision]
@@ -622,6 +642,7 @@ def uvm(
 @click.option("--reuse", default=0.1)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--requests_data_file", type=str, default=None)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -639,6 +660,7 @@ def cache(  # noqa C901
     reuse: float,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -708,7 +730,8 @@ def cache(  # noqa C901
     )
 
     requests = generate_requests(
-        2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted
+        2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted,
+        requests_data_file=requests_data_file,
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
     grad_output = torch.randn(B, sum(Ds)).cuda()
@@ -812,6 +835,7 @@ def benchmark_cpu_requests(
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--index-remapping", is_flag=True, default=False)
+@click.option("--requests_data_file", type=str, default=None)
 def cpu(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -828,6 +852,7 @@ def cpu(  # noqa C901
     row_wise: bool,
     weighted: bool,
     index_remapping: bool,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -870,6 +895,7 @@ def cpu(  # noqa C901
         alpha=alpha,
         weights_precision=weights_precision,
         weighted=weighted,
+        requests_data_file=requests_data_file,
     )
     requests = [
         (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
@@ -916,6 +942,7 @@ def cpu(  # noqa C901
 @click.option("--runs-of-iters", default=5)
 @click.option("--warmup-runs", default=2)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--requests_data_file", type=str, default=None)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -940,6 +967,7 @@ def nbit_device(  # noqa C901
     runs_of_iters: int,
     warmup_runs: int,
     output_dtype: SparseType,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1010,6 +1038,7 @@ def nbit_device(  # noqa C901
             alpha=alpha,
             weights_precision=weights_precision,
             weighted=weighted,
+            requests_data_file=requests_data_file,
         )
         requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
@@ -1059,6 +1088,7 @@ def nbit_device(  # noqa C901
 @click.option("--load-factor", default=0.75)
 @click.option("--hit-rate", default=0.9)
 @click.option("--use-cpu", is_flag=True, default=False)
+@click.option("--requests_data_file", type=str, default=None)
 def hashtable(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1068,6 +1098,7 @@ def hashtable(  # noqa C901
     load_factor: float,
     hit_rate: float,
     use_cpu: bool,
+    requests_data_file: Optional[str],
 ) -> None:
     B = batch_size
     T = num_tables
@@ -1110,6 +1141,7 @@ def hashtable(  # noqa C901
         T,
         L,
         E,
+        requests_data_file=requests_data_file,
     )
 
     if not use_cpu:
@@ -1166,6 +1198,7 @@ def hashtable(  # noqa C901
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=100)
 @click.option("--pruning-ratio", default=0.9)
+@click.option("--requests_data_file", type=str, default=None)
 def pruned_array(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1173,6 +1206,7 @@ def pruned_array(  # noqa C901
     num_embeddings: int,
     num_tables: int,
     pruning_ratio: float,
+    requests_data_file: Optional[str],
 ) -> None:
     B = batch_size
     T = num_tables
@@ -1201,6 +1235,7 @@ def pruned_array(  # noqa C901
         T,
         L,
         E,
+        requests_data_file=requests_data_file,
     )
     requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
 
@@ -1227,6 +1262,7 @@ def pruned_array(  # noqa C901
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+@click.option("--requests_data_file", type=str, default=None)
 def bounds_check_indices(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1234,6 +1270,7 @@ def bounds_check_indices(  # noqa C901
     num_embeddings: int,
     num_tables: int,
     bounds_check_mode: int,
+    requests_data_file: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1248,6 +1285,7 @@ def bounds_check_indices(  # noqa C901
         T,
         L,
         E,
+        requests_data_file=requests_data_file,
     )
     # requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
