@@ -8,9 +8,7 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
 #include <ATen/ATen.h>
-#ifdef FBGEMM_GPU_WITH_CUDA
-#include <ATen/cuda/CUDAContext.h>
-#endif
+#include <ATen/Context.h>
 
 #include "codegen/embedding_common.h"
 #include "fbgemm_gpu/dispatch_macros.h"
@@ -229,11 +227,9 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     TORCH_CHECK(B >= 0);
     TORCH_CHECK(total_D > 0);
     bool pinned_memory = false;
-#ifdef FBGEMM_GPU_WITH_CUDA
-    if (globalContext().hasCUDA() && ::at::cuda::is_available()) {
+    if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
       pinned_memory = true;
     }
-#endif
 
     at::Tensor output;
     const int kINT8QparamsBytes = 8;
