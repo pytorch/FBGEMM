@@ -200,4 +200,10 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
     double positive_weight, int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 
+std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
+    const at::Tensor& logit, const at::Tensor& bin_boundaries,
+    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
+    double positive_weight, int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
 } // namespace fbgemm

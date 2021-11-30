@@ -1038,9 +1038,12 @@ class SparseOpsTest(unittest.TestCase):
                 bin_ctr_in_use_after=10000,
                 bin_ctr_weight_value=0.9995)
 
+        expected_calibrated_prediction = torch.tensor([0.2853, 0.2875, 0.2876, 0.2858, 0.2863]).type(data_type)
+        expected_bin_ids = torch.tensor([1426, 1437, 1437, 1428, 1431], dtype=torch.long)
+
         torch.testing.assert_allclose(
             calibrated_prediction,
-            torch.tensor([0.2853, 0.2875, 0.2876, 0.2858, 0.2863]).type(data_type),
+            expected_calibrated_prediction,
             rtol=1e-03,
             atol=1e-03,
         )
@@ -1048,9 +1051,33 @@ class SparseOpsTest(unittest.TestCase):
         self.assertTrue(
             torch.equal(
                 bin_ids.long(),
-                torch.tensor([1426, 1437, 1437, 1428, 1431], dtype=torch.long),
+                expected_bin_ids,
             )
         )
+
+        if torch.cuda.is_available():
+            calibrated_prediction_gpu, bin_ids_gpu = torch.ops.fbgemm.histogram_binning_calibration(
+                    logit=logit.cuda(),
+                    bin_boundaries = bin_boundaries.cuda(),
+                    bin_num_examples = bin_num_examples.cuda(),
+                    bin_num_positives = bin_num_positives.cuda(),
+                    positive_weight=0.4,
+                    bin_ctr_in_use_after=10000,
+                    bin_ctr_weight_value=0.9995)
+
+            torch.testing.assert_allclose(
+                calibrated_prediction_gpu,
+                expected_calibrated_prediction.cuda(),
+                rtol=1e-03,
+                atol=1e-03,
+            )
+
+            self.assertTrue(
+                torch.equal(
+                    bin_ids_gpu.long(),
+                    expected_bin_ids.cuda(),
+                )
+            )
 
 
 if __name__ == "__main__":
