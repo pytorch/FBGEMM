@@ -816,4 +816,318 @@ __device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
   return qparams;
 }
 
+struct __align__(32) float8 {
+  __host__ __device__ float8() {}
+  float4 vals[2];
+};
+
+struct __align__(8) half4 {
+  __host__ __device__ half4() {}
+  half2 vals[2];
+};
+
+struct __align__(16) half8 {
+  __host__ __device__ half8() {}
+  half2 vals[4];
+};
+
+DEVICE_INLINE half8 to_half8(float8 v) {
+  half8 t;
+  t.vals[0] = __float22half2_rn(make_float2(v.vals[0].x, v.vals[0].y));
+  t.vals[1] = __float22half2_rn(make_float2(v.vals[0].z, v.vals[0].w));
+  t.vals[2] = __float22half2_rn(make_float2(v.vals[1].x, v.vals[1].y));
+  t.vals[3] = __float22half2_rn(make_float2(v.vals[1].z, v.vals[1].w));
+  return t;
+}
+
+DEVICE_INLINE half4 to_half4(float4 v) {
+  half4 t;
+  t.vals[0] = __float22half2_rn(make_float2(v.x, v.y));
+  t.vals[1] = __float22half2_rn(make_float2(v.z, v.w));
+  return t;
+}
+
+DEVICE_INLINE __half2 to_half2(float2 v) {
+  return __float22half2_rn(v);
+}
+
+DEVICE_INLINE __half to_half(float v) {
+  return __float2half_rn(v);
+}
+
+DEVICE_INLINE float2 make_zero_float2() {
+  return make_float2(0, 0);
+}
+
+DEVICE_INLINE float4 make_zero_float4() {
+  return make_float4(0, 0, 0, 0);
+}
+
+DEVICE_INLINE float8 make_zero_float8() {
+  float8 t;
+  t.vals[0] = make_float4(0, 0, 0, 0);
+  t.vals[1] = make_float4(0, 0, 0, 0);
+  return t;
+}
+
+
+// Customized N-element vector data types (with element type float for accumulation type).
+template <int N>
+struct VecNT {};
+
+template <>
+struct VecNT<1> {
+  float acc;
+  DEVICE_INLINE VecNT() {
+    acc = 0;
+  }
+  DEVICE_INLINE void store(float* output_ptr) {
+    *output_ptr = acc;
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr) {
+    __half val = to_half(acc);
+    *reinterpret_cast<__half*>(output_ptr) = val;
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
+    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    output_ptr[0] = std::lrintf((acc - qparams.y) * inv_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+template <>
+struct VecNT<2> {
+  float2 acc;
+  DEVICE_INLINE VecNT() {
+    acc = make_zero_float2();
+  }
+
+  DEVICE_INLINE void store(float* output_ptr) {
+    *reinterpret_cast<int2*>(output_ptr) = *reinterpret_cast<const int2*>(&acc);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr) {
+    half2 val = to_half2(acc);
+    *reinterpret_cast<int1*>(output_ptr) = *reinterpret_cast<const int1*>(&val);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
+    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    output_ptr[0] = std::lrintf((acc.x - qparams.y) * inv_scale);
+    output_ptr[1] = std::lrintf((acc.y - qparams.y) * inv_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+template <>
+struct VecNT<4> {
+  float4 acc;
+  DEVICE_INLINE VecNT() {
+    acc = make_zero_float4();
+  }
+  DEVICE_INLINE void store(float* output_ptr) {
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    if (aligned_16b) {
+      *reinterpret_cast<int4*>(output_ptr) =
+          *reinterpret_cast<const int4*>(&acc);
+    } else if (aligned_8b) {
+      auto v = *reinterpret_cast<const int4*>(&acc);
+      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v.x, v.y);
+      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v.z, v.w);
+    } else {
+      *(output_ptr + 0) = acc.x;
+      *(output_ptr + 1) = acc.y;
+      *(output_ptr + 2) = acc.z;
+      *(output_ptr + 3) = acc.w;
+    }
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr) {
+    half4 val = to_half4(acc);
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    if (aligned_8b) {
+      *reinterpret_cast<int2*>(output_ptr) =
+          *reinterpret_cast<const int2*>(&val);
+    } else if (aligned_4b) {
+      auto v = *reinterpret_cast<const int2*>(&val);
+      *reinterpret_cast<int*>(output_ptr + 0) = v.x;
+      *reinterpret_cast<int*>(output_ptr + 2) = v.y;
+    } else {
+      *(output_ptr + 0) = val.vals[0].x;
+      *(output_ptr + 1) = val.vals[0].y;
+      *(output_ptr + 2) = val.vals[1].x;
+      *(output_ptr + 3) = val.vals[1].y;
+    }
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
+    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    output_ptr[0] = std::lrintf((acc.x - qparams.y) * inv_scale);
+    output_ptr[1] = std::lrintf((acc.y - qparams.y) * inv_scale);
+    output_ptr[2] = std::lrintf((acc.z - qparams.y) * inv_scale);
+    output_ptr[3] = std::lrintf((acc.w - qparams.y) * inv_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+template <>
+struct VecNT<8> {
+  float8 acc;
+  DEVICE_INLINE VecNT() {
+    acc = make_zero_float8();
+  }
+
+  DEVICE_INLINE void store(float* output_ptr) {
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    if (aligned_16b) { // 128 bit cache line
+      *reinterpret_cast<int4*>(output_ptr) =
+          *reinterpret_cast<const int4*>(&(acc.vals[0]));
+      *reinterpret_cast<int4*>(output_ptr + 4) =
+          *reinterpret_cast<const int4*>(&(acc.vals[1]));
+    } else if (aligned_8b) {
+      auto v0 = *reinterpret_cast<const int4*>(&(acc.vals[0]));
+      auto v1 = *reinterpret_cast<const int4*>(&(acc.vals[1]));
+      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v0.x, v0.y);
+      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v0.z, v0.w);
+      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v1.x, v1.y);
+      *reinterpret_cast<int2*>(output_ptr + 6) = make_int2(v1.z, v1.w);
+    } else {
+      *(output_ptr + 0) = acc.vals[0].x;
+      *(output_ptr + 1) = acc.vals[0].y;
+      *(output_ptr + 2) = acc.vals[0].z;
+      *(output_ptr + 3) = acc.vals[0].w;
+      *(output_ptr + 4) = acc.vals[1].x;
+      *(output_ptr + 5) = acc.vals[1].y;
+      *(output_ptr + 6) = acc.vals[1].z;
+      *(output_ptr + 7) = acc.vals[1].w;
+    }
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr) {
+    half8 val = to_half8(acc);
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    if (aligned_16b) {
+      *reinterpret_cast<int4*>(output_ptr) =
+          *reinterpret_cast<const int4*>(&val);
+    } else if (aligned_8b) {
+      auto v = *reinterpret_cast<const int4*>(&val);
+      *reinterpret_cast<int2*>(output_ptr) = make_int2(v.x, v.y);
+      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v.z, v.w);
+    } else if (aligned_4b) {
+      auto v = *reinterpret_cast<const int4*>(&val);
+      *reinterpret_cast<int*>(output_ptr + 0) = v.x;
+      *reinterpret_cast<int*>(output_ptr + 2) = v.y;
+      *reinterpret_cast<int*>(output_ptr + 4) = v.z;
+      *reinterpret_cast<int*>(output_ptr + 6) = v.w;
+    } else {
+      *(output_ptr + 0) = val.vals[0].x;
+      *(output_ptr + 1) = val.vals[0].y;
+      *(output_ptr + 2) = val.vals[1].x;
+      *(output_ptr + 3) = val.vals[1].y;
+      *(output_ptr + 4) = val.vals[2].x;
+      *(output_ptr + 5) = val.vals[2].y;
+      *(output_ptr + 6) = val.vals[3].x;
+      *(output_ptr + 7) = val.vals[3].y;
+    }
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
+    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    output_ptr[0] = std::lrintf((acc.vals[0].x - qparams.y) * inv_scale);
+    output_ptr[1] = std::lrintf((acc.vals[0].y - qparams.y) * inv_scale);
+    output_ptr[2] = std::lrintf((acc.vals[0].z - qparams.y) * inv_scale);
+    output_ptr[3] = std::lrintf((acc.vals[0].w - qparams.y) * inv_scale);
+    output_ptr[4] = std::lrintf((acc.vals[1].x - qparams.y) * inv_scale);
+    output_ptr[5] = std::lrintf((acc.vals[1].y - qparams.y) * inv_scale);
+    output_ptr[6] = std::lrintf((acc.vals[1].z - qparams.y) * inv_scale);
+    output_ptr[7] = std::lrintf((acc.vals[1].w - qparams.y) * inv_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+};
+
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+DEVICE_INLINE float float4_max(float4 val) {
+  float max_val = val.x;
+  max_val = max(max_val, val.y);
+  max_val = max(max_val, val.z);
+  max_val = max(max_val, val.w);
+  return max_val;
+}
+
+DEVICE_INLINE float float4_min(float4 val) {
+  float min_val = val.x;
+  min_val = min(min_val, val.y);
+  min_val = min(min_val, val.z);
+  min_val = min(min_val, val.w);
+  return min_val;
+}
+
+DEVICE_INLINE float float8_max(float8 val) {
+  float max_val0 = float4_max(val.vals[0]);
+  float max_val1 = float4_max(val.vals[1]);
+  return max(max_val0, max_val1);
+}
+
+DEVICE_INLINE float float8_min(float8 val) {
+  float min_val0 = float4_min(val.vals[0]);
+  float min_val1 = float4_min(val.vals[1]);
+  return min(min_val0, min_val1);
+}
+
+#undef min
+#undef max
+
 } // namespace fbgemm_gpu
