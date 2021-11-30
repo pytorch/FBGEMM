@@ -100,7 +100,6 @@ def invoke(
             # common_args
             {% if not dense %}
             placeholder_autograd_tensor=common_args.placeholder_autograd_tensor,
-            # output_dtype=common_args.output_dtype,
             {% endif %}
             dev_weights=common_args.dev_weights,
             uvm_weights=common_args.uvm_weights,
@@ -161,4 +160,5 @@ def invoke(
             {% if "iter" in args.split_function_arg_names %}
             iter=iter,
             {% endif %}
+            output_dtype=common_args.output_dtype,
         )
