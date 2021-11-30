@@ -1488,7 +1488,7 @@ static inline float halfToFloat(uint16_t val) {
 template <typename InputType, int BIT_RATE>
 void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output) {
   static_assert(
@@ -1506,7 +1506,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
 
-  for (int row = 0; row < input_rows; ++row) {
+  for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
     if (std::is_same<InputType, float>()) {
@@ -1673,7 +1673,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
             (quantized << ((col % NUM_ELEM_PER_BYTE) * BIT_RATE));
       }
     }
-  }
+  } // for each row
 
   if (std::is_same<InputType, float16>()) {
     fbgemmAlignedFree(input_row_float_for_fp16);
@@ -1683,7 +1683,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
 template <typename InputType>
 void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output) {
   constexpr int VLEN = 8;
@@ -1708,7 +1708,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
-  for (int row = 0; row < input_rows; ++row) {
+  for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
     if (std::is_same<InputType, float>()) {
@@ -1810,7 +1810,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
       output_row[col] =
           std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
-  }
+  } // for each row
   if (std::is_same<InputType, float16>()) {
     fbgemmAlignedFree(input_row_float_for_fp16);
   }
@@ -1819,7 +1819,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
 template <typename OutputType, int BIT_RATE>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output) {
   static_assert(
@@ -1889,7 +1889,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
              (VLEN + 1))));
   }
 
-  for (int row = 0; row < input_rows; ++row) {
+  for (size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const uint16_t* input_row_scale_bias = reinterpret_cast<const uint16_t*>(
         input_row +
@@ -2049,19 +2049,19 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         }
       }
     }
-  }
+  } // for each row
 }
 
 template <typename OutputType>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output) {
   constexpr int VLEN = 8;
   int output_columns = input_columns - 2 * sizeof(float);
 
-  for (int row = 0; row < input_rows; ++row) {
+  for (size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
     const float* input_row_scale_bias =
         reinterpret_cast<const float*>(input_row + output_columns);
@@ -2095,20 +2095,20 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
         output_row[col] = cpu_float2half_rn(output_value);
       }
     }
-  }
+  } // for each row
 }
 
 #define INSTANTIATE_QuantizationAvx2FunctionsNBits(type, bit_rate)  \
   template void                                                     \
   FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>( \
       const type* input,                                            \
-      int input_rows,                                               \
+      size_t input_rows,                                            \
       int input_columns,                                            \
       std::uint8_t* output);                                        \
   template void                                                     \
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<type, bit_rate>( \
       const std::uint8_t* input,                                    \
-      int input_rows,                                               \
+      size_t input_rows,                                            \
       int input_columns,                                            \
       type* output);
 
@@ -2125,16 +2125,16 @@ INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 8)
 #define INSTANTIATE_QuantizationAvx2Functions8Bits(type)                 \
   template void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<type>( \
       const type* input,                                                 \
-      int input_rows,                                                    \
+      size_t input_rows,                                                 \
       int input_columns,                                                 \
       std::uint8_t* output);                                             \
   template void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<type>( \
       const std::uint8_t* input,                                         \
-      int input_rows,                                                    \
+      size_t input_rows,                                                 \
       int input_columns,                                                 \
       type* output);
 
-// clang-format off
+    // clang-format off
 INSTANTIATE_QuantizationAvx2Functions8Bits(float)
 INSTANTIATE_QuantizationAvx2Functions8Bits(float16)
 // clang-format on

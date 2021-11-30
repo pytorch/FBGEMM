@@ -266,7 +266,7 @@ template <typename InputType>
 FBGEMM_API void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
     int bit_rate,
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
@@ -282,7 +282,7 @@ template <typename OutputType>
 FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int bit_rate,
     const uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
@@ -298,7 +298,7 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
 template <typename InputType>
 FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
@@ -313,7 +313,7 @@ FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
 template <typename OutputType>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     const uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
@@ -325,7 +325,7 @@ template <typename InputType>
 FBGEMM_API void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     int bit_rate,
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
@@ -336,7 +336,7 @@ FBGEMM_API void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
 template <typename InputType>
 FBGEMM_API void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
@@ -348,7 +348,7 @@ template <typename OutputType>
 FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     int bit_rate,
     const uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
@@ -359,7 +359,7 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
 template <typename OutputType>
 FBGEMM_API void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     const uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
