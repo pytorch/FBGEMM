@@ -113,16 +113,13 @@ class SplitEmbInferenceConverter:
         elif weight_ty == SparseType.INT4 or weight_ty == SparseType.INT2:
             q_weight = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
                 weight,
-                bit_rate=self.quantize_type.bit_rate(),
+                bit_rate=weight_ty.bit_rate(),
             )
             res_weight = torch.tensor(q_weight[:, :-4].cpu().numpy().view(np.uint8))
             res_scale_shift = torch.tensor(
                 q_weight[:, -4:].contiguous().cpu().numpy().view(np.uint8)
             )  # [-4, -2]: scale; [-2:]: bias
             return (res_weight, res_scale_shift)
-
-        elif weight_ty == SparseType.FP32:
-            return (weight, None)
 
         else:
             raise RuntimeError("Unsupported SparseType: {}".format(weight_ty))

@@ -235,7 +235,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     } else {
         // apply per feature row-wise int8
         float thread_local_min = std::numeric_limits<float>::max();
-        float thread_local_max = std::numeric_limits<float>::min();
+        float thread_local_max = std::numeric_limits<float>::lowest();
         float2 qparams;
 
         #pragma unroll kMaxVecsPerThread
