@@ -12,18 +12,18 @@ import math
 import unittest
 from typing import Optional, Tuple
 
+import fbgemm_gpu
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
 import torch
-import fbgemm_gpu
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_inference_converter import SplitEmbInferenceConverter
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
 from hypothesis import Verbosity, given, settings
 from torch import nn
 
-open_source : bool = getattr(fbgemm_gpu, "open_source", False)
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
@@ -206,7 +206,6 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-1,
         )
 
-
     @unittest.skipIf(open_source, "Not yet in OSS")
     @given(
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -339,7 +338,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         self.assertEqual(len(num_rows_before), len(num_rows_after))
         for before, after in zip(num_rows_before, num_rows_after):
             self.assertEqual(
-                math.ceil(before * (1.0 - pruning_ratio)), # type: ignore
+                math.ceil(before * (1.0 - pruning_ratio)),  # type: ignore
                 after,
                 msg="original_num_rows = {}, pruning ratio = {}".format(
                     before, pruning_ratio

@@ -199,7 +199,6 @@ def quantize_embs(
         raise RuntimeError("Unsupported SparseType: {}".format(weight_ty))
 
 
-
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def execute_forward_(
         self,
