@@ -110,6 +110,7 @@
     switch (_output_t) {                                                     \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
       default:                                                               \
         AT_ERROR(                                                            \
             #NAME,                                                           \

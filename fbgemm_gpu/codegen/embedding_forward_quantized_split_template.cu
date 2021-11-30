@@ -432,6 +432,38 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 #endif
 }
 
+template<typename output_t>
+__device__ __forceinline__ void store_vec1(float acc, output_t* output_ptr) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template<>
+__device__ __forceinline__ void store_vec1(float val, float* output_ptr) {
+  *output_ptr = val;
+}
+
+template<>
+__device__ __forceinline__ void store_vec1(float acc, at::Half* output_ptr) {
+  __half val = to_half(acc);
+  *reinterpret_cast<__half*>(output_ptr) = val;
+}
+
+// nearest rounding and store implementations
+template <typename output_t>
+__device__ __forceinline__ void store_vec1_nearest_rounding(
+    float val,
+    output_t* output_ptr,
+    float2 qparams) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+__device__ __forceinline__ void
+store_vec1_nearest_rounding(float val, uint8_t* output_ptr, float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output_ptr[0] = std::lrintf((val - qparams.y) * inv_scale);
+}
+
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
@@ -452,13 +484,16 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output // [B][total_D],
   ) {
-
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
   int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
       return;
   }
+  static_assert(
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    "output_t can only be float or half or bytes now"
+  );
 
   uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
@@ -569,32 +604,86 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-      if (pooling_mode == MEAN && Ls[i] != 0) {
-          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
-          accumulators[i][j] *= inv_L;
-      }
-      static_assert(
-        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
-        "output_t can only be float or half now"
-      );
-      if (std::is_same<output_t, float>::value) {
-        float val = accumulators[i][j];
-        if (output_d >= 0 && output_d < D) {
-          output[b][D_start + output_d] = val;
+    float inv_L = 1.0 / Ls[i];
+
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+            accumulators[i][j] *= inv_L;
         }
-      } else if (std::is_same<output_t, at::Half>::value) {
-        __half val = to_half(accumulators[i][j]);
         if (output_d >= 0 && output_d < D) {
-          *reinterpret_cast<__half*>(&output[b][D_start + output_d]) = val;
+          store_vec1(accumulators[i][j], &output[b][D_start + output_d]);
         }
-      } else {
-        // INT8/4: not implemented yet
       }
+    } else if (std::is_same<output_t, uint8_t>::value) {
+      // INT8:
+      // apply per feature row-wise int8
+      float thread_local_min = std::numeric_limits<float>::max();
+      float thread_local_max = std::numeric_limits<float>::lowest();
+      float2 qparams;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+            accumulators[i][j] *= inv_L;
+        }
+        if (output_d >= 0 && output_d < D) {
+          thread_local_max = max(thread_local_max, accumulators[i][j]);
+          thread_local_min = min(thread_local_min, accumulators[i][j]);
+        }
+      }
+      qparams = warp_find_qparams(thread_local_min, thread_local_max);
+      int output_D_start = D_start + t * 8;
+      int output_D_end = output_D_start + D;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (output_d >= 0 && output_d < D) {
+          store_vec1_nearest_rounding(accumulators[i][j], &output[b][output_D_start + output_d], qparams);
+        }
+      }
+      if (threadIdx.x == 0) {
+        store_qparams_to_row(&output[b][output_D_end], qparams);
+      }
+    } else {
+      // INT4: not implemented yet
     }
   }
+}
+
+template<typename output_t>
+__device__ __forceinline__ void store_vec2(float2 acc, output_t* output_ptr) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template<>
+__device__ __forceinline__ void store_vec2(float2 val, float* output_ptr) {
+  *reinterpret_cast<int2*>(output_ptr) = *reinterpret_cast<const int2*>(&val);
+}
+
+template<>
+__device__ __forceinline__ void store_vec2(float2 acc, at::Half* output_ptr) {
+  half2 val = to_half2(acc);
+  *reinterpret_cast<int1*>(output_ptr) = *reinterpret_cast<const int1*>(&val);
+}
+
+// nearest rounding and store implementations
+template <typename output_t>
+__device__ __forceinline__ void store_vec2_nearest_rounding(
+    float2 val,
+    output_t* output_ptr,
+    float2 qparams) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+__device__ __forceinline__ void
+store_vec2_nearest_rounding(float2 val, uint8_t* output_ptr, float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output_ptr[0] = std::lrintf((val.x - qparams.y) * inv_scale);
+  output_ptr[1] = std::lrintf((val.y - qparams.y) * inv_scale);
 }
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
@@ -623,6 +712,10 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
       return;
   }
+  static_assert(
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    "output_t can only be float or half or bytes now"
+  );
 
   uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
@@ -740,34 +833,135 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    float inv_L = 1.0 / Ls[i];
 
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-      if (pooling_mode == MEAN && Ls[i] != 0) {
-          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
-          accumulators[i][j].x *= inv_L;
-          accumulators[i][j].y *= inv_L;
-      }
-      static_assert(
-        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
-        "output_t can only be float or half now"
-      );
-      if (std::is_same<output_t, float>::value) {
-        float2 val = accumulators[i][j];
-        if (output_d >= 0 && output_d < D) {
-          *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+            accumulators[i][j].x *= inv_L;
+            accumulators[i][j].y *= inv_L;
         }
-      } else if (std::is_same<output_t, at::Half>::value) {
-        half2 val = to_half2(accumulators[i][j]);
         if (output_d >= 0 && output_d < D) {
-          *reinterpret_cast<int1*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int1*>(&val);
+          store_vec2(accumulators[i][j], &output[b][D_start + output_d]);
         }
-      } else {
-        // INT8/4: not implemented yet
       }
+    } else if (std::is_same<output_t, uint8_t>::value) {
+      // INT8:
+      // apply per feature row-wise int8
+      float thread_local_min = std::numeric_limits<float>::max();
+      float thread_local_max = std::numeric_limits<float>::lowest();
+      float2 qparams;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+            accumulators[i][j].x *= inv_L;
+            accumulators[i][j].y *= inv_L;
+        }
+        if (output_d >= 0 && output_d < D) {
+          thread_local_max = max(thread_local_max, max(accumulators[i][j].x, accumulators[i][j].y));
+          thread_local_min = min(thread_local_min, min(accumulators[i][j].x, accumulators[i][j].y));
+        }
+      }
+
+      qparams = warp_find_qparams(thread_local_min, thread_local_max);
+      int output_D_start = D_start + t * 8;
+      int output_D_end = output_D_start + D;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (output_d >= 0 && output_d < D) {
+          store_vec2_nearest_rounding(accumulators[i][j], &output[b][output_D_start + output_d], qparams);
+        }
+      }
+      if (threadIdx.x == 0) {
+        store_qparams_to_row(&output[b][output_D_end], qparams);
+      }
+    } else {
+      // INT4: not implemented yet
     }
   }
+}
+
+template<typename output_t>
+__device__ __forceinline__ void store_vec4(float4 acc, output_t* output_ptr) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template<>
+__device__ __forceinline__ void store_vec4(float4 val, float* output_ptr) {
+  bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+  bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+  if (aligned_16b) {
+    *reinterpret_cast<int4*>(output_ptr) = *reinterpret_cast<const int4*>(&val);
+  } else if (aligned_8b) {
+    auto v = *reinterpret_cast<const int4*>(&val);
+    *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v.x, v.y);
+    *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v.z, v.w);
+  } else {
+    *(output_ptr + 0) = val.x;
+    *(output_ptr + 1) = val.y;
+    *(output_ptr + 2) = val.z;
+    *(output_ptr + 3) = val.w;
+  }
+}
+
+template<>
+__device__ __forceinline__ void store_vec4(float4 acc, at::Half* output_ptr) {
+  half4 val = to_half4(acc);
+  bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+  bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+  if (aligned_8b) {
+    *reinterpret_cast<int2*>(output_ptr) = *reinterpret_cast<const int2*>(&val);
+  } else if (aligned_4b) {
+    auto v = *reinterpret_cast<const int2*>(&val);
+    *reinterpret_cast<int*>(output_ptr + 0) = v.x;
+    *reinterpret_cast<int*>(output_ptr + 2) = v.y;
+  } else {
+    *(output_ptr + 0) = val.vals[0].x;
+    *(output_ptr + 1) = val.vals[0].y;
+    *(output_ptr + 2) = val.vals[1].x;
+    *(output_ptr + 3) = val.vals[1].y;
+  }
+}
+
+// nearest rounding and store implementations
+template <typename output_t>
+__device__ __forceinline__ void store_vec4_nearest_rounding(
+    float4 val,
+    output_t* output_ptr,
+    float2 qparams) {
+  // value.store(output);
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+__device__ __forceinline__ void
+store_vec4_nearest_rounding(float4 val, uint8_t* output_ptr, float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output_ptr[0] = std::lrintf((val.x - qparams.y) * inv_scale);
+  output_ptr[1] = std::lrintf((val.y - qparams.y) * inv_scale);
+  output_ptr[2] = std::lrintf((val.z - qparams.y) * inv_scale);
+  output_ptr[3] = std::lrintf((val.w - qparams.y) * inv_scale);
+}
+
+__device__ __forceinline__ float float4_max(float4 val) {
+  float max_val = val.x;
+  max_val = max(max_val, val.y);
+  max_val = max(max_val, val.z);
+  max_val = max(max_val, val.w);
+  return max_val;
+}
+
+__device__ __forceinline__ float float4_min(float4 val) {
+  float min_val = val.x;
+  min_val = min(min_val, val.y);
+  min_val = min(min_val, val.z);
+  min_val = min(min_val, val.w);
+  return min_val;
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
@@ -795,6 +989,10 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
       return;
   }
+  static_assert(
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    "output_t can only be float or half or bytes now"
+  );
 
   uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
@@ -880,7 +1078,6 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
         {% if weighted %}
         buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
         {% endif %}
-
       }
     }
     // equivalent to fence + wait.
@@ -913,62 +1110,170 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    float inv_L = 1.0 / Ls[i];
 
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-      bool aligned_16b = intptr_t(&output[b][D_start + output_d]) % 16 == 0;
-      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
-      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
-      if (pooling_mode == MEAN && Ls[i] != 0) {
-          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+            accumulators[i][j].x *= inv_L;
+            accumulators[i][j].y *= inv_L;
+            accumulators[i][j].z *= inv_L;
+            accumulators[i][j].w *= inv_L;
+        }
+
+        if (output_d >= 0 && output_d < D) {
+          store_vec4(accumulators[i][j], &output[b][D_start + output_d]);
+        }
+      }
+    } else if (std::is_same<output_t, uint8_t>::value) {
+      // INT8:
+      // apply per feature row-wise int8
+      float thread_local_min = std::numeric_limits<float>::max();
+      float thread_local_max = std::numeric_limits<float>::lowest();
+      float2 qparams;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
           accumulators[i][j].x *= inv_L;
           accumulators[i][j].y *= inv_L;
           accumulators[i][j].z *= inv_L;
           accumulators[i][j].w *= inv_L;
-      }
-      static_assert(
-        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
-        "output_t can only be float or half now"
-      );
-      if (std::is_same<output_t, float>::value) {
-        float4 val = accumulators[i][j];
-        if (output_d >= 0 && output_d < D) {
-          if (aligned_16b) {
-            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
-          } else if (aligned_8b) {
-            auto v = *reinterpret_cast<const int4*>(&val);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 2]) = make_int2(v.z, v.w);
-          } else {
-            output[b][D_start + output_d + 0] = val.x;
-            output[b][D_start + output_d + 1] = val.y;
-            output[b][D_start + output_d + 2] = val.z;
-            output[b][D_start + output_d + 3] = val.w;
-          }
         }
-      } else if (std::is_same<output_t, at::Half>::value) {
-        half4 val = to_half4(accumulators[i][j]);
         if (output_d >= 0 && output_d < D) {
-          if (aligned_8b) {
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int2*>(&val);
-          } else if (aligned_4b) {
-            auto v = *reinterpret_cast<const int2*>(&val);
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
-          } else {
-            output[b][D_start + output_d + 0] = val.vals[0].x;
-            output[b][D_start + output_d + 1] = val.vals[0].y;
-            output[b][D_start + output_d + 2] = val.vals[1].x;
-            output[b][D_start + output_d + 3] = val.vals[1].y;
-          }
+          thread_local_max = max(thread_local_max, float4_max(accumulators[i][j]));
+          thread_local_min = min(thread_local_min, float4_min(accumulators[i][j]));
         }
-      } else {
-        // INT8/4: not implemented yet
       }
+
+      qparams = warp_find_qparams(thread_local_min, thread_local_max);
+      int output_D_start = D_start + t * 8;
+      int output_D_end = output_D_start + D;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (output_d >= 0 && output_d < D) {
+          store_vec4_nearest_rounding(accumulators[i][j], &output[b][output_D_start + output_d], qparams);
+        }
+      }
+      if (threadIdx.x == 0) {
+        store_qparams_to_row(&output[b][output_D_end], qparams);
+      }
+    } else {
+      // INT4: not implemented yet
     }
   }
+}
+
+template<typename output_t>
+__device__ __forceinline__ void store_vec8(float8 acc, output_t* output_ptr) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template<>
+__device__ __forceinline__ void store_vec8(float8 val, float* output_ptr) {
+  bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+  bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+  if (aligned_16b) { // 128 bit cache line
+    *reinterpret_cast<int4*>(output_ptr) = *reinterpret_cast<const int4*>(&(val.vals[0]));
+    *reinterpret_cast<int4*>(output_ptr + 4) = *reinterpret_cast<const int4*>(&(val.vals[1]));
+  } else if (aligned_8b) {
+    auto v0 = *reinterpret_cast<const int4*>(&(val.vals[0]));
+    auto v1 = *reinterpret_cast<const int4*>(&(val.vals[1]));
+    *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v0.x, v0.y);
+    *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v0.z, v0.w);
+    *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v1.x, v1.y);
+    *reinterpret_cast<int2*>(output_ptr + 6) = make_int2(v1.z, v1.w);
+  } else {
+    *(output_ptr + 0) = val.vals[0].x;
+    *(output_ptr + 1) = val.vals[0].y;
+    *(output_ptr + 2) = val.vals[0].z;
+    *(output_ptr + 3) = val.vals[0].w;
+    *(output_ptr + 4) = val.vals[1].x;
+    *(output_ptr + 5) = val.vals[1].y;
+    *(output_ptr + 6) = val.vals[1].z;
+    *(output_ptr + 7) = val.vals[1].w;
+  }
+}
+
+template<>
+__device__ __forceinline__ void store_vec8(float8 acc, at::Half* output_ptr) {
+  half8 val = to_half8(acc);
+  bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+  bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+  bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+  if (aligned_16b) {
+    *reinterpret_cast<int4*>(output_ptr) = *reinterpret_cast<const int4*>(&val);
+  } else if (aligned_8b) {
+    auto v = *reinterpret_cast<const int4*>(&val);
+    *reinterpret_cast<int2*>(output_ptr) = make_int2(v.x, v.y);
+    *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v.z, v.w);
+  } else if (aligned_4b) {
+    auto v = *reinterpret_cast<const int4*>(&val);
+    *reinterpret_cast<int*>(output_ptr + 0) = v.x;
+    *reinterpret_cast<int*>(output_ptr + 2) = v.y;
+    *reinterpret_cast<int*>(output_ptr + 4) = v.z;
+    *reinterpret_cast<int*>(output_ptr + 6) = v.w;
+  } else {
+    *(output_ptr + 0) = val.vals[0].x;
+    *(output_ptr + 1) = val.vals[0].y;
+    *(output_ptr + 2) = val.vals[1].x;
+    *(output_ptr + 3) = val.vals[1].y;
+    *(output_ptr + 4) = val.vals[2].x;
+    *(output_ptr + 5) = val.vals[2].y;
+    *(output_ptr + 6) = val.vals[3].x;
+    *(output_ptr + 7) = val.vals[3].y;
+  }
+}
+
+// nearest rounding and store implementations
+template <typename output_t>
+__device__ __forceinline__ void store_vec8_nearest_rounding(
+    float8 val,
+    output_t* output_ptr,
+    float2 qparams) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+__device__ __forceinline__ void
+store_vec8_nearest_rounding(float8 val, uint8_t* output_ptr, float2 qparams) {
+  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output_ptr[0] = std::lrintf((val.vals[0].x - qparams.y) * inv_scale);
+  output_ptr[1] = std::lrintf((val.vals[0].y - qparams.y) * inv_scale);
+  output_ptr[2] = std::lrintf((val.vals[0].z - qparams.y) * inv_scale);
+  output_ptr[3] = std::lrintf((val.vals[0].w - qparams.y) * inv_scale);
+  output_ptr[4] = std::lrintf((val.vals[1].x - qparams.y) * inv_scale);
+  output_ptr[5] = std::lrintf((val.vals[1].y - qparams.y) * inv_scale);
+  output_ptr[6] = std::lrintf((val.vals[1].z - qparams.y) * inv_scale);
+  output_ptr[7] = std::lrintf((val.vals[1].w - qparams.y) * inv_scale);
+}
+
+__device__ __forceinline__ float float8_max(float8 val) {
+  float max_val = val.vals[0].x;
+  max_val = max(max_val, val.vals[0].y);
+  max_val = max(max_val, val.vals[0].z);
+  max_val = max(max_val, val.vals[0].w);
+  max_val = max(max_val, val.vals[1].x);
+  max_val = max(max_val, val.vals[1].y);
+  max_val = max(max_val, val.vals[1].z);
+  max_val = max(max_val, val.vals[1].w);
+  return max_val;
+}
+
+__device__ __forceinline__ float float8_min(float8 val) {
+  float min_val = val.vals[0].x;
+  min_val = min(min_val, val.vals[0].y);
+  min_val = min(min_val, val.vals[0].z);
+  min_val = min(min_val, val.vals[0].w);
+  min_val = min(min_val, val.vals[1].x);
+  min_val = min(min_val, val.vals[1].y);
+  min_val = min(min_val, val.vals[1].z);
+  min_val = min(min_val, val.vals[1].w);
+  return min_val;
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
@@ -994,8 +1299,12 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   int32_t T = D_offsets.size(0) - 1;
   int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-      return;
+    return;
   }
+  static_assert(
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    "output_t can only be float or half or bytes now"
+  );
 
   uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
@@ -1113,16 +1422,14 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    float inv_L = 1.0 / Ls[i];
 
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-      bool aligned_16b = intptr_t(&output[b][D_start + output_d]) % 16 == 0;
-      bool aligned_8b = intptr_t(&output[b][D_start + output_d]) % 8 == 0;
-      bool aligned_4b = intptr_t(&output[b][D_start + output_d]) % 4 == 0;
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
-      if (pooling_mode == MEAN && Ls[i] != 0) {
-          float inv_L = static_cast<float>(1.0) / static_cast<float>(Ls[i]);
+        if (pooling_mode == MEAN && Ls[i] != 0) {
           accumulators[i][j].vals[0].x *= inv_L;
           accumulators[i][j].vals[0].y *= inv_L;
           accumulators[i][j].vals[0].z *= inv_L;
@@ -1131,64 +1438,53 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
           accumulators[i][j].vals[1].y *= inv_L;
           accumulators[i][j].vals[1].z *= inv_L;
           accumulators[i][j].vals[1].w *= inv_L;
-      }
-      static_assert(
-        std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value,
-        "output_t can only be float or half now"
-      );
-      if (std::is_same<output_t, float>::value) {
-        float8 val = accumulators[i][j];
-        if (output_d >= 0 && output_d < D) {
-          if (aligned_16b) { // 128 bit cache line
-            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&(val.vals[0]));
-            *reinterpret_cast<int4*>(&output[b][D_start + output_d + 4]) = *reinterpret_cast<const int4*>(&(val.vals[1]));
-          } else if (aligned_8b) {
-            auto v0 = *reinterpret_cast<const int4*>(&(val.vals[0]));
-            auto v1 = *reinterpret_cast<const int4*>(&(val.vals[1]));
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v0.x, v0.y);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 2]) = make_int2(v0.z, v0.w);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v1.x, v1.y);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 6]) = make_int2(v1.z, v1.w);
-          } else {
-            output[b][D_start + output_d + 0] = val.vals[0].x;
-            output[b][D_start + output_d + 1] = val.vals[0].y;
-            output[b][D_start + output_d + 2] = val.vals[0].z;
-            output[b][D_start + output_d + 3] = val.vals[0].w;
-            output[b][D_start + output_d + 4] = val.vals[1].x;
-            output[b][D_start + output_d + 5] = val.vals[1].y;
-            output[b][D_start + output_d + 6] = val.vals[1].z;
-            output[b][D_start + output_d + 7] = val.vals[1].w;
-          }
         }
-      } else if (std::is_same<output_t, at::Half>::value) {
-        half8 val = to_half8(accumulators[i][j]);
+
         if (output_d >= 0 && output_d < D) {
-          if (aligned_16b) {
-            *reinterpret_cast<int4*>(&output[b][D_start + output_d]) = *reinterpret_cast<const int4*>(&val);
-          } else if (aligned_8b) {
-            auto v = *reinterpret_cast<const int4*>(&val);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 0]) = make_int2(v.x, v.y);
-            *reinterpret_cast<int2*>(&output[b][D_start + output_d + 4]) = make_int2(v.z, v.w);
-          } else if (aligned_4b) {
-            auto v = *reinterpret_cast<const int4*>(&val);
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 0]) = v.x;
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 2]) = v.y;
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 4]) = v.z;
-            *reinterpret_cast<int*>(&output[b][D_start + output_d + 6]) = v.w;
-          } else {
-            output[b][D_start + output_d + 0] = val.vals[0].x;
-            output[b][D_start + output_d + 1] = val.vals[0].y;
-            output[b][D_start + output_d + 2] = val.vals[1].x;
-            output[b][D_start + output_d + 3] = val.vals[1].y;
-            output[b][D_start + output_d + 4] = val.vals[2].x;
-            output[b][D_start + output_d + 5] = val.vals[2].y;
-            output[b][D_start + output_d + 6] = val.vals[3].x;
-            output[b][D_start + output_d + 7] = val.vals[3].y;
-          }
+          store_vec8(accumulators[i][j], &output[b][D_start + output_d]);
         }
-      } else {
-        // INT8/4: not implemented yet
+
       }
+    } else if (std::is_same<output_t, uint8_t>::value) {
+      // INT8:
+      // apply per feature row-wise int8
+      float thread_local_min = std::numeric_limits<float>::max();
+      float thread_local_max = std::numeric_limits<float>::lowest();
+      float2 qparams;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (pooling_mode == MEAN && Ls[i] != 0) {
+          accumulators[i][j].vals[0].x *= inv_L;
+          accumulators[i][j].vals[0].y *= inv_L;
+          accumulators[i][j].vals[0].z *= inv_L;
+          accumulators[i][j].vals[0].w *= inv_L;
+          accumulators[i][j].vals[1].x *= inv_L;
+          accumulators[i][j].vals[1].y *= inv_L;
+          accumulators[i][j].vals[1].z *= inv_L;
+          accumulators[i][j].vals[1].w *= inv_L;
+        }
+        if (output_d >= 0 && output_d < D) {
+          thread_local_max = max(thread_local_max, float8_max(accumulators[i][j]));
+          thread_local_min = min(thread_local_min, float8_min(accumulators[i][j]));
+        }
+      }
+
+      qparams = warp_find_qparams(thread_local_min, thread_local_max);
+      int output_D_start = D_start + t * 8;
+      int output_D_end = output_D_start + D;
+      #pragma unroll MaxNum128BRows
+      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
+        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        if (output_d >= 0 && output_d < D) {
+          store_vec8_nearest_rounding(accumulators[i][j], &output[b][output_D_start + output_d], qparams);
+        }
+      }
+      if (threadIdx.x == 0) {
+        store_qparams_to_row(&output[b][output_D_end], qparams);
+      }
+    } else {
+      // INT4: not implemented yet
     }
   }
 }
@@ -1332,12 +1628,15 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TORCH_CHECK(max_int2_D == 0);
 
     at::Tensor output;
+    const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
     if (o_dtype == SparseType::FP32) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else if (o_dtype == SparseType::FP16) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    } else if (o_dtype == SparseType::INT8) {
+        output = at::empty({B, total_D + T * kINT8QparamsBytes}, dev_weights.options().dtype(at::kByte));
     }
 
     if (B == 0) {
