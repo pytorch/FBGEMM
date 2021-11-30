@@ -128,28 +128,28 @@ FBGEMM_API void requantizeForFloatAvx2(
 template <typename InputType, int BIT_RATE>
 void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
 template <typename InputType>
 void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     const InputType* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     std::uint8_t* output);
 
 template <typename OutputType, int BIT_RATE>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
 template <typename OutputType>
 void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     const std::uint8_t* input,
-    int input_rows,
+    size_t input_rows,
     int input_columns,
     OutputType* output);
 
