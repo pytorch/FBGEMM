@@ -4,6 +4,9 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
+#include <cmath>
+
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
 #include <torch/library.h>
@@ -961,6 +964,68 @@ at::Tensor jagged_1d_to_dense_cpu(
 
   return padded_values;
 }
+
+template <typename T>
+void _histogram_binning_calibration_cpu_kernel(
+    const int64_t num_logits, const int64_t num_bins,
+    const double recalibrate_value, const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value, const T* const logit_data,
+    const float* const bin_boundaries_data,
+    const double* const bin_num_examples_data,
+    const double* const bin_num_positives_data,
+    T* const calibrated_prediction_data, int64_t* const bin_ids_data) {
+  for (const auto i : c10::irange(num_logits)) {
+    const T pre_sigmoid = logit_data[i] + recalibrate_value;
+    const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
+
+    for (const auto bin_id : c10::irange(num_bins)) {
+      if (uncalibrated <= bin_boundaries_data[bin_id]) {
+        bin_ids_data[i] = bin_id;
+        break;
+      }
+    }
+
+    const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[i]];
+    if (curr_bin_num_examples > bin_ctr_in_use_after) {
+      const auto curr_bin_ctr =
+        bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
+      calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
+        uncalibrated * (1.0 - bin_ctr_weight_value);
+    } else {
+      calibrated_prediction_data[i] = uncalibrated;
+    }
+  }
+}
+
+std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
+    const at::Tensor& logit, const at::Tensor& bin_boundaries,
+    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
+    double positive_weight, int64_t bin_ctr_in_use_after,
+    double bin_ctr_weight_value) {
+  TENSOR_ON_CPU(logit);
+  TENSOR_ON_CPU(bin_boundaries);
+  TENSOR_ON_CPU(bin_num_examples);
+  TENSOR_ON_CPU(bin_num_positives);
+  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+
+  at::Tensor calibrated_prediction = at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  const double recalibrate_value = std::log(positive_weight);
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      logit.type(), "histogram_binning_calibration_cpu", [&]() {
+        _histogram_binning_calibration_cpu_kernel<scalar_t>(
+            logit.numel(), bin_boundaries.numel(), recalibrate_value,
+            bin_ctr_in_use_after, bin_ctr_weight_value,
+            logit.data_ptr<scalar_t>(), bin_boundaries.data_ptr<float>(),
+            bin_num_examples.data_ptr<double>(),
+            bin_num_positives.data_ptr<double>(),
+            calibrated_prediction.data_ptr<scalar_t>(),
+            bin_ids.data_ptr<int64_t>());
+      });
+
+  return std::make_tuple(calibrated_prediction, bin_ids);
+}
+
 } // namespace fbgemm
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -982,6 +1047,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
   m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
+  m.def(
+      "histogram_binning_calibration(Tensor logit, Tensor bin_boundaries, Tensor bin_num_examples, Tensor bin_num_positives, float positive_weight, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1004,4 +1071,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
   m.impl("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_forward_cpu);
   m.impl("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_cpu);
+  m.impl("histogram_binning_calibration", fbgemm::histogram_binning_calibration_cpu);
 }
