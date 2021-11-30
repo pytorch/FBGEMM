@@ -141,7 +141,7 @@ class SplitEmbInferenceConverter:
                 for (E, D, _, _) in child.embedding_specs:
                     weights_ty = self.quantize_type
                     if D % weights_ty.align_size() != 0:
-                        logging.warn(
+                        logging.warning(
                             f"Embedding dim {D} couldn't be divided by align size {weights_ty.align_size()}!"
                         )
                         assert D % 4 == 0
