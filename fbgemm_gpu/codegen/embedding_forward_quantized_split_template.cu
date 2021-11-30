@@ -459,13 +459,6 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 
   VecNT<1> accumulators[OutputRowsPerThread][MaxNum128BRows];
 
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      accumulators[i][j].acc = 0.0;
-    }
-  }
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
     typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
@@ -647,14 +640,6 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   VecNT<2> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      accumulators[i][j].acc = make_zero_float2();
-    }
-  }
 
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
@@ -846,14 +831,6 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   VecNT<4> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      accumulators[i][j].acc = make_zero_float4();
-    }
-  }
 
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
@@ -1050,14 +1027,6 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   VecNT<8> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    #pragma unroll MaxNum128BRows
-    for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-      accumulators[i][j].acc = make_zero_float8();
-    }
-  }
 
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
