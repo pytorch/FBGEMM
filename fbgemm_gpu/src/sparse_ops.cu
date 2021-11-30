@@ -1454,4 +1454,80 @@ at::Tensor jagged_1d_to_dense_gpu(
   return padded_values;
 }
 
+template <typename T>
+__global__ void histogram_binning_calibration_kernel(
+    const int64_t num_logits, const int64_t num_bins,
+    const double recalibrate_value, const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value, const T* const logit_data,
+    const float* const bin_boundaries_data,
+    const double* const bin_num_examples_data,
+    const double* const bin_num_positives_data,
+    T* const calibrated_prediction_data, int64_t* const bin_ids_data) {
+  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= num_logits) {
+    return;
+  }
+
+  const T pre_sigmoid = logit_data[index] + recalibrate_value;
+  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+
+  for (int bin_id = 0; bin_id < num_bins; ++bin_id) {
+    if (uncalibrated <= bin_boundaries_data[bin_id]) {
+      bin_ids_data[index] = bin_id;
+      break;
+    }
+  }
+
+  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
+  if (curr_bin_num_examples > bin_ctr_in_use_after) {
+    const auto curr_bin_ctr =
+      bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+      uncalibrated * (1.0 - bin_ctr_weight_value);
+  } else {
+    calibrated_prediction_data[index] = uncalibrated;
+  }
+}
+
+std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
+    const at::Tensor& logit, const at::Tensor& bin_boundaries,
+    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
+    double positive_weight, int64_t bin_ctr_in_use_after,
+    double bin_ctr_weight_value) {
+  TENSOR_ON_CUDA_GPU(logit);
+  TENSOR_ON_CUDA_GPU(bin_boundaries);
+  TENSOR_ON_CUDA_GPU(bin_num_examples);
+  TENSOR_ON_CUDA_GPU(bin_num_positives);
+  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(logit.get_device());
+
+  at::Tensor calibrated_prediction = at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  const double recalibrate_value = std::log(positive_weight);
+
+  const int32_t num_threads = 512;
+  const auto logit_packed = logit.contiguous();
+  const auto bin_boundaries_packed = bin_boundaries.contiguous();
+  const auto bin_num_examples_packed = bin_num_examples.contiguous();
+  const auto bin_num_positives_packed = bin_num_positives.contiguous();
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      logit.type(), "histogram_binning_calibration_cuda", [&]() {
+        histogram_binning_calibration_kernel<scalar_t>
+            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
+                num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                    logit.numel(), bin_boundaries.numel(), recalibrate_value,
+                    bin_ctr_in_use_after, bin_ctr_weight_value,
+                    logit_packed.data_ptr<scalar_t>(),
+                    bin_boundaries_packed.data_ptr<float>(),
+                    bin_num_examples_packed.data_ptr<double>(),
+                    bin_num_positives_packed.data_ptr<double>(),
+                    calibrated_prediction.data_ptr<scalar_t>(),
+                    bin_ids.data_ptr<int64_t>());
+      });
+
+  return std::make_tuple(calibrated_prediction, bin_ids);
+}
+
 } // namespace fbgemm
