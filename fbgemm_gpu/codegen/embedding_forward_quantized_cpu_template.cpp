@@ -88,6 +88,28 @@ inline uint32_t pruned_hash_function(uint32_t h) {
     return h;
 }
 
+template <typename output_t>
+void store_vec(output_t* output_acc, __m256& acci) {
+  TORCH_CHECK(false);
+}
+
+template <>
+void store_vec(float* output_acc, __m256& acci) {
+  _mm256_storeu_ps(output_acc, acci);
+}
+
+template <>
+void store_vec(at::Half* output_acc, __m256& acci) {
+  _mm_storeu_si128(
+      reinterpret_cast<__m128i*>(output_acc),
+      _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+}
+
+template <>
+void store_vec(uint8_t* output_acc, __m256& acci) {
+  // FIXME: use qparams parameters to do INT8 row-wise quantization.
+}
+
 }
 
 void pruned_hashmap_insert_{{ wdesc }}_cpu(
@@ -150,33 +172,6 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
 }
 
 template <typename output_t>
-struct VecT {};
-
-template <>
-struct VecT<float> {
-    void store_vec(at::Half* output_acc, __m256& acci) {
-        // Error;
-        TORCH_CHECK(false);
-    }
-    void store_vec(float* output_acc, __m256& acci) {
-        _mm256_storeu_ps(output_acc, acci);
-    }
-};
-
-template <>
-struct VecT<at::Half> {
-    void store_vec(at::Half* output_acc, __m256& acci) {
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(output_acc), _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-    }
-    void store_vec(float* output_acc, __m256& acci) {
-        // Error;
-        TORCH_CHECK(false);
-    }
-};
-
-// TODO: add uint8 store instructions
-
-template <typename output_t>
 void store_result(
     const int32_t D_vecs,
     const int32_t D_tail_elements,
@@ -188,27 +183,23 @@ void store_result(
     if (D_tail_elements == 0) {
         for (auto i = 0; i < D_vecs; ++i) {
             auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-            VecT<output_t> vec_st;
-            vec_st.store_vec(&output_acc[8 * i], acci);
+            store_vec(&output_acc[8 * i], acci);
         }
     } else {
         for (auto i = 0; i < D_vecs - 1; ++i) {
             auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-            VecT<output_t> vec_st;
-            vec_st.store_vec(&output_acc[8 * i], acci);
+            store_vec(&output_acc[8 * i], acci);
         }
         if (std::is_same<output_t, float>::value) {
             std::array<float, 8> vs;
             auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-            VecT<output_t> vec_st;
-            vec_st.store_vec(vs.data(), acci);
+            store_vec(vs.data(), acci);
             // To check D_tail_elements size
             std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
         } else if (std::is_same<output_t, at::Half>::value) {
             std::array<Half, 8> vs;
             auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-            VecT<output_t> vec_st;
-            vec_st.store_vec(vs.data(), acci);
+            store_vec(vs.data(), acci);
             std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
         }
     }
@@ -245,14 +236,16 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 #endif
 
     at::Tensor output;
+    const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
     if (o_dtype == SparseType::FP32) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat).pinned_memory(pinned_memory));
     } else if (o_dtype == SparseType::FP16) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pinned_memory));
+    } else if (o_dtype == SparseType::INT8) {
+        output = at::empty({B, total_D + T * kINT8QparamsBytes}, dev_weights.options().dtype(at::kByte).pinned_memory(pinned_memory));
     }
-
 
     if (B == 0) {
         return output;
