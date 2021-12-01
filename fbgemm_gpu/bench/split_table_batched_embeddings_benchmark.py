@@ -114,6 +114,9 @@ def generate_requests(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
         )
         all_indices = permutation.gather(0, all_indices.flatten())
+        num_indices = len(all_indices)
+        num_unique_indices = len(all_indices.unique())
+        logging.info(f"total number of indices {num_indices} number of unique indices {num_unique_indices} average number of reuse {num_indices / num_unique_indices}")
         all_indices = all_indices.to(get_device()).int().reshape(iters, T, B * L)
     for it in range(iters - 1):
         for t in range(T):
