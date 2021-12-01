@@ -39,7 +39,7 @@ from torch import Tensor
 MAX_EXAMPLES = 40
 
 # For long running tests reduce the number of iterations to reduce timeout errors.
-MAX_EXAMPLES_LONG_RUNNING = 20
+MAX_EXAMPLES_LONG_RUNNING = 15
 
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
@@ -1614,7 +1614,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=256),
+        D=st.integers(min_value=2, max_value=128),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1628,13 +1628,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
     )
@@ -1644,7 +1637,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_backward_adagrad_fp16(  # noqa C901
+    def test_backward_adagrad_fp16_pmSUM(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1659,7 +1652,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
     ) -> None:
@@ -1677,14 +1669,138 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            pooling_mode,
+            split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu,
             exact,
         )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=256),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP16),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_adagrad_fp16_pmMEAN(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            use_cpu,
+            exact,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP16),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_adagrad_fp16_pmNONE(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            split_table_batched_embeddings_ops.PoolingMode.NONE,
+            use_cpu,
+            exact,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
@@ -1698,13 +1814,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
     )
@@ -1714,7 +1823,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_backward_adagrad_fp32(  # noqa C901
+    def test_backward_adagrad_fp32_pmSUM(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1729,7 +1838,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
     ) -> None:
@@ -1747,7 +1855,131 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            pooling_mode,
+            split_table_batched_embeddings_ops.PoolingMode.SUM,
+            use_cpu,
+            exact,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP32),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_adagrad_fp32_pmMEAN(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            use_cpu,
+            exact,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP32),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_adagrad_fp32_pmNONE(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            split_table_batched_embeddings_ops.PoolingMode.NONE,
             use_cpu,
             exact,
         )
