@@ -325,10 +325,20 @@ __global__ inline void _float_to_bfloat16_cuda_kernel(
     uint16_t* output_row = output + row * ncols;
     for (int col = blockIdx.x * blockDim.x + threadIdx.x; col < ncols;
          col += col_incre) {
-      // Add 2^15 and right shift 16 to do round-nearest
-      output_row[col] =
-          (*reinterpret_cast<const uint32_t*>(input_row + col) + (1 << 15)) >>
-          16;
+      // Rounding to nearest even (from
+      // https://github.com/pytorch/pytorch/blob/b907d6e3b6a74facd3255555d3e7efc7a3efa609/c10/util/BFloat16.h#L51)
+      if (std::isnan(input_row[col])) {
+        output_row[col] = UINT16_C(0x7FC0);
+      } else {
+        union {
+          uint32_t U32;
+          float F32;
+        };
+
+        F32 = input_row[col];
+        uint32_t rounding_bias = ((U32 >> 16) & 1) + UINT32_C(0x7FFF);
+        output_row[col] = static_cast<uint16_t>((U32 + rounding_bias) >> 16);
+      }
     }
   }
 }
