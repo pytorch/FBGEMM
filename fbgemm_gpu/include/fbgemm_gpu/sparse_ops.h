@@ -178,9 +178,11 @@ at::Tensor jagged_1d_to_dense_gpu(
 // Assumes positive weight calibration is used for calibartion target, and
 // "positive_weight" is passed as input argument.
 //
-// # of bins and lower/upper bounds are automatically derived from
-// "bin_boundaries", "bin_num_examples", and "bin_num_positives", all of which
-// should be the same size.
+// # of bins is automatically derived from "bin_num_examples", and
+// "bin_num_positives", all of which should be the same size.
+//
+// "lower/upper_bound":
+// Bounds of the bins.
 //
 // "bin_ctr_in_use_after":
 // We will use the calibration_target for the final calibrated prediction if we
@@ -195,15 +197,15 @@ at::Tensor jagged_1d_to_dense_gpu(
 // bin_ctr_weight) * calibration_target.
 // Default: 1.0
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
-    const at::Tensor& logit, const at::Tensor& bin_boundaries,
-    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
-    double positive_weight, int64_t bin_ctr_in_use_after = 0,
-    double bin_ctr_weight_value = 1.0);
+    const at::Tensor& logit, const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives, double positive_weight,
+    double lower_bound = 0.0, double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0, double bin_ctr_weight_value = 1.0);
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
-    const at::Tensor& logit, const at::Tensor& bin_boundaries,
-    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
-    double positive_weight, int64_t bin_ctr_in_use_after = 0,
-    double bin_ctr_weight_value = 1.0);
+    const at::Tensor& logit, const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives, double positive_weight,
+    double lower_bound = 0.0, double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0, double bin_ctr_weight_value = 1.0);
 
 } // namespace fbgemm
