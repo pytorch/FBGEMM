@@ -870,8 +870,228 @@ DEVICE_INLINE float8 make_zero_float8() {
   return t;
 }
 
+__forceinline__ __device__ __half2
+hfma2(const __half2 a, const __half2 b, const __half2 c) {
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+  return __hfma2(a, b, c);
+#else
+  float2 fa, fb, fc;
+  fa = __half22float2(a);
+  fb = __half22float2(b);
+  fc = __half22float2(c);
+  fc.x = fa.x * fb.x + fc.x;
+  fc.y = fa.y * fb.y + fc.y;
+  return __float22half2_rn(fc);
+#endif
+}
 
-// Customized N-element vector data types (with element type float for accumulation type).
+__forceinline__ __device__ half hmul(half a, half b) {
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+  return __hmul(a, b);
+#else
+  return __float2half(__half2float(a) * __half2float(b));
+#endif
+}
+
+// Reinterpret a  pair of uint16_t (packed into a uint32_t) as half2, and
+// multiply by rhs.
+__device__ __forceinline__ __half2 hmul_short2(uint32_t lhs, __half rhs) {
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+#ifndef __HALF2_TO_UI
+// cuda_fp16.hpp
+#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+#endif
+#ifndef __HALF2_TO_CUI
+// cuda_fp16.hpp
+#define __HALF2_TO_CUI(var) *(reinterpret_cast<const unsigned int*>(&(var)))
+#endif
+  __half2 ret;
+  __half2 rhsp = make_half2(rhs, rhs);
+  asm("mul.f16x2 %0, %1, %2;"
+      : "=r"(__HALF2_TO_UI(ret))
+      : "r"(__HALF2_TO_CUI(lhs)), "r"(__HALF2_TO_CUI(rhsp)));
+  return ret;
+#else
+#ifndef __HALF2_TO_UI
+// cuda_fp16.hpp
+#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+#endif
+  __half2 lhs_h2;
+  __HALF2_TO_UI(lhs_h2) = lhs;
+  float2 fx = __half22float2(lhs_h2);
+  float2 fy = __half22float2(make_half2(rhs, rhs));
+  float2 fr;
+  fr.x = fx.x * fy.x;
+  fr.y = fx.y * fy.y;
+  return __float22half2_rn(fr);
+#endif
+}
+
+__forceinline__ __device__ half8
+dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
+  half8 res;
+  uint32_t v = packedVals;
+  // What's going on here, you might ask? We extra out 4-bit pairs of integers
+  // as 2xuint16 packed into an int32 via the mask operation, and then we
+  // convert them to half precision values. As these are all integers in [0,
+  // 15], we can actually just interpret the 4-bit integer values as
+  // half-precision values. We multiply by 4096 x 4096 to go from the 4-bit
+  // representation to the equivalent fp16 value, or alternatively 32768 * 512
+  // (or 32 when we have shifted the 4-bit value up). See e.g.
+  // https://gist.github.com/ajtulloch/021254a291a95966bc509db4e34ffeff for a
+  // NumPy implementation. We do this dance because: a) doing bitwise operations
+  // on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive
+  // on the XU. b) doing a 256-entry shared memory LUT on 8-bit pairs is
+  // expensive on SMEM throughput. Credit to @jhj.
+  res.vals[0] = hmul_short2(v & 0x000F000F, 32768);
+  res.vals[1] = hmul_short2(v & 0x00F000F0, 32768);
+  v >>= 8;
+  res.vals[2] = hmul_short2(v & 0x000F000F, 32768);
+  res.vals[3] = hmul_short2(v & 0x00F000F0, 32768);
+
+  res.vals[0] = hfma2(
+      res.vals[0],
+      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+      __half2(shift_scale.y, shift_scale.y));
+  res.vals[1] = hfma2(
+      res.vals[1],
+      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
+      __half2(shift_scale.y, shift_scale.y));
+  res.vals[2] = hfma2(
+      res.vals[2],
+      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+      __half2(shift_scale.y, shift_scale.y));
+  res.vals[3] = hfma2(
+      res.vals[3],
+      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
+      __half2(shift_scale.y, shift_scale.y));
+  return res;
+}
+
+__forceinline__ __device__ half4
+dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
+  half4 res;
+  uint32_t v = packedVals;
+  // See comment above, this is a minor variation.
+  res.vals[0] = hmul_short2(v & 0x00FF00FF, 32768);
+  v >>= 8;
+  res.vals[1] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[0] = hfma2(
+      res.vals[0],
+      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+      __half2(shift_scale.y, shift_scale.y));
+  res.vals[1] = hfma2(
+      res.vals[1],
+      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
+      __half2(shift_scale.y, shift_scale.y));
+  return res;
+}
+
+__forceinline__ __device__ float accumulate_fp32(float acc, float vals) {
+  acc += vals;
+  return acc;
+}
+
+__forceinline__ __device__ float
+accumulate_weighted_fp32(float acc, float vals, float weight) {
+  return fmaf(vals, weight, acc);
+}
+
+__forceinline__ __device__ float2 accumulate_fp16(float2 acc, __half2 vals) {
+  float2 v = __half22float2(vals);
+  acc.x += v.x;
+  acc.y += v.y;
+  return acc;
+}
+
+__forceinline__ __device__ float2
+accumulate_weighted_fp16(float2 acc, __half2 vals, float weight) {
+  float2 v = __half22float2(vals);
+  acc.x = fmaf(v.x, weight, acc.x);
+  acc.y = fmaf(v.y, weight, acc.y);
+  return acc;
+}
+
+__forceinline__ __device__ float4
+accumulate_packed_int8(float4 acc, uint32_t packedVals, __half2 shift_scale) {
+  half4 res = dequantize_permuted_int8(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+
+  // Twiddle after permutations.
+  acc.x += v0.x;
+  acc.y += v1.x;
+  acc.z += v0.y;
+  acc.w += v1.y;
+  return acc;
+}
+
+__forceinline__ __device__ float4 accumulate_weighted_packed_int8(
+    float4 acc,
+    uint32_t packedVals,
+    __half2 shift_scale,
+    float weight) {
+  half4 res = dequantize_permuted_int8(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+
+  // Twiddle after permutations.
+  acc.x = fmaf(v0.x, weight, acc.x);
+  acc.y = fmaf(v1.x, weight, acc.y);
+  acc.z = fmaf(v0.y, weight, acc.z);
+  acc.w = fmaf(v1.y, weight, acc.w);
+  return acc;
+}
+
+__forceinline__ __device__ float8
+accumulate_packed_int4(float8 acc, uint32_t packedVals, __half2 shift_scale) {
+  half8 res = dequantize_permuted_int4(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
+
+  // Twiddle after permutations.
+  acc.vals[0].x += v0.x;
+  acc.vals[0].y += v1.x;
+  acc.vals[0].z += v2.x;
+  acc.vals[0].w += v3.x;
+  acc.vals[1].x += v0.y;
+  acc.vals[1].y += v1.y;
+  acc.vals[1].z += v2.y;
+  acc.vals[1].w += v3.y;
+  return acc;
+}
+
+__forceinline__ __device__ float8 accumulate_weighted_packed_int4(
+    float8 acc,
+    uint32_t packedVals,
+    __half2 shift_scale,
+    float weight) {
+  half8 res = dequantize_permuted_int4(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
+
+  // Twiddle after permutations.
+  acc.vals[0].x = fmaf(v0.x, weight, acc.vals[0].x);
+  acc.vals[0].y = fmaf(v1.x, weight, acc.vals[0].y);
+  acc.vals[0].z = fmaf(v2.x, weight, acc.vals[0].z);
+  acc.vals[0].w = fmaf(v3.x, weight, acc.vals[0].w);
+  acc.vals[1].x = fmaf(v0.y, weight, acc.vals[1].x);
+  acc.vals[1].y = fmaf(v1.y, weight, acc.vals[1].y);
+  acc.vals[1].z = fmaf(v2.y, weight, acc.vals[1].z);
+  acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
+  return acc;
+}
+
+// Customized N-element vector data types (with element type float for
+// accumulation type).
 template <int N>
 struct VecNT {};
 
@@ -905,6 +1125,21 @@ struct VecNT<1> {
 
   DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
     CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(float a, float b) {
+    acc = accumulate_weighted_fp32(acc, a, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(float a) {
+    acc = accumulate_fp32(acc, a);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc = acc * a;
   }
 };
 
@@ -940,6 +1175,22 @@ struct VecNT<2> {
 
   DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
     CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(half2 a, float b) {
+    acc = accumulate_weighted_fp16(acc, a, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(half2 a) {
+    acc = accumulate_fp16(acc, a);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc.x *= a;
+    acc.y *= a;
   }
 };
 
@@ -1004,6 +1255,24 @@ struct VecNT<4> {
 
   DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
     CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(uint32_t v, half2 shift_scale, float b) {
+    acc = accumulate_weighted_packed_int8(acc, v, shift_scale, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(uint32_t v, half2 shift_scale) {
+    acc = accumulate_packed_int8(acc, v, shift_scale);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc.x *= a;
+    acc.y *= a;
+    acc.z *= a;
+    acc.w *= a;
   }
 };
 
@@ -1093,6 +1362,28 @@ struct VecNT<8> {
 
   DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
     CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(uint32_t v, half2 shift_scale, float b) {
+    acc = accumulate_weighted_packed_int4(acc, v, shift_scale, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(uint32_t v, half2 shift_scale) {
+    acc = accumulate_packed_int4(acc, v, shift_scale);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc.vals[0].x *= a;
+    acc.vals[0].y *= a;
+    acc.vals[0].z *= a;
+    acc.vals[0].w *= a;
+    acc.vals[1].x *= a;
+    acc.vals[1].y *= a;
+    acc.vals[1].z *= a;
+    acc.vals[1].w *= a;
   }
 };
 
