@@ -1021,20 +1021,19 @@ class SparseOpsTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_histogram_binning_calibration(self, data_type: torch.dtype) -> None:
         num_bins = 5000
-        step = 1.0 / float(num_bins)
 
         logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(data_type)
 
-        bin_boundaries = torch.arange(step, 1.0 - step / 2, step)
         bin_num_examples = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
         bin_num_positives = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
 
         calibrated_prediction, bin_ids = torch.ops.fbgemm.histogram_binning_calibration(
                 logit=logit,
-                bin_boundaries = bin_boundaries,
                 bin_num_examples = bin_num_examples,
                 bin_num_positives = bin_num_positives,
                 positive_weight=0.4,
+                lower_bound=0.0,
+                upper_bound=1.0,
                 bin_ctr_in_use_after=10000,
                 bin_ctr_weight_value=0.9995)
 
@@ -1058,10 +1057,11 @@ class SparseOpsTest(unittest.TestCase):
         if torch.cuda.is_available():
             calibrated_prediction_gpu, bin_ids_gpu = torch.ops.fbgemm.histogram_binning_calibration(
                     logit=logit.cuda(),
-                    bin_boundaries = bin_boundaries.cuda(),
                     bin_num_examples = bin_num_examples.cuda(),
                     bin_num_positives = bin_num_positives.cuda(),
                     positive_weight=0.4,
+                    lower_bound=0.0,
+                    upper_bound=1.0,
                     bin_ctr_in_use_after=10000,
                     bin_ctr_weight_value=0.9995)
 
