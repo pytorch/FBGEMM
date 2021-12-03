@@ -1456,13 +1456,17 @@ at::Tensor jagged_1d_to_dense_gpu(
 
 template <typename T>
 __global__ void histogram_binning_calibration_kernel(
-    const int64_t num_logits, const int64_t num_bins,
-    const double recalibrate_value, const double step,
-    const int64_t bin_ctr_in_use_after, const double bin_ctr_weight_value,
+    const int64_t num_logits,
+    const int64_t num_bins,
+    const double recalibrate_value,
+    const double step,
+    const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value,
     const T* const logit_data,
     const double* const bin_num_examples_data,
     const double* const bin_num_positives_data,
-    T* const calibrated_prediction_data, int64_t* const bin_ids_data) {
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
   const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
@@ -1476,18 +1480,22 @@ __global__ void histogram_binning_calibration_kernel(
   const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
   if (curr_bin_num_examples > bin_ctr_in_use_after) {
     const auto curr_bin_ctr =
-      bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
     calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-      uncalibrated * (1.0 - bin_ctr_weight_value);
+        uncalibrated * (1.0 - bin_ctr_weight_value);
   } else {
     calibrated_prediction_data[index] = uncalibrated;
   }
 }
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
-    const at::Tensor& logit, const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives, double positive_weight,
-    double lower_bound, double upper_bound, int64_t bin_ctr_in_use_after,
+    const at::Tensor& logit,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    double positive_weight,
+    double lower_bound,
+    double upper_bound,
+    int64_t bin_ctr_in_use_after,
     double bin_ctr_weight_value) {
   TENSOR_ON_CUDA_GPU(logit);
   TENSOR_ON_CUDA_GPU(bin_num_examples);
@@ -1497,11 +1505,13 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(logit.get_device());
 
-  at::Tensor calibrated_prediction = at::empty({logit.numel()}, logit.options());
-  at::Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  at::Tensor calibrated_prediction =
+      at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids =
+      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
-  const double step =
-    (upper_bound - lower_bound) / static_cast<double>(bin_num_examples.numel());
+  const double step = (upper_bound - lower_bound) /
+      static_cast<double>(bin_num_examples.numel());
 
   const int32_t num_threads = 512;
   const auto logit_packed = logit.contiguous();
@@ -1511,14 +1521,127 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
       logit.type(), "histogram_binning_calibration_cuda", [&]() {
         histogram_binning_calibration_kernel<scalar_t>
             <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-                num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    logit.numel(), bin_num_examples.numel(), recalibrate_value,
-                    step, bin_ctr_in_use_after, bin_ctr_weight_value,
-                    logit_packed.data_ptr<scalar_t>(),
-                    bin_num_examples_packed.data_ptr<double>(),
-                    bin_num_positives_packed.data_ptr<double>(),
-                    calibrated_prediction.data_ptr<scalar_t>(),
-                    bin_ids.data_ptr<int64_t>());
+               num_threads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                logit.numel(),
+                bin_num_examples.numel(),
+                recalibrate_value,
+                step,
+                bin_ctr_in_use_after,
+                bin_ctr_weight_value,
+                logit_packed.data_ptr<scalar_t>(),
+                bin_num_examples_packed.data_ptr<double>(),
+                bin_num_positives_packed.data_ptr<double>(),
+                calibrated_prediction.data_ptr<scalar_t>(),
+                bin_ids.data_ptr<int64_t>());
+      });
+
+  return std::make_tuple(calibrated_prediction, bin_ids);
+}
+
+template <typename T>
+__global__ void histogram_binning_calibration_by_feature_kernel(
+    const int64_t num_logits,
+    const int64_t num_bins,
+    const int64_t num_segments,
+    const double recalibrate_value,
+    const double step,
+    const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value,
+    const T* const logit_data,
+    const int64_t* const dense_segment_value_data,
+    const int64_t* const segment_lengths_data,
+    const double* const bin_num_examples_data,
+    const double* const bin_num_positives_data,
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
+  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= num_logits) {
+    return;
+  }
+
+  const T pre_sigmoid = logit_data[index] + recalibrate_value;
+  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+
+  const int64_t curr_segment_value =
+      (dense_segment_value_data[index] > num_segments ||
+       segment_lengths_data[index] != 1)
+      ? 0
+      : max(0L, dense_segment_value_data[index] * num_bins);
+
+  bin_ids_data[index] = ceil(uncalibrated / step) - 1 + curr_segment_value;
+
+  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
+  if (curr_bin_num_examples > bin_ctr_in_use_after) {
+    const auto curr_bin_ctr =
+        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+        uncalibrated * (1.0 - bin_ctr_weight_value);
+  } else {
+    calibrated_prediction_data[index] = uncalibrated;
+  }
+}
+
+std::tuple<at::Tensor, at::Tensor>
+histogram_binning_calibration_by_feature_cuda(
+    const at::Tensor& logit,
+    const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    int64_t num_bins,
+    double positive_weight,
+    double lower_bound,
+    double upper_bound,
+    int64_t bin_ctr_in_use_after,
+    double bin_ctr_weight_value) {
+  TENSOR_ON_CUDA_GPU(logit);
+  TENSOR_ON_CUDA_GPU(dense_segment_value);
+  TENSOR_ON_CUDA_GPU(segment_lengths);
+  TENSOR_ON_CUDA_GPU(bin_num_examples);
+  TENSOR_ON_CUDA_GPU(bin_num_positives);
+  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(logit.get_device());
+
+  at::Tensor calibrated_prediction =
+      at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids =
+      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  const double recalibrate_value = std::log(positive_weight);
+  const double step =
+      (upper_bound - lower_bound) / static_cast<double>(num_bins);
+
+  const int32_t num_threads = 512;
+  const auto logit_packed = logit.contiguous();
+  const auto dense_segment_value_packed = dense_segment_value.contiguous();
+  const auto segment_lengths_packed = segment_lengths.contiguous();
+  const auto bin_num_examples_packed = bin_num_examples.contiguous();
+  const auto bin_num_positives_packed = bin_num_positives.contiguous();
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      logit.type(), "histogram_binning_calibration_by_feature_cuda", [&]() {
+        histogram_binning_calibration_by_feature_kernel<scalar_t>
+            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
+               num_threads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                logit.numel(),
+                num_bins,
+                num_segments,
+                recalibrate_value,
+                step,
+                bin_ctr_in_use_after,
+                bin_ctr_weight_value,
+                logit_packed.data_ptr<scalar_t>(),
+                dense_segment_value_packed.data_ptr<int64_t>(),
+                segment_lengths_packed.data_ptr<int64_t>(),
+                bin_num_examples_packed.data_ptr<double>(),
+                bin_num_positives_packed.data_ptr<double>(),
+                calibrated_prediction.data_ptr<scalar_t>(),
+                bin_ids.data_ptr<int64_t>());
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
