@@ -16,6 +16,14 @@ from typing import Callable, Dict, List, Optional, Tuple
 import click
 import numpy as np
 import torch
+
+haveAIBench = False
+try:
+    from aibench_observer.utils.observer import emitMetric
+    haveAIBench = True
+except Exception:
+    haveAIBench = False
+
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -912,6 +920,7 @@ def cpu(  # noqa C901
 @click.option("--runs-of-iters", default=5)
 @click.option("--warmup-runs", default=2)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--report-aibench", is_flag=True)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -936,6 +945,7 @@ def nbit_device(  # noqa C901
     runs_of_iters: int,
     warmup_runs: int,
     output_dtype: SparseType,
+    report_aibench: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1040,14 +1050,35 @@ def nbit_device(  # noqa C901
             times.append(time_per_iter)
 
     time_per_iter = statistics.mean(times)
+
+    bandwidth = (2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9
+
     logging.info(
         f"Average of all iterations: "
         f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us, "
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
+
+    if report_aibench and haveAIBench:
+        print(
+            emitMetric(
+                type="NET",
+                metric=f"bandwidth_{weights_precision}",
+                unit="scalar",
+                value=str(bandwidth),
+            )
+        )
+        print(
+            emitMetric(
+                type="NET",
+                metric=f"time_per_iter_{weights_precision}",
+                unit="scalar",
+                value=str(time_per_iter * 1.0e6),
+            )
+        )
 
 
 @cli.command()
