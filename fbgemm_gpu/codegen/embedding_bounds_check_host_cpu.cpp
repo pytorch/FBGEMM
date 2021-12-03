@@ -8,15 +8,11 @@
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
+#include "codegen/embedding_common.h"
 
 using namespace at;
 
 namespace {
-enum class BoundsCheckMode {
-  FATAL = 0,
-  WARNING = 1,
-  IGNORE = 2,
-};
 
 void bounds_check_indices_cpu(
     Tensor rows_per_table,

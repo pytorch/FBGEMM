@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include "codegen/embedding_common.h"
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
@@ -118,7 +119,7 @@ void split_embedding_forward_cpu_kernel(
             /*OffsetType=*/int64_t>(
             D,
             indice_weights.defined(),
-            pooling_mode == MEAN,
+            static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
             /*prefetch=*/16,
             /*is_weight_positional=*/false,
             /*use_offsets=*/true,
@@ -165,7 +166,7 @@ void split_embedding_forward_cpu_kernel(
           }
           const double scale_factor =
               // NOTE: MEAN pooling will not work with indice_weights!
-              (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+              (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !indice_weights.defined() && L > 0)
               ? 1.0 / L
               : 1.0;
           for (int d = 0; d < D; ++d) {
@@ -351,7 +352,7 @@ void batched_csr2csc(
   batched_csc.row_indices =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
   bool has_weights = batched_csr_weights.data() != nullptr;
-  if (has_weights || pooling_mode == MEAN) {
+  if (has_weights || static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
     batched_csc.weights = static_cast<float*>(
         fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
@@ -513,7 +514,7 @@ void batched_csr2csc(
         int64_t L = pool_end - pool_begin;
         // MEAN pooling will not work with indice_weights!
         double scale_factor =
-            (pooling_mode == MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
+            (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !has_weights && L > 0) ? 1.0 / L : 1.0;
         for (int64_t p = pool_begin; p < pool_end; ++p) {
           auto itr = non_empty_columns.find(batched_csr_indices[p]);
           if (itr == non_empty_columns.end()) {

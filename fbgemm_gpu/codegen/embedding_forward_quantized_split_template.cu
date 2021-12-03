@@ -6,19 +6,12 @@
  */
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
-#include "codegen/embedding_common.h"
+
+using namespace fbgemm_gpu;
 
 namespace nbit {
 
 using namespace at;
-using namespace fbgemm_gpu;
-
-// Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
-enum {
-  DEVICE = 0,
-  MANAGED = 1,
-  MANAGED_CACHING = 2,
-};
 
 constexpr int32_t kCacheLocationMissing = -1;
 
@@ -246,8 +239,8 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   }
 
   const uint8_t* __restrict__ weights;
-  const auto placement = weights_placements[t];
-  if (placement == DEVICE) {
+  const auto placement = static_cast<PlacementType>(weights_placements[t]);
+  if (placement == PlacementType::DEVICE) {
       weights = &dev_weights[weights_offset];
   } else {
       weights = &uvm_weights[weights_offset];
@@ -276,7 +269,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == MANAGED_CACHING && valid);
+        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
@@ -329,7 +322,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
             accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -345,7 +338,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
             accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -442,8 +435,8 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   }
 
   const uint8_t* __restrict__ weights;
-  const auto placement = weights_placements[t];
-  if (placement == DEVICE) {
+  const auto placement = static_cast<PlacementType>(weights_placements[t]);
+  if (placement == PlacementType::DEVICE) {
       weights = &dev_weights[weights_offset];
   } else {
       weights = &uvm_weights[weights_offset];
@@ -473,7 +466,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == MANAGED_CACHING && valid);
+        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
@@ -531,7 +524,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
             accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -547,7 +540,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
             accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -644,8 +637,8 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   }
 
   const uint8_t* __restrict__ weights;
-  const auto placement = weights_placements[t];
-  if (placement == DEVICE) {
+  const auto placement = static_cast<PlacementType>(weights_placements[t]);
+  if (placement == PlacementType::DEVICE) {
       weights = &dev_weights[weights_offset];
   } else {
       weights = &uvm_weights[weights_offset];
@@ -675,7 +668,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == MANAGED_CACHING && valid);
+        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
@@ -733,7 +726,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
 
@@ -750,7 +743,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -847,8 +840,8 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   }
 
   const uint8_t* __restrict__ weights;
-  const auto placement = weights_placements[t];
-  if (placement == DEVICE) {
+  const auto placement = static_cast<PlacementType>(weights_placements[t]);
+  if (placement == PlacementType::DEVICE) {
       weights = &dev_weights[weights_offset];
   } else {
       weights = &uvm_weights[weights_offset];
@@ -878,7 +871,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == MANAGED_CACHING && valid);
+        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
@@ -936,7 +929,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
 
@@ -954,7 +947,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (pooling_mode == MEAN && Ls[i] != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
@@ -1146,7 +1139,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
@@ -1186,7 +1179,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
@@ -1228,7 +1221,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
@@ -1270,7 +1263,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(nbit::kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
         dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
@@ -1318,8 +1311,8 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
     constexpr size_t kForwardMaxThreads = 256;
     nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
-        nbit::div_round_up(B * T + 1, kForwardMaxThreads / nbit::kWarpSize),
-        dim3(nbit::kWarpSize, kForwardMaxThreads / nbit::kWarpSize),
+        nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
+        dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
         0,
         at::cuda::getCurrentCUDAStream()>>>(
             indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
@@ -1361,8 +1354,8 @@ at::Tensor pruned_array_lookup_cuda(
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
   constexpr size_t kForwardMaxThreads = 256;
   nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
-      nbit::div_round_up(offsets.size(0), kForwardMaxThreads / nbit::kWarpSize),
-      dim3(nbit::kWarpSize, kForwardMaxThreads / nbit::kWarpSize),
+      nbit::div_round_up(offsets.size(0), kForwardMaxThreads / kWarpSize),
+      dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
           indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
