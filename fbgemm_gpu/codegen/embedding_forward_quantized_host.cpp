@@ -29,6 +29,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor offsets,
     int64_t pooling_mode,
     int64_t output_dtype,
+    Tensor lxu_cache_weights,
+    Tensor lxu_cache_locations,
     int64_t unused);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
@@ -49,6 +51,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     int64_t pooling_mode,
     Tensor indice_weights,
     int64_t output_dtype,
+    Tensor lxu_cache_weights,
+    Tensor lxu_cache_locations,
     int64_t unused);
 
 Tensor int_nbit_split_embedding_codegen_lookup_function(
@@ -68,7 +72,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
-    int64_t output_dtype) {
+    int64_t output_dtype,
+    c10::optional<Tensor> lxu_cache_weights,
+    c10::optional<Tensor> lxu_cache_locations) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
         dev_weights,
@@ -87,6 +93,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         offsets,
         pooling_mode,
         output_dtype,
+        lxu_cache_weights.value_or(Tensor()),
+        lxu_cache_locations.value_or(Tensor()),
         0);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cuda(
@@ -107,6 +115,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       pooling_mode,
       *indice_weights,
       output_dtype,
+      lxu_cache_weights.value_or(Tensor()),
+      lxu_cache_locations.value_or(Tensor()),
       0);
 }
 
@@ -124,7 +134,7 @@ Tensor pruned_array_lookup_cuda(
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> Tensor");
   m.impl(
       "int_nbit_split_embedding_codegen_lookup_function",
       torch::dispatch(

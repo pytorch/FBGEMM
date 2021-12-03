@@ -65,7 +65,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
-    int64_t output_dtype) {
+    int64_t output_dtype,
+    c10::optional<Tensor> lxu_cache_weights,  // Not used, to match cache interface for CUDA op
+    c10::optional<Tensor> lxu_cache_locations) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
