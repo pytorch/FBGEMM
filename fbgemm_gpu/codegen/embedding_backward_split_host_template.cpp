@@ -435,7 +435,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
     int64_t output_dtype) {
-  if (pooling_mode == NONE){
+  if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_{{ optimizer }}_Op::apply(
       placeholder_autograd_tensor,
       dev_weights,

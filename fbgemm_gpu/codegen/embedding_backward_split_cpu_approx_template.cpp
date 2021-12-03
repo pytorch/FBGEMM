@@ -10,6 +10,7 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 
+#include "codegen/embedding_common.h"
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
@@ -58,7 +59,7 @@ void split_embedding_backward_approx_cpu_kernel(
         const auto L = pool_end - pool_begin;
         const double scale_factor =
             // NOTE: MEAN pooling will not work with indice_weights!
-            (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+            (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
         for (auto p = pool_begin; p < pool_end; ++p) {
@@ -125,7 +126,7 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
       (host_weights.scalar_type() == ScalarType::Float/* ||
        host_weights.scalar_type() == ScalarType::Half*/) &&
       grad_output.scalar_type() == ScalarType::Float &&
-      !indice_weights.defined() && pooling_mode == SUM;
+      !indice_weights.defined() && static_cast<PoolingMode>(pooling_mode) == PoolingMode::SUM;
 
   if (use_fbgemm) {
     auto grad_stride = grad_output.size(1);
