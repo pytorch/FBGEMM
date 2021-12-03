@@ -195,8 +195,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
-  // const PackedTensorAccessor64<float, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
@@ -273,13 +272,24 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
     for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
       uint32_t row_load_idx = load_idx % uint4_loads_per_row;
       uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
+
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
+        bool cache_valid = (placement == MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
-        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        const uint4* row;
+        if (cache_valid && cache_idx != kCacheLocationMissing) {
+          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+        } else if (valid) {
+          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
+        } else {
+          row = reinterpret_cast<const uint4*>(&weights[0]);
+        }
         cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
+
         {% if weighted %}
         buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
         {% endif %}
@@ -381,7 +391,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
@@ -463,9 +473,18 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
+        bool cache_valid = (placement == MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
-        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        const uint4* row;
+        if (cache_valid && cache_idx != kCacheLocationMissing) {
+          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+        } else if (valid) {
+          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
+        } else {
+          row = reinterpret_cast<const uint4*>(&weights[0]);
+        }
         cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
         {% if weighted %}
@@ -574,7 +593,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output, // [B][total_D]
-  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
@@ -656,9 +675,18 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
+        bool cache_valid = (placement == MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
-        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        const uint4* row;
+        if (cache_valid && cache_idx != kCacheLocationMissing) {
+          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+        } else if (valid) {
+          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
+        } else {
+          row = reinterpret_cast<const uint4*>(&weights[0]);
+        }
         cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
         {% if weighted %}
@@ -768,7 +796,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
   const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
@@ -850,9 +878,18 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
+        bool cache_valid = (placement == MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
-        const uint4* row = valid ? reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]) : reinterpret_cast<const uint4*>(&weights[0]);
+        const uint4* row;
+        if (cache_valid && cache_idx != kCacheLocationMissing) {
+          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+        } else if (valid) {
+          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
+        } else {
+          row = reinterpret_cast<const uint4*>(&weights[0]);
+        }
         cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
 
         {% if weighted %}
@@ -1123,7 +1160,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
@@ -1163,7 +1200,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
@@ -1205,7 +1242,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
@@ -1247,7 +1284,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \

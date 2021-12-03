@@ -31,12 +31,46 @@
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
+#include "../codegen/embedding_common.h"
 #include "split_embeddings_utils.cuh"
 
 constexpr size_t kCacheMaxThreads = 512;
 
 using namespace at;
 using namespace fbgemm_gpu;
+
+namespace {
+__forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
+  return ((a + b - 1) / b) * b;
+}
+__host__ __device__ inline int32_t unpadded_row_size_in_bytes(
+    int32_t dim,
+    SparseType weight_ty) {
+  if (weight_ty == SparseType::FP32) {
+    return dim * 4;
+  }
+  if (weight_ty == SparseType::FP16) {
+    return dim * 2;
+  }
+  if (weight_ty == SparseType::INT8) {
+    return dim + 4;
+  }
+  if (weight_ty == SparseType::INT4) {
+    return dim / 2 + 4;
+  }
+  if (weight_ty == SparseType::INT2) {
+    return dim / 4 + 4;
+  }
+  return 0;
+}
+
+__host__ __device__ inline int32_t padded_row_size_in_bytes(
+    int32_t dim,
+    SparseType weight_ty) {
+  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
+  return round_up(r, 16);
+}
+} // namespace
 
 // TODO: do we care about 64-bit indices? Currently we just ignore.
 __host__ DEVICE_INLINE uint32_t cache_slot(int32_t h_in, int32_t C) {
@@ -751,6 +785,224 @@ void lru_cache_populate_cuda(
       stochastic_rounding);
 }
 
+__global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
+    PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> weights,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        cache_hash_size_cumsum,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        cache_index_table_map,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        sorted_cache_sets,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        cache_set_sorted_indices,
+    const int32_t* __restrict__ N_unique,
+    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
+    PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
+    int64_t time_stamp,
+    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lru_state) {
+  int32_t C = lxu_cache_state.size(0);
+  int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
+  if (n >= *N_unique) {
+    return;
+  }
+  // check if this warp is responsible for this whole segment.
+  bool segment_start =
+      (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
+
+  if (!segment_start) {
+    // don't have *warp* divergence since we launch full warps in blockDim.x,
+    // so we can just exit this warp entirely.
+    return;
+  }
+  int32_t cache_set = sorted_cache_sets[n];
+  if (cache_set == C) {
+    // ignore the already-existing elements
+    return;
+  }
+
+  int32_t SL = 1;
+  while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
+    SL += 1;
+  }
+
+  // now, we need to insert the (unique!) values in indices[n:n + SL] into
+  // our slots.
+  int32_t slot = threadIdx.x;
+  int64_t slot_time = lru_state[cache_set][slot];
+  int64_t costs[1] = {slot_time};
+  int32_t slots[1] = {slot};
+
+  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+  int32_t sorted_slot = slots[0];
+  int64_t sorted_lru_cost = costs[0];
+
+  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+    int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
+    int64_t insert_current_lru_cost =
+        __shfl_sync(0xFFFFFFFF, sorted_lru_cost, l);
+    if (insert_current_lru_cost == time_stamp) {
+      return;
+    }
+    int64_t insert_idx = cache_set_sorted_indices[n + l];
+    int32_t t_insert = cache_index_table_map[insert_idx];
+    SparseType weight_ty_insert =
+        static_cast<SparseType>(weights_tys[t_insert]);
+    int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+    int64_t weights_offset_insert = weights_offsets[t_insert];
+    int32_t D_start_insert = D_offsets[t_insert];
+    int32_t D_end_insert = D_offsets[t_insert + 1];
+    int32_t D_insert = D_end_insert - D_start_insert;
+
+    const int32_t D_insert_bytes =
+        padded_row_size_in_bytes(D_insert, weight_ty_insert);
+
+    // ensure that threadIdx.x is the only thread reading/writing to
+    // lxu_cache_state
+    int64_t current_idx =
+        threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+    current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+
+    // not empty
+    if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
+      // evict from slot to backing storage
+      int32_t t_current = cache_index_table_map[current_idx];
+      SparseType weight_ty_current =
+          static_cast<SparseType>(weights_tys[t_current]);
+      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
+      int64_t weights_offset_current = weights_offsets[t_current];
+      int32_t D_start_current = D_offsets[t_current];
+      int32_t D_end_current = D_offsets[t_current + 1];
+      int32_t D_current = D_end_current - D_start_current;
+
+      const int32_t D_current_bytes =
+          padded_row_size_in_bytes(D_current, weight_ty_current);
+
+      auto row =
+          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
+      auto cache_row =
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+      // Evict the cache
+      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
+        row[d] = cache_row[d]; // uint8_t access
+      }
+    }
+    auto row =
+        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
+    auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+    for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+      cache_row[d] = row[d];
+    }
+
+    if (threadIdx.x == 0) {
+      lxu_cache_state[cache_set][insert_slot] = insert_idx;
+      lru_state[cache_set][insert_slot] = time_stamp;
+    }
+  }
+}
+
+void lru_cache_insert_byte_cuda(
+    Tensor weights,
+    Tensor cache_hash_size_cumsum,
+    Tensor cache_index_table_map,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor sorted_cache_sets,
+    Tensor cache_set_sorted_unique_indices,
+    Tensor unique_indices_length,
+    Tensor lxu_cache_state,
+    Tensor lxu_cache_weights,
+    int64_t time_stamp,
+    Tensor lru_state) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(weights.get_device());
+
+  int32_t N = cache_set_sorted_unique_indices.numel();
+
+  lru_cache_insert_byte_kernel<<<
+      div_round_up(N, kMaxThreads / kWarpSize),
+      dim3(kWarpSize, kMaxThreads / kWarpSize),
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
+      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      cache_index_table_map.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
+      D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      sorted_cache_sets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      cache_set_sorted_unique_indices
+          .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      unique_indices_length.data_ptr<int32_t>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+      lxu_cache_weights.packed_accessor64<uint8_t, 2, RestrictPtrTraits>(),
+      time_stamp,
+      lru_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void lru_cache_populate_byte_cuda(
+    Tensor weights,
+    Tensor cache_hash_size_cumsum,
+    int64_t total_cache_hash_size,
+    Tensor cache_index_table_map,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor linear_cache_indices,
+    Tensor lxu_cache_state,
+    Tensor lxu_cache_weights,
+    int64_t time_stamp,
+    Tensor lru_state) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(weights.get_device());
+
+  TORCH_CHECK(
+      linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());
+  if (linear_cache_indices.numel() == 0) {
+    // nothing to do
+    return;
+  }
+
+  // Get unqiue indices
+  Tensor unique_indices;
+  Tensor unique_indices_length;
+  c10::optional<Tensor> unique_indices_count;
+  std::tie(unique_indices, unique_indices_length, unique_indices_count) =
+      get_unique_indices_cuda(
+          linear_cache_indices, total_cache_hash_size, false);
+
+  // Find uncached indices
+  auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
+      unique_indices,
+      unique_indices_length,
+      total_cache_hash_size,
+      lxu_cache_state,
+      time_stamp,
+      lru_state);
+  auto sorted_cache_sets = cache_sets_and_unique_indices.first;
+  auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
+
+  // insert caching weights
+  lru_cache_insert_byte_cuda(
+      weights,
+      cache_hash_size_cumsum,
+      cache_index_table_map,
+      weights_offsets,
+      weights_tys,
+      D_offsets,
+      sorted_cache_sets,
+      cache_set_sorted_unique_indices,
+      unique_indices_length,
+      lxu_cache_state,
+      lxu_cache_weights,
+      time_stamp,
+      lru_state);
+}
+
 __global__ __launch_bounds__(kMaxThreads) void lfu_update_counts_kernel(
     const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> unique_indices,
     const int32_t* __restrict__ N_unique,
@@ -1192,6 +1444,248 @@ void lfu_cache_populate_cuda(
       lxu_cache_weights,
       lfu_state,
       stochastic_rounding);
+}
+
+// In `lfu_cache_insert_kernel`, we use `emb_t` and `cache_t` for the
+// high-precision cache implementation, where we can have {FP32, FP16, INT8}
+// for embedding precision (data types), and {FP32, FP16} for cache precision
+// (data types).
+//
+// In `lfu_cache_insert_byte_kernel`, we only use uint8_t for the both embedding
+// and cache data type (conforming to the inference TBE kernel logics).
+// - We pass in `weights_tys` to denote the real data types for the embeddings:
+// {FP32, FP16, INT8, INT4}. For example, FP32 is 4 byte element in the byte
+// tensor, and INT4 is half byte element in the byte tensor.
+// - We only assume that the embedding and cache have the same precisions (the
+// real "precision" is determined by `weights_tys` although the data types are
+// uint8_t only). Basically no "high-precision cache" support for now.
+// - The insert/evict of embedding row from the cache are done in a byte-by-byte
+// manner.
+__global__
+__launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
+    PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> weights,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        cache_hash_size_cumsum,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+        cache_index_table_map,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
+    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const uint64_t* __restrict__ sorted_cache_sets,
+    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+        cache_set_sorted_indices,
+    const int32_t* __restrict__ N_unique,
+    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
+    PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
+    const PackedTensorAccessor64<int64_t, 1, RestrictPtrTraits> lfu_state) {
+  int32_t C = lxu_cache_state.size(0);
+  int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
+  if (n >= *N_unique) {
+    return;
+  }
+  // check if this warp is responsible for this whole segment.
+  bool segment_start =
+      (n == 0 ||
+       (sorted_cache_sets[n - 1] >> kLFUCounterBits) !=
+           (sorted_cache_sets[n] >> kLFUCounterBits));
+
+  if (!segment_start) {
+    // don't have *warp* divergence since we launch full warps in blockDim.x,
+    // so we can just exit this warp entirely.
+    return;
+  }
+  uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
+  if (cache_set == C) {
+    // ignore the already-existing elements
+    return;
+  }
+
+  int32_t SL = 1;
+  while (n + SL < *N_unique &&
+         (sorted_cache_sets[n + SL] >> kLFUCounterBits) == cache_set) {
+    SL += 1;
+  }
+
+  // now, we need to insert the (unique!) values in indices[n:n + SL] into
+  // our slots.
+  int32_t slot = threadIdx.x;
+  int64_t current_idx = lxu_cache_state[cache_set][slot];
+  int64_t current_lfu_cost =
+      (current_idx != static_cast<int64_t>(kCacheStateInvalid))
+      ? lfu_state[current_idx]
+      : -1;
+  int64_t costs[1] = {current_lfu_cost};
+  int32_t slots[1] = {slot};
+
+  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+  int32_t sorted_slot = slots[0];
+  int64_t sorted_lfu_cost = costs[0];
+
+  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+    int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
+    int64_t insert_current_lfu_cost =
+        __shfl_sync(0xFFFFFFFF, sorted_lfu_cost, l);
+    int64_t insert_idx = cache_set_sorted_indices[n + l];
+    int64_t insert_lfu_cost = lfu_state[insert_idx];
+
+    if (insert_current_lfu_cost > insert_lfu_cost) {
+      // don't insert.
+      // all subsequent `current_lfu_cost` values are greater, and all
+      // subsequent `insert_lfu_cost` values are smaller, so we can exit
+      // early here.
+      return;
+    }
+    int32_t t_insert = cache_index_table_map[insert_idx];
+    SparseType weight_ty_insert =
+        static_cast<SparseType>(weights_tys[t_insert]);
+    int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+    int64_t weights_offset_insert = weights_offsets[t_insert];
+    int32_t D_start_insert = D_offsets[t_insert];
+    int32_t D_end_insert = D_offsets[t_insert + 1];
+    int32_t D_insert = D_end_insert - D_start_insert;
+
+    const int32_t D_insert_bytes =
+        padded_row_size_in_bytes(D_insert, weight_ty_insert);
+
+    // not empty
+    if (insert_current_lfu_cost != -1) {
+      // ensure that threadIdx.x is the only thread reading/writing to
+      // lxu_cache_state
+      int64_t current_idx =
+          threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+      current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+      int32_t t_current = cache_index_table_map[current_idx];
+      SparseType weight_ty_current =
+          static_cast<SparseType>(weights_tys[t_current]);
+      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
+      int64_t weights_offset_current = weights_offsets[t_current];
+      int32_t D_start_current = D_offsets[t_current];
+      int32_t D_end_current = D_offsets[t_current + 1];
+      int32_t D_current = D_end_current - D_start_current;
+
+      const int32_t D_current_bytes =
+          padded_row_size_in_bytes(D_current, weight_ty_current);
+
+      auto row =
+          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
+      auto cache_row =
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+      // Evict the cache
+      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
+        row[d] = cache_row[d]; // uint8_t access
+      }
+    }
+    // insert into cache
+    auto row =
+        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
+    auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+    for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+      cache_row[d] = row[d];
+    }
+    if (threadIdx.x == 0) {
+      lxu_cache_state[cache_set][insert_slot] = insert_idx;
+    }
+  }
+}
+
+void lfu_cache_insert_byte_cuda(
+    Tensor weights,
+    Tensor cache_hash_size_cumsum,
+    Tensor cache_index_table_map,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor sorted_cache_sets,
+    Tensor cache_set_sorted_unique_indices,
+    Tensor unique_indices_length,
+    Tensor lxu_cache_state,
+    Tensor lxu_cache_weights,
+    Tensor lfu_state) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(weights.get_device());
+
+  int32_t N = cache_set_sorted_unique_indices.numel();
+
+  lfu_cache_insert_byte_kernel<<<
+      div_round_up(N, kCacheMaxThreads / kWarpSize),
+      dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
+      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      cache_index_table_map.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
+      D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
+      cache_set_sorted_unique_indices
+          .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      unique_indices_length.data_ptr<int32_t>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+      lxu_cache_weights.packed_accessor64<uint8_t, 2, RestrictPtrTraits>(),
+      lfu_state.packed_accessor64<int64_t, 1, RestrictPtrTraits>());
+
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void lfu_cache_populate_byte_cuda(
+    Tensor weights,
+    Tensor cache_hash_size_cumsum,
+    int64_t total_cache_hash_size,
+    Tensor cache_index_table_map,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor linear_cache_indices,
+    Tensor lxu_cache_state,
+    Tensor lxu_cache_weights,
+    Tensor lfu_state) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(weights.get_device());
+
+  TORCH_CHECK(
+      linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());
+  if (linear_cache_indices.numel() == 0) {
+    // nothing to do
+    return;
+  }
+
+  // get unqiue indices
+  Tensor unique_indices;
+  Tensor unique_indices_length;
+  c10::optional<Tensor> unique_indices_count;
+  std::tie(unique_indices, unique_indices_length, unique_indices_count) =
+      get_unique_indices_cuda(
+          linear_cache_indices, total_cache_hash_size, true);
+
+  // update lfu counts
+  lfu_update_counts_cuda(
+      unique_indices, unique_indices_length, *unique_indices_count, lfu_state);
+
+  // find uncached indices
+  auto cache_sets_and_unique_indices = lfu_cache_find_uncached_cuda(
+      unique_indices,
+      unique_indices_length,
+      total_cache_hash_size,
+      lxu_cache_state,
+      lfu_state);
+  auto sorted_cache_sets = cache_sets_and_unique_indices.first;
+  auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
+
+  // insert caching weights
+  lfu_cache_insert_byte_cuda(
+      weights,
+      cache_hash_size_cumsum,
+      cache_index_table_map,
+      weights_offsets,
+      weights_tys,
+      D_offsets,
+      sorted_cache_sets,
+      cache_set_sorted_unique_indices,
+      unique_indices_length,
+      lxu_cache_state,
+      lxu_cache_weights,
+      lfu_state);
 }
 
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
