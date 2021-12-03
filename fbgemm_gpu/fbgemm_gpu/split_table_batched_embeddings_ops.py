@@ -1225,7 +1225,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2 ** 24 - 1
-        cache_size = cache_sets * 32 * element_size * self.max_D_cache
+        cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -1566,7 +1566,7 @@ def nbit_construct_split_state(
             if cacheable and location == EmbeddingLocation.MANAGED_CACHING:
                 placements.append(
                     EmbeddingLocation.MANAGED_CACHING
-                )  # Note: this isn't supported yet.
+                )
             else:
                 placements.append(EmbeddingLocation.MANAGED)
             offsets.append(uvm_size)
@@ -1729,7 +1729,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.max_D: int = max(dims)
         cached_dims = [
-            embedding_spec[2]
+            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3])
             for embedding_spec in self.embedding_specs
             if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
         ]
@@ -1784,8 +1784,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remapping, load_factor, use_array_for_index_remapping
             )
 
-        # Currently only support cache_precision == SparseType.FP16
-        cache_embedding_dtype = torch.float16
+        # Currently only support cache_precision == embedding_precision.
+        # Both are represented as uint8_t
 
         cache_state = construct_cache_state(
             rows, locations, self.feature_table_map
@@ -1796,10 +1796,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_load_factor,
             cache_sets,
             cache_reserved_memory,
-            dtype=cache_embedding_dtype,
         )
         self.step = 0
-        self.stochastic_rounding = True
 
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
@@ -1818,33 +1816,33 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if self.cache_algorithm == CacheAlgorithm.LRU:
-            torch.ops.fb.lru_cache_populate(
+            torch.ops.fb.lru_cache_populate_byte(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
                 self.cache_index_table_map,
                 self.weights_offsets,
+                self.weights_tys,
                 self.D_offsets,
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.lxu_cache_weights,
                 self.timestep,
                 self.lxu_state,
-                self.stochastic_rounding,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
-            torch.ops.fb.lfu_cache_populate(
+            torch.ops.fb.lfu_cache_populate_byte(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
                 self.cache_index_table_map,
                 self.weights_offsets,
+                self.weights_tys,
                 self.D_offsets,
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.lxu_cache_weights,
                 self.lxu_state,
-                self.stochastic_rounding,
             )
 
         assert (
@@ -1984,7 +1982,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float,
         cache_sets: int,
         cache_reserved_memory: float,
-        dtype: torch.dtype,
     ) -> None:
         self.cache_algorithm = cache_algorithm
         self.timestep = 1
@@ -2000,7 +1997,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
             self.register_buffer(
                 "lxu_cache_weights",
-                torch.zeros(0, 0, device=self.current_device, dtype=dtype),
+                torch.zeros(0, 0, device=self.current_device, dtype=torch.uint8),
             )
             # NOTE: make TorchScript work!
             self.register_buffer(
@@ -2036,7 +2033,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return
 
         assert cache_load_factor > 0
-        element_size = 2 if dtype == torch.float16 else 4
         if cache_sets <= 0:
             total_memory = torch.cuda.get_device_properties(
                 self.current_device
@@ -2050,10 +2046,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets = (
                 int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
             ) // ASSOC
-            cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
+            # Note that element_size has been included in max_D_cache (in Bytes)
+            cache_size = cache_sets * ASSOC * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (
-                    int(1.0 * free_memory / self.max_D_cache / element_size) + ASSOC - 1
+                    int(1.0 * free_memory / self.max_D_cache) + ASSOC - 1
                 ) // ASSOC
         cache_load_factor = (
             1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
@@ -2061,7 +2058,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2 ** 24 - 1
-        cache_size = cache_sets * 32 * element_size * self.max_D_cache
+        cache_size = cache_sets * ASSOC * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -2098,7 +2095,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 cache_sets * ASSOC,
                 self.max_D_cache,
                 device=self.current_device,
-                dtype=dtype,
+                dtype=torch.uint8,
             ),
         )
         self.register_buffer(

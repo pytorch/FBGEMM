@@ -2329,14 +2329,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     m1.float().index_select(dim=0, index=x[t].view(-1)).cpu(),
                     m1_ref.float().index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
-                    rtol=1.0e-4
+                    rtol=1.0e-4,
                 )
                 weights_new = split_weights[t]
                 weights_ref = bs[t].weight.cpu() - lr * lambda_ * dense_cpu_grad / (
-                    torch.pow(
-                        m1_ref.view(m1_ref.numel(), 1), 1.0 / 3
-                    )
-                    + eps
+                    torch.pow(m1_ref.view(m1_ref.numel(), 1), 1.0 / 3) + eps
                 )
                 torch.testing.assert_allclose(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
@@ -3081,6 +3078,110 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed_weights_ty,
             output_dtype,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=1, max_value=20),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                # TODO: implement for SparseType.INT2,
+            ]
+        ),
+        mixed=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_nbit_cache_pipeline(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        mixed: bool,
+        weights_ty: SparseType,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+    ) -> None:
+        iters = 3
+        E = int(10 ** log_E)
+
+        D_alignment = weights_ty.align_size()
+        D = round_up(D, D_alignment)
+
+        if not mixed:
+            Ds = [D] * T
+            Es = [E] * T
+        else:
+            Ds = [
+                round_up(
+                    np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                    D_alignment,
+                )
+                for _ in range(T)
+            ]
+            Es = [
+                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
+            ]
+        managed = [
+            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+        ] * T
+        if mixed:
+            average_D = sum(Ds) // T
+            for t, d in enumerate(Ds):
+                managed[t] = (
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                    if d < average_D
+                    else managed[t]
+                )
+        cc_ref = (
+            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+                [
+                    (
+                        "",
+                        E,
+                        D,
+                        weights_ty,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+            )
+        )
+        cc_ref.fill_random_weights()
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
+            cache_algorithm=cache_algorithm,
+        )
+        cc.fill_random_weights()
+
+        split_weights = cc.split_embedding_weights()
+        ref_split_weights = cc_ref.split_embedding_weights()
+        for t in range(T):
+            (weights, scale_shift) = split_weights[t]
+            (ref_weights, ref_scale_shift) = ref_split_weights[t]
+            assert weights.size() == ref_weights.size()
+            weights.copy_(ref_weights)
+            if ref_scale_shift is not None:
+                scale_shift.copy_(ref_scale_shift)
+
+        requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
+
+        for indices, offsets, _ in requests:
+            indices = indices.int()
+            offsets = offsets.int()
+            output = cc(indices, offsets)
+            output_ref = cc_ref(indices, offsets)
+            torch.testing.assert_allclose(output, output_ref)
 
     @given(
         T=st.integers(min_value=1, max_value=10),
