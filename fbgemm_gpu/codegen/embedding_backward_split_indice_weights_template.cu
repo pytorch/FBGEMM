@@ -12,11 +12,6 @@ using namespace fbgemm_gpu;
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
-enum {
-  DEVICE = 0,
-  MANAGED = 1,
-  MANAGED_CACHING = 2,
-};
 
 constexpr size_t kForwardMaxThreads = 512;
 
@@ -79,8 +74,8 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
 
     const emb_t* __restrict__ weights;
     {% if not dense %}
-    const auto placement = weights_placements[t];
-    if (placement == DEVICE) {
+    const auto placement = static_cast<PlacementType>(weights_placements[t]);
+    if (placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset];
     } else {
         weights = &uvm_weights[weights_offset];
@@ -104,7 +99,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {% if not dense %}
-        int32_t cache_idx = (placement == MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
             int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
@@ -119,7 +114,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                 ++i) {
                 int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                 {% if not dense %}
-                if (placement == MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
                     Vec4T<cache_t> weight(&lxu_cache_weights[cache_idx_j][d]);
                     grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                         weight.acc.y * grad_out[i].acc.y +

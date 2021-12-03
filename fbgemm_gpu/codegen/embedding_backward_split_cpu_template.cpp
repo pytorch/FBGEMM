@@ -11,6 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 
+#include "codegen/embedding_common.h"
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
@@ -250,7 +251,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
         const auto L = pool_end - pool_begin;
         const scalar_t scale_factor =
             // NOTE: MEAN pooling will not work with indice_weights!
-            (pooling_mode == MEAN && !indice_weights.defined() && L > 0)
+            (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
         for (auto p = pool_begin; p < pool_end; ++p) {

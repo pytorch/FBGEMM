@@ -9,12 +9,6 @@
 using namespace at;
 using namespace fbgemm_gpu;
 
-enum class BoundsCheckMode {
-  FATAL = 0,
-  WARNING = 1,
-  IGNORE = 2,
-};
-
 template <typename index_t>
 __global__ void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>

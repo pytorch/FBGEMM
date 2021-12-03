@@ -7,6 +7,8 @@
 #pragma once
 #include <stdint.h>
 
+namespace {
+
 // Keep in sync with split_embedding_configs.py:SparseType
 enum class SparseType : uint8_t {
   FP32 = 0,
@@ -17,4 +19,20 @@ enum class SparseType : uint8_t {
   INVALID = 5,
 };
 
-enum PoolingMode { SUM = 0, MEAN = 1, NONE = 2 };
+enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };
+
+// Keep in sync with EmbeddingLocation in split_table_batched_embeddings_ops.py
+enum class PlacementType : uint8_t {
+  DEVICE = 0,
+  MANAGED = 1,
+  MANAGED_CACHING = 2,
+  HOST = 3,
+};
+
+enum class BoundsCheckMode : uint8_t {
+  FATAL = 0,
+  WARNING = 1,
+  IGNORE = 2,
+};
+
+} // namespace

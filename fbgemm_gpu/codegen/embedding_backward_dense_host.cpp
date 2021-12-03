@@ -356,7 +356,7 @@ at::Tensor split_embedding_codegen_lookup_dense_function(
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
     c10::optional<Tensor> feature_requires_grad) {
-  if (pooling_mode == NONE) {
+  if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_Dense_Op::apply(
         dev_weights,
         weights_offsets,

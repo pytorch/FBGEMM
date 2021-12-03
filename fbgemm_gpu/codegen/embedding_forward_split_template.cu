@@ -8,14 +8,8 @@
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 {% if not dense %}
-#include "codegen/embedding_common.h"
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
-enum {
-  DEVICE = 0,
-  MANAGED = 1,
-  MANAGED_CACHING = 2,
-};
 
 constexpr size_t kForwardMaxThreads = 512;
 
@@ -95,8 +89,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     int32_t L = indices_end - indices_start;
     const emb_t* __restrict__ weights;
     {% if not dense %}
-    const auto placement = weights_placements[t];
-    if (placement == DEVICE) {
+    const auto placement = static_cast<PlacementType>(weights_placements[t]);
+    if (placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset];
     } else {
         weights = &uvm_weights[weights_offset];
@@ -117,7 +111,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {% if not dense %}
-        int32_t cache_idx = (placement == MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         {% if weighted %}
         acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
@@ -161,7 +155,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 ++i) {
                 int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                 {% if not dense %}
-                if (placement == MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -199,7 +193,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 int32_t d = i + threadIdx.x * 4;
                 if (d < D) {
                     {% if not dense %}
-                    if (placement == MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                    if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
                         Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                         weight.store(&output[output_j][d]);
                     } else {
@@ -223,7 +217,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
-            if (pooling_mode == MEAN && L != 0) {
+            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].acc.x /= L;
                 accumulators[i].acc.y /= L;
                 accumulators[i].acc.z /= L;
@@ -242,7 +236,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
             i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
             ++i) {
-            if (pooling_mode == MEAN && L != 0) {
+            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].acc.x /= L;
                 accumulators[i].acc.y /= L;
                 accumulators[i].acc.z /= L;
@@ -275,7 +269,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        if (pooling_mode == MEAN && L != 0) {
+        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
             accumulators[i].acc.x /= L;
             accumulators[i].acc.y /= L;
             accumulators[i].acc.z /= L;

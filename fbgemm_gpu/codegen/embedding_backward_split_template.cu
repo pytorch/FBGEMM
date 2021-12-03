@@ -10,11 +10,6 @@
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
-enum {
-  DEVICE = 0,
-  MANAGED = 1,
-  MANAGED_CACHING = 2,
-};
 
 constexpr size_t kBackwardMaxThreads = 512;
 
@@ -347,13 +342,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             if (std::is_same<emb_t, uint8_t>::value) {
                 D_emb += kINT8QparamsBytes;
             }
-            const auto weights_placement = weights_placements[t_0];
-            if (weights_placement == DEVICE) {
+            const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
+            if (weights_placement == PlacementType::DEVICE) {
                 weights = &dev_weights[weights_offset + idx * D_emb];
             } else {
                 weights = &uvm_weights[weights_offset + idx * D_emb];
             }
-            if (weights_placement == MANAGED_CACHING) {
+            if (weights_placement == PlacementType::MANAGED_CACHING) {
                 int32_t cache_idx = sorted_lxu_cache_locations[segment_start];
                 if (cache_idx != kCacheLocationMissing) {
                     cache_weights = &lxu_cache_weights[cache_idx][0];
@@ -361,9 +356,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             {% for tensor in args.split_tensors %}
             acc_type<cache_t, true>* __restrict__ {{ tensor }};
-            const auto {{ tensor }}_placement = {{ tensor }}_placements[t_0];
+            const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t_0]);
             int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t_0];
-            if ({{ tensor }}_placement == DEVICE) {
+            if ({{ tensor }}_placement == PlacementType::DEVICE) {
                 {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
             } else {
                 {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
@@ -598,13 +593,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     if (std::is_same<emb_t, uint8_t>::value) {
         D_emb += kINT8QparamsBytes;
     }
-    const auto weights_placement = weights_placements[t_0];
-    if (weights_placement == DEVICE) {
+    const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
+    if (weights_placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset + idx * D_emb];
     } else {
         weights = &uvm_weights[weights_offset + idx * D_emb];
     }
-    if (weights_placement == MANAGED_CACHING) {
+    if (weights_placement == PlacementType::MANAGED_CACHING) {
         int32_t cache_idx = sorted_lxu_cache_locations[segment_start];
         if (cache_idx != kCacheLocationMissing) {
             cache_weights = &lxu_cache_weights[cache_idx][0];
@@ -612,9 +607,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     }
     {% for tensor in args.split_tensors %}
     acc_type<cache_t, true>* __restrict__ {{ tensor }};
-    const auto {{ tensor }}_placement = {{ tensor }}_placements[t_0];
+    const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t_0]);
     int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t_0];
-    if ({{ tensor }}_placement == DEVICE) {
+    if ({{ tensor }}_placement == PlacementType::DEVICE) {
         {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
     } else {
         {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
@@ -963,7 +958,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 RestrictPtrTraits>();
             {% if not nobag %}
             Tensor grad_output_mean;
-            if (pooling_mode == MEAN) {
+            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
               grad_mean_kernel<{{ "scalar_t, scalar_t" if dense else "cache_t, emb_t" }}>
                   <<<div_round_up((B * T), kMaxThreads / kWarpSize),
