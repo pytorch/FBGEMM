@@ -133,12 +133,13 @@ class CacheState:
 
 
 def construct_cache_state(
-    embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
+    row_list: List[int],
+    location_list: List[EmbeddingLocation],
     feature_table_map: List[int],
 ) -> CacheState:
     _cache_hash_size_cumsum = [0]
     total_cache_hash_size = 0
-    for (num_embeddings, _, location, _) in embedding_specs:
+    for (num_embeddings, location) in zip(row_list, location_list):
         if location == EmbeddingLocation.MANAGED_CACHING:
             total_cache_hash_size += num_embeddings
         _cache_hash_size_cumsum.append(total_cache_hash_size)
@@ -149,7 +150,7 @@ def construct_cache_state(
     for t, t_ in enumerate(feature_table_map):
         for i in range(_cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]):
             cache_index_table_map[i] = t
-        (_, _, location, _) = embedding_specs[t_]
+        location = location_list[t_]
         if location == EmbeddingLocation.MANAGED_CACHING:
             cache_hash_size_cumsum.append(_cache_hash_size_cumsum[t_])
         else:
@@ -478,7 +479,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 persistent=False,
             )
 
-        cache_state = construct_cache_state(embedding_specs, self.feature_table_map)
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         # Add table-wise cache miss counter
         if self.record_cache_metrics.record_tablewise_cache_miss:
@@ -1536,7 +1537,7 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return r
 
 
-def intn_construct_split_state(
+def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
 ) -> SplitState:
@@ -1566,7 +1567,6 @@ def intn_construct_split_state(
                 placements.append(
                     EmbeddingLocation.MANAGED_CACHING
                 )  # Note: this isn't supported yet.
-                raise AssertionError("MANAGED_CACHING is not supported yet")
             else:
                 placements.append(EmbeddingLocation.MANAGED)
             offsets.append(uvm_size)
@@ -1587,6 +1587,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     Inference version, with FP16/INT8/INT4 supports
     """
 
+    embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
+    lxu_cache_locations_list: List[Tensor]
+    lxu_cache_locations_empty: Tensor
+    timesteps_prefetched: List[int]
+
     def __init__(
         self,
         embedding_specs: List[
@@ -1601,6 +1606,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
+        cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
+        cache_load_factor: float = 0.2,
+        cache_sets: int = 0,
+        cache_reserved_memory: float = 0.0,
+        cache_precision: SparseType = SparseType.FP32,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1717,7 +1727,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.uint8
         )
 
-        weight_split: SplitState = intn_construct_split_state(
+        self.max_D: int = max(dims)
+        cached_dims = [
+            embedding_spec[2]
+            for embedding_spec in self.embedding_specs
+            if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
+        ]
+        self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
+
+        weight_split: SplitState = nbit_construct_split_state(
             self.embedding_specs,
             cacheable=True,
         )
@@ -1766,13 +1784,99 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remapping, load_factor, use_array_for_index_remapping
             )
 
+        # Currently only support cache_precision == SparseType.FP16
+        cache_embedding_dtype = torch.float16
+
+        cache_state = construct_cache_state(
+            rows, locations, self.feature_table_map
+        )
+        self._apply_cache_state(
+            cache_state,
+            cache_algorithm,
+            cache_load_factor,
+            cache_sets,
+            cache_reserved_memory,
+            dtype=cache_embedding_dtype,
+        )
+        self.step = 0
+        self.stochastic_rounding = True
+
+    def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
+        self.timestep += 1
+        self.timesteps_prefetched.append(self.timestep)
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if not self.lxu_cache_weights.numel():
+            return
+
+        (indices, offsets) = indices.long(), offsets.long()
+        linear_cache_indices = torch.ops.fb.linearize_cache_indices(
+            self.cache_hash_size_cumsum,
+            indices,
+            offsets,
+        )
+
+        if self.cache_algorithm == CacheAlgorithm.LRU:
+            torch.ops.fb.lru_cache_populate(
+                self.weights_uvm,
+                self.cache_hash_size_cumsum,
+                self.total_cache_hash_size,
+                self.cache_index_table_map,
+                self.weights_offsets,
+                self.D_offsets,
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.lxu_cache_weights,
+                self.timestep,
+                self.lxu_state,
+                self.stochastic_rounding,
+            )
+        elif self.cache_algorithm == CacheAlgorithm.LFU:
+            torch.ops.fb.lfu_cache_populate(
+                self.weights_uvm,
+                self.cache_hash_size_cumsum,
+                self.total_cache_hash_size,
+                self.cache_index_table_map,
+                self.weights_offsets,
+                self.D_offsets,
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.lxu_cache_weights,
+                self.lxu_state,
+                self.stochastic_rounding,
+            )
+
+        assert (
+            len(self.lxu_cache_locations_list) < self.max_prefetch_depth
+        ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
+        self.lxu_cache_locations_list.append(
+            torch.ops.fb.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+            )
+        )
+
     def forward(
         self,
         indices: Tensor,
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
-        assert self.weight_initialized
+        self.step += 1
+
+        if len(self.timesteps_prefetched) == 0:
+            self.prefetch(indices, offsets)
+
+        self.timesteps_prefetched.pop(0)
+
+        lxu_cache_locations = (
+            self.lxu_cache_locations_empty
+            if len(self.lxu_cache_locations_list) == 0
+            else self.lxu_cache_locations_list.pop(0)
+        )
+
+        assert self.weight_initialized, "weight needs to be initialized before forward function"
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table.numel() > 0:
@@ -1816,11 +1920,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_int8_D=self.max_int8_D,
             max_float16_D=self.max_float16_D,
             max_float32_D=self.max_float32_D,
-            output_dtype=self.output_dtype,
             indices=indices,
             offsets=offsets,
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
+            output_dtype=self.output_dtype,
+            lxu_cache_weights=self.lxu_cache_weights,
+            lxu_cache_locations=lxu_cache_locations,
         )
 
     def _apply_split(
@@ -1870,6 +1976,161 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     [uvm_size],
                 ),
             )
+
+    def _apply_cache_state(
+        self,
+        cache_state: CacheState,
+        cache_algorithm: CacheAlgorithm,
+        cache_load_factor: float,
+        cache_sets: int,
+        cache_reserved_memory: float,
+        dtype: torch.dtype,
+    ) -> None:
+        self.cache_algorithm = cache_algorithm
+        self.timestep = 1
+        self.timesteps_prefetched = []
+
+        self.max_prefetch_depth = MAX_PREFETCH_DEPTH
+        self.lxu_cache_locations_list = []
+        self.lxu_cache_locations_empty = torch.empty(
+            0, device=self.current_device, dtype=torch.int32
+        ).fill_(-1)
+
+        # NOTE: no cache for CPU mode!
+        if cache_state.total_cache_hash_size == 0 or self.use_cpu:
+            self.register_buffer(
+                "lxu_cache_weights",
+                torch.zeros(0, 0, device=self.current_device, dtype=dtype),
+            )
+            # NOTE: make TorchScript work!
+            self.register_buffer(
+                "cache_hash_size_cumsum",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "total_cache_hash_size",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "cache_index_table_map",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "lxu_cache_state",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "lxu_state",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "cache_miss_counter",
+                torch.tensor([0, 0], dtype=torch.int64),
+                persistent=False,
+            )
+            return
+
+        assert cache_load_factor > 0
+        element_size = 2 if dtype == torch.float16 else 4
+        if cache_sets <= 0:
+            total_memory = torch.cuda.get_device_properties(
+                self.current_device
+            ).total_memory
+            free_memory = (
+                total_memory
+                - torch.cuda.memory_reserved(self.current_device)
+                - int(cache_reserved_memory)
+            )
+            assert free_memory > 0
+            cache_sets = (
+                int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
+            ) // ASSOC
+            cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
+            if cache_size > free_memory:
+                cache_sets = (
+                    int(1.0 * free_memory / self.max_D_cache / element_size) + ASSOC - 1
+                ) // ASSOC
+        cache_load_factor = (
+            1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
+        )
+        assert cache_sets > 0
+        if cache_algorithm == CacheAlgorithm.LFU:
+            assert cache_sets < 2 ** 24 - 1
+        cache_size = cache_sets * 32 * element_size * self.max_D_cache
+        logging.info(
+            f"Using on-device cache with admission algorithm "
+            f"{cache_algorithm}, {cache_sets} sets, "
+            f"load_factor: {cache_load_factor : .3f}, "
+            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
+        )
+
+        self.total_cache_hash_size = cache_state.total_cache_hash_size
+        self.register_buffer(
+            "cache_hash_size_cumsum",
+            torch.tensor(
+                cache_state.cache_hash_size_cumsum,
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
+        )
+        self.register_buffer(
+            "cache_index_table_map",
+            torch.tensor(
+                cache_state.cache_index_table_map,
+                device=self.current_device,
+                dtype=torch.int32,
+            ),
+        )
+        self.register_buffer(
+            "lxu_cache_state",
+            torch.zeros(
+                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+            ).fill_(-1),
+        )
+        self.register_buffer(
+            "lxu_cache_weights",
+            torch.zeros(
+                cache_sets * ASSOC,
+                self.max_D_cache,
+                device=self.current_device,
+                dtype=dtype,
+            ),
+        )
+        self.register_buffer(
+            "lxu_state",
+            # pyre-fixme[28]: Unexpected keyword argument `size`.
+            torch.zeros(
+                size=(self.total_cache_hash_size + 1,)
+                if cache_algorithm == CacheAlgorithm.LFU
+                else (cache_sets, ASSOC),
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
+        )
+        self.register_buffer(
+            "cache_miss_counter",
+            torch.tensor([0, 0], device=self.current_device, dtype=torch.int64),
+        )
+        if cache_algorithm not in (CacheAlgorithm.LFU, CacheAlgorithm.LRU):
+            raise ValueError(
+                f"cache_algorithm must be {CacheAlgorithm.LRU} "
+                f"or {CacheAlgorithm.LFU}"
+            )
+
+    def reset_cache_states(self) -> None:
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if not self.lxu_cache_weights.numel():
+            return
+        self.lxu_cache_state.fill_(-1)
+        self.lxu_state.fill_(0)
+        self.timestep = 1
 
     @torch.jit.export
     def split_embedding_weights(

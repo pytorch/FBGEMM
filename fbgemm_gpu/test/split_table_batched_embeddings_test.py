@@ -2696,6 +2696,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
@@ -2746,6 +2748,18 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+        elif use_cache:
+            managed = [
+                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+            ] * T
+            if mixed:
+                average_D = sum(Ds) // T
+                for t, d in enumerate(Ds):
+                    managed[t] = (
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                        if d < average_D
+                        else managed[t]
+                    )
         else:
             managed = [
                 np.random.choice(
@@ -2777,6 +2791,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if B != 0
             else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
+            cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
         )
@@ -2936,6 +2951,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # TODO: implement for SparseType.INT2,
             ]
         ),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
@@ -2962,6 +2981,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
@@ -2977,6 +2998,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             pooling_mode,
             weights_ty,
+            use_cache,
+            cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
             mixed_weights_ty,
@@ -3004,6 +3027,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP32,
             ]
         ),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         mixed_weights_ty=st.booleans(),
@@ -3030,6 +3057,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         weights_ty: SparseType,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
@@ -3045,6 +3074,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             pooling_mode,
             weights_ty,
+            use_cache,
+            cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
             mixed_weights_ty,

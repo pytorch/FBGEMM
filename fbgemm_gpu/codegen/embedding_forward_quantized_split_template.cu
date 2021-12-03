@@ -20,6 +20,8 @@ enum {
   MANAGED_CACHING = 2,
 };
 
+constexpr int32_t kCacheLocationMissing = -1;
+
 __forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
   return ((a + b - 1) / b) * b;
 }
@@ -192,7 +194,10 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       indice_weights,
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
-      output // [B][total_D],
+      output, // [B][total_D],
+  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  // const PackedTensorAccessor64<float, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -375,7 +380,9 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       indice_weights,
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
-      output // [B][total_D],
+      output, // [B][total_D],
+  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -566,7 +573,9 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       indice_weights,
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
-      output // [B][total_D],
+      output, // [B][total_D]
+  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -758,7 +767,9 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
       indice_weights,
   {% endif %}
   PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
-      output // [B][total_D],
+      output, // [B][total_D],
+  const PackedTensorAccessor64<at::Half, 2, RestrictPtrTraits> lxu_cache_weights,
+  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -1058,6 +1069,8 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     at::Tensor indice_weights,
     {% endif %}
     int64_t output_dtype,
+    at::Tensor lxu_cache_weights,
+    at::Tensor lxu_cache_locations,
     int64_t unused
 ) {
     at::cuda::OptionalCUDAGuard device_guard;
@@ -1109,7 +1122,9 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -1147,7 +1162,9 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -1187,7 +1204,9 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -1227,7 +1246,9 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         pooling_mode, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>() \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<at::Half, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
