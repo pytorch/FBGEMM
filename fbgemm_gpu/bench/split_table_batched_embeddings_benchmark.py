@@ -84,16 +84,22 @@ def generate_requests(
     requests_data_file: Optional[str] = None,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
     if requests_data_file:
-      indices_tensor, offsets_tensor, _ = torch.load(requests_data_file)
+        indices_tensor, offsets_tensor, _ = torch.load(requests_data_file)
 
-      assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
-          f"Data file (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}, lengths = {_.size()}) "
-          f"does not conform to inputs (T, B) = ({T}, {B})."
-      )
-      logging.warning("Ignoring L and E parameters as requests data file has been provided")
+        assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
+            f"Data file (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}, lengths = {_.size()}) "
+            f"does not conform to inputs (T, B) = ({T}, {B})."
+        )
+        logging.warning(
+            "Ignoring L and E parameters as requests data file has been provided"
+        )
 
-      weights_tensor = (None if not weighted else torch.randn(indices_tensor.size(), device = get_device()))
-      return [(indices_tensor, offsets_tensor, weights_tensor)]
+        weights_tensor = (
+            None
+            if not weighted
+            else torch.randn(indices_tensor.size(), device=get_device())
+        )
+        return [(indices_tensor, offsets_tensor, weights_tensor)]
 
     if alpha <= 1.0:
         all_indices = torch.randint(
@@ -730,7 +736,14 @@ def cache(  # noqa C901
     )
 
     requests = generate_requests(
-        2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted,
+        2 * iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weighted=weighted,
         requests_data_file=requests_data_file,
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
