@@ -11,17 +11,17 @@ import unittest
 from math import sqrt
 from typing import List, Tuple
 
+import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
 import torch
 
-import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
-
 try:
     # pyre-ignore[21]
-    from fbgemm_gpu import open_source # noqa: F401
+    from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
     class RefEmb(torch.nn.Module):
@@ -148,6 +148,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
 
     def test_cpu(self):
         self._test_main(gpu_infer=False)
+
 
 if __name__ == "__main__":
     unittest.main()

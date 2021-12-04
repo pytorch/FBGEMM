@@ -24,7 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
 )
 
 
-open_source : bool = getattr(fbgemm_gpu, "open_source", False)
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
@@ -158,16 +158,12 @@ def quantize_embs(
         q_weight = weight.float()
         # FIXME: How to view the PyTorch Tensor as a different type (e.g., uint8)
         # Here it uses numpy and it will introduce DtoH/HtoD overhead.
-        res_weight = torch.tensor(
-            q_weight.cpu().numpy().view(np.uint8)
-        ).contiguous()
+        res_weight = torch.tensor(q_weight.cpu().numpy().view(np.uint8)).contiguous()
         return (res_weight, None)
 
     elif weight_ty == SparseType.FP16:
         q_weight = weight.half()
-        res_weight = torch.tensor(
-            q_weight.cpu().numpy().view(np.uint8)
-        ).contiguous()
+        res_weight = torch.tensor(q_weight.cpu().numpy().view(np.uint8)).contiguous()
         return (res_weight, None)
 
     elif weight_ty == SparseType.INT8:
@@ -225,7 +221,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # No bag ops only work on GPUs, no midex, no weighted
+        # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -782,8 +778,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             (ref_weights, ref_scale_shift) = ref_split_weights[t]
             assert weights.size() == ref_weights.size()
             element_size = weights_ty_list[t].bit_rate() / 8.0
-            rand_tensor = torch.rand(ref_weights.shape[0], int(ref_weights.shape[1] / element_size))
-            rand_weights, rand_scale_shift = quantize_embs(rand_tensor, weights_ty_list[t])
+            rand_tensor = torch.rand(
+                ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
+            )
+            rand_weights, rand_scale_shift = quantize_embs(
+                rand_tensor, weights_ty_list[t]
+            )
             ref_weights.copy_(rand_weights)
             weights.copy_(ref_weights)
             if rand_scale_shift is not None:
@@ -888,7 +888,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             or not weighted
         )
         assume(not (use_cpu and weights_precision == SparseType.FP16))
-        # No bag ops only work on GPUs, no midex, no weighted
+        # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -1111,7 +1111,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not (use_cpu and weights_precision == SparseType.FP16))
         # GPU only does exact sgd
         assume((use_cpu and not long_segments) or exact)
-        # No bag ops only work on GPUs, no midex, no weighted
+        # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -1334,7 +1334,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
-        )        # No bag ops only work on GPUs, no midex, no weighted
+        )  # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -2107,7 +2107,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # No bag ops only work on GPUs, no midex, no weighted
+        # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE

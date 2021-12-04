@@ -3,8 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import struct
 import math
+import struct
 from typing import Callable, List, Tuple
 
 import hypothesis.strategies as st
@@ -116,7 +116,9 @@ def fused_rowwise_nbit_quantize_reference(data: np.ndarray, bit: int) -> np.ndar
     return np.concatenate([packed_data, scale_bytes, bias_bytes], axis=1)
 
 
-def fused_rowwise_nbit_quantize_dequantize_reference(data: np.ndarray, bit: int) -> np.ndarray:
+def fused_rowwise_nbit_quantize_dequantize_reference(
+    data: np.ndarray, bit: int
+) -> np.ndarray:
     fused_quantized = fused_rowwise_nbit_quantize_reference(data, bit)
     scale = bytes_to_half_floats(fused_quantized[:, -4:-2].astype(np.uint8)).astype(
         np.float32

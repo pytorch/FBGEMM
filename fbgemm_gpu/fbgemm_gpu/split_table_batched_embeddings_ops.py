@@ -410,7 +410,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 construct_split_state(
                     embedding_specs,
                     rowwise=optimizer
-                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD, OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD],
+                    in [
+                        OptimType.EXACT_ROWWISE_ADAGRAD,
+                        OptimType.ROWWISE_ADAGRAD,
+                        OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+                    ],
                     cacheable=False,
                 ),
                 prefix="momentum1",
@@ -471,7 +475,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.PARTIAL_ROWWISE_ADAM,
             OptimType.PARTIAL_ROWWISE_LAMB,
         ):
-            self.register_buffer("iter", torch.zeros(1, dtype=torch.int64, device=self.current_device))
+            self.register_buffer(
+                "iter", torch.zeros(1, dtype=torch.int64, device=self.current_device)
+            )
         else:
             self.register_buffer(
                 "iter",
@@ -672,9 +678,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             return invokers.lookup_rowwise_weighted_adagrad.invoke(
+                common_args,
+                self.optimizer_args,
+                momentum1,
                 # pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,
                 #  int]`.
-                common_args, self.optimizer_args, momentum1, self.iter.item(),
+                self.iter.item(),
             )
         if self.optimizer == OptimType.ADAM:
             return invokers.lookup_adam.invoke(
@@ -977,7 +986,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     #  `Union[Tensor, nn.Module]`.
                     self.momentum1_physical_placements,
                     rowwise=self.optimizer
-                    in [OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD, OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD],
+                    in [
+                        OptimType.EXACT_ROWWISE_ADAGRAD,
+                        OptimType.ROWWISE_ADAGRAD,
+                        OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+                    ],
                 )
             )
         if self.optimizer in (
@@ -1564,9 +1577,7 @@ def nbit_construct_split_state(
             dev_size += state_size
         else:
             if cacheable and location == EmbeddingLocation.MANAGED_CACHING:
-                placements.append(
-                    EmbeddingLocation.MANAGED_CACHING
-                )
+                placements.append(EmbeddingLocation.MANAGED_CACHING)
             else:
                 placements.append(EmbeddingLocation.MANAGED)
             offsets.append(uvm_size)
@@ -1787,9 +1798,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Currently only support cache_precision == embedding_precision.
         # Both are represented as uint8_t
 
-        cache_state = construct_cache_state(
-            rows, locations, self.feature_table_map
-        )
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
@@ -1874,7 +1883,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else self.lxu_cache_locations_list.pop(0)
         )
 
-        assert self.weight_initialized, "weight needs to be initialized before forward function"
+        assert (
+            self.weight_initialized
+        ), "weight needs to be initialized before forward function"
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table.numel() > 0:

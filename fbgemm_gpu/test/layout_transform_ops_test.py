@@ -5,17 +5,17 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import numpy as np
 import unittest
 
 import hypothesis.strategies as st
-
+import numpy as np
 import torch
 from hypothesis import Verbosity, given, settings
 
 try:
     # pyre-ignore[21]
-    from fbgemm_gpu import open_source   # noqa: F401
+    from fbgemm_gpu import open_source  # noqa: F401
+
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
 
@@ -26,6 +26,7 @@ except Exception:
 
 
 MAX_EXAMPLES = 20
+
 
 class LayoutTransformOpsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
@@ -51,7 +52,9 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output(
             grad_output, num_features_per_rank
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
+        torch.testing.assert_allclose(
+            sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
@@ -61,7 +64,9 @@ class LayoutTransformOpsTest(unittest.TestCase):
         cuda=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_recat_embedding_grad_output_mixed_D(self, B: int, W: int, cuda: bool) -> None:
+    def test_recat_embedding_grad_output_mixed_D(
+        self, B: int, W: int, cuda: bool
+    ) -> None:
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)
         mixed_D_list = np.random.randint(low=1, high=10, size=(global_T,))
@@ -90,7 +95,9 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output_mixed_D(
             grad_output, dim_sum_per_rank
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
+        torch.testing.assert_allclose(
+            sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]
@@ -135,7 +142,9 @@ class LayoutTransformOpsTest(unittest.TestCase):
                 cumsum_dim_sum_per_rank_tensor.cuda(),
             )
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
+        torch.testing.assert_allclose(
+            sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
+        )
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
         global_T = sum(num_features_per_rank)
         mixed_D_list = np.random.randint(low=1, high=10, size=(global_T,))
@@ -164,10 +173,15 @@ class LayoutTransformOpsTest(unittest.TestCase):
             ],
             dim=0,
         )
-        sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output_mixed_D_batch(
-            grad_output, dim_sum_per_rank_tensor, cumsum_dim_sum_per_rank_tensor
+        sharded_grad_output_impl = (
+            torch.ops.fbgemm.recat_embedding_grad_output_mixed_D_batch(
+                grad_output, dim_sum_per_rank_tensor, cumsum_dim_sum_per_rank_tensor
+            )
         )
-        torch.testing.assert_allclose(sharded_grad_output_impl.cpu(), sharded_grad_output.cpu())
+        torch.testing.assert_allclose(
+            sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

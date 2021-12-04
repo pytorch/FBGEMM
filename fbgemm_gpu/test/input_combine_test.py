@@ -7,8 +7,8 @@
 
 # pyre-unsafe
 
-from typing import List, Optional, Tuple
 import unittest
+from typing import List, Optional, Tuple
 
 import torch
 
@@ -17,6 +17,7 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
+
 
 class TBEInputPrepareReference(torch.nn.Module):
     def __init__(self, include_last_offsets: List[bool]):
@@ -117,21 +118,42 @@ class InputCombineTest(unittest.TestCase):
             torch.tensor([], dtype=torch.float),
             torch.tensor([], dtype=torch.float),
         ]
-        return indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets
+        return (
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            empty_per_sample_weights,
+            include_last_offsets,
+        )
 
     def _run_test(self, dtypes) -> None:
-        indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets = self._get_inputs(dtypes)
+        (
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            empty_per_sample_weights,
+            include_last_offsets,
+        ) = self._get_inputs(dtypes)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
-        outputs = torch.ops.fbgemm.tbe_input_combine(indices_list, offsets_list, per_sample_weights, torch.BoolTensor(include_last_offsets))
+        outputs = torch.ops.fbgemm.tbe_input_combine(
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            torch.BoolTensor(include_last_offsets),
+        )
         ref_outputs = ref_mod(indices_list, offsets_list, per_sample_weights)
         for i, j in zip(outputs, ref_outputs):
             torch.testing.assert_allclose(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
         self.assertTrue(outputs[1].dtype == torch.int32)
 
-
-        outputs = torch.ops.fbgemm.tbe_input_combine(indices_list, offsets_list, empty_per_sample_weights, torch.BoolTensor(include_last_offsets))
+        outputs = torch.ops.fbgemm.tbe_input_combine(
+            indices_list,
+            offsets_list,
+            empty_per_sample_weights,
+            torch.BoolTensor(include_last_offsets),
+        )
         ref_outputs = ref_mod(indices_list, offsets_list, empty_per_sample_weights)
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
             torch.testing.assert_allclose(i, j)
@@ -145,21 +167,30 @@ class InputCombineTest(unittest.TestCase):
         if include_last_offsets:
             offsets_complete = offsets
         else:
-            offsets_complete = torch.cat([offsets, torch.tensor([indices.numel()], dtype=offsets.dtype)])
+            offsets_complete = torch.cat(
+                [offsets, torch.tensor([indices.numel()], dtype=offsets.dtype)]
+            )
         return offsets_complete[1:] - offsets_complete[:-1]
 
     def _run_test_with_length(self, dtypes):
-        indices_list, offsets_list, per_sample_weights, empty_per_sample_weights, include_last_offsets = self._get_inputs(dtypes)
+        (
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            empty_per_sample_weights,
+            include_last_offsets,
+        ) = self._get_inputs(dtypes)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         lengths_list = [
-                self._offsets_to_lengths(
-                    offsets, indices, include_last_offsets)
-                for offsets, indices, include_last_offsets in zip(
-                    offsets_list, indices_list, include_last_offsets
-                )
-            ]
-        outputs = torch.ops.fbgemm.tbe_input_combine_with_length(indices_list, lengths_list, per_sample_weights)
+            self._offsets_to_lengths(offsets, indices, include_last_offsets)
+            for offsets, indices, include_last_offsets in zip(
+                offsets_list, indices_list, include_last_offsets
+            )
+        ]
+        outputs = torch.ops.fbgemm.tbe_input_combine_with_length(
+            indices_list, lengths_list, per_sample_weights
+        )
 
         ref_outputs = ref_mod(indices_list, offsets_list, per_sample_weights)
         # indices
@@ -187,7 +218,6 @@ class InputCombineTest(unittest.TestCase):
 
     def test_input_combined_mix_with_length(self):
         self._run_test_with_length((torch.int64, torch.int32))
-
 
 
 if __name__ == "__main__":

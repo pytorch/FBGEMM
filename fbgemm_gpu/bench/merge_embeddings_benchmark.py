@@ -17,7 +17,9 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
+    )
 
 
 @click.command()
@@ -50,6 +52,7 @@ def main(num_ads, embedding_dimension, ads_tables, iters, p2p_bw, dst_device) ->
         end_event.record()
         torch.cuda.synchronize()
         return (start_event.elapsed_time(end_event) * 1.0e-3) / iters
+
     if p2p_bw:
         print("Pairwise GPU Copy Bandwidth (GB/s)")
         p2p_copy_bw = np.zeros((num_gpus, num_gpus))

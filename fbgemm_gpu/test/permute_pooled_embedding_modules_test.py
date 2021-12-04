@@ -5,11 +5,11 @@
 
 import inspect
 import sys
-from typing import Tuple
 import unittest
+from typing import Tuple
 
-import torch
 import fbgemm_gpu
+import torch
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
 from hypothesis import HealthCheck, given, settings
 from torch import nn, Tensor

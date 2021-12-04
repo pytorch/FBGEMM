@@ -6,6 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+
 import torch
 
 torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))

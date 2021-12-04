@@ -18,6 +18,7 @@ from hypothesis import Verbosity, given, settings
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
+
     # pyre-ignore[21]
     from test_utils import gpu_available, gpu_unavailable
 except Exception:
@@ -659,7 +660,9 @@ class SparseOpsTest(unittest.TestCase):
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_reorder_batched_ad_lengths(self, B: int, T: int, L: int, A: int, Dtype: torch.dtype) -> None:
+    def test_reorder_batched_ad_lengths(
+        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
+    ) -> None:
         cat_ad_lengths = (
             torch.cat([torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0)
             .cuda()
@@ -693,9 +696,11 @@ class SparseOpsTest(unittest.TestCase):
     def test_reorder_batched_ad_lengths_cpu(
         self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
     ) -> None:
-        cat_ad_lengths = torch.cat(
-            [torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0
-        ).int().to(Dtype)
+        cat_ad_lengths = (
+            torch.cat([torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0)
+            .int()
+            .to(Dtype)
+        )
         batch_offsets = torch.tensor([A * b for b in range(B + 1)]).int()
         num_ads_in_batch = B * A
         reordered_batched_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
@@ -713,7 +718,9 @@ class SparseOpsTest(unittest.TestCase):
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_reorder_batched_ad_indices(self, B: int, T: int, L: int, A: int, Dtype: torch.dtype) -> None:
+    def test_reorder_batched_ad_indices(
+        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
+    ) -> None:
         cat_ad_indices = (
             torch.randint(low=0, high=100, size=(B * T * A * L,)).int().cuda().to(Dtype)
         )
@@ -745,7 +752,6 @@ class SparseOpsTest(unittest.TestCase):
             cat_ad_indices.view(B, T, A, L),
         )
 
-
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -758,7 +764,9 @@ class SparseOpsTest(unittest.TestCase):
     def test_reorder_batched_ad_indices_cpu(
         self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
     ) -> None:
-        cat_ad_indices = torch.randint(low=0, high=100, size=(B * T * A * L,)).int().to(Dtype)
+        cat_ad_indices = (
+            torch.randint(low=0, high=100, size=(B * T * A * L,)).int().to(Dtype)
+        )
         cat_ad_lengths = torch.cat(
             [torch.tensor([L for _ in range(T * A)]) for _ in range(B)], 0
         ).int()
@@ -1022,23 +1030,30 @@ class SparseOpsTest(unittest.TestCase):
     def test_histogram_binning_calibration(self, data_type: torch.dtype) -> None:
         num_bins = 5000
 
-        logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(data_type)
+        logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(
+            data_type
+        )
 
         bin_num_examples = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
         bin_num_positives = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
 
         calibrated_prediction, bin_ids = torch.ops.fbgemm.histogram_binning_calibration(
-                logit=logit,
-                bin_num_examples = bin_num_examples,
-                bin_num_positives = bin_num_positives,
-                positive_weight=0.4,
-                lower_bound=0.0,
-                upper_bound=1.0,
-                bin_ctr_in_use_after=10000,
-                bin_ctr_weight_value=0.9995)
+            logit=logit,
+            bin_num_examples=bin_num_examples,
+            bin_num_positives=bin_num_positives,
+            positive_weight=0.4,
+            lower_bound=0.0,
+            upper_bound=1.0,
+            bin_ctr_in_use_after=10000,
+            bin_ctr_weight_value=0.9995,
+        )
 
-        expected_calibrated_prediction = torch.tensor([0.2853, 0.2875, 0.2876, 0.2858, 0.2863]).type(data_type)
-        expected_bin_ids = torch.tensor([1426, 1437, 1437, 1428, 1431], dtype=torch.long)
+        expected_calibrated_prediction = torch.tensor(
+            [0.2853, 0.2875, 0.2876, 0.2858, 0.2863]
+        ).type(data_type)
+        expected_bin_ids = torch.tensor(
+            [1426, 1437, 1437, 1428, 1431], dtype=torch.long
+        )
 
         torch.testing.assert_allclose(
             calibrated_prediction,
@@ -1055,15 +1070,19 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         if torch.cuda.is_available():
-            calibrated_prediction_gpu, bin_ids_gpu = torch.ops.fbgemm.histogram_binning_calibration(
-                    logit=logit.cuda(),
-                    bin_num_examples = bin_num_examples.cuda(),
-                    bin_num_positives = bin_num_positives.cuda(),
-                    positive_weight=0.4,
-                    lower_bound=0.0,
-                    upper_bound=1.0,
-                    bin_ctr_in_use_after=10000,
-                    bin_ctr_weight_value=0.9995)
+            (
+                calibrated_prediction_gpu,
+                bin_ids_gpu,
+            ) = torch.ops.fbgemm.histogram_binning_calibration(
+                logit=logit.cuda(),
+                bin_num_examples=bin_num_examples.cuda(),
+                bin_num_positives=bin_num_positives.cuda(),
+                positive_weight=0.4,
+                lower_bound=0.0,
+                upper_bound=1.0,
+                bin_ctr_in_use_after=10000,
+                bin_ctr_weight_value=0.9995,
+            )
 
             torch.testing.assert_allclose(
                 calibrated_prediction_gpu,
@@ -1082,11 +1101,15 @@ class SparseOpsTest(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(data_type=st.sampled_from([torch.half, torch.float32]))
     @settings(verbosity=Verbosity.verbose, deadline=None)
-    def test_histogram_binning_calibration_by_feature(self, data_type: torch.dtype) -> None:
+    def test_histogram_binning_calibration_by_feature(
+        self, data_type: torch.dtype
+    ) -> None:
         num_bins = 5000
         num_segments = 42
 
-        logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(data_type)
+        logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(
+            data_type
+        )
 
         # add 1 to distinguish between 0 inserted by densification vs. original value.
         dense_segment_value = torch.tensor([40, 31, 32, 13, 31]) + 1
@@ -1096,22 +1119,30 @@ class SparseOpsTest(unittest.TestCase):
         bin_num_examples = torch.empty([num_interval], dtype=torch.float64).fill_(0.0)
         bin_num_positives = torch.empty([num_interval], dtype=torch.float64).fill_(0.0)
 
-        calibrated_prediction, bin_ids = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
-                logit=logit,
-                dense_segment_value=dense_segment_value,
-                segment_lengths=lengths,
-                num_segments=num_segments,
-                bin_num_examples=bin_num_examples,
-                bin_num_positives=bin_num_positives,
-                num_bins = num_bins,
-                positive_weight=0.4,
-                lower_bound=0.0,
-                upper_bound=1.0,
-                bin_ctr_in_use_after=10000,
-                bin_ctr_weight_value=0.9995)
+        (
+            calibrated_prediction,
+            bin_ids,
+        ) = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
+            logit=logit,
+            dense_segment_value=dense_segment_value,
+            segment_lengths=lengths,
+            num_segments=num_segments,
+            bin_num_examples=bin_num_examples,
+            bin_num_positives=bin_num_positives,
+            num_bins=num_bins,
+            positive_weight=0.4,
+            lower_bound=0.0,
+            upper_bound=1.0,
+            bin_ctr_in_use_after=10000,
+            bin_ctr_weight_value=0.9995,
+        )
 
-        expected_calibrated_prediction = torch.tensor([0.2853, 0.2875, 0.2876, 0.2858, 0.2863]).type(data_type)
-        expected_bin_ids = torch.tensor([206426, 161437, 166437, 71428, 161431], dtype=torch.long)
+        expected_calibrated_prediction = torch.tensor(
+            [0.2853, 0.2875, 0.2876, 0.2858, 0.2863]
+        ).type(data_type)
+        expected_bin_ids = torch.tensor(
+            [206426, 161437, 166437, 71428, 161431], dtype=torch.long
+        )
 
         torch.testing.assert_allclose(
             calibrated_prediction,
@@ -1128,19 +1159,23 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         if torch.cuda.is_available():
-            calibrated_prediction_gpu, bin_ids_gpu = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
-                    logit=logit.cuda(),
-                    dense_segment_value=dense_segment_value.cuda(),
-                    segment_lengths=lengths.cuda(),
-                    num_segments=num_segments,
-                    bin_num_examples=bin_num_examples.cuda(),
-                    bin_num_positives=bin_num_positives.cuda(),
-                    num_bins = num_bins,
-                    positive_weight=0.4,
-                    lower_bound=0.0,
-                    upper_bound=1.0,
-                    bin_ctr_in_use_after=10000,
-                    bin_ctr_weight_value=0.9995)
+            (
+                calibrated_prediction_gpu,
+                bin_ids_gpu,
+            ) = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
+                logit=logit.cuda(),
+                dense_segment_value=dense_segment_value.cuda(),
+                segment_lengths=lengths.cuda(),
+                num_segments=num_segments,
+                bin_num_examples=bin_num_examples.cuda(),
+                bin_num_positives=bin_num_positives.cuda(),
+                num_bins=num_bins,
+                positive_weight=0.4,
+                lower_bound=0.0,
+                upper_bound=1.0,
+                bin_ctr_in_use_after=10000,
+                bin_ctr_weight_value=0.9995,
+            )
 
             torch.testing.assert_allclose(
                 calibrated_prediction_gpu,

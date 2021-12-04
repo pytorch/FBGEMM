@@ -31,7 +31,6 @@
 #include "codegen/embedding_common.h"
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-#include "codegen/embedding_common.h"
 
 template <typename scalar_t>
 DEVICE_INLINE fbgemm_gpu::Vec4T<scalar_t> vec4_acc(

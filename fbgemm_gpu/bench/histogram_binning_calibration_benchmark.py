@@ -20,10 +20,11 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
+
 def benchmark_fbgemm_function(
     func: Callable[[Tensor], Tuple[Tensor, Tensor]],
     input: Tensor,
-    ) -> Tuple[float, Tensor]:
+) -> Tuple[float, Tensor]:
     if input.is_cuda:
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -40,6 +41,7 @@ def benchmark_fbgemm_function(
         output, _ = func(input)
         elapsed_time = time.time() - start_time
     return float(elapsed_time), output
+
 
 @click.command()
 @click.option("--iters", default=100)
@@ -65,8 +67,15 @@ def main(
 
     def fbgemm_hbc_cpu(input: Tensor) -> Tuple[Tensor, Tensor]:
         return torch.ops.fbgemm.histogram_binning_calibration(
-            input, bin_num_examples, bin_num_positives, 0.4, lower_bound,
-            upper_bound, 0, 0.9995)
+            input,
+            bin_num_examples,
+            bin_num_positives,
+            0.4,
+            lower_bound,
+            upper_bound,
+            0,
+            0.9995,
+        )
 
     for step in range(iters + warmup_runs):
         time, _ = benchmark_fbgemm_function(
@@ -89,8 +98,15 @@ def main(
 
             def fbgemm_hbc_gpu(input: Tensor) -> Tuple[Tensor, Tensor]:
                 return torch.ops.fbgemm.histogram_binning_calibration(
-                    input, bin_num_examples_gpu, bin_num_positives_gpu,
-                    0.4, lower_bound, upper_bound, 0, 0.9995)
+                    input,
+                    bin_num_examples_gpu,
+                    bin_num_positives_gpu,
+                    0.4,
+                    lower_bound,
+                    upper_bound,
+                    0,
+                    0.9995,
+                )
 
             time, _ = benchmark_fbgemm_function(
                 fbgemm_hbc_gpu,
@@ -107,9 +123,8 @@ def main(
                 total_time["fbgemm_gpu_float"] += time
 
     for k, t_time in total_time.items():
-        logging.info(
-            f"{k} time per iter: {t_time / iters * 1.0e6:.0f}us"
-        )
+        logging.info(f"{k} time per iter: {t_time / iters * 1.0e6:.0f}us")
+
 
 if __name__ == "__main__":
     main()
