@@ -208,4 +208,68 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
     double lower_bound = 0.0, double upper_bound = 1.0,
     int64_t bin_ctr_in_use_after = 0, double bin_ctr_weight_value = 1.0);
 
+// An extension of histogram binning calibration model which divides data into bins
+// based on one specific feature and prediction/ECTR range. In each bin, use
+// two parameters to store the number of positive examples and the number of
+// examples that fall into this bucket. So we basically have a histogram for
+// the model prediction. As a result, for each bin, we have a statistical
+// value for the real CTR (num_pos / num_example). We use this statistical
+// value as the final calibrated prediction if the pre-cali prediction falls
+// into the corresponding bin. In this way, the predictions within each bin
+// should be well-calibrated if we have sufficient examples. That is, we have
+// a fine-grained calibrated model by this calibration module. Theoretically,
+// this calibration layer can fix any uncalibrated model or prediction if we
+// have sufficient bins and examples.
+//
+// Returns [calibrated_prediction, bin_ids].
+//
+// "logit" is input tensor before applying Sigmoid.
+//
+// Assumes positive weight calibration is used for calibartion target, and
+// "positive_weight" is passed as input argument.
+//
+// "dense_segment_value":
+// KeyJaggedTensor should have been made to dense format using
+// torch.ops.fb.to_dense_representation.
+//
+// "segment_lengths":
+// Lengths in KeyJaggedTensor.
+//
+// "num_bins":
+// # of bins is no longer the same as "bin_num_examples", and
+// "bin_num_positives", all of which should be still the same size.
+//
+// "lower/upper_bound":
+// Bounds of the bins.
+//
+// "bin_ctr_in_use_after":
+// We will use the calibration_target for the final calibrated prediction if we
+// don't have sufficient examples. Only use the statistical value of bin CTR
+// after we observe `bin_ctr_in_use_after` examples that fall in this bin.
+// Default: 0.
+//
+// "bin_ctr_weight_value":
+// Weight for statistical value of bin CTR. When this is specified, we perform
+// a weighted sum for the statisctical bin CTR and the calibration_target:
+// final_calibrated_prediction = bin_ctr_weight * bin_ctr + (1 -
+// bin_ctr_weight) * calibration_target.
+// Default: 1.0
+std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
+    const at::Tensor& logit, const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths, int64_t num_segments,
+    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
+    int64_t num_bins, double positive_weight,
+    double lower_bound = 0.0, double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
+std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cuda(
+    const at::Tensor& logit, const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths, int64_t num_segments,
+    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
+    int64_t num_bins, double positive_weight,
+    double lower_bound = 0.0, double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
 } // namespace fbgemm
