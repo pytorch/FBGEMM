@@ -19,6 +19,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
+
 def wrap_weight_to_parameter(weights: List[torch.Tensor]) -> List[torch.Tensor]:
     for i, v in enumerate(weights):
         if not isinstance(v, torch.nn.Parameter):
@@ -75,7 +76,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
     def init_parameters(self):
         for (num_emb, param) in zip(
             self.hash_sizes * self.num_tasks,
-            wrap_weight_to_parameter(self.split_embedding_weights())
+            wrap_weight_to_parameter(self.split_embedding_weights()),
         ):
             assert param.shape == (num_emb, 1)
             param.data.uniform_(-sqrt(1 / num_emb), sqrt(1 / num_emb))
