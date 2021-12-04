@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#include "c10/core/ScalarType.h"
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
@@ -93,8 +94,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         offsets,
         pooling_mode,
         output_dtype,
-        lxu_cache_weights.value_or(Tensor()),
-        lxu_cache_locations.value_or(Tensor()),
+        lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
+        lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
         0);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cuda(
@@ -115,8 +116,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       pooling_mode,
       *indice_weights,
       output_dtype,
-      lxu_cache_weights.value_or(Tensor()),
-      lxu_cache_locations.value_or(Tensor()),
+      lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
+      lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
       0);
 }
 
