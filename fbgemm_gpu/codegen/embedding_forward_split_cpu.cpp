@@ -18,7 +18,6 @@
 #endif
 
 #include <ATen/AccumulateType.h>
-#include "codegen/embedding_common.h"
 
 using namespace at;
 

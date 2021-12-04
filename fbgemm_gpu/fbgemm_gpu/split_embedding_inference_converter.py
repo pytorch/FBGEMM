@@ -28,8 +28,10 @@ except Exception:
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
     def __init__(
-            self, quantize_type: SparseType, pruning_ratio: Optional[float],
-            use_array_for_index_remapping: bool = True,
+        self,
+        quantize_type: SparseType,
+        pruning_ratio: Optional[float],
+        use_array_for_index_remapping: bool = True,
     ):
         self.quantize_type = quantize_type
         # TODO(yingz): Change the pruning ratio to per-table settings.

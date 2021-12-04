@@ -20,6 +20,7 @@ import torch
 haveAIBench = False
 try:
     from aibench_observer.utils.observer import emitMetric
+
     haveAIBench = True
 except Exception:
     haveAIBench = False
@@ -888,7 +889,6 @@ def cpu(  # noqa C901
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
-
     requests = generate_requests(
         iters,
         B,
@@ -1080,7 +1080,9 @@ def nbit_device(  # noqa C901
 
     time_per_iter = statistics.mean(times)
 
-    bandwidth = (2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9
+    bandwidth = (
+        (2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9
+    )
 
     logging.info(
         f"Average of all iterations: "
@@ -1453,7 +1455,9 @@ def nbit_cache(  # noqa C901
         emb.forward(indices.int(), offsets.int())
     prefetch_time, forward_time = benchmark_pipelined_requests(
         requests,
-        lambda indices, offsets, indices_weights: emb.prefetch(indices.int(), offsets.int()),
+        lambda indices, offsets, indices_weights: emb.prefetch(
+            indices.int(), offsets.int()
+        ),
         # pyre-fixme[6]: Expected `(Tensor, Tensor, Optional[Tensor]) -> None` for
         #  3rd param but got `(indices: Any, offsets: Any, indices_weights: Any) ->
         #  Tensor`.

@@ -17,13 +17,18 @@ from hypothesis import Verbosity, given, settings
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
+
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
+    )
     from fbgemm_gpu.test.test_utils import gpu_unavailable
+
     open_source = False
+
 
 @unittest.skipIf(*gpu_unavailable)
 @unittest.skipIf(open_source, "Not supported in open source yet")
@@ -76,7 +81,9 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         output_ref = ref(pooled_ad_embeddings, batch_indices)
 
         output_cpu = torch.ops.fbgemm.merge_pooled_embeddings(
-            [pe.cpu() for pe in pooled_ad_embeddings], batch_indices.size(0), batch_indices.cpu().device
+            [pe.cpu() for pe in pooled_ad_embeddings],
+            batch_indices.size(0),
+            batch_indices.cpu().device,
         )
         self.assertEqual(output.device, torch.device(f"cuda:{dst_device}"))
         torch.testing.assert_allclose(output_ref, output.cpu())

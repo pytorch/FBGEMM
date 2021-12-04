@@ -20,11 +20,12 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
+
 def benchmark_torch_function(
     func: Callable[[Tensor], Tensor],
     input: Tensor,
     flush_gpu_cache_size_mb: int,
-    ) -> Tuple[float, Tensor]:
+) -> Tuple[float, Tensor]:
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -47,6 +48,7 @@ def benchmark_torch_function(
         output = func(input)
         elapsed_time = time.time() - start_time
     return float(elapsed_time), output
+
 
 @click.command()
 @click.option("--flush-gpu-cache-size-mb", default=0)
@@ -84,7 +86,9 @@ def main(
             total_time["8bit_quant"] += time
 
         time, quant_data_4bit = benchmark_torch_function(
-            lambda input : torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(input, 4),
+            lambda input: torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                input, 4
+            ),
             input_data,
             flush_gpu_cache_size_mb,
         )
@@ -92,7 +96,9 @@ def main(
             total_time["4bit_quant"] += time
 
         time, quant_data_2bit = benchmark_torch_function(
-            lambda input : torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(input, 2),
+            lambda input: torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                input, 2
+            ),
             input_data,
             flush_gpu_cache_size_mb,
         )
@@ -108,7 +114,9 @@ def main(
             total_time["8bit_dequant"] += time
 
         time, _ = benchmark_torch_function(
-            lambda input : torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(input, 4),
+            lambda input: torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                input, 4
+            ),
             quant_data_4bit,
             flush_gpu_cache_size_mb,
         )
@@ -116,20 +124,19 @@ def main(
             total_time["4bit_dequant"] += time
 
         time, _ = benchmark_torch_function(
-            lambda input : torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(input, 2),
+            lambda input: torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                input, 2
+            ),
             quant_data_2bit,
             flush_gpu_cache_size_mb,
         )
         if step >= warmup_runs:
             total_time["2bit_dequant"] += time
 
-    logging.info(
-        f"-------------- ncols={num_columns}, nrows={num_rows}-------------"
-    )
+    logging.info(f"-------------- ncols={num_columns}, nrows={num_rows}-------------")
     for k, t_time in total_time.items():
-        logging.info(
-            f"{k} time per iter: {t_time / iters * 1.0e6:.0f}us"
-        )
+        logging.info(f"{k} time per iter: {t_time / iters * 1.0e6:.0f}us")
+
 
 if __name__ == "__main__":
     main()

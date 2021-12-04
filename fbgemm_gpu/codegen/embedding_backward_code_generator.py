@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser()
 # embedding_backward_code_generator.py;
 # The install dir is by default the same as the current folder.
 parser.add_argument("--install_dir", default=".", help="where to put generated file")
-parser.add_argument('--opensource', action='store_false', dest='is_fbcode')
+parser.add_argument("--opensource", action="store_false", dest="is_fbcode")
 args, _ = parser.parse_known_args()
 
 
@@ -440,6 +440,7 @@ def rowwise_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
     )
 
+
 def rowwise_weighted_adagrad() -> None:
     split_weight_update = """
       weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
@@ -496,7 +497,13 @@ def rowwise_weighted_adagrad() -> None:
     generate(
         optimizer="rowwise_weighted_adagrad",
         args=make_args(
-            [(TENSOR, "momentum1"), (FLOAT, "eps"), (FLOAT, "learning_rate"), (FLOAT, "weight_decay"), (INT, "iter")]
+            [
+                (TENSOR, "momentum1"),
+                (FLOAT, "eps"),
+                (FLOAT, "learning_rate"),
+                (FLOAT, "weight_decay"),
+                (INT, "iter"),
+            ]
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
@@ -875,6 +882,7 @@ def forward_split() -> None:
     src_cu = template.render(weighted=True, dense=True)
     write("gen_embedding_forward_dense_weighted_codegen_cuda.cu", src_cu)
 
+
 def forward_quantized() -> None:
     template = env.get_template("embedding_forward_quantized_split_template.cu")
     src_cu = template.render(weighted=False)
@@ -915,7 +923,9 @@ def gen__init__py() -> None:
     write("__init__.py", src_py)
 
 
-def emb_codegen(install_dir: Optional[str] = None, is_fbcode: Optional[bool] = None) -> None:
+def emb_codegen(
+    install_dir: Optional[str] = None, is_fbcode: Optional[bool] = None
+) -> None:
     if install_dir is not None and len(install_dir) != 0:
         args.install_dir = install_dir
     if is_fbcode is not None:

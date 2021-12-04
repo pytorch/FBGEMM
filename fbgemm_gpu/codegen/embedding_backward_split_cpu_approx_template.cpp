@@ -14,8 +14,6 @@
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include "codegen/embedding_common.h"
-
 using namespace at;
 
 namespace {
