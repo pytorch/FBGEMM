@@ -3271,34 +3271,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
 
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_is_uvm_tensor(self, sizes: List[int]) -> None:
-        uvm_t = torch.ops.fb.new_managed_tensor(
-            torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
-        )
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4)
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_to_cpu(self, sizes: List[int]) -> None:
-        uvm_t = torch.ops.fb.new_managed_tensor(
-            torch.zeros(*sizes, device="cuda:0", dtype=torch.float), sizes
-        )
-        cpu_t = torch.ops.fb.uvm_to_cpu(uvm_t)
-        assert not torch.ops.fb.is_uvm_tensor(cpu_t)
-        uvm_t.copy_(cpu_t)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        # Test use of cpu tensor after freeing the uvm tensor
-        del uvm_t
-        cpu_t.mul_(42)
-
     @given(
         L=st.integers(min_value=0, max_value=16),
         H=st.integers(min_value=512, max_value=1024),
