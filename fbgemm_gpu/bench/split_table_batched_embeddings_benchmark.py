@@ -11,7 +11,7 @@ import math
 import random
 import statistics
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import click
 import numpy as np
@@ -431,12 +431,17 @@ def device(  # noqa C901
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
-@click.option("--reuse", default=0.0)
+@click.option("--reuse", default=0.1)
 @click.option("--uvm-tables", default=1)
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option("--use-cache", is_flag=True, default=False)
+@click.option("--cache-algorithm", default="lru")
+@click.option("--cache-load-factor", default=0.2)
+@click.option("--enforce-hbm", is_flag=True, default=False)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -454,6 +459,11 @@ def uvm(
     weighted: bool,
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
+    output_dtype: SparseType,
+    use_cache: bool,
+    cache_algorithm: str,
+    cache_load_factor: float,
+    enforce_hbm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -470,6 +480,11 @@ def uvm(
     T_gpu = T - T_uvm
     L_uvm = uvm_bag_size
 
+    cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
+    managed_type = (
+        EmbeddingLocation.MANAGED_CACHING if use_cache else EmbeddingLocation.MANAGED
+    )
+
     if mixed:
         Ds = [
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
@@ -483,13 +498,17 @@ def uvm(
             (
                 E,
                 d,
-                EmbeddingLocation.MANAGED,
+                managed_type,
                 ComputeDevice.CUDA,
             )
             for d in Ds[:T_uvm]
         ],
         weights_precision=weights_precision,
         stochastic_rounding=stoc,
+        output_dtype=output_dtype,
+        cache_load_factor=cache_load_factor,
+        cache_algorithm=cache_alg,
+        enforce_hbm=enforce_hbm,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -523,12 +542,15 @@ def uvm(
                 )
                 for (d, managed_option) in zip(
                     Ds,
-                    [EmbeddingLocation.MANAGED] * T_uvm
-                    + [EmbeddingLocation.DEVICE] * T_gpu,
+                    [managed_type] * T_uvm + [EmbeddingLocation.DEVICE] * T_gpu,
                 )
             ],
             weights_precision=weights_precision,
             stochastic_rounding=stoc,
+            output_dtype=output_dtype,
+            cache_load_factor=cache_load_factor,
+            cache_algorithm=cache_alg,
+            enforce_hbm=enforce_hbm,
         ).cuda()
 
         if weights_precision == SparseType.INT8:
@@ -563,6 +585,11 @@ def uvm(
         )
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes_uvm = (
+        output_size_multiplier * B * sum(Ds[:T_uvm])
+        + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
+    )
 
     time_per_iter = benchmark_requests(
         requests_uvm,
@@ -576,7 +603,7 @@ def uvm(
     logging.info(
         f"UVM Forward, B: {B}, "
         f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -606,11 +633,14 @@ def uvm(
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
-
+        read_write_bytes_hbm = (
+            output_size_multiplier * B * sum(Ds[T_uvm:])
+            + param_size_multiplier * B * sum(Ds[T_uvm:]) * L
+        )
         logging.info(
             f"GPU Forward, B: {B}, "
             f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {param_size_multiplier * B * sum(Ds[T_uvm:]) * L / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"BW: {read_write_bytes_hbm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"T: {time_per_iter * 1.0e6:.0f}us"
         )
 
@@ -623,10 +653,11 @@ def uvm(
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
+        read_write_bytes_total = read_write_bytes_uvm + read_write_bytes_hbm
         logging.info(
             f"Mixed Forward, B: {B}, "
             f"E: {E}, T_GPU: {T_gpu}, T_UVM: {T_uvm}, D: {D}, L_GPU: {L}, L_UVM: {L_uvm}, W: {weighted}, "
-            f"BW: {((param_size_multiplier * B)*((sum(Ds[:T_uvm]) * L_uvm) + sum(Ds[T_uvm:]) * L)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"BW: {read_write_bytes_total / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"T: {time_per_iter * 1.0e6:.0f}us"
         )
 
@@ -636,7 +667,7 @@ def uvm(
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--cache-algorithm", default="lru")
-@click.option("--cache-sets", default=1024)
+@click.option("--cache-load-factor", default=0.2)
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
 @click.option("--stoc", is_flag=True, default=False)
@@ -654,7 +685,7 @@ def cache(  # noqa C901
     bag_size: int,
     batch_size: int,
     cache_algorithm: str,
-    cache_sets: int,
+    cache_load_factor: float,
     embedding_dim: int,
     weights_precision: SparseType,
     stoc: bool,
@@ -717,7 +748,7 @@ def cache(  # noqa C901
         optimizer=optimizer,
         weights_precision=weights_precision,
         stochastic_rounding=stoc,
-        cache_sets=cache_sets,
+        cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
     ).cuda()
 
@@ -849,7 +880,8 @@ def benchmark_cpu_requests(
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--index-remapping", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
-def cpu(  # noqa C901
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+def nbit_cpu(  # noqa C901
     alpha: float,
     bag_size: int,
     batch_size: int,
@@ -866,6 +898,7 @@ def cpu(  # noqa C901
     weighted: bool,
     index_remapping: bool,
     requests_data_file: Optional[str],
+    output_dtype: SparseType,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -888,11 +921,16 @@ def cpu(  # noqa C901
         [("", E, d, weights_precision, EmbeddingLocation.HOST) for d in Ds],
         device="cpu",
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
+        output_dtype=output_dtype,
     ).cpu()
     emb.fill_random_weights()
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = (
+        output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
+    )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -930,7 +968,7 @@ def cpu(  # noqa C901
     logging.info(
         f"{weights_precision} Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {(2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -1040,6 +1078,10 @@ def nbit_device(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = (
+        output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
+    )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -1083,7 +1125,7 @@ def nbit_device(  # noqa C901
             f"Iteration {i}: "
             f"{weights_precision} Forward, B: {B}, "
             f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {(2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"Time: {time_per_iter * 1.0e6:.0f}us, "
             f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
         )
@@ -1092,10 +1134,7 @@ def nbit_device(  # noqa C901
             times.append(time_per_iter)
 
     time_per_iter = statistics.mean(times)
-
-    bandwidth = (
-        (2 * B * T * D + param_size_multiplier * B * T * L * D) / time_per_iter / 1.0e9
-    )
+    bandwidth = read_write_bytes / time_per_iter / 1.0e9
 
     logging.info(
         f"Average of all iterations: "
@@ -1135,11 +1174,16 @@ def nbit_device(  # noqa C901
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
-@click.option("--reuse", default=0.0)
+@click.option("--reuse", default=0.1)
 @click.option("--uvm-tables", default=1)
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--use-cache", is_flag=True, default=False)
+@click.option("--cache-algorithm", default="lru")
+@click.option("--cache-load-factor", default=0.2)
+@click.option("--enforce-hbm", is_flag=True, default=False)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1155,6 +1199,11 @@ def nbit_uvm(
     uvm_bag_size: int,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    use_cache: bool,
+    cache_algorithm: str,
+    cache_load_factor: float,
+    enforce_hbm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1170,6 +1219,10 @@ def nbit_uvm(
     ), f"T_uvm specified {T_uvm} <= 0. If not testing UVM, please use device benchmark."
     T_gpu = T - T_uvm
     L_uvm = uvm_bag_size
+    cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
+    managed_type = (
+        EmbeddingLocation.MANAGED_CACHING if use_cache else EmbeddingLocation.MANAGED
+    )
 
     logging.info(f"T: {T}, T_uvm: {T_uvm}, T_gpu: {T_gpu}")
 
@@ -1188,10 +1241,14 @@ def nbit_uvm(
                 E,
                 d,
                 weights_precision,
-                EmbeddingLocation.MANAGED,
+                managed_type,
             )
             for d in Ds[:T_uvm]
         ],
+        output_dtype=output_dtype,
+        cache_load_factor=cache_load_factor,
+        cache_algorithm=cache_alg,
+        enforce_hbm=enforce_hbm,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1207,6 +1264,7 @@ def nbit_uvm(
                 )
                 for d in Ds[T_uvm:]
             ],
+            output_dtype=output_dtype,
         ).cuda()
         emb_gpu.fill_random_weights()
 
@@ -1221,10 +1279,13 @@ def nbit_uvm(
                 )
                 for (d, managed_option) in zip(
                     Ds,
-                    [EmbeddingLocation.MANAGED] * T_uvm
-                    + [EmbeddingLocation.DEVICE] * T_gpu,
+                    [managed_type] * T_uvm + [EmbeddingLocation.DEVICE] * T_gpu,
                 )
             ],
+            output_dtype=output_dtype,
+            cache_load_factor=cache_load_factor,
+            cache_algorithm=cache_alg,
+            enforce_hbm=enforce_hbm,
         ).cuda()
         emb_mixed.fill_random_weights()
 
@@ -1239,6 +1300,7 @@ def nbit_uvm(
         weights_precision=weights_precision,
         weighted=weighted,
     )
+    requests_uvm = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests_uvm]
 
     requests_gpu = None
     if T_gpu > 0:
@@ -1253,8 +1315,16 @@ def nbit_uvm(
             weights_precision=weights_precision,
             weighted=False,
         )
+        requests_gpu = [
+            (a.int(), b.int(), c if c else None) for (a, b, c) in requests_gpu
+        ]
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes_uvm = (
+        output_size_multiplier * B * sum(Ds[:T_uvm])
+        + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
+    )
 
     time_per_iter = benchmark_requests(
         requests_uvm,
@@ -1268,7 +1338,7 @@ def nbit_uvm(
     logging.info(
         f"UVM NBit Forward, {weights_precision}, B: {B}, "
         f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -1299,10 +1369,14 @@ def nbit_uvm(
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
 
+        read_write_bytes_hbm = (
+            output_size_multiplier * B * sum(Ds[T_uvm:])
+            + param_size_multiplier * B * sum(Ds[T_uvm:]) * L
+        )
         logging.info(
             f"GPU NBit Forward, {weights_precision}, B: {B}, "
             f"E: {E}, T: {T_gpu}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {param_size_multiplier * B * sum(Ds[T_uvm:]) * L / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"BW: {read_write_bytes_hbm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"Time: {time_per_iter * 1.0e6:.0f}us"
         )
 
@@ -1315,10 +1389,11 @@ def nbit_uvm(
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
+        read_write_bytes_total = read_write_bytes_uvm + read_write_bytes_hbm
         logging.info(
             f"Mixed NBit Forward, {weights_precision}, B: {B}, "
             f"E: {E}, T_GPU: {T_gpu}, T_UVM: {T_uvm}, D: {D}, L_GPU: {L}, L_UVM: {L_uvm}, W: {weighted}, "
-            f"BW: {((param_size_multiplier * B)*((sum(Ds[:T_uvm]) * L_uvm) + sum(Ds[T_uvm:]) * L)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"BW: {read_write_bytes_total / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"Time: {time_per_iter * 1.0e6:.0f}us"
         )
 
@@ -1328,7 +1403,7 @@ def nbit_uvm(
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
 @click.option("--cache-algorithm", default="lru")
-@click.option("--cache-sets", default=1024)
+@click.option("--cache-load-factor", default=0.2)
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--iters", default=100)
@@ -1338,12 +1413,14 @@ def nbit_uvm(
 @click.option("--reuse", default=0.1)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--enforce-hbm", is_flag=True, default=False)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
     batch_size: int,
     cache_algorithm: str,
-    cache_sets: int,
+    cache_load_factor: float,
     embedding_dim: int,
     weights_precision: SparseType,
     iters: int,
@@ -1353,6 +1430,8 @@ def nbit_cache(  # noqa C901
     reuse: float,
     weighted: bool,
     flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    enforce_hbm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1382,6 +1461,8 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
+        output_dtype=output_dtype,
+        enforce_hbm=enforce_hbm,
     ).cuda()
     emb_nc.fill_random_weights()
 
@@ -1396,13 +1477,19 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
-        cache_sets=cache_sets,
+        cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
+        output_dtype=output_dtype,
+        enforce_hbm=enforce_hbm,
     ).cuda()
     emb.fill_random_weights()
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = (
+        output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+    )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -1415,6 +1502,7 @@ def nbit_cache(  # noqa C901
     requests = generate_requests(
         2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted
     )
+    requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
     warmup_requests, requests = requests[:iters], requests[iters:]
 
     time_per_iter = benchmark_requests(
@@ -1426,7 +1514,7 @@ def nbit_cache(  # noqa C901
     )
     logging.info(
         f"Forward (UVM) {weights_precision}, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -1444,7 +1532,7 @@ def nbit_cache(  # noqa C901
         #  Variable[torch._TTensor (bound to Tensor)])], Variable[torch._TTensor (bound
         #  to Tensor)]], Tensor], Tensor, torch.nn.Module]` is not a function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
-        emb.prefetch(indices.long(), offsets.long())
+        emb.prefetch(indices.int(), offsets.int())
         exchanged_cache_lines.append(
             # pyre-fixme[16]: `bool` has no attribute `sum`.
             (emb.lxu_cache_state != old_lxu_cache_state)
@@ -1484,12 +1572,12 @@ def nbit_cache(  # noqa C901
     logging.info(
         f"Forward(LXU) {weights_precision}, reuse: {reuse}, alpha: {alpha}, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / e2e_time / 1.0e9: .2f} GB/s, "
+        f"Te2e: {e2e_time * 1.0e6:.0f}us, "
+        f"e2e BW: {read_write_bytes / e2e_time / 1.0e9: .2f} GB/s, "
         f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
         f"{2 * sum(exchanged_cache_lines) * param_size_multiplier * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
         f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
-        f"{3 * param_size_multiplier * B * sum(Ds) * L / forward_time / 1.0e9: .2f} GB/s, "
-        f"Te2e: {e2e_time * 1.0e6:.0f}us"
+        f"{read_write_bytes / forward_time / 1.0e9: .2f} GB/s"
     )
 
 
