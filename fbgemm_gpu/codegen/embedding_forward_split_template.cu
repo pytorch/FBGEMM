@@ -160,20 +160,14 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
-                    accumulators[i].acc.x += weight.acc.x;
-                    accumulators[i].acc.y += weight.acc.y;
-                    accumulators[i].acc.z += weight.acc.z;
-                    accumulators[i].acc.w += weight.acc.w;
+                    accumulators[i].add_(weight);
                     {% endif %}
                 } else {
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
-                    accumulators[i].acc.x += weight.acc.x;
-                    accumulators[i].acc.y += weight.acc.y;
-                    accumulators[i].acc.z += weight.acc.z;
-                    accumulators[i].acc.w += weight.acc.w;
+                    accumulators[i].add_(weight);
                     {% endif %}
                 }
                 {% else %}
@@ -181,10 +175,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
-                    accumulators[i].acc.x += weight.acc.x;
-                    accumulators[i].acc.y += weight.acc.y;
-                    accumulators[i].acc.z += weight.acc.z;
-                    accumulators[i].acc.w += weight.acc.w;
+                    accumulators[i].add_(weight);
                     {% endif %}
                 {% endif %}
             }
@@ -218,10 +209,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].acc.x /= L;
-                accumulators[i].acc.y /= L;
-                accumulators[i].acc.z /= L;
-                accumulators[i].acc.w /= L;
+                accumulators[i].mul_(1.0 / L);
             }
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             accumulators[i].store(&output[b][D_start + d]);
@@ -237,10 +225,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
             i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
             ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].acc.x /= L;
-                accumulators[i].acc.y /= L;
-                accumulators[i].acc.z /= L;
-                accumulators[i].acc.w /= L;
+                accumulators[i].mul_(1.0 / L);
             }
             thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
             thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
@@ -270,10 +255,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-            accumulators[i].acc.x /= L;
-            accumulators[i].acc.y /= L;
-            accumulators[i].acc.z /= L;
-            accumulators[i].acc.w /= L;
+            accumulators[i].mul_(1.0 / L);
         }
         accumulators[i].store(&output[b][D_start + d]);
     }
