@@ -1124,6 +1124,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if split.uvm_size > 0:
             assert not self.use_cpu
             if enforce_hbm:
+                logging.info("Enforce hbm for the cache location")
                 self.register_buffer(
                     f"{prefix}_uvm",
                     torch.zeros(
@@ -1622,6 +1623,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
+        enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1758,6 +1760,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.host_size: int = weight_split.host_size
         self.dev_size: int = weight_split.dev_size
         self.uvm_size: int = weight_split.uvm_size
+        self.enforce_hbm: bool = enforce_hbm
 
         # Assign weights after weights and weights_offsets are initialized.
         if weight_lists:
@@ -1767,6 +1770,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.uvm_size,
                 self.weights_physical_placements,
                 self.weights_physical_offsets,
+                self.enforce_hbm,
             )
             self.assign_embedding_weights(weight_lists)  # type: ignore
 
@@ -1945,6 +1949,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         uvm_size: int,
         placements: List[int],
         offsets: List[int],
+        enforce_hbm: bool,
     ) -> None:
         assert not self.weight_initialized, "Weights have already been initialized."
         self.weight_initialized = True
@@ -1958,33 +1963,41 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets = [offsets[t] for t in self.feature_table_map]
         placements = [placements[t] for t in self.feature_table_map]
         self.weights_offsets = torch.tensor(
-            offsets, device=self.D_offsets.device, dtype=torch.int64
+            offsets, device=self.current_device, dtype=torch.int64
         )
         self.weights_placements = torch.tensor(
-            placements, device=self.D_offsets.device, dtype=torch.int32
+            placements, device=self.current_device, dtype=torch.int32
         )
 
         if dev_size > 0:
             self.weights_dev = torch.zeros(
                 dev_size,
-                device=self.D_offsets.device,
+                device=self.current_device,
                 dtype=torch.uint8,
             )
 
         if host_size > 0:
             self.weights_host = torch.zeros(
-                host_size, device=self.D_offsets.device, dtype=torch.uint8
+                host_size, device=self.current_device, dtype=torch.uint8
             )
 
         if uvm_size > 0:
             assert not self.use_cpu
-            self.weights_uvm = torch.zeros(
-                uvm_size,
-                out=torch.ops.fb.new_managed_tensor(
-                    torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
-                    [uvm_size],
-                ),
-            )
+            if enforce_hbm:
+                logging.info("Enforce hbm for the cache location")
+                self.weights_uvm = torch.zeros(
+                    uvm_size,
+                    device=self.current_device,
+                    dtype=torch.uint8,
+                )
+            else:
+                self.weights_uvm = torch.zeros(
+                    uvm_size,
+                    out=torch.ops.fb.new_managed_tensor(
+                        torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
+                        [uvm_size],
+                    ),
+                )
 
     def _apply_cache_state(
         self,
@@ -2198,6 +2211,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.uvm_size,
                 self.weights_physical_placements,
                 self.weights_physical_offsets,
+                self.enforce_hbm,
             )
             self.weight_initialized: bool = True
 
