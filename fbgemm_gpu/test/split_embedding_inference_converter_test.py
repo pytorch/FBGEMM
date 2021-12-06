@@ -131,6 +131,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 SparseType.INT4,
                 # TODO: support SparseType.INT2,
                 SparseType.FP16,
+                SparseType.FP32,
             ]
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),

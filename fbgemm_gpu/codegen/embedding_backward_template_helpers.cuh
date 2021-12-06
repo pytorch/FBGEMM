@@ -32,18 +32,6 @@
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
-template <typename scalar_t>
-DEVICE_INLINE fbgemm_gpu::Vec4T<scalar_t> vec4_acc(
-    fbgemm_gpu::Vec4T<scalar_t> lhs,
-    fbgemm_gpu::Vec4T<scalar_t> rhs) {
-  fbgemm_gpu::Vec4T<scalar_t> s;
-  s.acc.x = lhs.acc.x + rhs.acc.x;
-  s.acc.y = lhs.acc.y + rhs.acc.y;
-  s.acc.z = lhs.acc.z + rhs.acc.z;
-  s.acc.w = lhs.acc.w + rhs.acc.w;
-  return s;
-}
-
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());

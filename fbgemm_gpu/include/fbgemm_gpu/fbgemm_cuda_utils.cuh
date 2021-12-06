@@ -144,6 +144,22 @@ struct Vec4T<float> {
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<float> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+    acc.z *= scale;
+    acc.w *= scale;
+  }
 };
 
 template <>
@@ -252,6 +268,30 @@ struct Vec4T<at::Half> {
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<float> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<at::Half> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+    acc.z *= scale;
+    acc.w *= scale;
+  }
 };
 
 template <>
@@ -334,7 +374,35 @@ struct Vec4T<double> {
     acc.z = __fma_rn(a.acc.z, b, acc.z);
     acc.w = __fma_rn(a.acc.w, b, acc.w);
   }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<double> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+    acc.z *= scale;
+    acc.w *= scale;
+  }
 };
+
+template <typename scalar_t>
+DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
+    Vec4T<scalar_t> lhs,
+    Vec4T<scalar_t> rhs) {
+  Vec4T<scalar_t> s;
+  s.acc.x = lhs.acc.x + rhs.acc.x;
+  s.acc.y = lhs.acc.y + rhs.acc.y;
+  s.acc.z = lhs.acc.z + rhs.acc.z;
+  s.acc.w = lhs.acc.w + rhs.acc.w;
+  return s;
+}
 
 template <typename T>
 DEVICE_INLINE T shfl_xor(const T val, int laneMask, int width = kWarpSize) {

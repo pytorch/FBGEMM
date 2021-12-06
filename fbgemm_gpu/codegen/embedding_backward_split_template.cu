@@ -63,10 +63,7 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
   if (L != 0) {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
       Vec4T<acc_type<cache_t, true>> grad_out_vec(&grad_output[b][D_start + d * 4]);
-      grad_out_vec.acc.x /= L;
-      grad_out_vec.acc.y /= L;
-      grad_out_vec.acc.z /= L;
-      grad_out_vec.acc.w /= L;
+      grad_out_vec.mul_(1.0 / L);
       grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
     }
   } else {
@@ -215,10 +212,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if weighted %}
                     grad_sum[i].fma_(grad_out_vec, idx_weight_j);
                     {% else %}
-                    grad_sum[i].acc.x += grad_out_vec.acc.x;
-                    grad_sum[i].acc.y += grad_out_vec.acc.y;
-                    grad_sum[i].acc.z += grad_out_vec.acc.z;
-                    grad_sum[i].acc.w += grad_out_vec.acc.w;
+                    grad_sum[i].add_(grad_out_vec);
                     {% endif %}
                 }
             }
@@ -577,10 +571,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% if weighted %}
                 grad_sum[i].fma_(grad_out_vec, idx_weight_j);
                 {% else %}
-                grad_sum[i].acc.x += grad_out_vec.acc.x;
-                grad_sum[i].acc.y += grad_out_vec.acc.y;
-                grad_sum[i].acc.z += grad_out_vec.acc.z;
-                grad_sum[i].acc.w += grad_out_vec.acc.w;
+                grad_sum[i].add_(grad_out_vec);
                 {% endif %}
             }
         }
