@@ -95,6 +95,36 @@ at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size) {
   return range;
 }
 
+at::Tensor segment_sum_csr_cuda(const int64_t batch_size,
+                                const at::Tensor& csr_seg,
+                                const at::Tensor& values) {
+  TENSOR_ON_CUDA_GPU(csr_seg);
+  TENSOR_ON_CUDA_GPU(values);
+
+  TENSORS_ON_SAME_DEVICE(csr_seg, values);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(values.get_device());
+
+  auto output = at::empty(csr_seg.numel() - 1, values.options());
+  constexpr uint32_t threads_per_block = 256;
+  const uint32_t num_blocks = csr_seg.numel() - 1;
+  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cuda", [&]() {
+                          _segment_sum_csr_cuda_kernel<scalar_t>
+                              <<<num_blocks,
+                                 threads_per_block,
+                                 0,
+                                 at::cuda::getCurrentCUDAStream()>>>(
+                                  csr_seg.numel() - 1,
+                                  batch_size,
+                                  csr_seg.data_ptr<int>(),
+                                  values.data_ptr<scalar_t>(),
+                                  output.data_ptr<scalar_t>());
+                          C10_CUDA_KERNEL_LAUNCH_CHECK();
+                        });
+  return output;
+}
+
 at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());

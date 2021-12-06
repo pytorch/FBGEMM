@@ -1191,6 +1191,28 @@ class SparseOpsTest(unittest.TestCase):
                 )
             )
 
+    @settings(verbosity=Verbosity.verbose, deadline=None)
+    def test_segment_sum_csr(self) -> None:
+        segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
+            2,
+            torch.IntTensor([0, 2, 3, 5]),
+            torch.Tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
+        )
+        torch.testing.assert_allclose(
+            segment_sum_cpu, torch.Tensor([10.0, 11.0, 34.0]), 0, 0
+        )
+        if torch.cuda.is_available():
+            segment_sum_cuda = torch.ops.fbgemm.segment_sum_csr(
+                2,
+                torch.IntTensor([0, 2, 3, 5]).cuda(),
+                torch.Tensor(
+                    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+                ).cuda(),
+            )
+            torch.testing.assert_allclose(
+                segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), 0, 0
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
