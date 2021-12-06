@@ -50,13 +50,13 @@ PackAMatrix<T, accT>::PackAMatrix(
       case inst_set_t::avx512_vnni:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx512:
@@ -67,7 +67,7 @@ PackAMatrix<T, accT>::PackAMatrix(
       case inst_set_t::avx512_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_B_) =
             PackingTraits<T, accT, inst_set_t::avx512_ymm>::
-              getMatrixPackAParams();
+                getMatrixPackAParams();
         break;
 
       case inst_set_t::avx2:
@@ -97,11 +97,12 @@ PackAMatrix<T, accT>::PackAMatrix(
 
 template <typename T, typename accT>
 void PackAMatrix<T, accT>::pack(const block_type_t& block) {
-  block_type_t block_p = {block.row_start,
-                          block.row_size,
-                          block.col_start,
-                          (block.col_size + row_interleave_B_ - 1) /
-                              row_interleave_B_ * row_interleave_B_};
+  block_type_t block_p = {
+      block.row_start,
+      block.row_size,
+      block.col_start,
+      (block.col_size + row_interleave_B_ - 1) / row_interleave_B_ *
+          row_interleave_B_};
 
   BaseType::packedBlock(block_p);
   bool tr = (trans_ == matrix_op_t::Transpose);

@@ -1894,9 +1894,9 @@ template FBGEMM_API int rowOffsetBufferSizeGConv<3>(
   INSTANTIATE_BIAS_T(RELU, Q_GRAN, 2)         \
   INSTANTIATE_BIAS_T(RELU, Q_GRAN, 3)
 
-#define INSTANTIATE_Q_GRANS(RELU)                                 \
-  INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::TENSOR)  \
-  INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::GROUP)   \
+#define INSTANTIATE_Q_GRANS(RELU)                                \
+  INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::TENSOR) \
+  INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::GROUP)  \
   INSTANTIATE_SPATIAL_DIM(RELU, QuantizationGranularity::OUT_CHANNEL)
 
 INSTANTIATE_Q_GRANS(false);

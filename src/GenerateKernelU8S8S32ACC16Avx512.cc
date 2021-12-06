@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <iostream>
-#include "./GenerateKernel.h"
 #include "./CodeGenHelpers.h"
+#include "./GenerateKernel.h"
 
 namespace fbgemm {
 
@@ -37,7 +37,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock(
   // We start allocating BRegs from zmm28 and then allocate zmm27 and so on.
   for (int j = 0; j < colRegs; ++j) {
     a->vmovups(
-        VecRegT(28 - j), x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
+        VecRegT(28 - j),
+        x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
   }
 
   for (int i = 0; i < rowRegs; ++i) {
@@ -108,13 +109,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     // generated code logging
     FILE* codeLogfile = fopen(
         getCodeLoggingFile<instSet>(
-            accum,
-            mc,
-            nc,
-            nBlock,
-            kBlock,
-            mRegBlockSize,
-            nRegBlockSize)
+            accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
@@ -372,18 +367,19 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
  * Instatiate the AVX512 instructions for 16-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-getOrCreate<inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx512>(
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc);
 
 /**
  * Instatiate the AVX512_256 instructions for 16-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::
-getOrCreate<inst_set_t::avx512_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<
+    inst_set_t::avx512_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 } // namespace fbgemm

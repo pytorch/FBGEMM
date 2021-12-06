@@ -86,21 +86,23 @@ void run_benchmark(
   double data_moved = num_rows * (3 * sizeof(float) * block_size + 2 * 64);
 
   if (isIndex64b) {
-    auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(block_size, /*rowwise=*/true, prefetch, adjust_weight_decay);
+    auto fn_indices_64 = GenerateSparseAdaGrad<int64_t>(
+        block_size, /*rowwise=*/true, prefetch, adjust_weight_decay);
 
     t = measureWithWarmup(
         [&]() {
-          fn_indices_64(num_rows, // number of rows reading
-            param_size, // total number of parameters
-            w.data(), // input parameters
-            g.data(), // input gradients
-            h.data(), // input momentums
-            indices.data(), // indices of each row
-            epsilon,
-            lr,
-            weight_decay, // weight_decay
-            adjust_weight_decay ? counter.data() : nullptr, // counters
-            counter_halflife); // counter_halflife
+          fn_indices_64(
+              num_rows, // number of rows reading
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices.data(), // indices of each row
+              epsilon,
+              lr,
+              weight_decay, // weight_decay
+              adjust_weight_decay ? counter.data() : nullptr, // counters
+              counter_halflife); // counter_halflife
         },
         NUM_WARMUP,
         NUM_ITER,
@@ -123,21 +125,23 @@ void run_benchmark(
           counter_halflife); // counter halflife value for adjustments
     }
   } else {
-    auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(block_size, /*rowwise=*/true, prefetch, adjust_weight_decay);
+    auto fn_indices_32 = GenerateSparseAdaGrad<int32_t>(
+        block_size, /*rowwise=*/true, prefetch, adjust_weight_decay);
 
     t = measureWithWarmup(
         [&]() {
-          fn_indices_32(num_rows, // number of rows reading
-            param_size, // total number of parameters
-            w.data(), // input parameters
-            g.data(), // input gradients
-            h.data(), // input momentums
-            indices_32.data(), // indices of each row
-            epsilon,
-            lr,
-            weight_decay, // weight_decay
-            adjust_weight_decay ? counter.data() : nullptr, // counters
-            counter_halflife); // counter_halflife
+          fn_indices_32(
+              num_rows, // number of rows reading
+              param_size, // total number of parameters
+              w.data(), // input parameters
+              g.data(), // input gradients
+              h.data(), // input momentums
+              indices_32.data(), // indices of each row
+              epsilon,
+              lr,
+              weight_decay, // weight_decay
+              adjust_weight_decay ? counter.data() : nullptr, // counters
+              counter_halflife); // counter_halflife
         },
         NUM_WARMUP,
         NUM_ITER,
@@ -193,14 +197,19 @@ int main() {
 
   for (auto isIndex64b : vector<bool>{true, false}) {
     for (auto adjust_weight_decay : vector<bool>{true, false}) {
-      for (auto prefetch: prefetch_distances) {
+      for (auto prefetch : prefetch_distances) {
         for (auto& input : inputs) {
           assert(input.size() >= 2);
           num_rows = input[0];
           block_size = input[1];
           param_size = num_rows * block_size;
           run_benchmark(
-              num_rows, block_size, param_size, isIndex64b, prefetch, adjust_weight_decay);
+              num_rows,
+              block_size,
+              param_size,
+              isIndex64b,
+              prefetch,
+              adjust_weight_decay);
         }
       }
     }

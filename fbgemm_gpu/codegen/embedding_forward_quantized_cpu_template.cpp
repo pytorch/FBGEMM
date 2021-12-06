@@ -4,7 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
+// clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 
 #include <ATen/ATen.h>
@@ -629,3 +629,4 @@ Tensor pruned_array_lookup_cpu(
     return dense_indices;
 }
 {% endif %}
+// clang-format on

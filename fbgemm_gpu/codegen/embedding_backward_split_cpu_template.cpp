@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 #include <map>
 #include <tuple>
 #include <utility>
@@ -375,3 +376,4 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   return grad;
   {% endif %}
 }
+// clang-format on

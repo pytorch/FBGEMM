@@ -21,8 +21,8 @@ namespace fbgemm {
 namespace x86 = asmjit::x86;
 
 /**
-  * @brief Generate instructions for initializing the C registers to 0.
-  */
+ * @brief Generate instructions for initializing the C registers to 0.
+ */
 void initCRegs(x86::Emitter* a, int rowRegs, int colRegs);
 
 /**
@@ -48,8 +48,7 @@ class CodeGenBase {
    * @brief Constructor for initializing AVX2/AVX512 registers.
    */
   CodeGenBase(const BlockingFactors* params = nullptr)
-      : blocking_params(params) {
-  }
+      : blocking_params(params) {}
 
   /**
    * @brief Get or Create the instructions for macro-kernel.

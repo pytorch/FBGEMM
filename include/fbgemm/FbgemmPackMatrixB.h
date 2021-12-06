@@ -7,28 +7,28 @@
 #pragma once
 
 #include <assert.h>
+#include <cpuinfo.h>
 #include <array>
 #include <memory>
+#include <stdexcept>
 #include <typeinfo>
 #include <vector>
-#include <cpuinfo.h>
-#include <stdexcept>
 
 #include "Types.h"
 #include "Utils.h"
 
 namespace fbgemm {
 
-template<typename T>
+template <typename T>
 struct TypeConverter {
-  template<typename F>
+  template <typename F>
   T operator()(F) const;
 };
 
 /// class that performs packing of matrix in
 /// row-major format into
 /// internal packed blocked-row major format
-template<typename T, typename C = TypeConverter<T>>
+template <typename T, typename C = TypeConverter<T>>
 class PackedGemmMatrixB {
  public:
   using value_type = T;
@@ -164,8 +164,8 @@ class PackedGemmMatrixB {
     uint64_t block_col_id = c / blockColSize(),
              bcol_offset = block_col_id *
         ((static_cast<int64_t>(block_row_id) != nbrow_ - 1)
-                ? (blockRowSize() * blockColSize())
-                : (last_brow_ * blockColSize()));
+             ? (blockRowSize() * blockColSize())
+             : (last_brow_ * blockColSize()));
     uint64_t block_offset = brow_offset + bcol_offset;
     uint64_t inblock_offset =
         r % blockRowSize() * blockColSize() + c % blockColSize();

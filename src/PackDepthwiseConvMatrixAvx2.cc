@@ -12,7 +12,6 @@
 #include "./MaskAvx2.h"
 #include "fbgemm/UtilsAvx2.h"
 
-
 namespace fbgemm {
 
 PackedDepthWiseConvMatrix::PackedDepthWiseConvMatrix(

@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
@@ -1370,3 +1371,4 @@ at::Tensor pruned_array_lookup_cuda(
   return dense_indices;
 }
 {% endif %}
+// clang-format on

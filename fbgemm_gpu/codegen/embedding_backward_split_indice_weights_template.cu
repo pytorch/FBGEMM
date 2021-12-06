@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using namespace at;
@@ -265,3 +266,4 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return grad_indice_weights;
 }
+    // clang-format on

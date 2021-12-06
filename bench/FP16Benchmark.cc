@@ -13,8 +13,8 @@
 #include <mkl.h>
 #endif
 
-#include "fbgemm/FbgemmFP16.h"
 #include "bench/BenchUtils.h"
+#include "fbgemm/FbgemmFP16.h"
 
 using namespace fbgemm;
 

@@ -197,20 +197,28 @@ at::Tensor jagged_1d_to_dense_gpu(
 // bin_ctr_weight) * calibration_target.
 // Default: 1.0
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
-    const at::Tensor& logit, const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives, double positive_weight,
-    double lower_bound = 0.0, double upper_bound = 1.0,
-    int64_t bin_ctr_in_use_after = 0, double bin_ctr_weight_value = 1.0);
+    const at::Tensor& logit,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    double positive_weight,
+    double lower_bound = 0.0,
+    double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
-    const at::Tensor& logit, const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives, double positive_weight,
-    double lower_bound = 0.0, double upper_bound = 1.0,
-    int64_t bin_ctr_in_use_after = 0, double bin_ctr_weight_value = 1.0);
+    const at::Tensor& logit,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    double positive_weight,
+    double lower_bound = 0.0,
+    double upper_bound = 1.0,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
 
-// An extension of histogram binning calibration model which divides data into bins
-// based on one specific feature and prediction/ECTR range. In each bin, use
-// two parameters to store the number of positive examples and the number of
+// An extension of histogram binning calibration model which divides data into
+// bins based on one specific feature and prediction/ECTR range. In each bin,
+// use two parameters to store the number of positive examples and the number of
 // examples that fall into this bucket. So we basically have a histogram for
 // the model prediction. As a result, for each bin, we have a statistical
 // value for the real CTR (num_pos / num_example). We use this statistical
@@ -255,20 +263,31 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
 // bin_ctr_weight) * calibration_target.
 // Default: 1.0
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
-    const at::Tensor& logit, const at::Tensor& dense_segment_value,
-    const at::Tensor& segment_lengths, int64_t num_segments,
-    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
-    int64_t num_bins, double positive_weight,
-    double lower_bound = 0.0, double upper_bound = 1.0,
+    const at::Tensor& logit,
+    const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    int64_t num_bins,
+    double positive_weight,
+    double lower_bound = 0.0,
+    double upper_bound = 1.0,
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 
-std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cuda(
-    const at::Tensor& logit, const at::Tensor& dense_segment_value,
-    const at::Tensor& segment_lengths, int64_t num_segments,
-    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
-    int64_t num_bins, double positive_weight,
-    double lower_bound = 0.0, double upper_bound = 1.0,
+std::tuple<at::Tensor, at::Tensor>
+histogram_binning_calibration_by_feature_cuda(
+    const at::Tensor& logit,
+    const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    int64_t num_bins,
+    double positive_weight,
+    double lower_bound = 0.0,
+    double upper_bound = 1.0,
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 

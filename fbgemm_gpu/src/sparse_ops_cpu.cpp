@@ -967,13 +967,17 @@ at::Tensor jagged_1d_to_dense_cpu(
 
 template <typename T>
 void _histogram_binning_calibration_cpu_kernel(
-    const int64_t num_logits, const int64_t num_bins,
-    const double recalibrate_value, const double step,
+    const int64_t num_logits,
+    const int64_t num_bins,
+    const double recalibrate_value,
+    const double step,
     const int64_t bin_ctr_in_use_after,
-    const double bin_ctr_weight_value, const T* const logit_data,
+    const double bin_ctr_weight_value,
+    const T* const logit_data,
     const double* const bin_num_examples_data,
     const double* const bin_num_positives_data,
-    T* const calibrated_prediction_data, int64_t* const bin_ids_data) {
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
   for (const auto i : c10::irange(num_logits)) {
     const T pre_sigmoid = logit_data[i] + recalibrate_value;
     const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
@@ -983,9 +987,9 @@ void _histogram_binning_calibration_cpu_kernel(
     const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[i]];
     if (curr_bin_num_examples > bin_ctr_in_use_after) {
       const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
+          bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
       calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
+          uncalibrated * (1.0 - bin_ctr_weight_value);
     } else {
       calibrated_prediction_data[i] = uncalibrated;
     }
@@ -993,25 +997,35 @@ void _histogram_binning_calibration_cpu_kernel(
 }
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
-    const at::Tensor& logit, const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives, double positive_weight,
-    double lower_bound, double upper_bound, int64_t bin_ctr_in_use_after,
+    const at::Tensor& logit,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    double positive_weight,
+    double lower_bound,
+    double upper_bound,
+    int64_t bin_ctr_in_use_after,
     double bin_ctr_weight_value) {
   TENSOR_ON_CPU(logit);
   TENSOR_ON_CPU(bin_num_examples);
   TENSOR_ON_CPU(bin_num_positives);
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
-  at::Tensor calibrated_prediction = at::empty({logit.numel()}, logit.options());
-  at::Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  at::Tensor calibrated_prediction =
+      at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids =
+      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
-  const double step =
-    (upper_bound - lower_bound) / static_cast<double>(bin_num_examples.numel());
+  const double step = (upper_bound - lower_bound) /
+      static_cast<double>(bin_num_examples.numel());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(), "histogram_binning_calibration_cpu", [&]() {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
-            logit.numel(), bin_num_examples.numel(), recalibrate_value,
-            step, bin_ctr_in_use_after, bin_ctr_weight_value,
+            logit.numel(),
+            bin_num_examples.numel(),
+            recalibrate_value,
+            step,
+            bin_ctr_in_use_after,
+            bin_ctr_weight_value,
             logit.data_ptr<scalar_t>(),
             bin_num_examples.data_ptr<double>(),
             bin_num_positives.data_ptr<double>(),
@@ -1024,32 +1038,38 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
 
 template <typename T>
 void _histogram_binning_calibration_by_feature_cpu_kernel(
-    const int64_t num_logits, const int64_t num_bins,
+    const int64_t num_logits,
+    const int64_t num_bins,
     const int64_t num_segments,
-    const double recalibrate_value, const double step,
+    const double recalibrate_value,
+    const double step,
     const int64_t bin_ctr_in_use_after,
-    const double bin_ctr_weight_value, const T* const logit_data,
+    const double bin_ctr_weight_value,
+    const T* const logit_data,
     const int64_t* const dense_segment_value_data,
     const int64_t* const segment_lengths_data,
     const double* const bin_num_examples_data,
     const double* const bin_num_positives_data,
-    T* const calibrated_prediction_data, int64_t* const bin_ids_data) {
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
   for (const auto i : c10::irange(num_logits)) {
     const T pre_sigmoid = logit_data[i] + recalibrate_value;
     const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
 
     const int64_t curr_segment_value =
-      (dense_segment_value_data[i] > num_segments || segment_lengths_data[i] != 1) ?
-        0 : std::max(0L, dense_segment_value_data[i] * num_bins);
+        (dense_segment_value_data[i] > num_segments ||
+         segment_lengths_data[i] != 1)
+        ? 0
+        : std::max(0L, dense_segment_value_data[i] * num_bins);
 
     bin_ids_data[i] = (std::ceil(uncalibrated / step) - 1) + curr_segment_value;
 
     const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[i]];
     if (curr_bin_num_examples > bin_ctr_in_use_after) {
       const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
+          bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
       calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
+          uncalibrated * (1.0 - bin_ctr_weight_value);
     } else {
       calibrated_prediction_data[i] = uncalibrated;
     }
@@ -1057,11 +1077,17 @@ void _histogram_binning_calibration_by_feature_cpu_kernel(
 }
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
-    const at::Tensor& logit, const at::Tensor& dense_segment_value,
-    const at::Tensor& segment_lengths, int64_t num_segments,
-    const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
-    int64_t num_bins, double positive_weight, double lower_bound,
-    double upper_bound, int64_t bin_ctr_in_use_after,
+    const at::Tensor& logit,
+    const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    int64_t num_bins,
+    double positive_weight,
+    double lower_bound,
+    double upper_bound,
+    int64_t bin_ctr_in_use_after,
     double bin_ctr_weight_value) {
   TENSOR_ON_CPU(logit);
   TENSOR_ON_CPU(dense_segment_value);
@@ -1070,17 +1096,24 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
   TENSOR_ON_CPU(bin_num_positives);
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
-  at::Tensor calibrated_prediction = at::empty({logit.numel()}, logit.options());
-  at::Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  at::Tensor calibrated_prediction =
+      at::empty({logit.numel()}, logit.options());
+  at::Tensor bin_ids =
+      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step =
-    (upper_bound - lower_bound) / static_cast<double>(num_bins);
+      (upper_bound - lower_bound) / static_cast<double>(num_bins);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(), "histogram_binning_calibration_by_feature_cpu", [&]() {
         _histogram_binning_calibration_by_feature_cpu_kernel<scalar_t>(
-            logit.numel(), num_bins, num_segments,
-            recalibrate_value, step, bin_ctr_in_use_after,
-            bin_ctr_weight_value, logit.data_ptr<scalar_t>(),
+            logit.numel(),
+            num_bins,
+            num_segments,
+            recalibrate_value,
+            step,
+            bin_ctr_in_use_after,
+            bin_ctr_weight_value,
+            logit.data_ptr<scalar_t>(),
             dense_segment_value.data_ptr<int64_t>(),
             segment_lengths.data_ptr<int64_t>(),
             bin_num_examples.data_ptr<double>(),
@@ -1139,6 +1172,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
   m.impl("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_forward_cpu);
   m.impl("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_cpu);
-  m.impl("histogram_binning_calibration", fbgemm::histogram_binning_calibration_cpu);
-  m.impl("histogram_binning_calibration_by_feature", fbgemm::histogram_binning_calibration_by_feature_cpu);
+  m.impl(
+      "histogram_binning_calibration",
+      fbgemm::histogram_binning_calibration_cpu);
+  m.impl(
+      "histogram_binning_calibration_by_feature",
+      fbgemm::histogram_binning_calibration_by_feature_cpu);
 }

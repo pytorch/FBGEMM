@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 {% set wdesc = "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_backward_template_helpers.cuh"
 
@@ -1195,3 +1196,4 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 }
 {% endif %}
 {% endfor %}
+    // clang-format on

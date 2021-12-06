@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
@@ -212,3 +213,4 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 } // namespace
+// clang-format on

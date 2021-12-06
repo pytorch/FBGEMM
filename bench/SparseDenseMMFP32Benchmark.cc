@@ -10,8 +10,8 @@
 #include "fbgemm/spmmUtils.h"
 #include "src/RefImplementations.h"
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 using namespace std;
 using namespace fbgemm;
@@ -23,10 +23,9 @@ int main(int, char**) {
   // A is MxK -> AT is KxM
   // B is KxN -> BT is NxK
 
-  cout << setw(7) << "index"
-    << setw(7) << "m" << setw(7) << "n" << setw(7) << "k"
-    << setw(7) << "fnz" << setw(15) << "eff_GFLOPS"
-    << setw(15) << "real_GFLOPS" << endl;
+  cout << setw(7) << "index" << setw(7) << "m" << setw(7) << "n" << setw(7)
+       << "k" << setw(7) << "fnz" << setw(15) << "eff_GFLOPS" << setw(15)
+       << "real_GFLOPS" << endl;
 
   int index = 0;
   // for (int s = 64; s <= 128; s *= 2)
@@ -122,12 +121,10 @@ int main(int, char**) {
       }
 
       double effective_gflops_intrin = effective_flop / secs_intrin / 1e9;
-      cout << "[" << setw(5) << index << "]"
-        << setw(7) << m << setw(7) << n << setw(7) << k
-        << fixed << setw(7) << setprecision(2) << fnz
-        << setw(15) << setprecision(5) << effective_gflops_intrin
-        << setw(15) << setprecision(5) << fnz * effective_gflops_intrin
-        << endl;
+      cout << "[" << setw(5) << index << "]" << setw(7) << m << setw(7) << n
+           << setw(7) << k << fixed << setw(7) << setprecision(2) << fnz
+           << setw(15) << setprecision(5) << effective_gflops_intrin << setw(15)
+           << setprecision(5) << fnz * effective_gflops_intrin << endl;
       ++index;
     }
   }

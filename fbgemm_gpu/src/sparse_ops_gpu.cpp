@@ -124,8 +124,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm::lookup_batched_unary_embedding_function);
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_gpu);
-  DISPATCH_TO_CUDA("histogram_binning_calibration",
-                   fbgemm::histogram_binning_calibration_cuda);
-  DISPATCH_TO_CUDA("histogram_binning_calibration_by_feature",
-                   fbgemm::histogram_binning_calibration_by_feature_cuda);
+  DISPATCH_TO_CUDA(
+      "histogram_binning_calibration",
+      fbgemm::histogram_binning_calibration_cuda);
+  DISPATCH_TO_CUDA(
+      "histogram_binning_calibration_by_feature",
+      fbgemm::histogram_binning_calibration_by_feature_cuda);
 }
