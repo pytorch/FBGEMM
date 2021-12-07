@@ -236,12 +236,9 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
 // Assumes positive weight calibration is used for calibartion target, and
 // "positive_weight" is passed as input argument.
 //
-// "dense_segment_value":
-// KeyJaggedTensor should have been made to dense format using
-// torch.ops.fb.to_dense_representation.
-//
-// "segment_lengths":
-// Lengths in KeyJaggedTensor.
+// "segment_value/lengths":
+// Values and lengths in KeyJaggedTensor. Assumes value of length is either 0
+// or 1.
 //
 // "num_bins":
 // # of bins is no longer the same as "bin_num_examples", and
@@ -263,7 +260,7 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
 // bin_ctr_weight) * calibration_target.
 // Default: 1.0
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
-    const at::Tensor& logit, const at::Tensor& dense_segment_value,
+    const at::Tensor& logit, const at::Tensor& segment_value,
     const at::Tensor& segment_lengths, int64_t num_segments,
     const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
     int64_t num_bins, double positive_weight,
@@ -272,7 +269,7 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
     double bin_ctr_weight_value = 1.0);
 
 std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cuda(
-    const at::Tensor& logit, const at::Tensor& dense_segment_value,
+    const at::Tensor& logit, const at::Tensor& segment_value,
     const at::Tensor& segment_lengths, int64_t num_segments,
     const at::Tensor& bin_num_examples, const at::Tensor& bin_num_positives,
     int64_t num_bins, double positive_weight,

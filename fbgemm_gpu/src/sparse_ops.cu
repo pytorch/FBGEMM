@@ -1571,6 +1571,26 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
 }
 
 template <typename T>
+__global__ void to_dense_segment_value_kernel(
+    const int64_t num_lengths,
+    const int64_t* const segment_value_data,
+    const T* const segment_offsets_data,
+    int64_t* const dense_segment_value_data) {
+  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= num_lengths - 1) {
+    return;
+  }
+
+  const auto curr_offset = segment_offsets_data[index];
+  const auto next_offset = segment_offsets_data[index + 1];
+  if (next_offset > curr_offset) {
+    // Add 1 to distinguish between 0 inserted by densification vs. original
+    // value.
+    dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
+  }
+}
+
+template <typename T>
 __global__ void histogram_binning_calibration_by_feature_kernel(
     const int64_t num_logits,
     const int64_t num_bins,
@@ -1581,7 +1601,6 @@ __global__ void histogram_binning_calibration_by_feature_kernel(
     const double bin_ctr_weight_value,
     const T* const logit_data,
     const int64_t* const dense_segment_value_data,
-    const int64_t* const segment_lengths_data,
     const double* const bin_num_examples_data,
     const double* const bin_num_positives_data,
     T* const calibrated_prediction_data,
@@ -1595,8 +1614,7 @@ __global__ void histogram_binning_calibration_by_feature_kernel(
   const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
 
   const int64_t curr_segment_value =
-      (dense_segment_value_data[index] > num_segments ||
-       segment_lengths_data[index] != 1)
+      dense_segment_value_data[index] > num_segments
       ? 0
       : max(0L, dense_segment_value_data[index] * num_bins);
 
@@ -1616,7 +1634,7 @@ __global__ void histogram_binning_calibration_by_feature_kernel(
 std::tuple<at::Tensor, at::Tensor>
 histogram_binning_calibration_by_feature_cuda(
     const at::Tensor& logit,
-    const at::Tensor& dense_segment_value,
+    const at::Tensor& segment_value,
     const at::Tensor& segment_lengths,
     int64_t num_segments,
     const at::Tensor& bin_num_examples,
@@ -1628,7 +1646,7 @@ histogram_binning_calibration_by_feature_cuda(
     int64_t bin_ctr_in_use_after,
     double bin_ctr_weight_value) {
   TENSOR_ON_CUDA_GPU(logit);
-  TENSOR_ON_CUDA_GPU(dense_segment_value);
+  TENSOR_ON_CUDA_GPU(segment_value);
   TENSOR_ON_CUDA_GPU(segment_lengths);
   TENSOR_ON_CUDA_GPU(bin_num_examples);
   TENSOR_ON_CUDA_GPU(bin_num_positives);
@@ -1636,6 +1654,32 @@ histogram_binning_calibration_by_feature_cuda(
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(logit.get_device());
+
+  // Convert lengths to offsets for better handling on GPUs.
+  const auto segment_lengths_packed = segment_lengths.contiguous();
+  auto segment_offsets =
+      asynchronous_complete_cumsum_gpu(segment_lengths_packed.view(-1));
+
+  // dense_segment_value is used as a temporary storage.
+  at::Tensor dense_segment_value =
+      at::zeros({logit.numel()}, segment_value.options());
+
+  const int32_t num_threads = 512;
+  const auto segment_value_packed = segment_value.contiguous();
+  const auto segment_offsets_packed = segment_offsets.contiguous();
+  auto dense_segment_value_packed = dense_segment_value.contiguous();
+  AT_DISPATCH_INDEX_TYPES(
+      segment_offsets.scalar_type(), "to_dense_segment_value_cuda", [&]() {
+        to_dense_segment_value_kernel<index_t>
+            <<<fbgemm_gpu::div_round_up(segment_offsets.numel(), num_threads),
+               num_threads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                segment_offsets.numel(),
+                segment_value_packed.data_ptr<int64_t>(),
+                segment_offsets_packed.data_ptr<index_t>(),
+                dense_segment_value_packed.data_ptr<int64_t>());
+      });
 
   at::Tensor calibrated_prediction =
       at::empty({logit.numel()}, logit.options());
@@ -1645,10 +1689,7 @@ histogram_binning_calibration_by_feature_cuda(
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
 
-  const int32_t num_threads = 512;
   const auto logit_packed = logit.contiguous();
-  const auto dense_segment_value_packed = dense_segment_value.contiguous();
-  const auto segment_lengths_packed = segment_lengths.contiguous();
   const auto bin_num_examples_packed = bin_num_examples.contiguous();
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -1667,7 +1708,6 @@ histogram_binning_calibration_by_feature_cuda(
                 bin_ctr_weight_value,
                 logit_packed.data_ptr<scalar_t>(),
                 dense_segment_value_packed.data_ptr<int64_t>(),
-                segment_lengths_packed.data_ptr<int64_t>(),
                 bin_num_examples_packed.data_ptr<double>(),
                 bin_num_positives_packed.data_ptr<double>(),
                 calibrated_prediction.data_ptr<scalar_t>(),
