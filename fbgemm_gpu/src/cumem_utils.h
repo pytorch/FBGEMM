@@ -32,10 +32,16 @@ Tensor uvm_to_cpu(Tensor t);
 // the same uvm storage as t
 Tensor uvm_to_device(Tensor t, Tensor prototype);
 
+// Call cudaMemAdvise on UVM Storage. The hint enum is generated in Python
+// (fbgemm,uvm) using data returned from C++ op.
 void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise);
 
+// Call cudaMemPrefetchAsync on UVM Storage
 void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t);
 
+// Call madvise(..MADV_DONTFORK) on the UVM storage. This is a workaround for
+// an issue where the UVM kernel driver unmaps UVM storage pages from the page
+// table on fork - causing slowdown on the next access from a CPU.
 void uvm_mem_advice_dont_fork(Tensor t);
 
 FBGEMM_GPU_ENUM_CREATE_TAG(uvm)
