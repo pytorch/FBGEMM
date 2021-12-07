@@ -1111,8 +1111,7 @@ class SparseOpsTest(unittest.TestCase):
             data_type
         )
 
-        # add 1 to distinguish between 0 inserted by densification vs. original value.
-        dense_segment_value = torch.tensor([40, 31, 32, 13, 31]) + 1
+        segment_value = torch.tensor([40, 31, 32, 13, 31])
         lengths = torch.tensor([[1], [1], [1], [1], [1]])
 
         num_interval = num_bins * (num_segments + 1)
@@ -1124,7 +1123,7 @@ class SparseOpsTest(unittest.TestCase):
             bin_ids,
         ) = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
             logit=logit,
-            dense_segment_value=dense_segment_value,
+            segment_value=segment_value,
             segment_lengths=lengths,
             num_segments=num_segments,
             bin_num_examples=bin_num_examples,
@@ -1164,7 +1163,7 @@ class SparseOpsTest(unittest.TestCase):
                 bin_ids_gpu,
             ) = torch.ops.fbgemm.histogram_binning_calibration_by_feature(
                 logit=logit.cuda(),
-                dense_segment_value=dense_segment_value.cuda(),
+                segment_value=segment_value.cuda(),
                 segment_lengths=lengths.cuda(),
                 num_segments=num_segments,
                 bin_num_examples=bin_num_examples.cuda(),
