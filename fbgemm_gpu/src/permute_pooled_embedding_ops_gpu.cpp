@@ -7,7 +7,6 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 #include <ATen/core/op_registration/op_registration.h>
-#include <THC/THC.h>
 #include <c10/util/irange.h>
 #include <fbgemm_gpu/permute_pooled_embedding_ops.h>
 #include <torch/library.h>
