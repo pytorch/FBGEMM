@@ -3398,7 +3398,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         dtype=st.sampled_from(
             [
                 torch.int64,
@@ -3461,6 +3461,31 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
             # but the device assert kills the CUDA context and requires a process restart,
             # which is a bit inconvenient.
+
+        # test offsets bound errors
+        indices = indices_copy.clone()
+        if offsets.numel() > 0:
+            offsets[0] = -100
+        if offsets.numel() > 1:
+            offsets[-1] += 100
+        if bounds_check_mode != BoundsCheckMode.FATAL:
+            torch.ops.fb.bounds_check_indices(
+                rows_per_table, indices, offsets, bounds_check_mode, warning
+            )
+            if offsets.numel() > 0:
+                self.assertEqual(offsets[0].item(), 0)
+            if offsets.numel() > 1:
+                self.assertEqual(offsets[-1].item(), indices.numel())
+            if bounds_check_mode == BoundsCheckMode.WARNING:
+                # -1 because when we have 2 elements in offsets, we have only 1
+                # warning for the pair.
+                self.assertEqual(warning.item(), min(2, offsets.numel() - 1))
+        else:
+            if use_cpu and indices.numel():
+                with self.assertRaises(RuntimeError):
+                    torch.ops.fb.bounds_check_indices(
+                        rows_per_table, indices, offsets, bounds_check_mode, warning
+                    )
 
 
 if __name__ == "__main__":

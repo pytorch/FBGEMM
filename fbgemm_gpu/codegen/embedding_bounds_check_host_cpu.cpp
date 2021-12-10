@@ -31,13 +31,47 @@ void bounds_check_indices_cpu(
   auto warning_acc = warning.data_ptr<int64_t>();
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&]() {
-    const auto offsets_acc = offsets.accessor<index_t, 1>();
+    auto offsets_acc = offsets.accessor<index_t, 1>();
     auto indices_acc = indices.accessor<index_t, 1>();
+    auto num_indices = indices.numel();
     for (auto t = 0; t < T; ++t) {
       auto num_rows = rows_per_table_acc[t];
       for (auto b = 0; b < B; ++b) {
         auto indices_start = offsets_acc[t * B + b];
         auto indices_end = offsets_acc[t * B + b + 1];
+        if (bounds_check_mode == BoundsCheckMode::FATAL) {
+          TORCH_CHECK(indices_start >= 0);
+          TORCH_CHECK(indices_start <= indices_end);
+          TORCH_CHECK(indices_end <= num_indices);
+        } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+          if (indices_start < 0 || indices_start > indices_end ||
+              indices_end > num_indices) {
+            if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+              LOG(ERROR)
+                  << "(at least one) Out of bounds access for batch: " << b
+                  << ", table: " << t << ", indices_start: " << indices_start
+                  << ", indices_end: " << indices_end
+                  << ", num_indices: " << num_indices
+                  << ". Setting indices_start and indices_end within the range";
+            }
+            indices_start = std::max(
+                0L, std::min(static_cast<int64_t>(indices_start), num_indices));
+            indices_end = std::max(
+                static_cast<int64_t>(indices_start),
+                std::min(static_cast<int64_t>(indices_end), num_indices));
+            offsets_acc[t * B + b] = indices_start;
+            offsets_acc[t * B + b + 1] = indices_end;
+          }
+        } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+          indices_start = std::max(
+              0L, std::min(static_cast<int64_t>(indices_start), num_indices));
+          indices_end = std::max(
+              static_cast<int64_t>(indices_start),
+              std::min(static_cast<int64_t>(indices_end), num_indices));
+          offsets_acc[t * B + b] = indices_start;
+          offsets_acc[t * B + b + 1] = indices_end;
+        }
+
         auto L = indices_end - indices_start;
         for (auto l = 0; l < L; ++l) {
           auto idx = indices_acc[indices_start + l];

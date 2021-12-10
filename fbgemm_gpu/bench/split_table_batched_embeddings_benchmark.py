@@ -1791,8 +1791,8 @@ def bounds_check_indices(  # noqa C901
     )
     # requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
-    warning = torch.tensor([0]).long().cuda()
-    rows_per_table = torch.tensor([E for _ in range(T)]).long().cuda()
+    warning = torch.tensor([0]).long().to(get_device())
+    rows_per_table = torch.tensor([E for _ in range(T)]).long().to(get_device())
     # forward
     time_per_iter = benchmark_requests(
         requests,

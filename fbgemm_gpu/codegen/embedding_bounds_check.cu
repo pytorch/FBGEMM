@@ -14,7 +14,7 @@ __global__ void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     int64_t bounds_check_mode_,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd) {
@@ -33,6 +33,41 @@ __global__ void bounds_check_indices_kernel(
   auto num_rows = rows_per_table[t];
   auto indices_start = offsets[t * B + b];
   auto indices_end = offsets[t * B + b + 1];
+  index_t num_indices = indices.size(0);
+
+  if (bounds_check_mode == BoundsCheckMode::FATAL) {
+    CUDA_KERNEL_ASSERT(indices_start >= 0);
+    CUDA_KERNEL_ASSERT(indices_start <= indices_end);
+    CUDA_KERNEL_ASSERT(indices_end <= num_indices);
+  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    if (indices_start < 0 || indices_start > indices_end ||
+        indices_end > num_indices) {
+      if (gpuAtomicIncrement(&warning[0]) == 0) {
+        printf(
+            "EmbeddingBoundsCheck: (at least one) Out of bounds access for "
+            "batch: %lld, table: %lld, indices_start: %lld, indices_end: %lld,"
+            " num_indices: %lld. Setting indices_start and indices_end within "
+            "the range.\n",
+            int64_t(b),
+            int64_t(t),
+            int64_t(indices_start),
+            int64_t(indices_end),
+            int64_t(num_indices));
+      }
+      indices_start = std::max(
+          static_cast<index_t>(0), std::min(indices_start, num_indices));
+      indices_end = std::max(indices_start, std::min(indices_end, num_indices));
+      offsets[t * B + b] = indices_start;
+      offsets[t * B + b + 1] = indices_end;
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+    indices_start =
+        std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
+    indices_end = std::max(indices_start, std::min(indices_end, num_indices));
+    offsets[t * B + b] = indices_start;
+    offsets[t * B + b + 1] = indices_end;
+  }
+
   auto L = indices_end - indices_start;
   for (auto i = threadIdx.x; i < L; i += fbgemm_gpu::kWarpSize) {
     auto idx = indices[indices_start + i];
