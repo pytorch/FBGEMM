@@ -33,14 +33,15 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
   VecRegT AReg(31);
   for (int j = 0; j < colRegs; ++j) {
     a->vmovdqa32(
-        VecRegT(30 - j), x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
+        VecRegT(30 - j),
+        x86::dword_ptr(buffer_B, j * vectorLen * sizeof(int8_t)));
   }
 
   for (int i = 0; i < rowRegs; i++) {
     a->vpbroadcastd(
-      AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
+        AReg, x86::dword_ptr(buffer_A, (i * lda) * sizeof(uint8_t)));
     for (int j = 0; j < colRegs; ++j) {
-      a->vpdpbusd(VecRegT(i * colRegs + j), AReg, VecRegT(30-j));
+      a->vpdpbusd(VecRegT(i * colRegs + j), AReg, VecRegT(30 - j));
     }
   }
 }
@@ -53,11 +54,14 @@ template <>
 template <inst_set_t instSet>
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
-    bool accum, int32_t mc, int32_t nc, int32_t kc) {
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc) {
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
-  static constexpr inst_set_t storeInstType = simd_info<instSet>::WIDTH_BITS == 512
-      ? inst_set_t::avx512
-      : inst_set_t::avx512_ymm;
+  static constexpr inst_set_t storeInstType =
+      simd_info<instSet>::WIDTH_BITS == 512 ? inst_set_t::avx512
+                                            : inst_set_t::avx512_ymm;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
   int kBlock;
@@ -364,23 +368,25 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
   });
 }
 
-
 /**
  * Instatiate the AVX512_VNNI instructions for 32-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-getOrCreate<inst_set_t::avx512_vnni>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
+    inst_set_t::avx512_vnni>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 /**
- * Instatiate the AVX512_VNNI_256 instructions for 32-bit Accumulation macro-kernel.
+ * Instatiate the AVX512_VNNI_256 instructions for 32-bit Accumulation
+ * macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-getOrCreate<inst_set_t::avx512_vnni_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
+    inst_set_t::avx512_vnni_ymm>(
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc);
 
 } // namespace fbgemm

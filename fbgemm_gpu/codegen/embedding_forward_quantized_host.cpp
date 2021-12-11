@@ -4,12 +4,12 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "c10/core/ScalarType.h"
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/script.h>
+#include "c10/core/ScalarType.h"
 
 using namespace at;
 

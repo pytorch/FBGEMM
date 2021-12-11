@@ -69,14 +69,15 @@ int main(int, char**) {
       aligned_vector<float> act_times_w_scale(n);
       randFill<float>(act_times_w_scale, -8.0f, 8.0f);
 
-      trRequantizationParams_t reqParams = {act_zero_point,
-                                            weight_zero_point.data(),
-                                            zero_point,
-                                            scale,
-                                            bcsr->row_offsets.data(),
-                                            nullptr,
-                                            nullptr,
-                                            act_times_w_scale.data()};
+      trRequantizationParams_t reqParams = {
+          act_zero_point,
+          weight_zero_point.data(),
+          zero_point,
+          scale,
+          bcsr->row_offsets.data(),
+          nullptr,
+          nullptr,
+          act_times_w_scale.data()};
 
       // printMatrix(matrix_op_t::NoTranspose, btData.data(), n, k, k,
       // "btData"); printMatrix( matrix_op_t::NoTranspose, bcsr->rowBPtr.data(),

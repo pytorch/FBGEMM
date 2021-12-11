@@ -54,11 +54,12 @@ void performance_test() {
 
     aligned_vector<uint8_t> output(len);
 
-    for (BenchmarkType bench_type : {BenchmarkType::BARE_BONE,
-                                     BenchmarkType::BIAS,
-                                     BenchmarkType::A_ASYMMETRIC,
-                                     BenchmarkType::B_ASYMMETRIC,
-                                     BenchmarkType::PER_CHANNEL}) {
+    for (BenchmarkType bench_type :
+         {BenchmarkType::BARE_BONE,
+          BenchmarkType::BIAS,
+          BenchmarkType::A_ASYMMETRIC,
+          BenchmarkType::B_ASYMMETRIC,
+          BenchmarkType::PER_CHANNEL}) {
       int32_t Aint8_zero_point =
           bench_type < BenchmarkType::A_ASYMMETRIC ? 0 : -3;
       if (bench_type < BenchmarkType::B_ASYMMETRIC) {

@@ -47,7 +47,6 @@ class ExecuteKernel<
       const BlockingFactors* params = nullptr);
   void execute(int kBlock);
 
-
  private:
   PackMatrix<packingAMatrix, uint8_t, typename packingAMatrix::accType>&
       packedA_; ///< Packed uint8 block of matrix A.

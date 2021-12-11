@@ -390,13 +390,13 @@ int fbgemmConv(
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 2)         \
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 3)
 
-#define INSTANTIATE_RELU(ACC_T, Q_GRAN)         \
-  INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, true)  \
+#define INSTANTIATE_RELU(ACC_T, Q_GRAN)        \
+  INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, true) \
   INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, false)
 
-#define INSTANTIATE_Q_GRANS(ACC_T)                          \
-  INSTANTIATE_RELU(ACC_T, QuantizationGranularity::TENSOR)  \
-  INSTANTIATE_RELU(ACC_T, QuantizationGranularity::GROUP)   \
+#define INSTANTIATE_Q_GRANS(ACC_T)                         \
+  INSTANTIATE_RELU(ACC_T, QuantizationGranularity::TENSOR) \
+  INSTANTIATE_RELU(ACC_T, QuantizationGranularity::GROUP)  \
   INSTANTIATE_RELU(ACC_T, QuantizationGranularity::OUT_CHANNEL)
 
 INSTANTIATE_Q_GRANS(std::int32_t)

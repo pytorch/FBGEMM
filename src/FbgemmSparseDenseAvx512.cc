@@ -37,7 +37,7 @@ void SparseDenseMMAvx512(
     int r2_rem = N - VLEN - j;
     r2_rem = (r2_rem <= VLEN) ? r2_rem : (VLEN);
     r2_rem = (r2_rem < 0) ? 0 : r2_rem;
-    __mmask16 mask_v = (((long long) 1) << r2_rem) - 1;
+    __mmask16 mask_v = (((long long)1) << r2_rem) - 1;
     for (int i = 0; i < M; ++i) {
       __m512 c_v_r1;
       __m512 c_v_r2;
@@ -64,9 +64,12 @@ void SparseDenseMMAvx512(
         c_v_r1 = _mm512_fmadd_ps(a_v_0, br_v_0_r1, c_v_r1);
         c_v_r1 = _mm512_fmadd_ps(a_v_1, br_v_1_r1, c_v_r1);
         c_v_r1 = _mm512_fmadd_ps(a_v_2, br_v_2_r1, c_v_r1);
-        __m512 br_v_0_r2 = _mm512_maskz_loadu_ps(mask_v, B + acbr_0 * ldb + j + VLEN);
-        __m512 br_v_1_r2 = _mm512_maskz_loadu_ps(mask_v, B + acbr_1 * ldb + j + VLEN);
-        __m512 br_v_2_r2 = _mm512_maskz_loadu_ps(mask_v, B + acbr_2 * ldb + j + VLEN);
+        __m512 br_v_0_r2 =
+            _mm512_maskz_loadu_ps(mask_v, B + acbr_0 * ldb + j + VLEN);
+        __m512 br_v_1_r2 =
+            _mm512_maskz_loadu_ps(mask_v, B + acbr_1 * ldb + j + VLEN);
+        __m512 br_v_2_r2 =
+            _mm512_maskz_loadu_ps(mask_v, B + acbr_2 * ldb + j + VLEN);
         c_v_r2 = _mm512_fmadd_ps(a_v_0, br_v_0_r2, c_v_r2);
         c_v_r2 = _mm512_fmadd_ps(a_v_1, br_v_1_r2, c_v_r2);
         c_v_r2 = _mm512_fmadd_ps(a_v_2, br_v_2_r2, c_v_r2);
@@ -76,7 +79,8 @@ void SparseDenseMMAvx512(
         __m512 a_v = _mm512_set1_ps(values[r]);
         __m512 br_v_r1 = _mm512_loadu_ps(B + acbr * ldb + j);
         c_v_r1 = _mm512_fmadd_ps(a_v, br_v_r1, c_v_r1);
-        __m512 br_v_r2 = _mm512_maskz_loadu_ps(mask_v, B + acbr * ldb + j + VLEN);
+        __m512 br_v_r2 =
+            _mm512_maskz_loadu_ps(mask_v, B + acbr * ldb + j + VLEN);
         c_v_r2 = _mm512_fmadd_ps(a_v, br_v_r2, c_v_r2);
       }
       _mm512_storeu_ps(C + i * ldc + j, c_v_r1);
@@ -88,7 +92,7 @@ void SparseDenseMMAvx512(
   if (rem > 0) {
     for (int i = 0; i < M; ++i) {
       __m512 c_v;
-      __mmask16 mask_v = (((long long) 1) << rem) - 1;
+      __mmask16 mask_v = (((long long)1) << rem) - 1;
       if (accum) {
         c_v = _mm512_maskz_loadu_ps(mask_v, C + i * ldc + j);
       } else {

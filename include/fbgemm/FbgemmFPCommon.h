@@ -6,9 +6,9 @@
  */
 #pragma once
 
+#include <fbgemm/FbgemmPackMatrixB.h>
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
-#include <fbgemm/FbgemmPackMatrixB.h>
 #include <array>
 
 namespace fbgemm {
@@ -31,12 +31,12 @@ struct GemmParams {
 
 template <typename T>
 using funcptr_t = void (*)(GemmParams<T>*);
-template<typename T>
+template <typename T>
 using kernel_array_t = std::array<funcptr_t<T>, 15>;
-template<typename T>
+template <typename T>
 using isa_descriptor = std::tuple<kernel_array_t<T>, partition_array_t>;
 
-template<typename T>
+template <typename T>
 extern const isa_descriptor<T>& getIsaHandlers(inst_set_t isa, T);
 
 void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
@@ -44,7 +44,7 @@ void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
 // define this to debug fp16 kernel using a reference C implementation
 // #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
 #ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-template<typename T>
+template <typename T>
 FBGEMM_API void ref_kernel(
     int kernel_nrows,
     GemmParams<T>* gp,
@@ -54,7 +54,7 @@ FBGEMM_API void ref_kernel(
     int vlen);
 #endif
 
-template<typename T>
+template <typename T>
 FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
@@ -66,7 +66,7 @@ FBGEMM_API void cblas_gemm_compute(
     int num_threads = 1);
 
 // autotuned kernel splits for various cases m = 1:mb_max
-template<typename T>
+template <typename T>
 void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
@@ -84,8 +84,8 @@ void cblas_gemm_compute(
 
   const auto iset = fbgemmInstructionSet();
   // private scratchpad storage
-  static thread_local std::unique_ptr<std::array<float, 256 * 1024>>
-      scratchpad(new std::array<float, 256 * 1024>());
+  static thread_local std::unique_ptr<std::array<float, 256 * 1024>> scratchpad(
+      new std::array<float, 256 * 1024>());
 
   const auto& isaHandlers = getIsaHandlers<T>(iset, T());
 
@@ -101,9 +101,9 @@ void cblas_gemm_compute(
   // avx2 even if avx512 is available.
   const int simd_width =
       (iset == inst_set_t::avx512 || iset == inst_set_t::avx512_vnni) &&
-      (Bp.blockColSize() == 16 * kernel_ncol_blocks)
-          ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
-          : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+          (Bp.blockColSize() == 16 * kernel_ncol_blocks)
+      ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
+      : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
 #endif
   GemmParams<T> gp;
   int i_begin, i_end;
@@ -198,14 +198,17 @@ void cblas_gemm_compute(
               // required kernel_nrow x kernel_ncols elements computed in the
               // registers.
               std::array<float, 14 * 32> c_tmp{0.f};
-              assert(static_cast<int64_t>(c_tmp.size()) >= kernel_nrows * Bp.blockColSize());
+              assert(
+                  static_cast<int64_t>(c_tmp.size()) >=
+                  kernel_nrows * Bp.blockColSize());
 
               gp.B = &(Bp(k_ind, last_blk_col));
               gp.C = c_tmp.data();
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-              ref_kernel<T>(kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
+              ref_kernel<T>(
+                  kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
 #else
               kernels[kernel_nrows](&gp);
 #endif

@@ -6,8 +6,8 @@
  */
 #include <gtest/gtest.h>
 
-#include "fbgemm/FbgemmFP16.h"
 #include "./FBGemmFPTest.h"
+#include "fbgemm/FbgemmFP16.h"
 
 using FBGemmFP16Test = fbgemm::FBGemmFPTest<fbgemm::float16>;
 

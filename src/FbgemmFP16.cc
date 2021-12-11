@@ -65,9 +65,9 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0};
 
-}
+} // namespace
 
-template<>
+template <>
 const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
   static isa_descriptor<float16> avx2_descriptor =
       std::make_tuple(kernel_fp16_avx2, partition_avx2);
@@ -76,7 +76,7 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
   static isa_descriptor<float16> avx512_256_descriptor =
       std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
 
-  switch(isa) {
+  switch (isa) {
     case inst_set_t::anyarch:
     case inst_set_t::avx2:
       return avx2_descriptor;
@@ -94,7 +94,8 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
 }
 
 #ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-template<> FBGEMM_API void ref_kernel<float16>(
+template <>
+FBGEMM_API void ref_kernel<float16>(
     int kernel_nrows,
     GemmParams<float16>* gp,
     const float* C_base,

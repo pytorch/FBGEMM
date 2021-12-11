@@ -212,7 +212,10 @@ vector<conv_param_t<3>> shapes_3d = {
 // clang-format on
 
 template <int SPATIAL_DIM, typename Acc_t>
-void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes, bool flush, int repetitions) {
+void performance_test(
+    const vector<conv_param_t<SPATIAL_DIM>>& shapes,
+    bool flush,
+    int repetitions) {
   std::vector<char> llc;
 
   if (flush) {
@@ -503,9 +506,12 @@ void performance_test(const vector<conv_param_t<SPATIAL_DIM>>& shapes, bool flus
 }
 
 typedef struct {
-  bool no_flush; /* if true, llc won't be flushed inbetween benchmark iterations */
-  bool run_extended_shapes; /* if true, runs additional shapes on top of the default set */
-  int benchmark_repetitions; /* specified number of timed benchmark iterations */
+  bool no_flush; /* if true, llc won't be flushed inbetween benchmark iterations
+                  */
+  bool run_extended_shapes; /* if true, runs additional shapes on top of the
+                               default set */
+  int benchmark_repetitions; /* specified number of timed benchmark iterations
+                              */
 } user_args_t;
 
 int main(int argc, const char* argv[]) {

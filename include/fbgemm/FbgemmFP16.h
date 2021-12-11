@@ -16,13 +16,13 @@
 #include <stdexcept>
 #include <vector>
 
+#include "./FbgemmPackMatrixB.h"
 #include "./Types.h"
 #include "./Utils.h"
-#include "./FbgemmPackMatrixB.h"
 
 namespace fbgemm {
 
-template<>
+template <>
 struct TypeConverter<float16> {
   float16 operator()(float src) const {
     constexpr float FP16_MAX = 65504.f;
@@ -33,7 +33,7 @@ struct TypeConverter<float16> {
 
 using PackedGemmMatrixFP16 = PackedGemmMatrixB<float16>;
 
-template<typename T>
+template <typename T>
 FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,

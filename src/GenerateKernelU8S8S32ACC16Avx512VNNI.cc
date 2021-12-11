@@ -35,7 +35,11 @@ template <>
 template <>
 CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<
-    inst_set_t::avx512_vnni_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc) {
+    inst_set_t::avx512_vnni_ymm>(
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc) {
   assert(0 && "Accumulation to int16_t is not available for VNNI!");
 
   // For AVX512VNNI, redirect to int32_t accumulation.

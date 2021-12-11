@@ -8,13 +8,13 @@
 #include "fbgemm/FbgemmSparse.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <sstream>
 #include <vector>
-#include <array>
 
 #include "fbgemm/Utils.h"
 #include "fbgemm/spmmUtils.h"
@@ -123,7 +123,6 @@ void BCSRMatrix<T, RB, CB>::pack(const DTYPE* src, size_t ld) {
                     src[(i * RB + ib) * ld + jt * COLTILE + j * CB + jb];
                 values.push_back(val);
                 rowSum[ib] += static_cast<int32_t>(val);
-
               }
             }
           }

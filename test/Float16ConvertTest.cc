@@ -138,7 +138,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
   vector<vector<int>> shapes;
   random_device r;
   default_random_engine generator(r());
-  uniform_int_distribution<int> dm(2, 1024*256);
+  uniform_int_distribution<int> dm(2, 1024 * 256);
 
   for (int i = 0; i < 10; i++) {
     int m = dm(generator);
@@ -161,8 +161,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
       A_fp32_ref[1] = 1e-10;
     }
 
-    RoundToFloat16(
-        A_fp32_ref.data(), A_fp32_final.data(), m, do_clip, do_clip);
+    RoundToFloat16(A_fp32_ref.data(), A_fp32_final.data(), m, do_clip, do_clip);
 
     for (int i = 0; i < m; ++i) {
       // The relative error should be less than 1/(2^10) since float16
@@ -180,8 +179,10 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
           expected = 0.0;
         }
       }
-      constexpr float kEpsilon = 1e-8f; // To handle the case where expected == 0.0;
-      EXPECT_LE(fabs(expected - A_fp32_final[i]) / (expected + kEpsilon), 1.0 / 1024);
+      constexpr float kEpsilon =
+          1e-8f; // To handle the case where expected == 0.0;
+      EXPECT_LE(
+          fabs(expected - A_fp32_final[i]) / (expected + kEpsilon), 1.0 / 1024);
     }
     if (do_clip) {
       EXPECT_EQ(A_fp32_final[1], 0.0);

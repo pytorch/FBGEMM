@@ -126,16 +126,17 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
         (Q_GRAN == QuantizationGranularity::TENSOR && Bq_zero_point_[0] == 0) ||
         q_row_offsets_ == nullptr;
 
-    requantizationParams_t<BIAS_TYPE> r = {Aq_zero_point_,
-                                           Bq_zero_point_,
-                                           C_zero_point_,
-                                           C_multiplier_,
-                                           q_row_offsets_,
-                                           q_col_offsets_,
-                                           bias_,
-                                           ncols_,
-                                           groups_,
-                                           act_times_w_scale_};
+    requantizationParams_t<BIAS_TYPE> r = {
+        Aq_zero_point_,
+        Bq_zero_point_,
+        C_zero_point_,
+        C_multiplier_,
+        q_row_offsets_,
+        q_col_offsets_,
+        bias_,
+        ncols_,
+        groups_,
+        act_times_w_scale_};
 
     if (Aq_zero_point_ == 0) {
       if (b_symmetric) {
@@ -244,15 +245,16 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
         (Q_GRAN == QuantizationGranularity::TENSOR && Bq_zero_point_[0] == 0) ||
         q_row_offsets_ == nullptr;
 
-    requantizationForFloatParams_t r = {Aq_zero_point_,
-                                        Bq_zero_point_,
-                                        Aq_scale_,
-                                        Bq_scale_,
-                                        q_row_offsets_,
-                                        q_col_offsets_,
-                                        bias_,
-                                        ncols_,
-                                        groups_};
+    requantizationForFloatParams_t r = {
+        Aq_zero_point_,
+        Bq_zero_point_,
+        Aq_scale_,
+        Bq_scale_,
+        q_row_offsets_,
+        q_col_offsets_,
+        bias_,
+        ncols_,
+        groups_};
 
     if (Aq_zero_point_ == 0) {
       if (b_symmetric) {

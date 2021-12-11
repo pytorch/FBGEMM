@@ -6,13 +6,19 @@
  */
 #define FBGEMM_EXPORTS
 #include "./TransposeUtils.h"
-#include "fbgemm/Utils.h"
 #include <cstring>
+#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
 template <typename T>
-void transpose_ref(unsigned M, unsigned N, const T* src, unsigned ld_src, T* dst, unsigned ld_dst) {
+void transpose_ref(
+    unsigned M,
+    unsigned N,
+    const T* src,
+    unsigned ld_src,
+    T* dst,
+    unsigned ld_dst) {
   for (unsigned j = 0; j < N; j++) {
     for (unsigned i = 0; i < M; i++) {
       dst[i + j * ld_dst] = src[i * ld_src + j];

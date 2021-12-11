@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
+#include "fbgemm/Fbgemm.h"
 
 #include <array>
 #include <cmath>

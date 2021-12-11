@@ -28,7 +28,6 @@
 #include <utility>
 #include <vector>
 
-
 namespace fbgemm {
 
 void FloatToFloat16_simd(

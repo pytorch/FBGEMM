@@ -5,9 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 #define FBGEMM_EXPORTS
+#include "fbgemm/spmmUtilsAvx2.h"
 #include <immintrin.h>
 #include <cassert> //for assert
-#include "fbgemm/spmmUtilsAvx2.h"
 #include "./MaskAvx2.h"
 
 namespace fbgemm {
@@ -25,7 +25,7 @@ FBGEMM_API void trRequantizeOpt(
     int ld_out,
     int ld_in,
     const trRequantizationParams_t& r) {
-  assert (
+  assert(
       (Q_GRAN != QuantizationGranularity::GROUP) &&
       "GROUP Granularity is not supported");
 
@@ -79,13 +79,13 @@ FBGEMM_API void trRequantizeOpt(
     }
 
     if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-      float act_times_w_div_c = r.act_times_w_scale[weight_zeropoint_idx] /
-          r.C_scale;
+      float act_times_w_div_c =
+          r.act_times_w_scale[weight_zeropoint_idx] / r.C_scale;
       act_times_w_div_c_v = _mm256_set1_ps(act_times_w_div_c);
     }
 
-    __m256i weight_zeropoint_v = _mm256_set1_epi32(
-        r.weight_zero_points[weight_zeropoint_idx]);
+    __m256i weight_zeropoint_v =
+        _mm256_set1_epi32(r.weight_zero_points[weight_zeropoint_idx]);
 
     int j = block.col_start;
     for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
@@ -233,8 +233,7 @@ FBGEMM_API void trRequantizeOpt(
       __m256 xf_v;
       if (HAS_BIAS) {
         xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), bias_v);
-      }
-      else {
+      } else {
         xf_v = _mm256_cvtepi32_ps(x_v);
       }
 
@@ -274,8 +273,7 @@ FBGEMM_API void trRequantizeOpt(
       if (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
             _mm256_maskload_epi32(
-                r.act_col_offsets + j - block.col_start,
-                mask_v),
+                r.act_col_offsets + j - block.col_start, mask_v),
             weight_zeropoint_v);
         x_v = _mm256_sub_epi32(x_v, col_offset_v);
       }
@@ -366,4 +364,4 @@ CREATE_INSTANCE(
     QuantizationGranularity::OUT_CHANNEL)
 #undef CREATE_INSTANCE
 
-}  // namespace fbgemm
+} // namespace fbgemm

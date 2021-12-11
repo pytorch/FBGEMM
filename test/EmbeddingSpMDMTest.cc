@@ -950,7 +950,6 @@ TEST_P(IndexRemapTest, basicTest) {
           out_offsets_ref.data(),
           out_weights_ref.data());
     } else {
-
       compressed_indices_remap<int64_t>(
           offset_numel,
           indices.data(),

@@ -33,11 +33,14 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       torch::dispatch(
           c10::DispatchKey::CUDA, TORCH_FN(new_vanilla_managed_tensor)));
   m.def(
-      "cuda_mem_advise(Tensor t, int advice) -> ()", TORCH_FN(uvm_cuda_mem_advise));
+      "cuda_mem_advise(Tensor t, int advice) -> ()",
+      TORCH_FN(uvm_cuda_mem_advise));
   m.def(
       "cuda_mem_prefetch_async(Tensor t, Tensor? device_t) -> ()",
       TORCH_FN(uvm_cuda_mem_prefetch_async));
-  m.def("uvm_mem_advice_dont_fork(Tensor t) -> ()", TORCH_FN(uvm_mem_advice_dont_fork));
+  m.def(
+      "uvm_mem_advice_dont_fork(Tensor t) -> ()",
+      TORCH_FN(uvm_mem_advice_dont_fork));
 
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
 }

@@ -9,9 +9,9 @@
 #include "fbgemm/spmmUtilsAvx2.h"
 
 #include <immintrin.h>
+#include <algorithm> // for min and max
 #include <cassert>
 #include <cstring>
-#include <algorithm> // for min and max
 #include "./MaskAvx2.h"
 
 namespace fbgemm {

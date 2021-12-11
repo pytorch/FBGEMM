@@ -319,7 +319,7 @@ void ExecuteKernel<
       // handling for the last column block.
       int32_t nSize =
           (C_buffer_start == C_tile_.data() ? (jb - jb_begin) * nbSize_
-                                     : (jb_end - jb_begin) * nbSize_);
+                                            : (jb_end - jb_begin) * nbSize_);
       if (nSize) {
         if (fbgemmHasAvx2Support()) {
           // TODO: avx512 path

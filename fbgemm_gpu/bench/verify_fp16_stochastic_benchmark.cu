@@ -9,9 +9,9 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+#include <unistd.h>
 #include <chrono>
 #include <iostream>
-#include <unistd.h>
 #include <vector>
 
 __device__ half float_to_sto_half_direct(float w) {
@@ -56,7 +56,8 @@ __device__ half float_to_sto_half_assemblefloat(float w, uint8_t rand) {
   const unsigned w_int = __float_as_uint(w);
   const unsigned assmebles = (w_int & 0xff800000) | (rand << 5);
   const unsigned subtract = (w_int & 0xff800000);
-  const float assmeble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
+  const float assmeble_float =
+      __uint_as_float(assmebles) - __uint_as_float(subtract);
   return __float2half_rz(w + assmeble_float);
 }
 

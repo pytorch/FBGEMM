@@ -53,7 +53,7 @@ void FusedQuantizeDequantizeAvx2(
     float* dst,
     int len,
     const TensorQuantizationParams& qparams,
-    float noise_ratio=0.0f);
+    float noise_ratio = 0.0f);
 
 /*
  * Random number generator in [0, 9]: https://www.jstatsoft.org/v08/i14/paper

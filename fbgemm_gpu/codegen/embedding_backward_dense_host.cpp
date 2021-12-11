@@ -367,18 +367,18 @@ at::Tensor split_embedding_codegen_lookup_dense_function(
         offsets)[0];
   } else {
     return SplitLookupFunction_Dense_Op::apply(
-      dev_weights,
-      weights_offsets,
-      D_offsets,
-      total_D,
-      max_D,
-      hash_size_cumsum,
-      total_hash_size_bits,
-      indices,
-      offsets,
-      pooling_mode,
-      indice_weights,
-      feature_requires_grad)[0];
+        dev_weights,
+        weights_offsets,
+        D_offsets,
+        total_D,
+        max_D,
+        hash_size_cumsum,
+        total_hash_size_bits,
+        indices,
+        offsets,
+        pooling_mode,
+        indice_weights,
+        feature_requires_grad)[0];
   }
 }
 

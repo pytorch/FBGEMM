@@ -4,6 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+// clang-format off
 #include <map>
 #include <tuple>
 
@@ -216,3 +217,4 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   return;
 }
+// clang-format on

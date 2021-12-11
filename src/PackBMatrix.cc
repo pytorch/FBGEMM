@@ -199,13 +199,13 @@ PackBMatrix<T, accT>::PackBMatrix(
       case inst_set_t::avx512_vnni:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx512_vnni_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx512:
@@ -216,7 +216,7 @@ PackBMatrix<T, accT>::PackBMatrix(
       case inst_set_t::avx512_ymm:
         std::tie(BaseType::brow_, BaseType::bcol_, row_interleave_) =
             PackingTraits<T, accT, inst_set_t::avx512_ymm>::
-              getMatrixPackBParams();
+                getMatrixPackBParams();
         break;
 
       case inst_set_t::avx2:
@@ -333,8 +333,7 @@ void PackBMatrix<T, accT>::pack_unpack_(
             (i % BaseType::blockRowSize() / row_interleave_) *
                 BaseType::blockColSize() * row_interleave_ +
             i % row_interleave_;
-        for (int j = blockColStart; j < blockColStart + blockColSize;
-             j++) {
+        for (int j = blockColStart; j < blockColStart + blockColSize; j++) {
           int c_offset = (j / BaseType::blockColSize()) *
                   BaseType::blockRowSize() * BaseType::blockColSize() +
               (j % BaseType::blockColSize()) * row_interleave_;

@@ -112,7 +112,8 @@ void requantizeOutputProcessingGConvAvx512(
     // for avx512 currently all 4 cases supported will only run one iteration of
     // inner loop
     // for C_per_g == 8, we only have 8 outputs while the other cases have 16.
-    // thus, we do masked load for all col quantization scheme under C_per_g == 8
+    // thus, we do masked load for all col quantization scheme under C_per_g ==
+    // 8
     for (; j < block.col_start + ((block.col_size + VLEN - 1) / VLEN * VLEN);
          j += VLEN) {
       __m512i x_v;
@@ -217,9 +218,11 @@ void requantizeOutputProcessingGConvAvx512(
         if (is_same<BIAS_TYPE, float>::value) {
           __m512 x_bias_v;
           if (C_PER_G != 8) {
-            x_bias_v = _mm512_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
+            x_bias_v =
+                _mm512_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
           } else {
-            x_bias_v = _mm512_maskz_loadu_ps(mask, reinterpret_cast<const float*>(r.bias + j));
+            x_bias_v = _mm512_maskz_loadu_ps(
+                mask, reinterpret_cast<const float*>(r.bias + j));
           }
 
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -227,10 +230,10 @@ void requantizeOutputProcessingGConvAvx512(
             if (C_PER_G != 8) {
               act_times_w_scale_v = _mm512_loadu_ps(r.act_times_w_scale + j);
             } else {
-              act_times_w_scale_v = _mm512_maskz_loadu_ps(mask, r.act_times_w_scale + j);
+              act_times_w_scale_v =
+                  _mm512_maskz_loadu_ps(mask, r.act_times_w_scale + j);
             }
-            x_bias_v = _mm512_div_ps(
-                x_bias_v, act_times_w_scale_v);
+            x_bias_v = _mm512_div_ps(x_bias_v, act_times_w_scale_v);
           } else if (Q_GRAN == QuantizationGranularity::GROUP) {
             __m512 diviser_v;
             if (C_PER_G == 2) {
@@ -280,11 +283,11 @@ void requantizeOutputProcessingGConvAvx512(
       __m512 x_scaled_v;
       if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         __m512 C_multiplier_v;
-          if (C_PER_G != 8) {
-            C_multiplier_v = _mm512_loadu_ps(r.C_multiplier + j);
-          } else {
-            C_multiplier_v = _mm512_maskz_loadu_ps(mask, r.C_multiplier + j);
-          }
+        if (C_PER_G != 8) {
+          C_multiplier_v = _mm512_loadu_ps(r.C_multiplier + j);
+        } else {
+          C_multiplier_v = _mm512_maskz_loadu_ps(mask, r.C_multiplier + j);
+        }
         x_scaled_v = _mm512_mul_ps(xf_v, C_multiplier_v);
       } else if (Q_GRAN == QuantizationGranularity::GROUP) {
         if (C_PER_G == 2) {
@@ -368,7 +371,8 @@ void requantizeOutputProcessingGConvAvx512(
             _mm512_castsi512_si128(x_clamped_v));
       } else {
         _mm_storel_epi64(
-            reinterpret_cast<__m128i*>(out + i * ld_out + j), _mm512_castsi512_si128(x_clamped_v));
+            reinterpret_cast<__m128i*>(out + i * ld_out + j),
+            _mm512_castsi512_si128(x_clamped_v));
       }
     } // j loop vectorized
 

@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 #define FBGEMM_EXPORTS
-#include <iostream>
-#include <cstring>
-#include <cassert>
 #include "fbgemm/spmmUtils.h"
+#include <cassert>
+#include <cstring>
+#include <iostream>
 
 using namespace std;
 

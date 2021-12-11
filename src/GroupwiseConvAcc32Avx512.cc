@@ -256,14 +256,15 @@ GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     }
   }
 }
-#define GENCONVKERNEL_FUNCS(S, IN)                                           \
-  template void GenConvKernel<S, IN>::genForLoadingWeights<IN>(x86::Emitter* a); \
-  template void GenConvKernel<S, IN>::genConstForPermutations<IN>(               \
-      x86::Emitter* a);                                                      \
-  template void GenConvKernel<S, IN>::genForSingleFilterPoint<IN>(               \
-      x86::Emitter* a, int r, int s, int act_s, bool use_zero_reg);          \
-  template void GenConvKernel<S, IN>::storeResult<IN>(x86::Emitter* a);          \
-  template void GenConvKernel<S, IN>::storeOffset<IN>(x86::Emitter* a);
+#define GENCONVKERNEL_FUNCS(S, IN)                                       \
+  template void GenConvKernel<S, IN>::genForLoadingWeights<IN>(          \
+      x86::Emitter * a);                                                 \
+  template void GenConvKernel<S, IN>::genConstForPermutations<IN>(       \
+      x86::Emitter * a);                                                 \
+  template void GenConvKernel<S, IN>::genForSingleFilterPoint<IN>(       \
+      x86::Emitter * a, int r, int s, int act_s, bool use_zero_reg);     \
+  template void GenConvKernel<S, IN>::storeResult<IN>(x86::Emitter * a); \
+  template void GenConvKernel<S, IN>::storeOffset<IN>(x86::Emitter * a);
 GENCONVKERNEL_FUNCS(1, inst_set_t::avx512)
 GENCONVKERNEL_FUNCS(1, inst_set_t::avx512_vnni)
 GENCONVKERNEL_FUNCS(2, inst_set_t::avx512)

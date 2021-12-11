@@ -25,7 +25,6 @@
 #include <folly/container/F14Map.h>
 #endif
 
-
 namespace fbgemm {
 
 /**
@@ -36,7 +35,6 @@ namespace fbgemm {
 template <typename KEY, typename VALUE>
 class CodeCache {
  private:
-
 #ifdef FBCODE_CAFFE2
   folly::F14FastMap<KEY, std::shared_future<VALUE>> values_;
 #else
@@ -55,7 +53,7 @@ class CodeCache {
 
   CodeCache(){};
 
-  template<typename GENFUNC>
+  template <typename GENFUNC>
   VALUE getOrCreate(const KEY& key, GENFUNC generatorFunction) {
     // Check for existence of the key
     {

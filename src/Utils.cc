@@ -282,8 +282,8 @@ inst_set_t fbgemmInstructionSet() {
     inst_set_t isa = inst_set_t::anyarch;
     // Check environment
     if (cpuinfo_initialize()) {
-      const bool isXeonD =
-        fbgemmIsIntelXeonD() && (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
+      const bool isXeonD = fbgemmIsIntelXeonD() &&
+          (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
       if (fbgemmHasAvx512VnniSupport()) {
         if (isXeonD) {
           isa = inst_set_t::avx512_vnni_ymm;
@@ -321,8 +321,7 @@ bool isZmm(inst_set_t isa) {
 }
 
 bool isYmm(inst_set_t isa) {
-  return isa == inst_set_t::avx512_ymm ||
-      isa == inst_set_t::avx512_vnni_ymm ||
+  return isa == inst_set_t::avx512_ymm || isa == inst_set_t::avx512_vnni_ymm ||
       isa == inst_set_t::avx2;
 }
 
@@ -429,7 +428,7 @@ int fbgemmGet2DPartition(
   // for large thread numbers, we would like to reduce the aspect_ratio ---
   // if the matrix is short-and-fat
   // this allows us to assign more parallelism to i-dimension
-  if (nthreads > 16 && m/n < 0.2) {
+  if (nthreads > 16 && m / n < 0.2) {
     aspect_ratio = 0.2;
   }
 
@@ -497,7 +496,7 @@ thread_type_t fbgemmGetThreadPartition(
   // dimension, so we set aspect_ratio to 0.5 here.
   th_info.m_num_threads = fbgemmGet2DPartition(m, n, num_threads, n_align, 0.5);
 
-  //when num_threads >16, m_num_threads may not divide num_threads
+  // when num_threads >16, m_num_threads may not divide num_threads
   if (num_threads <= 16) {
     assert(num_threads % (th_info.m_num_threads) == 0);
   }
@@ -519,7 +518,8 @@ thread_type_t fbgemmGetThreadPartition(
 
   // thread can be inactive,
   // meaning they are launched, but will not be assigned any work
-  if (thread_id >= th_info.g_num_threads*th_info.m_num_threads*th_info.n_num_threads) {
+  if (thread_id >=
+      th_info.g_num_threads * th_info.m_num_threads * th_info.n_num_threads) {
     th_info.m_thread_id = 0;
     th_info.n_thread_id = 0;
     th_info.g_thread_id = 0;

@@ -21,7 +21,9 @@ vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::OUT_CHANNEL};
 
 // tuple represents M, N, K, fnz, fuse_relu and QuantizationGranularity
-class SPMMInt8Test : public testing::TestWithParam<tuple<int, int, int, float, bool, QuantizationGranularity>> {};
+class SPMMInt8Test
+    : public testing::TestWithParam<
+          tuple<int, int, int, float, bool, QuantizationGranularity>> {};
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

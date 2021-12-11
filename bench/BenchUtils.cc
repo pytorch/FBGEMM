@@ -230,5 +230,4 @@ template aligned_vector<int32_t> getRandomBlockSparseMatrix(
     int32_t low,
     int32_t high);
 
-
 } // namespace fbgemm
