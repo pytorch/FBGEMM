@@ -82,16 +82,50 @@ def generate_requests(
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
     requests_data_file: Optional[str] = None,
+    # Comma-separated list of table numbers
+    tables: Optional[str] = None,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
-    if requests_data_file:
-        indices_tensor, offsets_tensor, _ = torch.load(requests_data_file)
+    if requests_data_file is not None:
+        indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
 
-        assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
-            f"Data file (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}, lengths = {_.size()}) "
-            f"does not conform to inputs (T, B) = ({T}, {B})."
-        )
-        logging.warning(
-            "Ignoring L and E parameters as requests data file has been provided"
+        logging.warning("Ignoring L parameter as requests data file has been provided")
+
+        if tables is not None:
+            emb_tables = tuple(int(x) for x in tables.split(","))
+            indices = torch.zeros(0, dtype=indices_tensor.dtype)
+            offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
+            for t in emb_tables:
+                t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
+                indices = torch.cat(
+                    (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
+                )
+                offsets = torch.cat(
+                    (
+                        offsets,
+                        t_offsets[1:] - t_offsets[0] + offsets[-1],
+                    )
+                )
+            indices_tensor = indices
+            offsets_tensor = offsets
+
+            assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
+                f"Requested tables: {emb_tables} "
+                f"does not conform to inputs (T, B) = ({T}, {B})."
+            )
+            logging.warning(
+                f"Using (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}) based "
+                f"on tables: {emb_tables}"
+            )
+        else:
+            assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
+                f"Data file (indices = {indices_tensor.size()}, "
+                f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
+                f"does not conform to inputs (T, B) = ({T}, {B})."
+            )
+
+        assert E > max(indices_tensor), (
+            f"Number of embeddings is not enough to support maximum index "
+            f"provided by data file {E} vs. {max(indices_tensor)}"
         )
 
         weights_tensor = (
@@ -99,7 +133,10 @@ def generate_requests(
             if not weighted
             else torch.randn(indices_tensor.size(), device=get_device())
         )
-        return [(indices_tensor, offsets_tensor, weights_tensor)]
+        rs = []
+        for _ in range(iters):
+            rs.append((indices_tensor.to(get_device()), offsets_tensor.to(get_device()), weights_tensor))
+        return rs
 
     if alpha <= 1.0:
         all_indices = torch.randint(
@@ -259,6 +296,7 @@ def cli() -> None:
 @click.option("--dense", is_flag=True, default=False)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -279,6 +317,7 @@ def device(  # noqa C901
     dense: bool,
     output_dtype: SparseType,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -377,6 +416,7 @@ def device(  # noqa C901
         weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
 
     # forward
@@ -437,6 +477,7 @@ def device(  # noqa C901
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--use-cache", is_flag=True, default=False)
 @click.option("--cache-algorithm", default="lru")
@@ -459,6 +500,7 @@ def uvm(
     weighted: bool,
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
+    tables: Optional[str],
     output_dtype: SparseType,
     use_cache: bool,
     cache_algorithm: str,
@@ -567,6 +609,7 @@ def uvm(
         weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
 
     requests_gpu = None
@@ -582,6 +625,7 @@ def uvm(
             weights_precision=weights_precision,
             weighted=False,
             requests_data_file=requests_data_file,
+            tables=tables,
         )
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -680,6 +724,7 @@ def uvm(
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -698,6 +743,7 @@ def cache(  # noqa C901
     weighted: bool,
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -776,6 +822,7 @@ def cache(  # noqa C901
         alpha=alpha,
         weighted=weighted,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
     grad_output = torch.randn(B, sum(Ds)).cuda()
@@ -880,6 +927,7 @@ def benchmark_cpu_requests(
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--index-remapping", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 def nbit_cpu(  # noqa C901
     alpha: float,
@@ -898,6 +946,7 @@ def nbit_cpu(  # noqa C901
     weighted: bool,
     index_remapping: bool,
     requests_data_file: Optional[str],
+    tables: Optional[str],
     output_dtype: SparseType,
 ) -> None:
     np.random.seed(42)
@@ -951,6 +1000,7 @@ def nbit_cpu(  # noqa C901
         weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
     requests = [
         (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
@@ -999,6 +1049,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1025,6 +1076,7 @@ def nbit_device(  # noqa C901
     output_dtype: SparseType,
     report_aibench: bool,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1104,6 +1156,7 @@ def nbit_device(  # noqa C901
             weights_precision=weights_precision,
             weighted=weighted,
             requests_data_file=requests_data_file,
+            tables=tables,
         )
         requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
@@ -1591,6 +1644,7 @@ def nbit_cache(  # noqa C901
 @click.option("--hit-rate", default=0.9)
 @click.option("--use-cpu", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def hashtable(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1601,6 +1655,7 @@ def hashtable(  # noqa C901
     hit_rate: float,
     use_cpu: bool,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     B = batch_size
     T = num_tables
@@ -1644,6 +1699,7 @@ def hashtable(  # noqa C901
         L,
         E,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
 
     if not use_cpu:
@@ -1701,6 +1757,7 @@ def hashtable(  # noqa C901
 @click.option("--num-tables", default=100)
 @click.option("--pruning-ratio", default=0.9)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def pruned_array(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1709,6 +1766,7 @@ def pruned_array(  # noqa C901
     num_tables: int,
     pruning_ratio: float,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     B = batch_size
     T = num_tables
@@ -1738,6 +1796,7 @@ def pruned_array(  # noqa C901
         L,
         E,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
     requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
 
@@ -1765,6 +1824,7 @@ def pruned_array(  # noqa C901
 @click.option("--num-tables", default=32)
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
 def bounds_check_indices(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -1773,6 +1833,7 @@ def bounds_check_indices(  # noqa C901
     num_tables: int,
     bounds_check_mode: int,
     requests_data_file: Optional[str],
+    tables: Optional[str],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1788,6 +1849,7 @@ def bounds_check_indices(  # noqa C901
         L,
         E,
         requests_data_file=requests_data_file,
+        tables=tables,
     )
     # requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
