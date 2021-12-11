@@ -23,7 +23,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
-      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
   m.impl(
       "bounds_check_indices",
       torch::dispatch(
