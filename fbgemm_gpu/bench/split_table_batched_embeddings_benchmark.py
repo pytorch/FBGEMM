@@ -135,7 +135,13 @@ def generate_requests(
         )
         rs = []
         for _ in range(iters):
-            rs.append((indices_tensor.to(get_device()), offsets_tensor.to(get_device()), weights_tensor))
+            rs.append(
+                (
+                    indices_tensor.to(get_device()),
+                    offsets_tensor.to(get_device()),
+                    weights_tensor,
+                )
+            )
         return rs
 
     if alpha <= 1.0:
