@@ -12,7 +12,6 @@
 
 #include "./FbgemmI8Depthwise2DAvx2-inl.h"
 
-
 namespace fbgemm {
 
 // Old interface

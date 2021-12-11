@@ -22,8 +22,13 @@ namespace fbgemm {
  * @param ld_dst The leading dimension of the destination matrix B.
  */
 template <typename T>
-FBGEMM_API void
-transpose_ref(unsigned M, unsigned N, const T* src, unsigned ld_src, T* dst, unsigned ld_dst);
+FBGEMM_API void transpose_ref(
+    unsigned M,
+    unsigned N,
+    const T* src,
+    unsigned ld_src,
+    T* dst,
+    unsigned ld_dst);
 
 namespace internal {
 
@@ -33,7 +38,13 @@ namespace internal {
  * This is called if the code is running on a CPU with Intel AVX2 support.
  */
 template <typename T>
-void transpose_avx2(unsigned M, unsigned N, const T* src, unsigned ld_src, T* dst, unsigned ld_dst);
+void transpose_avx2(
+    unsigned M,
+    unsigned N,
+    const T* src,
+    unsigned ld_src,
+    T* dst,
+    unsigned ld_dst);
 
 /**
  * @brief Transpose a matrix using Intel AVX512.

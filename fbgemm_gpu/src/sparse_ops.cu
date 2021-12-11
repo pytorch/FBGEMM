@@ -95,9 +95,10 @@ at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size) {
   return range;
 }
 
-at::Tensor segment_sum_csr_cuda(const int64_t batch_size,
-                                const at::Tensor& csr_seg,
-                                const at::Tensor& values) {
+at::Tensor segment_sum_csr_cuda(
+    const int64_t batch_size,
+    const at::Tensor& csr_seg,
+    const at::Tensor& values) {
   TENSOR_ON_CUDA_GPU(csr_seg);
   TENSOR_ON_CUDA_GPU(values);
 
@@ -110,18 +111,18 @@ at::Tensor segment_sum_csr_cuda(const int64_t batch_size,
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
   AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cuda", [&]() {
-                          _segment_sum_csr_cuda_kernel<scalar_t>
-                              <<<num_blocks,
-                                 threads_per_block,
-                                 0,
-                                 at::cuda::getCurrentCUDAStream()>>>(
-                                  csr_seg.numel() - 1,
-                                  batch_size,
-                                  csr_seg.data_ptr<int>(),
-                                  values.data_ptr<scalar_t>(),
-                                  output.data_ptr<scalar_t>());
-                          C10_CUDA_KERNEL_LAUNCH_CHECK();
-                        });
+    _segment_sum_csr_cuda_kernel<scalar_t>
+        <<<num_blocks,
+           threads_per_block,
+           0,
+           at::cuda::getCurrentCUDAStream()>>>(
+            csr_seg.numel() - 1,
+            batch_size,
+            csr_seg.data_ptr<int>(),
+            values.data_ptr<scalar_t>(),
+            output.data_ptr<scalar_t>());
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  });
   return output;
 }
 
@@ -301,7 +302,10 @@ permute_sparse_data_cuda(
       input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES_AND(
-            at::ScalarType::Half, indices.scalar_type(), "permute_data_kernel_2", ([&] {
+            at::ScalarType::Half,
+            indices.scalar_type(),
+            "permute_data_kernel_2",
+            ([&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
                 const at::Tensor weights_value = weights.value();
@@ -309,7 +313,10 @@ permute_sparse_data_cuda(
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
                 AT_DISPATCH_ALL_TYPES_AND(
-                    at::ScalarType::Half, weights_value.scalar_type(), "permute_data_kernel_3", ([&] {
+                    at::ScalarType::Half,
+                    weights_value.scalar_type(),
+                    "permute_data_kernel_3",
+                    ([&] {
                       using weights_t = scalar_t;
                       permute_data_kernel<true, offsets_t, indices_t, weights_t>
                           <<<blocks_2,

@@ -1200,7 +1200,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "histogram_binning_calibration(Tensor logit, Tensor bin_num_examples, Tensor bin_num_positives, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
       "histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, int num_bins, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
-  m.def("segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+  m.def(
+      "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

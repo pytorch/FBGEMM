@@ -16,8 +16,8 @@ using namespace std;
 
 namespace x86 = asmjit::x86;
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(
-    x86::Emitter* a) {
+GCONV_INST_DEF_AVX2_HEADER
+GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPermutations(x86::Emitter* a) {
   if (this->C_per_G_ == 4) {
     x86::Gp permute_const_reg = a->gpz(12);
     x86::Xmm const_reg_xmm = x86::xmm11;
@@ -44,8 +44,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genConstForPerm
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(
-    x86::Emitter* a) {
+GCONV_INST_DEF_AVX2_HEADER
+GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWeights(x86::Emitter* a) {
   using WRegs = x86::Ymm;
   int paddedICPerG = (this->C_per_G_ + 3) / 4 * 4;
   // load weights
@@ -65,7 +65,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForLoadingWe
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86::Emitter* a) {
+GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(
+    x86::Emitter* a) {
   if (GTogether_ > 1) {
     // store with permutation
     a->vpermd(x86::Ymm(9), stPermReg_V_, x86::Ymm(9));
@@ -111,7 +112,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeResult(x86
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86::Emitter* a) {
+GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(
+    x86::Emitter* a) {
   switch (this->C_per_G_) {
     case 2:
       // store 128-bits containing rowoffset for four groups
@@ -152,7 +154,8 @@ GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::storeOffset(x86
   }
 }
 
-GCONV_INST_DEF_AVX2_HEADER GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
+GCONV_INST_DEF_AVX2_HEADER
+GenConvKernel<SPATIAL_DIM, INST_SET>::genForSingleFilterPoint(
     x86::Emitter* a,
     int r,
     int s,

@@ -27,9 +27,9 @@ vector<QuantizationGranularity> qGranularityVals{
 namespace {
 
 // tuple represents #rows, #cols, fuse_relu, quantization_granularity
-class RequantizeTest : public testing::TestWithParam<
-                           tuple<int, int, bool, bool, QuantizationGranularity>>
-                           {};
+class RequantizeTest
+    : public testing::TestWithParam<
+          tuple<int, int, bool, bool, QuantizationGranularity>> {};
 
 }; // namespace
 
@@ -101,31 +101,35 @@ TEST_P(RequantizeTest, reqTest) {
     if (weight_zero_point[0] == 0) {
       use_col_offsets = false;
     }
-  }
-  else {
+  } else {
     auto areEqual = [](int a, int b) { return a == b; };
     if (std::all_of(
-        weight_zero_point.begin(),
-        weight_zero_point.end(),
-        std::bind(areEqual, std::placeholders::_1, 0))) {
+            weight_zero_point.begin(),
+            weight_zero_point.end(),
+            std::bind(areEqual, std::placeholders::_1, 0))) {
       use_col_offsets = false;
     }
   }
   auto col_offsets_ptr = use_col_offsets ? act_col_offsets.data() : nullptr;
-  trRequantizationParams_t reqParams = {act_zero_point,
-                                        weight_zero_point.data(),
-                                        zero_point,
-                                        scale,
-                                        weight_row_offsets.data(),
-                                        col_offsets_ptr,
-                                        bias_data_ptr,
-                                        act_times_w_scale.data()};
+  trRequantizationParams_t reqParams = {
+      act_zero_point,
+      weight_zero_point.data(),
+      zero_point,
+      scale,
+      weight_row_offsets.data(),
+      col_offsets_ptr,
+      bias_data_ptr,
+      act_times_w_scale.data()};
 
 #define TESTCODE(FUSE_RELU, ACT_SYMMETRIC, WEIGHT_SYMMETRIC, HAS_BIAS, Q_GRAN) \
   trRequantizeRef<FUSE_RELU, Q_GRAN>(                                          \
       output_ref.data(), input.data(), block, cols, cols, reqParams);          \
-  trRequantizeOpt<FUSE_RELU, ACT_SYMMETRIC, WEIGHT_SYMMETRIC, HAS_BIAS,Q_GRAN>(\
-      output_test.data(), input.data(), block, cols, cols, reqParams);
+  trRequantizeOpt<                                                             \
+      FUSE_RELU,                                                               \
+      ACT_SYMMETRIC,                                                           \
+      WEIGHT_SYMMETRIC,                                                        \
+      HAS_BIAS,                                                                \
+      Q_GRAN>(output_test.data(), input.data(), block, cols, cols, reqParams);
 
   if (fuse_relu) {
     if (q_gran == QuantizationGranularity::TENSOR) {
@@ -137,34 +141,27 @@ TEST_P(RequantizeTest, reqTest) {
         if (act_zero_point == 0) {
           if (use_bias) {
             TESTCODE(true, true, true, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(true, true, true, false, QuantizationGranularity::TENSOR)
           }
-        }
-        else {
+        } else {
           if (use_bias) {
             TESTCODE(true, false, true, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(true, false, true, false, QuantizationGranularity::TENSOR)
           }
         }
-      }
-      else {
+      } else {
         if (act_zero_point == 0) {
           if (use_bias) {
             TESTCODE(true, true, false, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(true, true, false, false, QuantizationGranularity::TENSOR)
           }
-        }
-        else {
+        } else {
           if (use_bias) {
             TESTCODE(true, false, false, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(true, false, false, false, QuantizationGranularity::TENSOR)
           }
         }
@@ -173,44 +170,37 @@ TEST_P(RequantizeTest, reqTest) {
       if (!use_col_offsets) {
         if (act_zero_point == 0) {
           if (use_bias) {
-            TESTCODE(true, true, true, true,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                true, true, true, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                true, true, true, false, QuantizationGranularity::OUT_CHANNEL)
           }
-          else {
-            TESTCODE(true, true, true, false,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-        }
-        else {
+        } else {
           if (use_bias) {
-            TESTCODE(true, false, true, true,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-          else {
-            TESTCODE(true, false, true, false,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                true, false, true, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                true, false, true, false, QuantizationGranularity::OUT_CHANNEL)
           }
         }
-      }
-      else {
+      } else {
         if (act_zero_point == 0) {
           if (use_bias) {
-            TESTCODE(true, true, false, true,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                true, true, false, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                true, true, false, false, QuantizationGranularity::OUT_CHANNEL)
           }
-          else {
-            TESTCODE(true, true, false, false,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-        }
-        else {
+        } else {
           if (use_bias) {
-            TESTCODE(true, false, false, true,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-          else {
-            TESTCODE(true, false, false, false,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                true, false, false, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                true, false, false, false, QuantizationGranularity::OUT_CHANNEL)
           }
         }
       }
@@ -224,36 +214,29 @@ TEST_P(RequantizeTest, reqTest) {
         if (act_zero_point == 0) {
           if (use_bias) {
             TESTCODE(false, true, true, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(false, true, true, false, QuantizationGranularity::TENSOR)
           }
-        }
-        else {
+        } else {
           if (use_bias) {
             TESTCODE(false, false, true, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(false, false, true, false, QuantizationGranularity::TENSOR)
           }
         }
-      }
-      else {
+      } else {
         if (act_zero_point == 0) {
           if (use_bias) {
             TESTCODE(false, true, false, true, QuantizationGranularity::TENSOR)
-          }
-          else {
+          } else {
             TESTCODE(false, true, false, false, QuantizationGranularity::TENSOR)
           }
-        }
-        else {
+        } else {
           if (use_bias) {
             TESTCODE(false, false, false, true, QuantizationGranularity::TENSOR)
-          }
-          else {
-            TESTCODE(false, false, false, false,
-                QuantizationGranularity::TENSOR)
+          } else {
+            TESTCODE(
+                false, false, false, false, QuantizationGranularity::TENSOR)
           }
         }
       }
@@ -261,43 +244,40 @@ TEST_P(RequantizeTest, reqTest) {
       if (!use_col_offsets) {
         if (act_zero_point == 0) {
           if (use_bias) {
-            TESTCODE(false, true, true, true,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                false, true, true, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                false, true, true, false, QuantizationGranularity::OUT_CHANNEL)
           }
-          else {
-            TESTCODE(false, true, true, false,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-        }
-        else {
+        } else {
           if (use_bias) {
-            TESTCODE(false, false, true, true,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-          else {
-            TESTCODE(false, false, true, false,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                false, false, true, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                false, false, true, false, QuantizationGranularity::OUT_CHANNEL)
           }
         }
-      }
-      else {
+      } else {
         if (act_zero_point == 0) {
           if (use_bias) {
-            TESTCODE(false, true, false, true,
-                QuantizationGranularity::OUT_CHANNEL)
+            TESTCODE(
+                false, true, false, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                false, true, false, false, QuantizationGranularity::OUT_CHANNEL)
           }
-          else {
-            TESTCODE(false, true, false, false,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-        }
-        else {
+        } else {
           if (use_bias) {
-            TESTCODE(false, false, false, true,
-                QuantizationGranularity::OUT_CHANNEL)
-          }
-          else {
-            TESTCODE(false, false, false, false,
+            TESTCODE(
+                false, false, false, true, QuantizationGranularity::OUT_CHANNEL)
+          } else {
+            TESTCODE(
+                false,
+                false,
+                false,
+                false,
                 QuantizationGranularity::OUT_CHANNEL)
           }
         }

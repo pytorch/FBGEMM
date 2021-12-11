@@ -138,7 +138,6 @@ __global__ void nobag_linearize_index_kernel(
   }
 }
 
-
 class FixedDivisor {
  public:
   explicit FixedDivisor(const int32_t d) : d_(d) {

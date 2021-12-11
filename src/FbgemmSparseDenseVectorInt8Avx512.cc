@@ -94,8 +94,8 @@ static inline void requantizeForMV(
     __m512i x_v = _mm512_maskz_loadu_epi32(mask_int32_v, src + i);
 
     if (!ACT_ZP_0) {
-      __m512i weight_row_offset_v =
-          _mm512_maskz_loadu_epi32(mask_int32_v, rParams.weight_row_offsets + i);
+      __m512i weight_row_offset_v = _mm512_maskz_loadu_epi32(
+          mask_int32_v, rParams.weight_row_offsets + i);
       __m512i act_zero_point_v = _mm512_set1_epi32(rParams.act_zero_point);
       x_v = _mm512_sub_epi32(
           x_v, _mm512_mullo_epi32(act_zero_point_v, weight_row_offset_v));
@@ -253,4 +253,3 @@ CREATE_INSTANCE(false, QuantizationGranularity::OUT_CHANNEL)
 
 } // namespace internal
 } // namespace fbgemm
-

@@ -6,9 +6,9 @@
  */
 #pragma once
 #include <cstdint>
-#include "fbgemm/Types.h"
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmFPCommon.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 

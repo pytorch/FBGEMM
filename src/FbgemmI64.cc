@@ -46,11 +46,11 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::genComputeBlock(
   for (int j = 0; j < colRegs; ++j) {
     // load B
     a->vmovaps(
-      BReg,
-      x86::Mem(
-          buffer_B,
-          j * vectorLen * sizeof(int64_t),
-          simd_info<instSet>::WIDTH_BYTES));
+        BReg,
+        x86::Mem(
+            buffer_B,
+            j * vectorLen * sizeof(int64_t),
+            simd_info<instSet>::WIDTH_BYTES));
     // load A, broadcast and fmas
     for (int i = 0; i < rowRegs; ++i) {
       a->vpmullq(
@@ -394,10 +394,9 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
 /**
  * Instatiate the AVX512 instructions for int64_t GEMM macro-kernel.
  */
-template
-CodeGenBase<int64_t, int64_t, int64_t, int64_t>::jit_micro_kernel_fp
-CodeGenBase<int64_t, int64_t, int64_t, int64_t>::
-getOrCreate<inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<int64_t, int64_t, int64_t, int64_t>::jit_micro_kernel_fp
+CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate<
+    inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 // Expected to have overflows
 NO_SANITIZE("undefined")
@@ -434,8 +433,7 @@ void cblas_gemm_i64_i64acc(
   using CodeGenType = CodeGenBase<int64_t, int64_t, int64_t, int64_t>;
   CodeGenType codeObj;
   CodeGenType::jit_micro_kernel_fp fn =
-      codeObj.getOrCreate<inst_set_t::avx512>(
-          true /* accum */, MCB, NCB, KCB);
+      codeObj.getOrCreate<inst_set_t::avx512>(true /* accum */, MCB, NCB, KCB);
   CodeGenType::jit_micro_kernel_fp fn_noacc;
   if (!accumulate) {
     fn_noacc = codeObj.getOrCreate<inst_set_t::avx512>(

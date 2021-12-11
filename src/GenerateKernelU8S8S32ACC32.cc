@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <iostream>
-#include "./GenerateKernel.h"
 #include "./CodeGenHelpers.h"
+#include "./GenerateKernel.h"
 
 namespace fbgemm {
 
@@ -85,7 +85,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
         a->vpaddd(
             VecT(i * colRegs + j),
             VecT(i * colRegs + j),
-            x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)));
+            x86::dword_ptr(
+                a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)));
       }
       a->vmovups(
           x86::dword_ptr(a->zcx(), C_Offset, 0, j * vectorLen * sizeof(int8_t)),
@@ -102,7 +103,10 @@ template <>
 template <inst_set_t instSet>
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
 CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
-    bool accum, int32_t mc, int32_t nc, int32_t kc) {
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc) {
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -143,13 +147,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     // generated code logging
     FILE* codeLogfile = fopen(
         getCodeLoggingFile<instSet>(
-            accum,
-            mc,
-            nc,
-            nBlock,
-            kBlock,
-            mRegBlockSize,
-            nRegBlockSize)
+            accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
@@ -194,12 +192,10 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     asmjit::FuncFrame frame;
     frame.init(func);
 
-    auto dirtyVecRegs =
-        asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
+    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
     if (numRegs >= 16) {
-      dirtyVecRegs |=
-          asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
+      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
           asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
@@ -381,36 +377,38 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
  * Instantiate the AVX512 instructions for 32-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-getOrCreate<inst_set_t::avx512>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx512>(
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc);
 
 /**
  * Instatiate the AVX512_256 instructions for 32-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-getOrCreate<inst_set_t::avx512_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<
+    inst_set_t::avx512_ymm>(bool accum, int32_t mc, int32_t nc, int32_t kc);
 
 /**
  * Instantiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
  *
  */
-template
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
-CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-getOrCreate<inst_set_t::avx2>(bool accum, int32_t mc, int32_t nc, int32_t kc);
+template CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::jit_micro_kernel_fp
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate<inst_set_t::avx2>(
+    bool accum,
+    int32_t mc,
+    int32_t nc,
+    int32_t kc);
 
 /**
  * Instantiate the inst_set_t::avx512 instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-storeCRegs<inst_set_t::avx512>(
+template void
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<inst_set_t::avx512>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -422,9 +420,8 @@ storeCRegs<inst_set_t::avx512>(
  * Instantiate the inst_set_t::avx512_ymm instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-storeCRegs<inst_set_t::avx512_ymm>(
+template void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<
+    inst_set_t::avx512_ymm>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
@@ -436,9 +433,8 @@ storeCRegs<inst_set_t::avx512_ymm>(
  * Instantiate the inst_set_t::avx2 instructions for store kernel.
  *
  */
-template
-void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-storeCRegs<inst_set_t::avx2>(
+template void
+CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs<inst_set_t::avx2>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,

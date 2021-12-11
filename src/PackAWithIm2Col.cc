@@ -218,11 +218,12 @@ void pack_a_with_im2col_opt(
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
-  block_type_t block_p = {block.row_start,
-                          block.row_size,
-                          block.col_start,
-                          (block.col_size + row_interleave_B_ - 1) /
-                              row_interleave_B_ * row_interleave_B_};
+  block_type_t block_p = {
+      block.row_start,
+      block.row_size,
+      block.col_start,
+      (block.col_size + row_interleave_B_ - 1) / row_interleave_B_ *
+          row_interleave_B_};
   BaseType::packedBlock(block_p);
   T* out = BaseType::getBuf();
   // accumulate into row offset?
@@ -343,7 +344,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
           int w = ow + conv_p_.pad[0] - s * conv_p_.dilation[0];
           int w_in = w / conv_p_.stride[0];
-          if (w_in * conv_p_.stride[0] == w && w_in >=0 && w_in < conv_p_.IN_DIM[0]) {
+          if (w_in * conv_p_.stride[0] == w && w_in >= 0 &&
+              w_in < conv_p_.IN_DIM[0]) {
             std::memcpy(
                 out + (i - block.row_start) * BaseType::blockColSize() +
                     j_blk_start - block.col_start,
@@ -389,8 +391,9 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           int h_in = h / conv_p_.stride[0];
           int w_in = w / conv_p_.stride[1];
 
-          if (h_in * conv_p_.stride[0] == h && h_in >=0 && h_in < conv_p_.IN_DIM[0] &&
-              w_in * conv_p_.stride[1] == w && w_in >=0 && w_in < conv_p_.IN_DIM[1]) {
+          if (h_in * conv_p_.stride[0] == h && h_in >= 0 &&
+              h_in < conv_p_.IN_DIM[0] && w_in * conv_p_.stride[1] == w &&
+              w_in >= 0 && w_in < conv_p_.IN_DIM[1]) {
             std::memcpy(
                 out + (i - block.row_start) * BaseType::blockColSize() +
                     j_blk_start - block.col_start,
@@ -576,7 +579,8 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
             int chn_start_idx = j_blk_start % ic_per_group;
             int src_offset =
                 ((n * conv_p_.IN_DIM[0] + h_in) * conv_p_.IN_DIM[1] + w_in) *
-                conv_p_.IC + g * ic_per_group + chn_start_idx;
+                    conv_p_.IC +
+                g * ic_per_group + chn_start_idx;
             // fast path
             // Copy across pixels of input width if we can. We can only do this
             // if the following conditions are met. 1) If the number of groups

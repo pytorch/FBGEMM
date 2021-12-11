@@ -9,7 +9,6 @@
 #include "./OptimizedKernelsAvx2.h"
 #include <immintrin.h>
 
-
 namespace fbgemm {
 
 int32_t reduceAvx2(const uint8_t* A, int len) {

@@ -239,8 +239,8 @@ int64_t uvm_get_guard_index(Tensor& t) {
 
 void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
   // Call cudaMemAdvise on vm tensor
-  // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm namespace)
-  // for valid values and interface stub.
+  // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
+  // namespace) for valid values and interface stub.
   at::cuda::OptionalCUDAGuard device_guard;
   int64_t cuda_device_index = uvm_get_guard_index(t);
   int hint_device;
