@@ -1600,9 +1600,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
-    lxu_cache_locations_list: List[Tensor]
-    lxu_cache_locations_empty: Tensor
-    timesteps_prefetched: List[int]
 
     def __init__(
         self,
@@ -1810,11 +1807,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets,
             cache_reserved_memory,
         )
-        self.step = 0
 
+    @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
-        self.timestep += 1
-        self.timesteps_prefetched.append(self.timestep)
+        self.timestep_counter.increment()
+        self.timestep_prefetch_size.increment()
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
         #  int], Tensor], Tensor, nn.Module]` is not a function.
@@ -1840,7 +1837,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.lxu_cache_weights,
-                self.timestep,
+                self.timestep_counter.get(),
                 self.lxu_state,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
@@ -1859,9 +1856,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         assert (
-            len(self.lxu_cache_locations_list) < self.max_prefetch_depth
-        ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
-        self.lxu_cache_locations_list.append(
+            self.lxu_cache_locations_list.size() < self.max_prefetch_depth
+        ), f"self.lxu_cache_locations_list has grown to size: {self.lxu_cache_locations_list.size()}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
+        self.lxu_cache_locations_list.push(
             torch.ops.fb.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
@@ -1874,18 +1871,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
-        self.step += 1
-
-        if len(self.timesteps_prefetched) == 0:
+        if self.timestep_prefetch_size.get() <= 0:
             self.prefetch(indices, offsets)
+        self.timestep_prefetch_size.decrement()
 
-        self.timesteps_prefetched.pop(0)
-
-        lxu_cache_locations = (
-            self.lxu_cache_locations_empty
-            if len(self.lxu_cache_locations_list) == 0
-            else self.lxu_cache_locations_list.pop(0)
-        )
+        lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
         assert (
             self.weight_initialized
@@ -2008,14 +1998,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_reserved_memory: float,
     ) -> None:
         self.cache_algorithm = cache_algorithm
-        self.timestep = 1
-        self.timesteps_prefetched = []
+        self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
+        self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
-        self.lxu_cache_locations_list = []
-        self.lxu_cache_locations_empty = torch.empty(
-            0, device=self.current_device, dtype=torch.int32
-        ).fill_(-1)
+
+        if self.current_device.type == "meta":
+            # To reslove "Cannot copy out of meta tensor; no data!" error
+            lxu_cache_locations_empty = torch.empty(0, dtype=torch.int32).fill_(-1)
+        else:
+            lxu_cache_locations_empty = torch.empty(
+                0, device=self.current_device, dtype=torch.int32
+            ).fill_(-1)
+        self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
+            lxu_cache_locations_empty
+        )
 
         # NOTE: no cache for CPU mode!
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
@@ -2151,7 +2148,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
-        self.timestep = 1
+        self.timestep_counter.reset()
 
     @torch.jit.export
     def split_embedding_weights(

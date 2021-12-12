@@ -288,3 +288,135 @@ static auto PrunedMapCPURegistry =
             [](std::string data) -> c10::intrusive_ptr<PrunedMapCPU> {
               return c10::make_intrusive<PrunedMapCPU>(data);
             });
+
+class AtomicCounter : public torch::jit::CustomClassHolder {
+ public:
+  AtomicCounter() {
+    counter_ = 0;
+  }
+  explicit AtomicCounter(std::string serialized) {
+    std::stringstream ss(serialized);
+    int64_t val;
+    ss >> val;
+    counter_ = val;
+  }
+  int64_t increment() {
+    return counter_++;
+  }
+  int64_t decrement() {
+    return counter_--;
+  }
+  void reset() {
+    counter_ = 0;
+  }
+  int64_t get() {
+    return counter_;
+  }
+  void set(int64_t val) {
+    counter_ = val;
+  }
+
+  std::string serialize() const {
+    std::ostringstream oss;
+    oss << counter_;
+    return oss.str();
+  }
+
+ private:
+  std::atomic<int64_t> counter_{0};
+};
+
+static auto AtomicCounterRegistry =
+    torch::class_<AtomicCounter>("fbgemm", "AtomicCounter")
+        .def(torch::init<>())
+        .def("increment", &AtomicCounter::increment)
+        .def("decrement", &AtomicCounter::decrement)
+        .def("reset", &AtomicCounter::reset)
+        .def("get", &AtomicCounter::get)
+        .def("set", &AtomicCounter::set)
+        .def_pickle(
+            // __getstate__
+            [](const c10::intrusive_ptr<AtomicCounter>& self) -> std::string {
+              return self->serialize();
+            },
+            // __setstate__
+            [](std::string data) -> c10::intrusive_ptr<AtomicCounter> {
+              return c10::make_intrusive<AtomicCounter>(data);
+            });
+
+// Thread-safe Tensor Queue
+struct TensorQueue : torch::CustomClassHolder {
+  explicit TensorQueue(Tensor t) : init_tensor_(t) {}
+
+  explicit TensorQueue(std::string serialized) {
+    torch::serialize::InputArchive archive;
+    archive.load_from(serialized.data(), serialized.size());
+
+    archive.read(std::string("init_tensor"), init_tensor_);
+    string key = "queue";
+    Tensor size_tensor;
+    archive.read(std::string(key + "/size"), size_tensor);
+    const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
+    int64_t queue_size = size_tensor_acc[0];
+
+    for (const auto index : c10::irange(queue_size)) {
+      Tensor val;
+      archive.read(key + "/" + c10::to_string(index), queue_[index]);
+      queue_.push_back(val);
+    }
+  }
+
+  std::string serialize() const {
+    torch::serialize::OutputArchive archive(
+        std::make_shared<torch::jit::CompilationUnit>());
+    std::ostringstream oss;
+    archive.write(std::string("init_tensor"), init_tensor_);
+    string key = "queue";
+    archive.write(
+        key + "/size", torch::tensor(static_cast<int64_t>(queue_.size())));
+    for (const auto index : c10::irange(queue_.size())) {
+      archive.write(key + "/" + c10::to_string(index), queue_[index]);
+    }
+    archive.save_to(oss);
+    return oss.str();
+  }
+
+  void push(Tensor x) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    queue_.push_back(x);
+  }
+  Tensor pop() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (!queue_.empty()) {
+      auto val = queue_.front();
+      queue_.pop_front();
+      return val;
+    } else {
+      return init_tensor_;
+    }
+  }
+  int64_t size() {
+    return queue_.size();
+  }
+
+ private:
+  std::deque<Tensor> queue_;
+  std::mutex mutex_;
+  Tensor init_tensor_;
+};
+
+static auto TensorQueueRegistry =
+    torch::class_<TensorQueue>("fbgemm", "TensorQueue")
+        .def(torch::init<Tensor>())
+        .def("push", &TensorQueue::push)
+        .def("pop", &TensorQueue::pop)
+        .def("size", &TensorQueue::size)
+        .def_pickle(
+            // __getstate__
+            [](const c10::intrusive_ptr<TensorQueue>& self) -> std::string {
+              return self->serialize();
+            },
+            // __setstate__
+            [](std::string data) -> c10::intrusive_ptr<TensorQueue> {
+              return c10::make_intrusive<TensorQueue>(data);
+            });
