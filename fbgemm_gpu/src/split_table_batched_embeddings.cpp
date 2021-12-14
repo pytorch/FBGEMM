@@ -8,7 +8,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
-using namespace at;
+using Tensor = at::Tensor;
 
 // Map index to cache_set. h_in: linear_indices; C: #cache_sets.
 int64_t host_lxu_cache_slot(int64_t h_in, int64_t C);

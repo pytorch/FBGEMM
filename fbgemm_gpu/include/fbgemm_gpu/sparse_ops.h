@@ -9,7 +9,7 @@
 
 #include <ATen/ATen.h>
 
-namespace fbgemm {
+namespace fbgemm_gpu {
 
 // Return array of size T_in.numel(), representing incomplete exclusive cumsum
 at::Tensor asynchronous_exclusive_cumsum_gpu(const at::Tensor& t_in);
@@ -298,4 +298,4 @@ histogram_binning_calibration_by_feature_cuda(
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu

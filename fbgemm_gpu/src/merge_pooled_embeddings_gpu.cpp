@@ -19,7 +19,7 @@
 
 #include <algorithm>
 
-using namespace at;
+using Tensor = at::Tensor;
 
 #define NVML_CHECK(fn)                  \
   do {                                  \
@@ -308,6 +308,8 @@ Tensor cat_dim_1(
 }
 } // namespace
 
+namespace fbgemm_gpu {
+
 // TODO: Add device arg.
 Tensor merge_pooled_embeddings(
     std::vector<Tensor> pooled_embeddings,
@@ -337,6 +339,8 @@ Tensor merge_pooled_embeddings(
   return cat_dim_1(pooled_embeddings, batch_size, target_device);
 }
 
+} // namespace fbgemm_gpu
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "merge_pooled_embeddings(Tensor[] pooled_embeddings, int batch_size, Device target_device) -> Tensor");
@@ -346,5 +350,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl(
       "merge_pooled_embeddings",
       torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(merge_pooled_embeddings)));
+          c10::DispatchKey::CUDA, TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
 }

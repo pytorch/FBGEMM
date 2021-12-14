@@ -11,7 +11,7 @@
 #include <omp.h>
 #include "c10/util/Exception.h"
 
-namespace fbgemm {
+namespace fbgemm_gpu {
 
 namespace {
 
@@ -173,4 +173,4 @@ template std::pair<int64_t*, int*> radix_sort_parallel(
     int64_t elements_count,
     int64_t max_value);
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu

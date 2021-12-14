@@ -10,7 +10,7 @@
 #include <torch/script.h>
 #include "codegen/embedding_common.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 namespace {
 

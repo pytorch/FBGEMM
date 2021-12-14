@@ -13,7 +13,7 @@
 
 #include "codegen/embedding_common.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,

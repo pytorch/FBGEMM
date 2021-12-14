@@ -9,18 +9,20 @@
 #include <c10/core/TensorOptions.h>
 #include <torch/library.h>
 
-namespace fbgemm {
+using Tensor = at::Tensor;
 
-at::Tensor merge_pooled_embeddings_cpu(
-    std::vector<at::Tensor> pooled_embeddings,
+namespace fbgemm_gpu {
+
+Tensor merge_pooled_embeddings_cpu(
+    std::vector<Tensor> pooled_embeddings,
     int64_t batch_size,
     at::Device target_device) {
-  auto cat_host_0 = [&](const std::vector<at::Tensor>& ts) {
+  auto cat_host_0 = [&](const std::vector<Tensor>& ts) {
     int64_t n = 0;
     for (auto& t : ts) {
       n += t.numel();
     }
-    at::Tensor r;
+    Tensor r;
     if (n == 0) {
       r = at::empty({n});
     } else {
@@ -32,8 +34,8 @@ at::Tensor merge_pooled_embeddings_cpu(
   return cat_host_0(pooled_embeddings);
 }
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("merge_pooled_embeddings", fbgemm::merge_pooled_embeddings_cpu);
+  m.impl("merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings_cpu);
 }

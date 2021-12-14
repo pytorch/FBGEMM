@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <utility>
 
-namespace fbgemm {
+namespace fbgemm_gpu {
 
 template <typename K, typename V>
 std::pair<K*, V*> radix_sort_parallel(
@@ -21,4 +21,4 @@ std::pair<K*, V*> radix_sort_parallel(
     int64_t elements_count,
     int64_t max_value);
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu

@@ -11,7 +11,7 @@
 #include <torch/script.h>
 #include "c10/core/ScalarType.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,

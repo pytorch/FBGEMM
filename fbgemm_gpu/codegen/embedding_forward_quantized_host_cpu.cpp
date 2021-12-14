@@ -17,7 +17,7 @@
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
 
-using namespace at;
+using Tensor = at::Tensor;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
@@ -353,7 +353,7 @@ struct TensorQueue : torch::CustomClassHolder {
     archive.load_from(serialized.data(), serialized.size());
 
     archive.read(std::string("init_tensor"), init_tensor_);
-    string key = "queue";
+    std::string key = "queue";
     Tensor size_tensor;
     archive.read(std::string(key + "/size"), size_tensor);
     const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
@@ -371,7 +371,7 @@ struct TensorQueue : torch::CustomClassHolder {
         std::make_shared<torch::jit::CompilationUnit>());
     std::ostringstream oss;
     archive.write(std::string("init_tensor"), init_tensor_);
-    string key = "queue";
+    std::string key = "queue";
     archive.write(
         key + "/size", torch::tensor(static_cast<int64_t>(queue_.size())));
     for (const auto index : c10::irange(queue_.size())) {

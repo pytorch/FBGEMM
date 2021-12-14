@@ -24,10 +24,12 @@
 
 #include "ATen/Parallel.h"
 
-namespace fbgemm {
+using Tensor = at::Tensor;
 
-at::Tensor recat_embedding_grad_output_cuda(
-    at::Tensor grad_output, // [B_local][T_global][D]
+namespace fbgemm_gpu {
+
+Tensor recat_embedding_grad_output_cuda(
+    Tensor grad_output, // [B_local][T_global][D]
     std::vector<int64_t> num_features_per_rank) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_output.get_device());
@@ -37,7 +39,7 @@ at::Tensor recat_embedding_grad_output_cuda(
   const auto T_global = grad_output.size(1);
   const auto D = grad_output.size(2);
 
-  at::Tensor sharded_grad_output =
+  Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       grad_output.type(), "recat_embedding_gradients", ([&] {
@@ -64,8 +66,8 @@ at::Tensor recat_embedding_grad_output_cuda(
   return sharded_grad_output;
 }
 
-at::Tensor recat_embedding_grad_output_mixed_D_cuda(
-    const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
+Tensor recat_embedding_grad_output_mixed_D_cuda(
+    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
   TORCH_CHECK(grad_output.is_contiguous());
 
@@ -75,7 +77,7 @@ at::Tensor recat_embedding_grad_output_mixed_D_cuda(
   const auto B_local = grad_output.size(0);
   const auto global_dim_sum = at::sum_integers(dim_sum_per_rank);
 
-  at::Tensor sharded_grad_output =
+  Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -104,17 +106,17 @@ at::Tensor recat_embedding_grad_output_mixed_D_cuda(
   return sharded_grad_output;
 }
 
-at::Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
-    const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
-    const at::Tensor& dim_sum_per_rank,
-    const at::Tensor& cumsum_dim_sum_per_rank) {
+Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
+    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+    const Tensor& dim_sum_per_rank,
+    const Tensor& cumsum_dim_sum_per_rank) {
   TORCH_CHECK(grad_output.is_contiguous());
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_output.get_device());
 
   const auto B_local = grad_output.size(0);
-  at::Tensor sharded_grad_output =
+  Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
   const auto dim_num = dim_sum_per_rank.size(0);
   const auto dim_sum = grad_output.size(1);
@@ -141,4 +143,4 @@ at::Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
   return sharded_grad_output;
 }
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu

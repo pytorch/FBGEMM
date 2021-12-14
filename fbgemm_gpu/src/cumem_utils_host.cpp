@@ -10,7 +10,8 @@
 
 #include "cumem_utils.h"
 
-using namespace at;
+using Tensor = at::Tensor;
+
 namespace fbgemm_gpu {
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {

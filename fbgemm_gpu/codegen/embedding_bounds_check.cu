@@ -6,7 +6,7 @@
  */
 #include "codegen/embedding_backward_template_helpers.cuh"
 
-using namespace at;
+using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>

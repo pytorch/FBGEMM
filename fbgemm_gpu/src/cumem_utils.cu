@@ -14,7 +14,7 @@
 #include "fbgemm_gpu/enum_utils.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 

@@ -16,14 +16,16 @@
 #include <type_traits>
 #include <vector>
 
-namespace fbgemm {
+using Tensor = at::Tensor;
 
-at::Tensor permute_pooled_embs_cpu(
-    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
+namespace fbgemm_gpu {
+
+Tensor permute_pooled_embs_cpu(
+    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type")
@@ -38,7 +40,7 @@ at::Tensor permute_pooled_embs_cpu(
     dims.push_back(offset_dim_list[i].item<int64_t>());
   }
   auto ts = pooled_embs.tensor_split(dims, 1);
-  std::vector<at::Tensor> permuted_ts;
+  std::vector<Tensor> permuted_ts;
   permuted_ts.reserve(n);
   for (const auto i : c10::irange(n)) {
     permuted_ts.push_back(ts[permute[i]]);
@@ -51,22 +53,22 @@ using torch::autograd::Variable;
 using torch::autograd::variable_list;
 
 template <torch::autograd::Variable (*permute_pooled_embs_op)(
-    const at::Tensor&, // [B_local][Sum_T_global(D)]
-    const at::Tensor&,
-    const at::Tensor&,
-    const at::Tensor&,
-    const at::Tensor&)>
+    const Tensor&, // [B_local][Sum_T_global(D)]
+    const Tensor&,
+    const Tensor&,
+    const Tensor&,
+    const Tensor&)>
 class PermutePooledEmbsFunction
     : public torch::autograd::Function<
           PermutePooledEmbsFunction<permute_pooled_embs_op>> {
  public:
   static Variable forward(
       AutogradContext* ctx,
-      const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-      const at::Tensor& offset_dim_list,
-      const at::Tensor& permute_list,
-      const at::Tensor& inv_offset_dim_list,
-      const at::Tensor& inv_permute_list) {
+      const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+      const Tensor& offset_dim_list,
+      const Tensor& permute_list,
+      const Tensor& inv_offset_dim_list,
+      const Tensor& inv_permute_list) {
     ctx->saved_data["offset_dim_list"] = offset_dim_list;
     ctx->saved_data["permute_list"] = permute_list;
     ctx->saved_data["inv_offset_dim_list"] = inv_offset_dim_list;
@@ -104,12 +106,12 @@ class PermutePooledEmbsFunction
   }
 };
 
-at::Tensor permute_pooled_embs_auto_grad_gpu(
-    const at::Tensor& pooled_embs,
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
+Tensor permute_pooled_embs_auto_grad_gpu(
+    const Tensor& pooled_embs,
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
   return PermutePooledEmbsFunction<permute_pooled_embs_gpu>::apply(
       pooled_embs,
       offset_dim_list,
@@ -118,12 +120,12 @@ at::Tensor permute_pooled_embs_auto_grad_gpu(
       inv_permute_list);
 }
 
-at::Tensor permute_pooled_embs_auto_grad_cpu(
-    const at::Tensor& pooled_embs,
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
+Tensor permute_pooled_embs_auto_grad_cpu(
+    const Tensor& pooled_embs,
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
   return PermutePooledEmbsFunction<permute_pooled_embs_cpu>::apply(
       pooled_embs,
       offset_dim_list,
@@ -131,7 +133,7 @@ at::Tensor permute_pooled_embs_auto_grad_cpu(
       inv_offset_dim_list,
       inv_permute_list);
 }
-} // namespace fbgemm
+} // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
@@ -139,17 +141,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "permute_pooled_embs",
       torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(fbgemm::permute_pooled_embs_gpu)));
+          c10::DispatchKey::CUDA, TORCH_FN(fbgemm_gpu::permute_pooled_embs_gpu)));
   m.def(
       "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   m.impl(
       "permute_pooled_embs_auto_grad",
       torch::dispatch(
           c10::DispatchKey::CPU,
-          TORCH_FN(fbgemm::permute_pooled_embs_auto_grad_cpu)));
+          TORCH_FN(fbgemm_gpu::permute_pooled_embs_auto_grad_cpu)));
   m.impl(
       "permute_pooled_embs_auto_grad",
       torch::dispatch(
           c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm::permute_pooled_embs_auto_grad_gpu)));
+          TORCH_FN(fbgemm_gpu::permute_pooled_embs_auto_grad_gpu)));
 }

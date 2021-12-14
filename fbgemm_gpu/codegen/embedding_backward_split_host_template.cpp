@@ -12,7 +12,7 @@
 
 #include "codegen/embedding_common.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 Tensor split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,

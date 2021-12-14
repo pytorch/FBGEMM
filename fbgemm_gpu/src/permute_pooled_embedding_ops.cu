@@ -15,13 +15,16 @@
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
 
-namespace fbgemm {
-at::Tensor permute_pooled_embs_gpu(
-    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
+using Tensor = at::Tensor;
+
+namespace fbgemm_gpu {
+
+Tensor permute_pooled_embs_gpu(
+    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(pooled_embs.get_device());
   // We couldn't pass the "pooled_embs.is_contiguous()" check in the backward
@@ -37,7 +40,7 @@ at::Tensor permute_pooled_embs_gpu(
   TORCH_CHECK(pooled_embs_contiguous.device() == inv_offset_dim_list.device());
   TORCH_CHECK(offset_dim_list.numel() == permute_list.numel() + 1);
   TORCH_CHECK(offset_dim_list.numel() == inv_offset_dim_list.numel());
-  at::Tensor permuted_pooled_embs = at::empty_like(pooled_embs_contiguous);
+  Tensor permuted_pooled_embs = at::empty_like(pooled_embs_contiguous);
 
   // This kernel is moving D elements per warp.
   // We are launching ( div_round_up(T, warp_per_block), B ) blocks.
@@ -69,4 +72,4 @@ at::Tensor permute_pooled_embs_gpu(
 
   return permuted_pooled_embs;
 }
-} // namespace fbgemm
+} // namespace fbgemm_gpu
