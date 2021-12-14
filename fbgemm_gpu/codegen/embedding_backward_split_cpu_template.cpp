@@ -17,7 +17,7 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 namespace internal {
 template <typename T>
@@ -36,8 +36,8 @@ template <typename scalar_t>
 void split_embedding_backward_exact_cpu_kernel(
     Tensor grad_output,
     Tensor host_weights,
-    const TensorAccessor<int64_t, 1> weights_offsets_data,
-    const TensorAccessor<int, 1> D_offsets_data,
+    const at::TensorAccessor<int64_t, 1> weights_offsets_data,
+    const at::TensorAccessor<int, 1> D_offsets_data,
     Tensor hash_size_cumsum,
     Tensor indices,
     Tensor offsets,
@@ -47,13 +47,13 @@ void split_embedding_backward_exact_cpu_kernel(
     int B,
     const int* table_to_feature_offset,
     {% if "momentum1_offsets" in args.split_function_arg_names %}
-    const TensorAccessor<int64_t, 1> momentum1_offsets_data,
+    const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
     {% endif %}
     {% if "momentum2_offsets" in args.split_function_arg_names %}
-    const TensorAccessor<int64_t, 1> momentum2_offsets_data,
+    const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
     {% endif %}
     {{ args.split_cpu_kernel_args | join(", ") }}) {
-  using grad_t = acc_type<scalar_t, true>;
+  using grad_t = at::acc_type<scalar_t, true>;
 
   // const auto grad_output_accessor = grad_output.accessor<grad_t, 2>();
   const grad_t* grad_output_data = grad_output.data_ptr<grad_t>();
@@ -92,7 +92,7 @@ void split_embedding_backward_exact_cpu_kernel(
         indices.accessor<int64_t, 1>(),
         indice_weights.defined()
             ? indice_weights.accessor<grad_t, 1>()
-            : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
+            : at::TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
         pooling_mode,
         table_to_feature_offset + t,
         hash_size);
@@ -214,8 +214,8 @@ template <typename scalar_t>
 void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor grad,
     Tensor grad_output,
-    const TensorAccessor<int64_t, 1> weights_offsets_data,
-    const TensorAccessor<int, 1> D_offsets_data,
+    const at::TensorAccessor<int64_t, 1> weights_offsets_data,
+    const at::TensorAccessor<int, 1> D_offsets_data,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,

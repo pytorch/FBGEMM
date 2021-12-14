@@ -14,7 +14,7 @@ constexpr int32_t kCacheLocationMissing = -1;
 
 constexpr size_t kForwardMaxThreads = 512;
 
-using namespace at;
+using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 {% for nobag in [True, False] %}
@@ -32,36 +32,36 @@ template <
     >
 __launch_bounds__(kForwardMaxThreads)
 __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel(
-    const PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> dev_weights,
+    const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
-    const PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> uvm_weights,
-    const PackedTensorAccessor64<cache_t, 2, RestrictPtrTraits>
+    const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    const at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {% endif %}
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {% if not nobag %}
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
     int64_t D,
     {% endif %}
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {% if not nobag %}
     int64_t pooling_mode,
     {% endif %}
     {% if weighted %}
-    PackedTensorAccessor32<acc_type<cache_t, true>, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>
         indice_weights,
     {% endif %}
     {% if not dense %}
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
         output // [B][total_D],
     {% else %}
-    PackedTensorAccessor32<acc_type<cache_t,true>, 2, RestrictPtrTraits>
+    at::PackedTensorAccessor32<at::acc_type<cache_t,true>, 2, at::RestrictPtrTraits>
         output // [B][total_D],
     {% endif %}
     ) {
@@ -115,7 +115,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         {% if weighted %}
-        acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
+        at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
             int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
@@ -127,7 +127,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
             {% endif %}
 
             {% if weighted %}
-            acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
             {% endif %}
 
             {% if not dense %}
@@ -318,24 +318,24 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% endif %}
 
     {% if nobag %}
-    at::Tensor output = empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
+    Tensor output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
     {% else %}
-    at::Tensor output;
+    Tensor output;
     {% if dense %}
     if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
-        output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else {
-        output = empty({B, total_D}, dev_weights.options());
+        output = at::empty({B, total_D}, dev_weights.options());
     }
     {% else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
     if (o_dtype == SparseType::FP32) {
-        output = empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else if (o_dtype == SparseType::FP16) {
-        output = empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
     } else if (o_dtype == SparseType::INT8) {
-        output = empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
+        output = at::empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
     }
     {% endif %}
     {% endif %}
@@ -367,32 +367,32 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, RestrictPtrTraits>(),
+                dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
                 {% if not dense %}
-                uvm_weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
-                lxu_cache_weights.packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
-                weights_placements.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 {% endif %}
-                weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-                indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 pooling_mode,
                 {% if weighted %}
-                indice_weights.packed_accessor32<acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, RestrictPtrTraits>(),
+                indice_weights.packed_accessor32<at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, at::RestrictPtrTraits>(),
                 {% endif %}
                 {% if not dense %}
-                lxu_cache_locations.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 output.packed_accessor32<
                     output_t,
                     2,
-                    RestrictPtrTraits>()
+                    at::RestrictPtrTraits>()
                 );
                 {% else %}
                 output.packed_accessor32<
-                    acc_type<scalar_t, true>,
+                    at::acc_type<scalar_t, true>,
                     2,
-                    RestrictPtrTraits>()
+                    at::RestrictPtrTraits>()
                 );
                 {% endif %}
 
@@ -409,28 +409,28 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, RestrictPtrTraits>(),
+            dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
-            uvm_weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
-            lxu_cache_weights.packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
-            weights_placements.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+            uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+            lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+            weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             {% endif %}
-            weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             D,
-            indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+            indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
-            lxu_cache_locations.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+            lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             output.packed_accessor32<
                 output_t,
                 2,
-                RestrictPtrTraits>()
+                at::RestrictPtrTraits>()
             );
             {% else %}
             output.packed_accessor32<
-                acc_type<scalar_t, true>,
+                at::acc_type<scalar_t, true>,
                 2,
-                RestrictPtrTraits>()
+                at::RestrictPtrTraits>()
             );
             {% endif %}
 

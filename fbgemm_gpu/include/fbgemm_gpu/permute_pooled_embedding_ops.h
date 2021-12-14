@@ -9,7 +9,7 @@
 
 #include <ATen/ATen.h>
 
-namespace fbgemm {
+namespace fbgemm_gpu {
 at::Tensor permute_pooled_embs_cpu(
     const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const at::Tensor& offset_dim_list,
@@ -23,4 +23,4 @@ at::Tensor permute_pooled_embs_gpu(
     const at::Tensor& permute_list,
     const at::Tensor& inv_offset_dim_list,
     const at::Tensor& inv_permute_list);
-} // namespace fbgemm
+} // namespace fbgemm_gpu

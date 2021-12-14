@@ -10,11 +10,13 @@
 #include "fbgemm/QuantUtils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-namespace fbgemm {
+using Tensor = at::Tensor;
 
-at::Tensor& _float_to_fused8bitrowwise_cpu_out(
-    at::Tensor& output,
-    const at::Tensor& input) {
+namespace fbgemm_gpu {
+
+Tensor& _float_to_fused8bitrowwise_cpu_out(
+    Tensor& output,
+    const Tensor& input) {
   TENSOR_ON_CPU(input);
   TORCH_CHECK(
       input.dim() >= 2,
@@ -37,9 +39,9 @@ at::Tensor& _float_to_fused8bitrowwise_cpu_out(
   return output;
 }
 
-at::Tensor& _fused8bitrowwise_to_float_cpu_out(
-    at::Tensor& output,
-    const at::Tensor& input) {
+Tensor& _fused8bitrowwise_to_float_cpu_out(
+    Tensor& output,
+    const Tensor& input) {
   TENSOR_ON_CPU(input);
   TORCH_CHECK(
       input.dim() >= 2,
@@ -62,8 +64,8 @@ at::Tensor& _fused8bitrowwise_to_float_cpu_out(
   return output;
 }
 
-at::Tensor _float_to_fusednbitrowwise_cpu(
-    const at::Tensor& input,
+Tensor _float_to_fusednbitrowwise_cpu(
+    const Tensor& input,
     const int64_t bit_rate) {
   TENSOR_ON_CPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
@@ -92,8 +94,8 @@ at::Tensor _float_to_fusednbitrowwise_cpu(
   return output;
 }
 
-at::Tensor _fusednbitrowwise_to_float_cpu(
-    const at::Tensor& input,
+Tensor _fusednbitrowwise_to_float_cpu(
+    const Tensor& input,
     const int64_t bit_rate) {
   TENSOR_ON_CPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
@@ -121,14 +123,14 @@ at::Tensor _fusednbitrowwise_to_float_cpu(
 
 namespace {
 
-at::Tensor _float_to_fused8bitrowwise_cpu(const at::Tensor& input) {
+Tensor _float_to_fused8bitrowwise_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
       input.options().dtype(at::kByte)); // at::kBytes for uint8_t
   return _float_to_fused8bitrowwise_cpu_out(output, input);
 }
 
-at::Tensor _fused8bitrowwise_to_float_cpu(const at::Tensor& input) {
+Tensor _fused8bitrowwise_to_float_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
       input.options().dtype(at::kFloat)); // at::kBytes for uint8_t
@@ -136,7 +138,7 @@ at::Tensor _fused8bitrowwise_to_float_cpu(const at::Tensor& input) {
 }
 
 } // namespace
-} // namespace fbgemm
+} // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
@@ -154,20 +156,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl(
       "FloatToFused8BitRowwiseQuantized",
-      fbgemm::_float_to_fused8bitrowwise_cpu);
+      fbgemm_gpu::_float_to_fused8bitrowwise_cpu);
   m.impl(
       "FloatToFused8BitRowwiseQuantizedOut",
-      fbgemm::_float_to_fused8bitrowwise_cpu_out);
+      fbgemm_gpu::_float_to_fused8bitrowwise_cpu_out);
   m.impl(
       "Fused8BitRowwiseQuantizedToFloat",
-      fbgemm::_fused8bitrowwise_to_float_cpu);
+      fbgemm_gpu::_fused8bitrowwise_to_float_cpu);
   m.impl(
       "Fused8BitRowwiseQuantizedToFloatOut",
-      fbgemm::_fused8bitrowwise_to_float_cpu_out);
+      fbgemm_gpu::_fused8bitrowwise_to_float_cpu_out);
   m.impl(
       "FloatToFusedNBitRowwiseQuantizedSBHalf",
-      fbgemm::_float_to_fusednbitrowwise_cpu);
+      fbgemm_gpu::_float_to_fusednbitrowwise_cpu);
   m.impl(
       "FusedNBitRowwiseQuantizedSBHalfToFloat",
-      fbgemm::_fusednbitrowwise_to_float_cpu);
+      fbgemm_gpu::_fusednbitrowwise_to_float_cpu);
 }
