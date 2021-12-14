@@ -23,7 +23,7 @@ at::Tensor& _float_to_fused8bitrowwise_cpu_out(
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
-  const int32_t nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int64_t nrows = c10::size_to_dim_(last_dim, input_sizes);
   const int32_t ncols = input_sizes[last_dim];
   const int32_t output_columns = ncols + 2 * sizeof(float);
 
@@ -48,7 +48,7 @@ at::Tensor& _fused8bitrowwise_to_float_cpu_out(
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
-  const int32_t nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int64_t nrows = c10::size_to_dim_(last_dim, input_sizes);
   const int32_t ncols = input_sizes[last_dim];
   const int32_t output_columns = ncols - 2 * sizeof(float);
 
@@ -69,13 +69,13 @@ at::Tensor _float_to_fusednbitrowwise_cpu(
   TENSOR_NDIM_EQUALS(input, 2);
 
   const auto input_sizes = input.sizes();
-  const int32_t nrows = input_sizes[0];
+  const int64_t nrows = input_sizes[0];
   const int32_t ncols = input_sizes[1];
   const int32_t num_elem_per_byte = 8 / bit_rate;
   TORCH_CHECK(
       ncols % (2 * num_elem_per_byte) == 0,
       "ncols needs to be multiple of 2 Bytes (half type size) to make the address aligned");
-  const int32_t output_columns =
+  const int64_t output_columns =
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(at::Half);
   auto output = at::empty(
@@ -99,7 +99,7 @@ at::Tensor _fusednbitrowwise_to_float_cpu(
   TENSOR_NDIM_EQUALS(input, 2);
 
   const auto input_sizes = input.sizes();
-  const int32_t nrows = input_sizes[0];
+  const int64_t nrows = input_sizes[0];
   const int32_t ncols = input_sizes[1];
   const int32_t num_elem_per_byte = 8 / bit_rate;
   const int32_t output_columns =
