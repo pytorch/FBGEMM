@@ -1542,8 +1542,7 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(logit.get_device());
 
-  at::Tensor calibrated_prediction =
-      at::empty({logit.numel()}, logit.options());
+  at::Tensor calibrated_prediction = at::empty_like(logit);
   at::Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
@@ -1688,8 +1687,7 @@ histogram_binning_calibration_by_feature_cuda(
                 dense_segment_value_packed.data_ptr<int64_t>());
       });
 
-  at::Tensor calibrated_prediction =
-      at::empty({logit.numel()}, logit.options());
+  at::Tensor calibrated_prediction = at::empty_like(logit);
   at::Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
