@@ -1049,7 +1049,7 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         expected_calibrated_prediction = torch.tensor(
-            [0.2853, 0.2875, 0.2876, 0.2858, 0.2863]
+            [[0.2853], [0.2875], [0.2876], [0.2858], [0.2863]]
         ).type(data_type)
         expected_bin_ids = torch.tensor(
             [1426, 1437, 1437, 1428, 1431], dtype=torch.long
@@ -1107,9 +1107,7 @@ class SparseOpsTest(unittest.TestCase):
         num_bins = 5000
         num_segments = 42
 
-        logit = torch.tensor([[-0.0018], [0.0085], [0.0090], [0.0003], [0.0029]]).type(
-            data_type
-        )
+        logit = torch.tensor([-0.0018, 0.0085, 0.0090, 0.0003, 0.0029]).type(data_type)
 
         segment_value = torch.tensor([40, 31, 32, 13, 31])
         lengths = torch.tensor([[1], [1], [1], [1], [1]])

@@ -1009,8 +1009,7 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
   TENSOR_ON_CPU(bin_num_positives);
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
-  at::Tensor calibrated_prediction =
-      at::empty({logit.numel()}, logit.options());
+  at::Tensor calibrated_prediction = at::empty_like(logit);
   at::Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
@@ -1108,8 +1107,7 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
   // dense_segment_value is used as a temporary storage.
   at::Tensor dense_segment_value =
       at::zeros({logit.numel()}, segment_value.options());
-  at::Tensor calibrated_prediction =
-      at::empty({logit.numel()}, logit.options());
+  at::Tensor calibrated_prediction = at::empty_like(logit);
   at::Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
