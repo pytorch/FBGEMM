@@ -380,16 +380,31 @@ struct TensorQueue : torch::CustomClassHolder {
     archive.save_to(oss);
     return oss.str();
   }
-
+  // Push the element to the rear of queue.
+  // Lock is added for thread safe.
   void push(Tensor x) {
     std::lock_guard<std::mutex> guard(mutex_);
     queue_.push_back(x);
   }
+  // Pop the front element of queue and return it.
+  // If empty, return init_tensor_.
+  // Lock is added for thread safe.
   Tensor pop() {
     std::lock_guard<std::mutex> guard(mutex_);
     if (!queue_.empty()) {
       auto val = queue_.front();
       queue_.pop_front();
+      return val;
+    } else {
+      return init_tensor_;
+    }
+  }
+  // Return front element of queue, read-only.
+  // We might further optimize with read-write lock.
+  Tensor top() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (!queue_.empty()) {
+      auto val = queue_.front();
       return val;
     } else {
       return init_tensor_;
@@ -410,6 +425,7 @@ static auto TensorQueueRegistry =
         .def(torch::init<Tensor>())
         .def("push", &TensorQueue::push)
         .def("pop", &TensorQueue::pop)
+        .def("top", &TensorQueue::top)
         .def("size", &TensorQueue::size)
         .def_pickle(
             // __getstate__

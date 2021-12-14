@@ -1591,15 +1591,17 @@ def nbit_cache(  # noqa C901
         #  Variable[torch._TTensor (bound to Tensor)])], Variable[torch._TTensor (bound
         #  to Tensor)]], Tensor], Tensor, torch.nn.Module]` is not a function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
-        emb.prefetch(indices.int(), offsets.int())
+        emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
             # pyre-fixme[16]: `bool` has no attribute `sum`.
             (emb.lxu_cache_state != old_lxu_cache_state)
             .sum()
             .item()
         )
-        cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
-        emb.forward(indices.int(), offsets.int())
+        cache_misses.append(
+            (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()
+        )
+        emb.forward(indices, offsets)
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -1612,17 +1614,20 @@ def nbit_cache(  # noqa C901
     # benchmark prefetch
     emb.reset_cache_states()
     for indices, offsets, _ in warmup_requests:
-        emb.forward(indices.int(), offsets.int())
+        emb.forward(indices, offsets)
     prefetch_time, forward_time = benchmark_pipelined_requests(
         requests,
         lambda indices, offsets, indices_weights: emb.prefetch(
-            indices.int(), offsets.int()
+            indices,
+            offsets,
         ),
         # pyre-fixme[6]: Expected `(Tensor, Tensor, Optional[Tensor]) -> None` for
         #  3rd param but got `(indices: Any, offsets: Any, indices_weights: Any) ->
         #  Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
-            indices.int(), offsets.int(), indices_weights
+            indices,
+            offsets,
+            indices_weights,
         ),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
