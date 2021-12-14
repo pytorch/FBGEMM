@@ -53,7 +53,7 @@ def _arg_constructor(
     type: str, name: str, gpu: bool = True, precision: int = 32
 ) -> str:
     return (
-        f"{name}.packed_accessor{precision}<{type}, 1, RestrictPtrTraits>()"
+        f"{name}.packed_accessor{precision}<{type}, 1, at::RestrictPtrTraits>()"
         if gpu
         else f"{name}.accessor<{type}, 1>()"
     )
@@ -61,15 +61,15 @@ def _arg_constructor(
 
 def _arg(type: str, name: str, gpu: bool = True, precision: int = 32) -> str:
     return (
-        f"PackedTensorAccessor{precision}<{type}, 1, RestrictPtrTraits> {name}"
+        f"at::PackedTensorAccessor{precision}<{type}, 1, at::RestrictPtrTraits> {name}"
         if gpu
-        else f"TensorAccessor<{type}, 1> {name}"
+        else f"at::TensorAccessor<{type}, 1> {name}"
     )
 
 
 def acc_cache_tensor_arg_constructor(name: str, gpu: bool = True) -> str:
     return _arg_constructor(
-        "acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
+        "at::acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
         name,
         gpu=gpu,
         precision=64,
@@ -78,7 +78,7 @@ def acc_cache_tensor_arg_constructor(name: str, gpu: bool = True) -> str:
 
 def acc_cache_tensor_arg(name: str, gpu: bool = True) -> str:
     return _arg(
-        "acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
+        "at::acc_type<" + ("cache_t" if gpu else "scalar_t") + ", true>",
         name,
         gpu=gpu,
         precision=64,
@@ -378,7 +378,7 @@ def rowwise_adagrad() -> None:
       weight_new.fma_(grad, -multiplier);
     """
     split_precomputation = """
-    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -388,26 +388,26 @@ def rowwise_adagrad() -> None:
         grad_sum[i].acc.z * grad_sum[i].acc.z +
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
-    const acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
 
-    acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> multiplier;
     if (threadIdx.x == 0) {
-        acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
     }
     multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
     """
     split_weight_update_cpu = """
-        acc_type<scalar_t, true> g_local_sum_square = 0.0;
+        at::acc_type<scalar_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
+        at::acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
-        acc_type<scalar_t, true> multiplier;
+        at::acc_type<scalar_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
@@ -449,27 +449,27 @@ def rowwise_weighted_adagrad() -> None:
       weight_new.acc.w = correction * weight_new.acc.w - multiplier * grad.acc.w;
     """
     split_precomputation = """
-    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        Vec4T<acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
         auto gx = grad_sum[i].acc.x + weight_decay * weight.acc.x;
         auto gy = grad_sum[i].acc.y + weight_decay * weight.acc.y;
         auto gz = grad_sum[i].acc.z + weight_decay * weight.acc.z;
         auto gw = grad_sum[i].acc.w + weight_decay * weight.acc.w;
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
-    const acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
 
-    acc_type<cache_t, true> multiplier;
-    acc_type<cache_t, true> correction;
+    at::acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> correction;
     if (threadIdx.x == 0) {
-        acc_type<cache_t, true> lambda = sqrtf(iter + 1);
-        acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + lambda * g_avg_square;
+        at::acc_type<cache_t, true> lambda = sqrtf(iter + 1);
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + lambda * g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
         correction = 1.0 - multiplier * weight_decay;
@@ -479,15 +479,15 @@ def rowwise_weighted_adagrad() -> None:
     """
     split_weight_update_cpu = """
         // weight_decay not supported for cpu version
-        acc_type<scalar_t, true> g_local_sum_square = 0.0;
+        at::acc_type<scalar_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        acc_type<scalar_t, true> lambda = sqrtf(iter + 1);
-        acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + lambda * g_avg_square;
+        at::acc_type<scalar_t, true> lambda = sqrtf(iter + 1);
+        at::acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + lambda * g_avg_square;
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
-        acc_type<scalar_t, true> multiplier;
+        at::acc_type<scalar_t, true> multiplier;
         multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
@@ -547,9 +547,9 @@ def sgd() -> None:
 
 def lamb() -> None:
     split_precomputation = """
-  acc_type<cache_t, true> weight_sum_sq = 0.0;
-  acc_type<cache_t, true> rtw_sum_sq = 0.0;
-  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  at::acc_type<cache_t, true> weight_sum_sq = 0.0;
+  at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
+  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
   float2 qparams;
   if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
     qparams = weight_row.load_qparams();
@@ -559,8 +559,8 @@ def lamb() -> None:
       i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-    Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
-    Vec4T<acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
+    Vec4T<at::acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
+    Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
 
     m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
     m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad_sum[i].acc.y;
@@ -568,7 +568,7 @@ def lamb() -> None:
     m1.acc.w = beta1 * m1.acc.w + (1.0 - beta1) * grad_sum[i].acc.w;
     m1.store(&momentum1[idx * D + d]);
 
-    Vec4T<acc_type<cache_t, true>> m2(&momentum2[idx * D + d]);
+    Vec4T<at::acc_type<cache_t, true>> m2(&momentum2[idx * D + d]);
     m2.acc.x = beta2 * m2.acc.x + (1.0 - beta2) * grad_sum[i].acc.x * grad_sum[i].acc.x;
     m2.acc.y = beta2 * m2.acc.y + (1.0 - beta2) * grad_sum[i].acc.y * grad_sum[i].acc.y;
     m2.acc.z = beta2 * m2.acc.z + (1.0 - beta2) * grad_sum[i].acc.z * grad_sum[i].acc.z;
@@ -585,9 +585,9 @@ def lamb() -> None:
     rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
-      sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(weight_sum_sq));
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
   const auto rtw_norm =
-      sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(rtw_sum_sq));
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
    const auto true_ratio = weight_norm / rtw_norm;
 """
     split_weight_update = """
@@ -617,7 +617,7 @@ def lamb() -> None:
 
 def partial_rowwise_lamb() -> None:
     split_precomputation = """
-    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
 
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
@@ -628,20 +628,20 @@ def partial_rowwise_lamb() -> None:
         grad_sum[i].acc.z * grad_sum[i].acc.z +
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
-    const acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
 
-    acc_type<cache_t, true> m2;
+    at::acc_type<cache_t, true> m2;
     if (threadIdx.x == 0) {
         m2 = beta2 * momentum2[idx] + (1.0 - beta2) * g_avg_square;
         momentum2[idx] = m2;
     }
     m2 = __shfl_sync(0xFFFFFFFF, m2, 0);
-    acc_type<cache_t, true> m2_hat = 1.0 / (sqrtf((m2 / (1.0 - powf(beta2, iter)))) + eps);
+    at::acc_type<cache_t, true> m2_hat = 1.0 / (sqrtf((m2 / (1.0 - powf(beta2, iter)))) + eps);
 
-    acc_type<cache_t, true> weight_sum_sq = 0.0;
-    acc_type<cache_t, true> rtw_sum_sq = 0.0;
-    auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+    at::acc_type<cache_t, true> weight_sum_sq = 0.0;
+    at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
+    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
     float2 qparams;
     if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
         qparams = weight_row.load_qparams();
@@ -652,7 +652,7 @@ def partial_rowwise_lamb() -> None:
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
 
-        Vec4T<acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
+        Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
         m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
         m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad_sum[i].acc.y;
         m1.acc.z = beta1 * m1.acc.z + (1.0 - beta1) * grad_sum[i].acc.z;
@@ -660,7 +660,7 @@ def partial_rowwise_lamb() -> None:
         m1.store(&momentum1[idx * D + d]);
 
         // now, we are finished with grad_sum. We can *reuse* grad_sum to store r_t + weight_decay * weight;
-        Vec4T<acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
+        Vec4T<at::acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
         grad_sum[i].acc.x = (m1.acc.x / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.x;
         grad_sum[i].acc.y = (m1.acc.y / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.y;
         grad_sum[i].acc.z = (m1.acc.z / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.z;
@@ -670,9 +670,9 @@ def partial_rowwise_lamb() -> None:
         rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const auto weight_norm =
-        sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(weight_sum_sq));
+        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
     const auto rtw_norm =
-        sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(rtw_sum_sq));
+        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
     const auto true_ratio = weight_norm / rtw_norm;
     """
 
@@ -753,7 +753,7 @@ def adam() -> None:
 
 def partial_rowwise_adam() -> None:
     split_precomputation = """
-    acc_type<cache_t, true> g_local_sum_square = 0.0;
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -763,12 +763,12 @@ def partial_rowwise_adam() -> None:
         grad_sum[i].acc.z * grad_sum[i].acc.z +
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
-    const acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<acc_type<cache_t, true>>(g_local_sum_square) / D;
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
 
-    acc_type<cache_t, true> v_hat_t;
+    at::acc_type<cache_t, true> v_hat_t;
     if (threadIdx.x == 0) {
-        acc_type<cache_t, true> v_t = momentum2[idx] * beta2 + g_avg_square * (1.0 - beta2);
+        at::acc_type<cache_t, true> v_t = momentum2[idx] * beta2 + g_avg_square * (1.0 - beta2);
         momentum2[idx] = v_t;
         v_hat_t = v_t / (1.0 - powf(beta2, iter));
     }
@@ -813,10 +813,10 @@ def partial_rowwise_adam() -> None:
 
 def lars_sgd() -> None:
     split_precomputation = """
-  acc_type<cache_t, true> weight_sum_sq = 0.0;
-  acc_type<cache_t, true> grad_sum_sq = 0.0;
+  at::acc_type<cache_t, true> weight_sum_sq = 0.0;
+  at::acc_type<cache_t, true> grad_sum_sq = 0.0;
 
-  auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
   float2 qparams;
   if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
       qparams = weight_row.load_qparams();
@@ -826,15 +826,15 @@ def lars_sgd() -> None:
       i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-    Vec4T<acc_type<cache_t,true>> weight = weight_row.load(d, qparams);
+    Vec4T<at::acc_type<cache_t,true>> weight = weight_row.load(d, qparams);
     weight_sum_sq += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
     grad_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
-      sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(weight_sum_sq));
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
   const auto grad_norm =
-      sqrtf(warpReduceAllSum<acc_type<cache_t, true>>(grad_sum_sq));
-   const acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(grad_sum_sq));
+   const at::acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
 """
 
     split_weight_update = """

@@ -23,9 +23,11 @@ constexpr int FALSE_SHARING_PAD = 16;
 
 } // namespace
 
-namespace fbgemm {
+using Tensor = at::Tensor;
 
-at::Tensor native_empty_like(const at::Tensor& self) {
+namespace fbgemm_gpu {
+
+Tensor native_empty_like(const Tensor& self) {
   return at::native::empty_like(
       self,
       optTypeMetaToScalarType(self.options().dtype_opt()),
@@ -173,17 +175,17 @@ template <
     typename index_t,
     typename scalar_t>
 void _block_bucketize_sparse_features_cpu(
-    at::Tensor lengths,
-    at::Tensor indices,
-    c10::optional<at::Tensor> weights,
+    Tensor lengths,
+    Tensor indices,
+    c10::optional<Tensor> weights,
     bool bucketize_pos,
-    at::Tensor block_sizes,
+    Tensor block_sizes,
     int64_t my_size,
-    at::Tensor new_lengths,
-    at::Tensor new_indices,
-    c10::optional<at::Tensor> new_weights,
-    c10::optional<at::Tensor> new_pos,
-    c10::optional<at::Tensor> unbucketize_permute) {
+    Tensor new_lengths,
+    Tensor new_indices,
+    c10::optional<Tensor> new_weights,
+    c10::optional<Tensor> new_pos,
+    c10::optional<Tensor> unbucketize_permute) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -277,12 +279,12 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<Tensor, Tensor, c10::optional<Tensor>>
 permute_sparse_data_cpu(
-    const at::Tensor& permute,
-    const at::Tensor& lengths,
-    const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const c10::optional<Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
@@ -297,9 +299,9 @@ permute_sparse_data_cpu(
   const auto T = permute.numel();
   const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
 
-  at::Tensor permuted_lengths;
-  at::Tensor permuted_indices;
-  at::Tensor permuted_weights;
+  Tensor permuted_lengths;
+  Tensor permuted_indices;
+  Tensor permuted_weights;
 
   permuted_lengths = at::empty({T, B}, lengths.options());
 
@@ -387,32 +389,32 @@ permute_sparse_data_cpu(
 }
 
 std::tuple<
-    at::Tensor,
-    at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    Tensor,
+    Tensor,
+    c10::optional<Tensor>,
+    c10::optional<Tensor>,
+    c10::optional<Tensor>>
 block_bucketize_sparse_features_cpu(
-    at::Tensor lengths,
-    at::Tensor indices,
+    Tensor lengths,
+    Tensor indices,
     bool bucketize_pos,
     bool sequence,
-    at::Tensor block_sizes,
+    Tensor block_sizes,
     int64_t my_size,
-    c10::optional<at::Tensor> weights) {
+    c10::optional<Tensor> weights) {
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
   auto new_indices = native_empty_like(indices);
-  at::Tensor new_weights;
-  at::Tensor new_pos;
-  at::Tensor unbucketize_permute;
+  Tensor new_weights;
+  Tensor new_pos;
+  Tensor unbucketize_permute;
   if (bucketize_pos) {
     new_pos = native_empty_like(indices);
   }
   if (weights.has_value()) {
     const auto lengths_sum = indices.numel();
-    at::Tensor weights_value = weights.value();
+    Tensor weights_value = weights.value();
     new_weights = native_empty_like(weights_value);
     if (sequence) {
       unbucketize_permute = at::empty({lengths_sum}, indices.options());
@@ -561,7 +563,7 @@ U exclusive_scan_ptrs_cpu(
   return cumsum;
 }
 
-at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in) {
+Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
 
   const auto t_in_contig = t_in.expect_contiguous();
@@ -576,7 +578,7 @@ at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in) {
   return output;
 }
 
-at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in) {
+Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
 
   const auto t_in_contig = t_in.expect_contiguous();
@@ -596,7 +598,7 @@ at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in) {
   return output;
 }
 
-at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in) {
+Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
   TORCH_CHECK(t_in.dim() == 1);
 
@@ -614,10 +616,10 @@ at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in) {
 
 template <class T>
 void reorder_batched_ad_lengths_(
-    const at::Tensor& cat_ad_lengths,
-    const at::Tensor& batch_offsets,
+    const Tensor& cat_ad_lengths,
+    const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    at::Tensor& output) {
+    Tensor& output) {
   const int64_t nB = batch_offsets.numel() - 1;
   const int64_t nT = cat_ad_lengths.numel() / num_ads_in_batch;
 
@@ -638,14 +640,14 @@ void reorder_batched_ad_lengths_(
   }
 }
 
-at::Tensor reorder_batched_ad_lengths_cpu(
-    const at::Tensor& cat_ad_lengths,
-    const at::Tensor& batch_offsets,
+Tensor reorder_batched_ad_lengths_cpu(
+    const Tensor& cat_ad_lengths,
+    const Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   TENSOR_ON_CPU(cat_ad_lengths);
   TENSOR_ON_CPU(batch_offsets);
 
-  at::Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
+  Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
   AT_DISPATCH_ALL_TYPES(
       batch_offsets.type(), "reorder_batched_ad_lengths_cpu_kernel", ([&] {
         reorder_batched_ad_lengths_<scalar_t>(
@@ -660,12 +662,12 @@ at::Tensor reorder_batched_ad_lengths_cpu(
 
 template <class T>
 void reorder_batched_ad_indices_cpu_(
-    const at::Tensor& cat_ad_offsets,
-    const at::Tensor& cat_ad_indices,
-    const at::Tensor& reordered_cat_ad_offsets,
-    const at::Tensor& batch_offsets,
+    const Tensor& cat_ad_offsets,
+    const Tensor& cat_ad_indices,
+    const Tensor& reordered_cat_ad_offsets,
+    const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    at::Tensor& output) {
+    Tensor& output) {
   const int64_t nB = batch_offsets.numel() - 1;
   const int64_t nT = (cat_ad_offsets.numel() - 1) / num_ads_in_batch;
 
@@ -701,18 +703,18 @@ void reorder_batched_ad_indices_cpu_(
   }
 }
 
-at::Tensor reorder_batched_ad_indices_cpu(
-    const at::Tensor& cat_ad_offsets,
-    const at::Tensor& cat_ad_indices,
-    const at::Tensor& reordered_cat_ad_offsets,
-    const at::Tensor& batch_offsets,
+Tensor reorder_batched_ad_indices_cpu(
+    const Tensor& cat_ad_offsets,
+    const Tensor& cat_ad_indices,
+    const Tensor& reordered_cat_ad_offsets,
+    const Tensor& batch_offsets,
     const int64_t num_ads_in_batch) {
   TENSOR_ON_CPU(cat_ad_offsets);
   TENSOR_ON_CPU(cat_ad_indices);
   TENSOR_ON_CPU(reordered_cat_ad_offsets);
   TENSOR_ON_CPU(batch_offsets);
 
-  at::Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   AT_DISPATCH_ALL_TYPES(
       cat_ad_indices.type(), "reorder_batched_ad_indices_cpu_kernel", ([&] {
         reorder_batched_ad_indices_cpu_<scalar_t>(
@@ -727,7 +729,7 @@ at::Tensor reorder_batched_ad_indices_cpu(
   return reordered_cat_ad_indices;
 }
 
-at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size) {
+Tensor offsets_range_cpu(const Tensor& offsets, int64_t range_size) {
   TENSOR_ON_CPU(offsets);
   TENSOR_NDIM_EQUALS(offsets, 1);
 
@@ -770,11 +772,11 @@ at::Tensor offsets_range_cpu(const at::Tensor& offsets, int64_t range_size) {
 /// @param offsets       - Offsets for the starting point of each summation.
 /// @param indices       - Indices for the embeddings to fetch (from `weight`).
 /// @return The sumed embeddings.
-at::Tensor batched_unary_embeddings_forward_cpu(
-    const at::Tensor& weight,
-    const at::Tensor& table_offsets,
-    const at::Tensor& offsets,
-    const at::Tensor& indices) {
+Tensor batched_unary_embeddings_forward_cpu(
+    const Tensor& weight,
+    const Tensor& table_offsets,
+    const Tensor& offsets,
+    const Tensor& indices) {
   TENSOR_ON_CPU(weight);
   TENSOR_ON_CPU(table_offsets);
   TENSOR_ON_CPU(offsets);
@@ -860,9 +862,9 @@ void jagged_2d_to_dense_forward_kernel(
   }
 }
 
-at::Tensor jagged_2d_to_dense_forward_cpu(
-    at::Tensor embeddings,
-    at::Tensor offsets,
+Tensor jagged_2d_to_dense_forward_cpu(
+    Tensor embeddings,
+    Tensor offsets,
     int64_t max_L) {
   TORCH_CHECK(embeddings.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
@@ -930,9 +932,9 @@ void jagged_1d_to_dense_kernel(
   }
 }
 
-at::Tensor jagged_1d_to_dense_cpu(
-    at::Tensor values,
-    at::Tensor offsets,
+Tensor jagged_1d_to_dense_cpu(
+    Tensor values,
+    Tensor offsets,
     int64_t max_L,
     int64_t padding_value) {
   TORCH_CHECK(values.dim() == 1);
@@ -995,10 +997,10 @@ void _histogram_binning_calibration_cpu_kernel(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
-    const at::Tensor& logit,
-    const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives,
+std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
+    const Tensor& logit,
+    const Tensor& bin_num_examples,
+    const Tensor& bin_num_positives,
     double positive_weight,
     double lower_bound,
     double upper_bound,
@@ -1009,8 +1011,8 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_cpu(
   TENSOR_ON_CPU(bin_num_positives);
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
-  at::Tensor calibrated_prediction = at::empty_like(logit);
-  at::Tensor bin_ids =
+  Tensor calibrated_prediction = at::empty_like(logit);
+  Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
@@ -1084,13 +1086,13 @@ void _histogram_binning_calibration_by_feature_cpu_kernel(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
-    const at::Tensor& logit,
-    const at::Tensor& segment_value,
-    const at::Tensor& segment_lengths,
+std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
+    const Tensor& logit,
+    const Tensor& segment_value,
+    const Tensor& segment_lengths,
     int64_t num_segments,
-    const at::Tensor& bin_num_examples,
-    const at::Tensor& bin_num_positives,
+    const Tensor& bin_num_examples,
+    const Tensor& bin_num_positives,
     int64_t num_bins,
     double positive_weight,
     double lower_bound,
@@ -1105,10 +1107,10 @@ std::tuple<at::Tensor, at::Tensor> histogram_binning_calibration_by_feature_cpu(
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
   // dense_segment_value is used as a temporary storage.
-  at::Tensor dense_segment_value =
+  Tensor dense_segment_value =
       at::zeros({logit.numel()}, segment_value.options());
-  at::Tensor calibrated_prediction = at::empty_like(logit);
-  at::Tensor bin_ids =
+  Tensor calibrated_prediction = at::empty_like(logit);
+  Tensor bin_ids =
       at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step =
@@ -1155,10 +1157,10 @@ void _segment_sum_csr_cpu_kernel(
   }
 }
 
-at::Tensor segment_sum_csr_cpu(
+Tensor segment_sum_csr_cpu(
     const int64_t batch_size,
-    const at::Tensor& csr_seg,
-    const at::Tensor& values) {
+    const Tensor& csr_seg,
+    const Tensor& values) {
   TENSOR_ON_CPU(csr_seg);
   TENSOR_ON_CPU(values);
 
@@ -1173,7 +1175,7 @@ at::Tensor segment_sum_csr_cpu(
                         }));
   return output;
 }
-} // namespace fbgemm
+} // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
@@ -1203,30 +1205,26 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_sparse_data", fbgemm::permute_sparse_data_cpu);
+  m.impl("permute_sparse_data", fbgemm_gpu::permute_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
-      fbgemm::block_bucketize_sparse_features_cpu);
+      fbgemm_gpu::block_bucketize_sparse_features_cpu);
   m.impl(
       "asynchronous_exclusive_cumsum",
-      fbgemm::asynchronous_exclusive_cumsum_cpu);
+      fbgemm_gpu::asynchronous_exclusive_cumsum_cpu);
   m.impl(
       "asynchronous_inclusive_cumsum",
-      fbgemm::asynchronous_inclusive_cumsum_cpu);
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_cpu);
-  m.impl("reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_cpu);
-  m.impl("reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_cpu);
-  m.impl("offsets_range", fbgemm::offsets_range_cpu);
+      "asynchronous_complete_cumsum", fbgemm_gpu::asynchronous_complete_cumsum_cpu);
+  m.impl("reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_cpu);
+  m.impl("reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_cpu);
+  m.impl("offsets_range", fbgemm_gpu::offsets_range_cpu);
   m.impl(
-      "batched_unary_embeddings", fbgemm::batched_unary_embeddings_forward_cpu);
-  m.impl("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_forward_cpu);
-  m.impl("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_cpu);
-  m.impl(
-      "histogram_binning_calibration",
-      fbgemm::histogram_binning_calibration_cpu);
-  m.impl(
-      "histogram_binning_calibration_by_feature",
-      fbgemm::histogram_binning_calibration_by_feature_cpu);
-  m.impl("segment_sum_csr", fbgemm::segment_sum_csr_cpu);
+      "batched_unary_embeddings", fbgemm_gpu::batched_unary_embeddings_forward_cpu);
+  m.impl("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
+  m.impl("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
+  m.impl("histogram_binning_calibration", fbgemm_gpu::histogram_binning_calibration_cpu);
+  m.impl("histogram_binning_calibration_by_feature", fbgemm_gpu::histogram_binning_calibration_by_feature_cpu);
+  m.impl("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
 }

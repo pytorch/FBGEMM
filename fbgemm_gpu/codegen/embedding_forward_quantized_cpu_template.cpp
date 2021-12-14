@@ -18,7 +18,7 @@
 
 namespace {
 
-using namespace at;
+using Tensor = at::Tensor;
 
 // From https://stackoverflow.com/questions/55084047/intel-vector-instruction-to-zero-extend-8-4-bit-values-packed-in-a-32-bit-int-to
 // TODO: dispatch at architecture time?
@@ -187,7 +187,7 @@ void store_result(
             // To check D_tail_elements size
             std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
         } else if (std::is_same<output_t, at::Half>::value) {
-            std::array<Half, 8> vs;
+            std::array<at::Half, 8> vs;
             auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
             store_vec(vs.data(), acci);
             std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
@@ -223,7 +223,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
       pinned_memory = true;
     }
 
-    at::Tensor output;
+    Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);

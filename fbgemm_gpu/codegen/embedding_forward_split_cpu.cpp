@@ -19,7 +19,7 @@
 
 #include <ATen/AccumulateType.h>
 
-using namespace at;
+using Tensor = at::Tensor;
 
 namespace {
 void report_error_(
@@ -205,18 +205,18 @@ Tensor split_embedding_codegen_forward_cpu(
 
   Tensor output;
   if (weights.scalar_type() == at::kHalf ||
-      weights.scalar_type() == ScalarType::Byte) {
-    output = empty({B, total_D}, weights.options().dtype(at::kFloat));
+      weights.scalar_type() == at::ScalarType::Byte) {
+    output = at::empty({B, total_D}, weights.options().dtype(at::kFloat));
   } else {
-    output = empty({B, total_D}, weights.options());
+    output = at::empty({B, total_D}, weights.options());
   }
 
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
   AT_DISPATCH_FLOATING_TYPES_AND2(
-      ScalarType::Half,
-      ScalarType::Byte,
+      at::ScalarType::Half,
+      at::ScalarType::Byte,
       weights.scalar_type(),
       "split_embedding_cpu_forward",
       [&]() {
@@ -332,9 +332,9 @@ void batched_csr2csc(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int B,
     // TODO: use accessor for the following 3 parameters
-    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
-    const TensorAccessor<int64_t, 1>& batched_csr_indices,
-    const TensorAccessor<scalar_t, 1>& batched_csr_weights,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
@@ -396,7 +396,7 @@ void batched_csr2csc(
     int* sorted_col_row_index_keys = nullptr;
     int* sorted_col_row_index_values = nullptr;
     std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
-        fbgemm::radix_sort_parallel(
+        fbgemm_gpu::radix_sort_parallel(
             tmpBufKeys,
             tmpBufValues,
             tmpBuf1Keys,
@@ -574,9 +574,9 @@ void batched_csr2csc(
 template void batched_csr2csc<float>(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int B,
-    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
-    const TensorAccessor<int64_t, 1>& batched_csr_indices,
-    const TensorAccessor<float, 1>& batched_csr_weights,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const at::TensorAccessor<float, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings);
@@ -584,9 +584,9 @@ template void batched_csr2csc<float>(
 template void batched_csr2csc<double>(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int B,
-    const TensorAccessor<int64_t, 1>& batched_csr_offsets,
-    const TensorAccessor<int64_t, 1>& batched_csr_indices,
-    const TensorAccessor<double, 1>& batched_csr_weights,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const at::TensorAccessor<double, 1>& batched_csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings);

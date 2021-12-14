@@ -10,9 +10,9 @@
 
 using namespace fbgemm_gpu;
 
-namespace nbit {
+using Tensor = at::Tensor;
 
-using namespace at;
+namespace nbit {
 
 constexpr int32_t kCacheLocationMissing = -1;
 
@@ -174,23 +174,23 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
-  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   int64_t pooling_mode,
   {% if weighted %}
-  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -370,23 +370,23 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
-  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   int64_t pooling_mode,
   {% if weighted %}
-  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -572,23 +572,23 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
-  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   int64_t pooling_mode,
   {% if weighted %}
-  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D]
-  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -775,23 +775,23 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * 32)
 __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> dev_weights,
-  const PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> uvm_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> weights_placements,
-  const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-  const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> indices,
-  const PackedTensorAccessor32<index_t, 1, RestrictPtrTraits> offsets,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   int64_t pooling_mode,
   {% if weighted %}
-  PackedTensorAccessor32<float, 1, RestrictPtrTraits>
+  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
-  PackedTensorAccessor32<output_t, 2, RestrictPtrTraits>
+  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
-  const PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
-  const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   int32_t B = output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -987,13 +987,13 @@ __device__ inline uint32_t pruned_hash_function(uint32_t h) {
 }
 
 __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> offsets,
-    const PackedTensorAccessor64<int32_t, 2, RestrictPtrTraits> hash_table,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> hash_table_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_table_offsets,
     int32_t B,
     int32_t T,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> dense_indices) {
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
     // uint32_t capacity = hash_table.size(0);
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
     int32_t t = b_t / B;
@@ -1050,13 +1050,13 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
 
 {% if not weighted %}
 __global__ void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> index_remappings,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> index_remappings_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
     int32_t B,
     int32_t T,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> dense_indices) {
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t t = b_t / B;
   int32_t b = b_t % B;
@@ -1080,28 +1080,28 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_ker
 
 }
 
-at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
-    at::Tensor dev_weights,
-    at::Tensor uvm_weights,
-    at::Tensor weights_placements,
-    at::Tensor weights_offsets,
-    at::Tensor weights_tys,
-    at::Tensor D_offsets,
+Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
+    Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
     int64_t total_D,
     int64_t max_int2_D,
     int64_t max_int4_D,
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
-    at::Tensor indices,
-    at::Tensor offsets,
+    Tensor indices,
+    Tensor offsets,
     int64_t pooling_mode,
     {% if weighted %}
-    at::Tensor indice_weights,
+    Tensor indice_weights,
     {% endif %}
     int64_t output_dtype,
-    at::Tensor lxu_cache_weights,
-    at::Tensor lxu_cache_locations,
+    Tensor lxu_cache_weights,
+    Tensor lxu_cache_locations,
     int64_t unused
 ) {
     at::cuda::OptionalCUDAGuard device_guard;
@@ -1116,7 +1116,7 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TORCH_CHECK(total_D > 0);
     TORCH_CHECK(max_int2_D == 0);
 
-    at::Tensor output;
+    Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
@@ -1298,11 +1298,11 @@ at::Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     return output;
 }
 
-at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
-    at::Tensor indices,
-    at::Tensor offsets,
-    at::Tensor hash_table,
-    at::Tensor hash_table_offsets) {
+Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
+    Tensor indices,
+    Tensor offsets,
+    Tensor hash_table,
+    Tensor hash_table_offsets) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(indices.get_device());
     auto dense_indices = at::empty_like(indices);
@@ -1329,11 +1329,11 @@ at::Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
 }
 
 {% if not weighted %}
-at::Tensor pruned_array_lookup_cuda(
-    at::Tensor indices,
-    at::Tensor offsets,
-    at::Tensor index_remappings,
-    at::Tensor index_remappings_offsets) {
+Tensor pruned_array_lookup_cuda(
+    Tensor indices,
+    Tensor offsets,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
   auto dense_indices = at::empty_like(indices);

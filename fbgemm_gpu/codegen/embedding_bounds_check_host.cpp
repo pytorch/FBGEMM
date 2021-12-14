@@ -10,7 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/script.h>
 
-using namespace at;
+using Tensor = at::Tensor;
 
 void bounds_check_indices_cuda(
     Tensor rows_per_table,

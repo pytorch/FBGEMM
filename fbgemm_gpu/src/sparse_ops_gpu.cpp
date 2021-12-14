@@ -13,19 +13,21 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
-namespace fbgemm {
+using Tensor = at::Tensor;
+
+namespace fbgemm_gpu {
 
 class LookupFunctionBatchedUnaryEmbeddingOp
     : public torch::autograd::Function<LookupFunctionBatchedUnaryEmbeddingOp> {
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      const at::Tensor& weight,
-      const at::Tensor& table_offsets,
-      const at::Tensor& offsets,
-      const at::Tensor& indices) {
+      const Tensor& weight,
+      const Tensor& table_offsets,
+      const Tensor& offsets,
+      const Tensor& indices) {
     ctx->save_for_backward({weight, table_offsets, offsets, indices});
-    auto output = fbgemm::batched_unary_embeddings_forward_cuda(
+    auto output = batched_unary_embeddings_forward_cuda(
         weight, table_offsets, offsets, indices);
     return {output};
   }
@@ -40,17 +42,17 @@ class LookupFunctionBatchedUnaryEmbeddingOp
     auto offsets = *savedItr++;
     auto indices = *savedItr++;
     TORCH_CHECK(grad_outputs.size() == 1);
-    auto grad_weight = fbgemm::batched_unary_embeddings_backward_cuda(
+    auto grad_weight = batched_unary_embeddings_backward_cuda(
         grad_outputs[0], weight, table_offsets, offsets, indices);
-    return {grad_weight, at::Tensor(), at::Tensor(), at::Tensor()};
+    return {grad_weight, Tensor(), Tensor(), Tensor()};
   }
 };
 
-at::Tensor lookup_batched_unary_embedding_function(
-    const at::Tensor& weight,
-    const at::Tensor& table_offsets,
-    const at::Tensor& offsets,
-    const at::Tensor& indices) {
+Tensor lookup_batched_unary_embedding_function(
+    const Tensor& weight,
+    const Tensor& table_offsets,
+    const Tensor& offsets,
+    const Tensor& indices) {
   return LookupFunctionBatchedUnaryEmbeddingOp::apply(
       weight, table_offsets, offsets, indices)[0];
 }
@@ -60,8 +62,8 @@ class Jagged2DToDenseGPUOp
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      at::Tensor embeddings,
-      at::Tensor offsets,
+      Tensor embeddings,
+      Tensor offsets,
       int32_t max_sequence_length) {
     int32_t total_L = embeddings.size(0);
     ctx->save_for_backward({offsets});
@@ -91,44 +93,42 @@ class Jagged2DToDenseGPUOp
   }
 };
 
-at::Tensor jagged_2d_to_dense_gpu(
-    at::Tensor embeddings,
-    at::Tensor offsets,
+Tensor jagged_2d_to_dense_gpu(
+    Tensor embeddings,
+    Tensor offsets,
     int64_t max_sequence_length) {
   return Jagged2DToDenseGPUOp::apply(
       embeddings, offsets, static_cast<int32_t>(max_sequence_length))[0];
 }
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  DISPATCH_TO_CUDA("permute_sparse_data", fbgemm::permute_sparse_data_cuda);
+  DISPATCH_TO_CUDA("permute_sparse_data", fbgemm_gpu::permute_sparse_data_cuda);
   DISPATCH_TO_CUDA(
       "block_bucketize_sparse_features",
-      fbgemm::block_bucketize_sparse_features_cuda);
+      fbgemm_gpu::block_bucketize_sparse_features_cuda);
   DISPATCH_TO_CUDA(
       "asynchronous_exclusive_cumsum",
-      fbgemm::asynchronous_exclusive_cumsum_gpu);
+      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu);
   DISPATCH_TO_CUDA(
-      "asynchronous_complete_cumsum", fbgemm::asynchronous_complete_cumsum_gpu);
+      "asynchronous_complete_cumsum", fbgemm_gpu::asynchronous_complete_cumsum_gpu);
   DISPATCH_TO_CUDA(
       "asynchronous_inclusive_cumsum",
-      fbgemm::asynchronous_inclusive_cumsum_gpu);
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu);
   DISPATCH_TO_CUDA(
-      "reorder_batched_ad_lengths", fbgemm::reorder_batched_ad_lengths_gpu);
+      "reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_gpu);
   DISPATCH_TO_CUDA(
-      "reorder_batched_ad_indices", fbgemm::reorder_batched_ad_indices_gpu);
-  DISPATCH_TO_CUDA("offsets_range", fbgemm::offsets_range_cuda);
+      "reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_gpu);
+  DISPATCH_TO_CUDA("offsets_range", fbgemm_gpu::offsets_range_cuda);
   DISPATCH_TO_CUDA(
       "batched_unary_embeddings",
-      fbgemm::lookup_batched_unary_embedding_function);
-  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm::jagged_2d_to_dense_gpu);
-  DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm::jagged_1d_to_dense_gpu);
-  DISPATCH_TO_CUDA(
-      "histogram_binning_calibration",
-      fbgemm::histogram_binning_calibration_cuda);
-  DISPATCH_TO_CUDA(
-      "histogram_binning_calibration_by_feature",
-      fbgemm::histogram_binning_calibration_by_feature_cuda);
-  DISPATCH_TO_CUDA("segment_sum_csr", fbgemm::segment_sum_csr_cuda);
+      fbgemm_gpu::lookup_batched_unary_embedding_function);
+  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
+  DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA("histogram_binning_calibration",
+                   fbgemm_gpu::histogram_binning_calibration_cuda);
+  DISPATCH_TO_CUDA("histogram_binning_calibration_by_feature",
+                   fbgemm_gpu::histogram_binning_calibration_by_feature_cuda);
+  DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
 }

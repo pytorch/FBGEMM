@@ -15,15 +15,15 @@
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 namespace {
 template <typename scalar_t, typename grad_t>
 void split_embedding_backward_approx_cpu_kernel(
     Tensor grad_output,
     Tensor host_weights,
-    const TensorAccessor<int64_t, 1> weights_offsets_data,
-    const TensorAccessor<int, 1> D_offsets_data,
+    const at::TensorAccessor<int64_t, 1> weights_offsets_data,
+    const at::TensorAccessor<int, 1> D_offsets_data,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -31,10 +31,10 @@ void split_embedding_backward_approx_cpu_kernel(
     int T,
     int B,
     {% if "momentum1_offsets" in args.split_function_arg_names %}
-    const TensorAccessor<int64_t, 1> momentum1_offsets_data,
+    const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
     {% endif %}
     {% if "momentum2_offsets" in args.split_function_arg_names %}
-    const TensorAccessor<int64_t, 1> momentum2_offsets_data,
+    const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
     {% endif %}
     {{ args.split_cpu_kernel_args | join(", ") }}) {
   auto grad_output_data = grad_output.accessor<grad_t, 2>();
@@ -44,7 +44,7 @@ void split_embedding_backward_approx_cpu_kernel(
   // If indice_weights are not defined, then this accessor won't be used
   auto indice_weights_data = indice_weights.defined()
       ? indice_weights.accessor<grad_t, 1>()
-      : TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr);
+      : at::TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr);
 
   for (int64_t t = 0; t < T; ++t) {
     int feature_begin = t; // to conform interface with exact
@@ -122,9 +122,9 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   // TODO: fp16 and weighted
   bool use_fbgemm =
-      (host_weights.scalar_type() == ScalarType::Float/* ||
-       host_weights.scalar_type() == ScalarType::Half*/) &&
-      grad_output.scalar_type() == ScalarType::Float &&
+      (host_weights.scalar_type() == at::ScalarType::Float/* ||
+       host_weights.scalar_type() == at::ScalarType::Half*/) &&
+      grad_output.scalar_type() == at::ScalarType::Float &&
       !indice_weights.defined() && static_cast<PoolingMode>(pooling_mode) == PoolingMode::SUM;
 
   if (use_fbgemm) {

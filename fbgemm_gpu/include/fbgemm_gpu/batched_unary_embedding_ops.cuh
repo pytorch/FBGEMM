@@ -33,7 +33,7 @@ __global__ void batched_unary_embeddings_forward_kernel(
   index_t indices_start = offsets[t * B + b];
   index_t indices_end = offsets[t * B + b + 1];
   int32_t L = indices_end - indices_start;
-  // TODO: this should be acc_type<scalar_t, true>
+  // TODO: this should be at::acc_type<scalar_t, true>
   scalar_t sum = 0.0;
   for (int32_t l = 0; l < L; ++l) {
     auto idx = __ldg(&indices[indices_start + l]);

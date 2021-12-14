@@ -36,7 +36,8 @@
 
 constexpr size_t kCacheMaxThreads = 512;
 
-using namespace at;
+using Tensor = at::Tensor;
+
 using namespace fbgemm_gpu;
 
 namespace {
@@ -106,17 +107,17 @@ constexpr int64_t kCacheStateInvalid = -1;
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
-    PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor64<cache_t, 2, RestrictPtrTraits> lxu_cache_weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
     bool stochastic_rounding,
-    PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
   int32_t B = lxu_cache_weights.size(0);
   int32_t b = blockIdx.x * blockDim.y + threadIdx.y;
   if (b >= B) {
@@ -138,7 +139,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     if (std::is_same<emb_t, uint8_t>::value) {
       D_emb += kINT8QparamsBytes;
     }
-    auto weight_row = WeightRow<emb_t, cache_t, acc_type<cache_t, true>>(
+    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
         &weights[weights_offset_current + idx_current * D_emb + 0],
         &lxu_cache_weights[b][0],
         D_current,
@@ -166,7 +167,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
       }
     }
     for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-      Vec4T<acc_type<cache_t, true>> cache_weights_vec =
+      Vec4T<at::acc_type<cache_t, true>> cache_weights_vec =
           weight_row.load(d * 4, qparams);
       weight_row.evict(cache_weights_vec, d * 4, qparams);
     }
@@ -197,8 +198,8 @@ void lxu_cache_flush_cuda(
       lxu_cache_weights.type(),
       "lxu_cache_flush_kernel_2",
       ([&] {
-        PhiloxCudaState rng_engine_inputs;
-        if (stochastic_rounding && std::is_same<emb_t, Half>::value) {
+        at::PhiloxCudaState rng_engine_inputs;
+        if (stochastic_rounding && std::is_same<emb_t, at::Half>::value) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
@@ -206,18 +207,18 @@ void lxu_cache_flush_cuda(
         }
         lxu_cache_flush_kernel<emb_t, cache_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                uvm_weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 cache_index_table_map
-                    .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 weights_offsets
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 lxu_cache_state
-                    .packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
+                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
       }));
@@ -226,11 +227,11 @@ void lxu_cache_flush_cuda(
 }
 
 __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> indices,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> offsets,
-    PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
   int32_t T = cache_hash_size_cumsum.size(0) - 1;
   int64_t total_cache_hash_size = cache_hash_size_cumsum[T];
@@ -285,10 +286,10 @@ Tensor linearize_cache_indices_cuda(
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      linear_cache_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>());
+      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      linear_cache_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return linear_cache_indices;
 }
@@ -305,11 +306,11 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
   auto sorted_indices = at::empty_like(linear_indices);
   auto unique_indices = at::empty_like(linear_indices);
   auto unique_indices_length =
-      at::empty({1}, linear_indices.options().dtype(kInt));
+      at::empty({1}, linear_indices.options().dtype(at::kInt));
   c10::optional<Tensor> unique_indices_count = c10::nullopt;
   if (compute_count) {
     unique_indices_count = at::empty(
-        {linear_indices.numel()}, linear_indices.options().dtype(kInt));
+        {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
   }
 
   // sort indices
@@ -326,7 +327,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
       false));
   auto temp_storage_0 = at::empty(
       {static_cast<int64_t>(temp_storage_bytes_0)},
-      linear_indices.options().dtype(kByte));
+      linear_indices.options().dtype(at::kByte));
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
       temp_storage_0.data_ptr(),
       temp_storage_bytes_0,
@@ -352,7 +353,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
         false));
     auto temp_storage_1 = at::empty(
         {static_cast<int64_t>(temp_storage_bytes_1)},
-        linear_indices.options().dtype(kByte));
+        linear_indices.options().dtype(at::kByte));
     AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
         temp_storage_1.data_ptr(),
         temp_storage_bytes_1,
@@ -376,7 +377,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
         false));
     auto temp_storage_1 = at::empty(
         {static_cast<int64_t>(temp_storage_bytes_1)},
-        linear_indices.options().dtype(kByte));
+        linear_indices.options().dtype(at::kByte));
     AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
         temp_storage_1.data_ptr(),
         temp_storage_bytes_1,
@@ -392,13 +393,13 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
 }
 
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> unique_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> unique_indices,
     const int32_t* __restrict__ N_unique,
     int64_t max_indices,
-    const PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> cache_sets,
+    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     int64_t time_stamp,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lru_state) {
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state) {
   int32_t N = unique_indices.size(0);
   int32_t C = lxu_cache_state.size(0);
 
@@ -448,7 +449,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   device_guard.set_index(unique_indices.get_device());
 
   auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(kInt));
+      empty_like(unique_indices, unique_indices.options().dtype(at::kInt));
   int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -459,13 +460,13 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      unique_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      unique_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       unique_indices_length.data_ptr<int32_t>(),
       max_indices,
-      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
-      cache_sets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+      cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       time_stamp,
-      lru_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>());
+      lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   // Sort the cache sets and ids
   size_t temp_storage_bytes = 0;
@@ -483,7 +484,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       false));
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
-      unique_indices.options().dtype(kByte));
+      unique_indices.options().dtype(at::kByte));
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       temp_storage.data_ptr(),
       temp_storage_bytes,
@@ -501,24 +502,24 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
-    PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_cache_sets,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor64<cache_t, 2, RestrictPtrTraits> lxu_cache_weights,
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
     int64_t time_stamp,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lru_state,
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     bool stochastic_rounding,
-    PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -610,10 +611,10 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         weight_row.set_stoc_state(&state);
       }
       float2 qparams;
-      acc_type<cache_t, true> local_min =
-          std::numeric_limits<acc_type<cache_t, true>>::max();
-      acc_type<cache_t, true> local_max =
-          std::numeric_limits<acc_type<cache_t, true>>::lowest();
+      at::acc_type<cache_t, true> local_min =
+          std::numeric_limits<at::acc_type<cache_t, true>>::max();
+      at::acc_type<cache_t, true> local_max =
+          std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
           Vec4T<cache_t> cache_weights_vec =
@@ -688,7 +689,7 @@ void lru_cache_insert_cuda(
       lxu_cache_weights.type(),
       "lru_cache_insert_kernel_2",
       ([&] {
-        PhiloxCudaState rng_engine_inputs;
+        at::PhiloxCudaState rng_engine_inputs;
         if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
@@ -701,25 +702,25 @@ void lru_cache_insert_cuda(
                dim3(kWarpSize, kMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
-                weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
+                weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 cache_index_table_map
-                    .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 weights_offsets
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 sorted_cache_sets
-                    .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 cache_set_sorted_unique_indices
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 unique_indices_length.data_ptr<int32_t>(),
                 lxu_cache_state
-                    .packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
+                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
                 time_stamp,
-                lru_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+                lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
       }));
@@ -786,23 +787,23 @@ void lru_cache_populate_cuda(
 }
 
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
-    PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_cache_sets,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
     int64_t time_stamp,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lru_state) {
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -927,20 +928,20 @@ void lru_cache_insert_byte_cuda(
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      cache_index_table_map.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-      D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      sorted_cache_sets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      cache_index_table_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
+      D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      sorted_cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       cache_set_sorted_unique_indices
-          .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       unique_indices_length.data_ptr<int32_t>(),
-      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
-      lxu_cache_weights.packed_accessor64<uint8_t, 2, RestrictPtrTraits>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+      lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
       time_stamp,
-      lru_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>());
+      lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -1004,11 +1005,11 @@ void lru_cache_populate_byte_cuda(
 }
 
 __global__ __launch_bounds__(kMaxThreads) void lfu_update_counts_kernel(
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> unique_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> unique_indices,
     const int32_t* __restrict__ N_unique,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         unique_indices_count,
-    PackedTensorAccessor64<int64_t, 1, RestrictPtrTraits> lfu_state) {
+    at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
   int32_t n = blockIdx.x * blockDim.x + threadIdx.x;
   if (n >= *N_unique) {
     return;
@@ -1031,10 +1032,10 @@ void lfu_update_counts_cuda(
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      unique_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      unique_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       unique_indices_length.data_ptr<int32_t>(),
-      unique_indices_count.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      lfu_state.packed_accessor64<int64_t, 1, RestrictPtrTraits>());
+      unique_indices_count.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -1043,12 +1044,12 @@ constexpr int32_t kLFUCounterBits = 40;
 static_assert(kCacheSetBits + kLFUCounterBits == 8 * sizeof(int64_t), "");
 
 __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> unique_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> unique_indices,
     const int32_t* __restrict__ N_unique,
     int64_t max_indices,
-    const PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
+    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
     uint64_t* __restrict__ cache_sets,
-    const PackedTensorAccessor64<int64_t, 1, RestrictPtrTraits> lfu_state) {
+    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
   int32_t N = unique_indices.size(0);
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
@@ -1103,7 +1104,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   device_guard.set_index(unique_indices.get_device());
 
   auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(kLong));
+      empty_like(unique_indices, unique_indices.options().dtype(at::kLong));
   int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -1114,12 +1115,12 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      unique_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+      unique_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       unique_indices_length.data_ptr<int32_t>(),
       max_indices,
-      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
       (uint64_t*)cache_sets.data_ptr<int64_t>(),
-      lfu_state.packed_accessor64<int64_t, 1, RestrictPtrTraits>());
+      lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   // Sort the cache sets and ids
   size_t temp_storage_bytes = 0;
@@ -1137,7 +1138,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
       false));
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
-      unique_indices.options().dtype(kByte));
+      unique_indices.options().dtype(at::kByte));
   AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
       temp_storage.data_ptr(),
       temp_storage_bytes,
@@ -1155,22 +1156,22 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
-    PackedTensorAccessor64<emb_t, 1, RestrictPtrTraits> weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const uint64_t* __restrict__ sorted_cache_sets,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor64<cache_t, 2, RestrictPtrTraits> lxu_cache_weights,
-    const PackedTensorAccessor64<int64_t, 1, RestrictPtrTraits> lfu_state,
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state,
     bool stochastic_rounding,
-    PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -1275,10 +1276,10 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       }
 
       float2 qparams;
-      acc_type<cache_t, true> local_min =
-          std::numeric_limits<acc_type<cache_t, true>>::max();
-      acc_type<cache_t, true> local_max =
-          std::numeric_limits<acc_type<cache_t, true>>::lowest();
+      at::acc_type<cache_t, true> local_min =
+          std::numeric_limits<at::acc_type<cache_t, true>>::max();
+      at::acc_type<cache_t, true> local_max =
+          std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
           Vec4T<cache_t> cache_weights_vec =
@@ -1350,7 +1351,7 @@ void lfu_cache_insert_cuda(
       lxu_cache_weights.type(),
       "lfu_cache_insert_kernel_2",
       ([&] {
-        PhiloxCudaState rng_engine_inputs;
+        at::PhiloxCudaState rng_engine_inputs;
         if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
@@ -1363,23 +1364,23 @@ void lfu_cache_insert_cuda(
                dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
-                weights.packed_accessor64<emb_t, 1, RestrictPtrTraits>(),
+                weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 cache_index_table_map
-                    .packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 weights_offsets
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
                 cache_set_sorted_unique_indices
-                    .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 unique_indices_length.data_ptr<int32_t>(),
                 lxu_cache_state
-                    .packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
+                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, RestrictPtrTraits>(),
-                lfu_state.packed_accessor64<int64_t, 1, RestrictPtrTraits>(),
+                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
       }));
@@ -1463,21 +1464,21 @@ void lfu_cache_populate_cuda(
 // manner.
 __global__
 __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
-    PackedTensorAccessor64<uint8_t, 1, RestrictPtrTraits> weights,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits> weights_offsets,
-    const PackedTensorAccessor32<uint8_t, 1, RestrictPtrTraits> weights_tys,
-    const PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> D_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const uint64_t* __restrict__ sorted_cache_sets,
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor64<uint8_t, 2, RestrictPtrTraits> lxu_cache_weights,
-    const PackedTensorAccessor64<int64_t, 1, RestrictPtrTraits> lfu_state) {
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -1611,19 +1612,19 @@ void lfu_cache_insert_byte_cuda(
       dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      weights.packed_accessor64<uint8_t, 1, RestrictPtrTraits>(),
-      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      cache_index_table_map.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
-      weights_offsets.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      weights_tys.packed_accessor32<uint8_t, 1, RestrictPtrTraits>(),
-      D_offsets.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
+      weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+      cache_hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      cache_index_table_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
+      D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
       cache_set_sorted_unique_indices
-          .packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
+          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       unique_indices_length.data_ptr<int32_t>(),
-      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
-      lxu_cache_weights.packed_accessor64<uint8_t, 2, RestrictPtrTraits>(),
-      lfu_state.packed_accessor64<int64_t, 1, RestrictPtrTraits>());
+      lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+      lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
+      lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -1689,10 +1690,10 @@ void lfu_cache_populate_byte_cuda(
 }
 
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
-    const PackedTensorAccessor32<int64_t, 1, RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
-    const PackedTensorAccessor32<int64_t, 2, RestrictPtrTraits> lxu_cache_state,
-    PackedTensorAccessor32<int32_t, 1, RestrictPtrTraits> lxu_cache_locations) {
+    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lxu_cache_state,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
@@ -1721,7 +1722,7 @@ Tensor lxu_cache_lookup_cuda(
 
   const auto N = linear_cache_indices.numel();
   auto lxu_cache_locations = empty_like(
-      linear_cache_indices, linear_cache_indices.options().dtype(kInt));
+      linear_cache_indices, linear_cache_indices.options().dtype(at::kInt));
   if (linear_cache_indices.numel() == 0) {
     // nothing to do
     return lxu_cache_locations;
@@ -1735,9 +1736,9 @@ Tensor lxu_cache_lookup_cuda(
       threads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      linear_cache_indices.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-      lxu_cache_state.packed_accessor32<int64_t, 2, RestrictPtrTraits>(),
-      lxu_cache_locations.packed_accessor32<int32_t, 1, RestrictPtrTraits>());
+      linear_cache_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+      lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return lxu_cache_locations;

@@ -11,7 +11,7 @@
 
 #include "codegen/embedding_common.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 Tensor dense_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
@@ -343,7 +343,7 @@ class SplitNoBagLookupFunction_Dense_Op
   }
 };
 
-at::Tensor split_embedding_codegen_lookup_dense_function(
+Tensor split_embedding_codegen_lookup_dense_function(
     Tensor dev_weights,
     Tensor weights_offsets,
     Tensor D_offsets,

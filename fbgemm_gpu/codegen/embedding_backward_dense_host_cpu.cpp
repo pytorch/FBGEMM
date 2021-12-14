@@ -11,7 +11,7 @@
 #include "codegen/embedding_common.h"
 #include "codegen/embedding_forward_split_cpu.h"
 
-using namespace at;
+using Tensor = at::Tensor;
 
 Tensor split_embedding_backward_codegen_dense_cpu(
     Tensor grad_output,
