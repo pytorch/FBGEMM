@@ -279,8 +279,7 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>>
-permute_sparse_data_cpu(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -1012,8 +1011,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
 
   Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids =
-      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
@@ -1110,8 +1108,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   Tensor dense_segment_value =
       at::zeros({logit.numel()}, segment_value.options());
   Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids =
-      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
@@ -1216,15 +1213,23 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "asynchronous_inclusive_cumsum",
       fbgemm_gpu::asynchronous_inclusive_cumsum_cpu);
   m.impl(
-      "asynchronous_complete_cumsum", fbgemm_gpu::asynchronous_complete_cumsum_cpu);
-  m.impl("reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_cpu);
-  m.impl("reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_cpu);
+      "asynchronous_complete_cumsum",
+      fbgemm_gpu::asynchronous_complete_cumsum_cpu);
+  m.impl(
+      "reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_cpu);
+  m.impl(
+      "reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_cpu);
   m.impl("offsets_range", fbgemm_gpu::offsets_range_cpu);
   m.impl(
-      "batched_unary_embeddings", fbgemm_gpu::batched_unary_embeddings_forward_cpu);
+      "batched_unary_embeddings",
+      fbgemm_gpu::batched_unary_embeddings_forward_cpu);
   m.impl("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
   m.impl("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
-  m.impl("histogram_binning_calibration", fbgemm_gpu::histogram_binning_calibration_cpu);
-  m.impl("histogram_binning_calibration_by_feature", fbgemm_gpu::histogram_binning_calibration_by_feature_cpu);
+  m.impl(
+      "histogram_binning_calibration",
+      fbgemm_gpu::histogram_binning_calibration_cpu);
+  m.impl(
+      "histogram_binning_calibration_by_feature",
+      fbgemm_gpu::histogram_binning_calibration_by_feature_cpu);
   m.impl("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
 }

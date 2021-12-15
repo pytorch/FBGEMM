@@ -160,8 +160,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   return {combined_indices, combined_offsets, at::empty({0})};
 }
 
-std::tuple<Tensor, Tensor, Tensor>
-tbe_input_combine_with_length_cpu(
+std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
@@ -223,9 +222,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)");
   m.impl(
       "tbe_input_combine",
-      torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(fbgemm_gpu::tbe_input_combine_cpu)));
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(fbgemm_gpu::tbe_input_combine_cpu)));
   m.impl(
       "tbe_input_combine_with_length",
       torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(fbgemm_gpu::tbe_input_combine_with_length_cpu)));
+          c10::DispatchKey::CPU,
+          TORCH_FN(fbgemm_gpu::tbe_input_combine_with_length_cpu)));
 }

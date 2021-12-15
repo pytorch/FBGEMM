@@ -112,7 +112,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "asynchronous_exclusive_cumsum",
       fbgemm_gpu::asynchronous_exclusive_cumsum_gpu);
   DISPATCH_TO_CUDA(
-      "asynchronous_complete_cumsum", fbgemm_gpu::asynchronous_complete_cumsum_gpu);
+      "asynchronous_complete_cumsum",
+      fbgemm_gpu::asynchronous_complete_cumsum_gpu);
   DISPATCH_TO_CUDA(
       "asynchronous_inclusive_cumsum",
       fbgemm_gpu::asynchronous_inclusive_cumsum_gpu);
@@ -126,9 +127,11 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm_gpu::lookup_batched_unary_embedding_function);
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
-  DISPATCH_TO_CUDA("histogram_binning_calibration",
-                   fbgemm_gpu::histogram_binning_calibration_cuda);
-  DISPATCH_TO_CUDA("histogram_binning_calibration_by_feature",
-                   fbgemm_gpu::histogram_binning_calibration_by_feature_cuda);
+  DISPATCH_TO_CUDA(
+      "histogram_binning_calibration",
+      fbgemm_gpu::histogram_binning_calibration_cuda);
+  DISPATCH_TO_CUDA(
+      "histogram_binning_calibration_by_feature",
+      fbgemm_gpu::histogram_binning_calibration_by_feature_cuda);
   DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
 }

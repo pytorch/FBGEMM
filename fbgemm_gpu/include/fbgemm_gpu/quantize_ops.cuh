@@ -446,58 +446,56 @@ __device__ inline float float_to_flexp(
 
   emin = 1 - bias;
 
-  //Because the input value can be of extreme magnitude
-  //We scale them into less extreme to avoid potential exception during manipulation
-  E = ((X.I & 0x7F800000)>>23)-127;
+  // Because the input value can be of extreme magnitude
+  // We scale them into less extreme to avoid potential exception during
+  // manipulation
+  E = ((X.I & 0x7F800000) >> 23) - 127;
   if (E >= 0) {
-     scale.I = 0X2F800000; inv_scale.I = 0X4F800000; // scale is 2^-32, inv_scale is 2^32
-     delta_E = -32;
-  }
-  else {
-    scale.I = 0x4F800000; inv_scale.I = 0x2F800000;
+    scale.I = 0X2F800000;
+    inv_scale.I = 0X4F800000; // scale is 2^-32, inv_scale is 2^32
+    delta_E = -32;
+  } else {
+    scale.I = 0x4F800000;
+    inv_scale.I = 0x2F800000;
     delta_E = 32;
   }
   X.F *= scale.F; // at this point X is never close to over/underflow
-  expo = ((X.I & 0x7F800000)>>23) - 127 - delta_E;
+  expo = ((X.I & 0x7F800000) >> 23) - 127 - delta_E;
 
-  //If expo >= emin
-  //We round to mbits explicit mantissa bits
-  //That is, we want to round off 23-mbits of the trailing bits in X
-  nbits2round = 23-mbits;
-  //However, if expo < emin, we need to round more bits off
-  nbits2round += max(emin-expo,0);
+  // If expo >= emin
+  // We round to mbits explicit mantissa bits
+  // That is, we want to round off 23-mbits of the trailing bits in X
+  nbits2round = 23 - mbits;
+  // However, if expo < emin, we need to round more bits off
+  nbits2round += max(emin - expo, 0);
 
-  bouncer.I = (nbits2round<<23) + (X.I & 0x7F800000);
-  X.F = X.F + bouncer.F; //Because bouncer is exactly 2^nbits2round bigger
-                         //this addition forces the rounding off of nbits2round
-  X.F = X.F - bouncer.F; //X.F is the original X with nbits2round rounded off
+  bouncer.I = (nbits2round << 23) + (X.I & 0x7F800000);
+  X.F = X.F + bouncer.F; // Because bouncer is exactly 2^nbits2round bigger
+                         // this addition forces the rounding off of nbits2round
+  X.F = X.F - bouncer.F; // X.F is the original X with nbits2round rounded off
 
-  //restore the true magnitude by undoing the previous scale
+  // restore the true magnitude by undoing the previous scale
   X.F *= inv_scale.F;
-  //clip on the large end of the domain
+  // clip on the large end of the domain
   X.F = min(X.F, max_pos);
-  //restores the original sign
+  // restores the original sign
   X.I |= sign_bit;
 
   float val_flexp = X.F;
   return val_flexp;
 }
 
-__device__ inline float flexp_to_float(
-    float val_flexp,
-    int ebits,
-    int mbits,
-    int bias) {
-  //Hello
+__device__ inline float
+flexp_to_float(float val_flexp, int ebits, int mbits, int bias) {
+  // Hello
 
-  //Because float_to_flexp is a fakequant operator,
-  //the input flexp number is already a FP32 number
-  //with limited precision.
-  //Thus this flexp_to_float is really a no-op
+  // Because float_to_flexp is a fakequant operator,
+  // the input flexp number is already a FP32 number
+  // with limited precision.
+  // Thus this flexp_to_float is really a no-op
   float val_fp = val_flexp;
   return val_fp;
 }
-
 
 __device__ inline float
 hfp8_to_float(uint8_t hfp8_val, int ebits, int mbits, int bias) {
@@ -592,8 +590,8 @@ __global__ inline void _float_to_flexp_cuda_kernel(
     float* output_row = output + row * ncols;
     for (int col = blockIdx.x * blockDim.x + threadIdx.x; col < ncols;
          col += col_incre) {
-      output_row[col] = float_to_flexp(
-          input_row[col], ebits, mbits, bias, min_pos, max_pos);
+      output_row[col] =
+          float_to_flexp(input_row[col], ebits, mbits, bias, min_pos, max_pos);
     }
   }
 }

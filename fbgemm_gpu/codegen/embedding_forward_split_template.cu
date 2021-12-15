@@ -4,7 +4,16 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
+{#
+// @lint-ignore LINTIGNORE
+// @lint-ignore-every CLANGFORMAT
 // clang-format off
+// Note: clang-format off doesn't work with this templaterized code,
+// so we need to keep lint-ignore-every.
+// See https://fburl.com/dw9ljh4h
+#}
+
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
