@@ -95,9 +95,10 @@ Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   return range;
 }
 
-Tensor segment_sum_csr_cuda(const int64_t batch_size,
-                                const Tensor& csr_seg,
-                                const Tensor& values) {
+Tensor segment_sum_csr_cuda(
+    const int64_t batch_size,
+    const Tensor& csr_seg,
+    const Tensor& values) {
   TENSOR_ON_CUDA_GPU(csr_seg);
   TENSOR_ON_CUDA_GPU(values);
 
@@ -232,8 +233,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>>
-permute_sparse_data_cuda(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -281,8 +281,7 @@ permute_sparse_data_cuda(
       }));
 
   // convert lengths to offsets
-  const auto input_offsets =
-      asynchronous_exclusive_cumsum_gpu(lengths_contig);
+  const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
       asynchronous_exclusive_cumsum_gpu(permuted_lengths);
   int64_t permuted_indices_size = 0;
@@ -1542,8 +1541,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   device_guard.set_index(logit.get_device());
 
   Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids =
-      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
@@ -1636,8 +1634,7 @@ __global__ void histogram_binning_calibration_by_feature_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor>
-histogram_binning_calibration_by_feature_cuda(
+std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
     const Tensor& logit,
     const Tensor& segment_value,
     const Tensor& segment_lengths,
@@ -1687,8 +1684,7 @@ histogram_binning_calibration_by_feature_cuda(
       });
 
   Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids =
-      at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);

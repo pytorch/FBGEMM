@@ -350,5 +350,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl(
       "merge_pooled_embeddings",
       torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
+          c10::DispatchKey::CUDA,
+          TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
 }
