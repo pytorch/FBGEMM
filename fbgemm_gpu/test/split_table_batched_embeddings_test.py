@@ -8,6 +8,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import pickle
 import unittest
 from typing import Callable, List, Optional, Tuple, TypeVar
 
@@ -3486,6 +3487,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     torch.ops.fb.bounds_check_indices(
                         rows_per_table, indices, offsets, bounds_check_mode, warning
                     )
+
+    def test_pickle(self) -> None:
+        tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
+        pickled = pickle.dumps(tensor_queue)
+        unpickled = pickle.loads(pickled)
 
 
 if __name__ == "__main__":

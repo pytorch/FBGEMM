@@ -348,37 +348,31 @@ static auto AtomicCounterRegistry =
 struct TensorQueue : torch::CustomClassHolder {
   explicit TensorQueue(Tensor t) : init_tensor_(t) {}
 
-  explicit TensorQueue(std::string serialized) {
-    torch::serialize::InputArchive archive;
-    archive.load_from(serialized.data(), serialized.size());
-
-    archive.read(std::string("init_tensor"), init_tensor_);
-    std::string key = "queue";
+  explicit TensorQueue(c10::Dict<std::string, at::Tensor> dict) {
+    init_tensor_ = dict.at(std::string("init_tensor"));
+    const std::string key = "queue";
     Tensor size_tensor;
-    archive.read(std::string(key + "/size"), size_tensor);
+    size_tensor = dict.at(std::string(key + "/size"));
     const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
     int64_t queue_size = size_tensor_acc[0];
 
     for (const auto index : c10::irange(queue_size)) {
       Tensor val;
-      archive.read(key + "/" + c10::to_string(index), queue_[index]);
+      queue_[index] = dict.at(key + "/" + c10::to_string(index));
       queue_.push_back(val);
     }
   }
 
-  std::string serialize() const {
-    torch::serialize::OutputArchive archive(
-        std::make_shared<torch::jit::CompilationUnit>());
-    std::ostringstream oss;
-    archive.write(std::string("init_tensor"), init_tensor_);
-    std::string key = "queue";
-    archive.write(
+  c10::Dict<std::string, at::Tensor> serialize() const {
+    c10::Dict<std::string, at::Tensor> dict;
+    dict.insert(std::string("init_tensor"), init_tensor_);
+    const std::string key = "queue";
+    dict.insert(
         key + "/size", torch::tensor(static_cast<int64_t>(queue_.size())));
     for (const auto index : c10::irange(queue_.size())) {
-      archive.write(key + "/" + c10::to_string(index), queue_[index]);
+      dict.insert(key + "/" + c10::to_string(index), queue_[index]);
     }
-    archive.save_to(oss);
-    return oss.str();
+    return dict;
   }
   // Push the element to the rear of queue.
   // Lock is added for thread safe.
@@ -429,10 +423,12 @@ static auto TensorQueueRegistry =
         .def("size", &TensorQueue::size)
         .def_pickle(
             // __getstate__
-            [](const c10::intrusive_ptr<TensorQueue>& self) -> std::string {
+            [](const c10::intrusive_ptr<TensorQueue>& self)
+                -> c10::Dict<std::string, at::Tensor> {
               return self->serialize();
             },
             // __setstate__
-            [](std::string data) -> c10::intrusive_ptr<TensorQueue> {
-              return c10::make_intrusive<TensorQueue>(data);
+            [](c10::Dict<std::string, at::Tensor> data)
+                -> c10::intrusive_ptr<TensorQueue> {
+              return c10::make_intrusive<TensorQueue>(std::move(data));
             });
