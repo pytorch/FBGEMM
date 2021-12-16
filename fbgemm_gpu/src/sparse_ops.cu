@@ -1283,8 +1283,8 @@ __global__ void jagged_2d_to_dense_forward_kernel(
     int32_t max_L,
     int32_t D,
     at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 2> embeddings,
-    at::PackedTensorAccessor64<scalar_t, 3> padded_embeddings) {
+    at::PackedTensorAccessor64<scalar_t, 2> values,
+    at::PackedTensorAccessor64<scalar_t, 3> padded_values) {
   int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t l = b_l / B;
   int32_t b = b_l % B;
@@ -1297,39 +1297,39 @@ __global__ void jagged_2d_to_dense_forward_kernel(
   if (l < length) {
     for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
       if (d + threadIdx.x < D) {
-        padded_embeddings[b][l][d + threadIdx.x] =
-            embeddings[row_start + l][d + threadIdx.x];
+        padded_values[b][l][d + threadIdx.x] =
+            values[row_start + l][d + threadIdx.x];
       }
     }
   } else {
     for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
       if (d + threadIdx.x < D) {
-        padded_embeddings[b][l][d + threadIdx.x] = 0.0;
+        padded_values[b][l][d + threadIdx.x] = 0.0;
       }
     }
   }
 }
 
 Tensor jagged_2d_to_dense_forward_cuda(
-    Tensor embeddings,
+    Tensor values,
     Tensor offsets,
     int32_t max_L) {
-  TORCH_CHECK(embeddings.dim() == 2);
+  TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
   at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(embeddings.get_device());
+  device_guard.set_index(values.get_device());
 
-  int32_t D = embeddings.size(1);
+  int32_t D = values.size(1);
   int32_t B = offsets.numel() - 1;
-  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
-  const auto embeddings_contig = embeddings.contiguous();
+  auto padded_values = at::empty({B, max_L, D}, values.options());
+  const auto values_contig = values.contiguous();
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
       offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            embeddings.scalar_type(),
+            values.scalar_type(),
             "jagged_2d_to_dense_forward_kernel_2",
             ([&]() {
               jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
@@ -1345,12 +1345,12 @@ Tensor jagged_2d_to_dense_forward_cuda(
                       max_L,
                       D,
                       offsets_contig.packed_accessor32<index_t, 1>(),
-                      embeddings_contig.packed_accessor64<scalar_t, 2>(),
-                      padded_embeddings.packed_accessor64<scalar_t, 3>());
+                      values_contig.packed_accessor64<scalar_t, 2>(),
+                      padded_values.packed_accessor64<scalar_t, 3>());
             }));
       }));
 
-  return padded_embeddings;
+  return padded_values;
 }
 
 template <typename index_t, typename scalar_t>
@@ -1359,8 +1359,8 @@ __global__ void jagged_2d_to_dense_backward_kernel(
     int32_t max_L,
     int32_t D,
     at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 3> grad_padded_embeddings,
-    at::PackedTensorAccessor64<scalar_t, 2> grad_embeddings) {
+    at::PackedTensorAccessor64<scalar_t, 3> grad_padded_values,
+    at::PackedTensorAccessor64<scalar_t, 2> grad_values) {
   int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t l = b_l / B;
   int32_t b = b_l % B;
@@ -1373,37 +1373,37 @@ __global__ void jagged_2d_to_dense_backward_kernel(
   if (l < length) {
     for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
       if (d + threadIdx.x < D) {
-        grad_embeddings[row_start + l][d + threadIdx.x] =
-            grad_padded_embeddings[b][l][d + threadIdx.x];
+        grad_values[row_start + l][d + threadIdx.x] =
+            grad_padded_values[b][l][d + threadIdx.x];
       }
     }
   }
 }
 
 Tensor jagged_2d_to_dense_backward_cuda(
-    Tensor grad_padded_embeddings,
+    Tensor grad_padded_values,
     Tensor offsets,
     int32_t total_L) {
-  TORCH_CHECK(grad_padded_embeddings.dim() == 3);
+  TORCH_CHECK(grad_padded_values.dim() == 3);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(total_L >= 0);
-  TORCH_CHECK(offsets.numel() == grad_padded_embeddings.size(0) + 1);
+  TORCH_CHECK(offsets.numel() == grad_padded_values.size(0) + 1);
   at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_padded_embeddings.get_device());
+  device_guard.set_index(grad_padded_values.get_device());
 
-  int32_t B = grad_padded_embeddings.size(0);
-  int32_t max_L = grad_padded_embeddings.size(1);
-  int32_t D = grad_padded_embeddings.size(2);
-  auto grad_embeddings =
-      at::zeros({total_L, D}, grad_padded_embeddings.options());
-  const auto grad_padded_embeddings_config =
-      grad_padded_embeddings.contiguous();
+  int32_t B = grad_padded_values.size(0);
+  int32_t max_L = grad_padded_values.size(1);
+  int32_t D = grad_padded_values.size(2);
+  auto grad_values =
+      at::zeros({total_L, D}, grad_padded_values.options());
+  const auto grad_padded_values_config =
+      grad_padded_values.contiguous();
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
       offsets.scalar_type(), "jagged_2d_to_dense_backward_kernel_1", ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            grad_padded_embeddings.scalar_type(),
+            grad_padded_values.scalar_type(),
             "jagged_2d_to_dense_backward_kernel_2",
             ([&]() {
               jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
@@ -1419,13 +1419,13 @@ Tensor jagged_2d_to_dense_backward_cuda(
                       max_L,
                       D,
                       offsets_contig.packed_accessor32<index_t, 1>(),
-                      grad_padded_embeddings_config
+                      grad_padded_values_config
                           .packed_accessor64<scalar_t, 3>(),
-                      grad_embeddings.packed_accessor64<scalar_t, 2>());
+                      grad_values.packed_accessor64<scalar_t, 2>());
             }));
       }));
 
-  return grad_embeddings;
+  return grad_values;
 }
 
 template <typename index_t, typename data_t>

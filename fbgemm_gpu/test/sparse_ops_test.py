@@ -817,45 +817,45 @@ class SparseOpsTest(unittest.TestCase):
         lengths = torch.from_numpy(lengths_)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
 
-        ref_embeddings = torch.rand(total_lengths, D)
-        ref_output_embeddings = var_list_to_coo(
+        ref_values = torch.rand(total_lengths, D)
+        ref_output_values = var_list_to_coo(
             lengths,
-            ref_embeddings,
+            ref_values,
             max_sequence_length,
             D,
         ).to_dense()
 
         # test cpu forward
         if is_half:
-            embeddings = ref_embeddings.clone().half().detach().requires_grad_(True)
+            values = ref_values.clone().half().detach().requires_grad_(True)
         else:
-            embeddings = ref_embeddings.clone().detach().requires_grad_(True)
-        output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
-            embeddings=embeddings,
+            values = ref_values.clone().detach().requires_grad_(True)
+        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+            values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
         )
-        torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+        torch.testing.assert_allclose(ref_output_values, output_values)
 
         if torch.cuda.is_available():
             # test gpu forward
-            ref_embeddings = ref_embeddings.cuda()
+            ref_values = ref_values.cuda()
             if is_half:
-                embeddings = ref_embeddings.clone().half().detach().requires_grad_(True)
+                values = ref_values.clone().half().detach().requires_grad_(True)
             else:
-                embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+                values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
-            ref_output_embeddings = ref_output_embeddings.cuda()
-            output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
-                embeddings=embeddings,
+            ref_output_values = ref_output_values.cuda()
+            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+                values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
             )
-            torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+            torch.testing.assert_allclose(ref_output_values, output_values)
 
             # test gpu backward
-            output_embeddings.backward(ref_output_embeddings)
-            torch.testing.assert_allclose(ref_embeddings, embeddings.grad)
+            output_values.backward(ref_output_values)
+            torch.testing.assert_allclose(ref_values, values.grad)
 
     def test_jagged_2d_to_dense_truncation(self) -> None:
         # Test the case where max_sequence_length < max(lengths[i])
@@ -866,42 +866,42 @@ class SparseOpsTest(unittest.TestCase):
 
         embedding_dim = 16
         max_sequence_length = 2
-        ref_embeddings = torch.rand(total_lengths, embedding_dim)
-        ref_output_embeddings = var_list_to_coo(
+        ref_values = torch.rand(total_lengths, embedding_dim)
+        ref_output_values = var_list_to_coo(
             lengths,
-            ref_embeddings,
+            ref_values,
             3,
             embedding_dim,
         ).to_dense()[:, :max_sequence_length, :]
 
         # test cpu forward
-        embeddings = ref_embeddings.clone().detach().requires_grad_(True)
-        output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
-            embeddings=embeddings,
+        values = ref_values.clone().detach().requires_grad_(True)
+        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+            values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
         )
-        torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+        torch.testing.assert_allclose(ref_output_values, output_values)
 
         if torch.cuda.is_available():
             # test gpu forward
-            ref_embeddings = ref_embeddings.cuda()
-            embeddings = ref_embeddings.clone().detach().requires_grad_(True)
+            ref_values = ref_values.cuda()
+            values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
-            ref_output_embeddings = ref_output_embeddings.cuda()
-            output_embeddings = torch.ops.fbgemm.jagged_2d_to_dense(
-                embeddings=embeddings,
+            ref_output_values = ref_output_values.cuda()
+            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+                values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
             )
-            torch.testing.assert_allclose(ref_output_embeddings, output_embeddings)
+            torch.testing.assert_allclose(ref_output_values, output_values)
 
             # test gpu backward
-            expected_grad = ref_embeddings
+            expected_grad = ref_values
             expected_grad[4, :] = 0  # due to truncation
             expected_grad = expected_grad.cuda()
-            output_embeddings.backward(ref_output_embeddings)
-            torch.testing.assert_allclose(expected_grad, embeddings.grad)
+            output_values.backward(ref_output_values)
+            torch.testing.assert_allclose(expected_grad, values.grad)
 
     @settings(
         verbosity=Verbosity.verbose,

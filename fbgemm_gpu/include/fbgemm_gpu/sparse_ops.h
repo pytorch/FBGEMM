@@ -154,12 +154,12 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& indices);
 
 at::Tensor jagged_2d_to_dense_forward_cuda(
-    at::Tensor embeddings,
+    at::Tensor values,
     at::Tensor offsets,
     int32_t max_L);
 
 at::Tensor jagged_2d_to_dense_backward_cuda(
-    at::Tensor grad_padded_embeddings,
+    at::Tensor grad_padded_values,
     at::Tensor offsets,
     int32_t total_L);
 
