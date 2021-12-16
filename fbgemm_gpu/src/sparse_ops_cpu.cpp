@@ -838,8 +838,8 @@ void jagged_2d_to_dense_forward_kernel(
     int32_t max_L,
     int32_t D,
     const index_t* offsets,
-    const scalar_t* embeddings_data,
-    scalar_t* padded_embeddings_data) {
+    const scalar_t* values_data,
+    scalar_t* padded_values_data) {
   const auto block_size = max_L * D;
   const auto embedding_byte_size = D * sizeof(scalar_t);
   for (auto b = 0; b < B; ++b) {
@@ -851,53 +851,53 @@ void jagged_2d_to_dense_forward_kernel(
     }
     auto padding_length = max_L - length;
     memcpy(
-        &padded_embeddings_data[b * block_size],
-        &embeddings_data[start_idx * D],
+        &padded_values_data[b * block_size],
+        &values_data[start_idx * D],
         length * embedding_byte_size);
     memset(
-        &padded_embeddings_data[b * block_size + length * D],
+        &padded_values_data[b * block_size + length * D],
         0,
         padding_length * embedding_byte_size);
   }
 }
 
 Tensor jagged_2d_to_dense_forward_cpu(
-    Tensor embeddings,
+    Tensor values,
     Tensor offsets,
     int64_t max_L) {
-  TORCH_CHECK(embeddings.dim() == 2);
+  TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
 
   const auto B = offsets.numel() - 1;
-  const auto D = embeddings.size(1);
-  const auto embeddings_contig = embeddings.expect_contiguous();
+  const auto D = values.size(1);
+  const auto values_contig = values.expect_contiguous();
   const auto offsets_contig = offsets.expect_contiguous();
 
-  if (embeddings.size(0) == 0) {
-    return at::zeros({B, max_L, D}, embeddings.options());
+  if (values.size(0) == 0) {
+    return at::zeros({B, max_L, D}, values.options());
   }
 
-  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
+  auto padded_values = at::empty({B, max_L, D}, values.options());
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig->scalar_type(),
       "jagged_2d_to_dense_forward_by_offsets",
       ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            embeddings_contig->scalar_type(),
-            "jagged_2d_to_dense_forward_by_embeddings",
+            values_contig->scalar_type(),
+            "jagged_2d_to_dense_forward_by_values",
             ([&]() {
               jagged_2d_to_dense_forward_kernel(
                   B,
                   max_L,
                   D,
                   offsets_contig->data_ptr<index_t>(),
-                  embeddings_contig->data_ptr<scalar_t>(),
-                  padded_embeddings.data_ptr<scalar_t>());
+                  values_contig->data_ptr<scalar_t>(),
+                  padded_values.data_ptr<scalar_t>());
             }));
       }));
 
-  return padded_embeddings;
+  return padded_values;
 }
 
 template <typename index_t, typename scalar_t>
@@ -1190,7 +1190,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
   m.def(
-      "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
+      "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
   m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
   m.def(
