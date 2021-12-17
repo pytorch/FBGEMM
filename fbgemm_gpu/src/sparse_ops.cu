@@ -127,6 +127,8 @@ Tensor segment_sum_csr_cuda(
 }
 
 Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -162,6 +164,8 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -197,6 +201,8 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -1312,6 +1318,9 @@ __global__ void jagged_2d_to_dense_forward_kernel(
 
 Tensor
 jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
+  TENSOR_ON_CUDA_GPU(values);
+  TENSOR_ON_CUDA_GPU(offsets);
+
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
@@ -1382,6 +1391,9 @@ Tensor jagged_2d_to_dense_backward_cuda(
     Tensor grad_padded_values,
     Tensor offsets,
     int32_t total_L) {
+  TENSOR_ON_CUDA_GPU(grad_padded_values);
+  TENSOR_ON_CUDA_GPU(offsets);
+
   TORCH_CHECK(grad_padded_values.dim() == 3);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(total_L >= 0);
@@ -1453,6 +1465,9 @@ Tensor jagged_1d_to_dense_gpu(
     Tensor offsets,
     int64_t max_L,
     int64_t padding_value) {
+  TENSOR_ON_CUDA_GPU(values);
+  TENSOR_ON_CUDA_GPU(offsets);
+
   TORCH_CHECK(values.dim() == 1);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);

@@ -30,6 +30,7 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include "../codegen/embedding_common.h"
 #include "split_embeddings_utils.cuh"
@@ -188,6 +189,14 @@ void lxu_cache_flush_cuda(
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
     bool stochastic_rounding) {
+  TENSOR_ON_CUDA_GPU(uvm_weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(lxu_cache_weights.get_device());
 
@@ -274,6 +283,10 @@ Tensor linearize_cache_indices_cuda(
     Tensor cache_hash_size_cumsum,
     Tensor indices,
     Tensor offsets) {
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(offsets);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cache_hash_size_cumsum.get_device());
 
@@ -306,6 +319,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
     Tensor linear_indices,
     int64_t max_indices,
     bool compute_count) {
+  TENSOR_ON_CUDA_GPU(linear_indices);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(linear_indices.get_device());
 
@@ -455,6 +470,11 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
     Tensor lxu_cache_state,
     int64_t time_stamp,
     Tensor lru_state) {
+  TENSOR_ON_CUDA_GPU(unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lru_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
@@ -693,6 +713,18 @@ void lru_cache_insert_cuda(
     int64_t time_stamp,
     Tensor lru_state,
     bool stochastic_rounding) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(sorted_cache_sets);
+  TENSOR_ON_CUDA_GPU(cache_set_sorted_unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lru_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -756,6 +788,16 @@ void lru_cache_populate_cuda(
     int64_t time_stamp,
     Tensor lru_state,
     bool stochastic_rounding) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(linear_cache_indices);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lru_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -939,6 +981,19 @@ void lru_cache_insert_byte_cuda(
     Tensor lxu_cache_weights,
     int64_t time_stamp,
     Tensor lru_state) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(weights_tys);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(sorted_cache_sets);
+  TENSOR_ON_CUDA_GPU(cache_set_sorted_unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lru_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -981,6 +1036,17 @@ void lru_cache_populate_byte_cuda(
     Tensor lxu_cache_weights,
     int64_t time_stamp,
     Tensor lru_state) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(weights_tys);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(linear_cache_indices);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lru_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -1047,6 +1113,11 @@ void lfu_update_counts_cuda(
     Tensor unique_indices_length,
     Tensor unique_indices_count,
     Tensor lfu_state) {
+  TENSOR_ON_CUDA_GPU(unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(unique_indices_count);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
@@ -1128,6 +1199,11 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
     int64_t max_indices,
     Tensor lxu_cache_state,
     Tensor lfu_state) {
+  TENSOR_ON_CUDA_GPU(unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
@@ -1374,6 +1450,18 @@ void lfu_cache_insert_cuda(
     Tensor lxu_cache_weights,
     Tensor lfu_state,
     bool stochastic_rounding) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(sorted_cache_sets);
+  TENSOR_ON_CUDA_GPU(cache_set_sorted_unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -1434,6 +1522,16 @@ void lfu_cache_populate_cuda(
     Tensor lxu_cache_weights,
     Tensor lfu_state,
     bool stochastic_rounding) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(linear_cache_indices);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -1643,6 +1741,19 @@ void lfu_cache_insert_byte_cuda(
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
     Tensor lfu_state) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(weights_tys)
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(sorted_cache_sets);
+  TENSOR_ON_CUDA_GPU(cache_set_sorted_unique_indices);
+  TENSOR_ON_CUDA_GPU(unique_indices_length);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -1684,6 +1795,17 @@ void lfu_cache_populate_byte_cuda(
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
     Tensor lfu_state) {
+  TENSOR_ON_CUDA_GPU(weights);
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(cache_index_table_map);
+  TENSOR_ON_CUDA_GPU(weights_offsets);
+  TENSOR_ON_CUDA_GPU(weights_tys)
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TENSOR_ON_CUDA_GPU(linear_cache_indices);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+  TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+  TENSOR_ON_CUDA_GPU(lfu_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
 
@@ -1762,6 +1884,9 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
 Tensor lxu_cache_lookup_cuda(
     Tensor linear_cache_indices,
     Tensor lxu_cache_state) {
+  TENSOR_ON_CUDA_GPU(linear_cache_indices);
+  TENSOR_ON_CUDA_GPU(lxu_cache_state);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(linear_cache_indices.get_device());
 
