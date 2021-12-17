@@ -13,6 +13,7 @@
 
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
@@ -31,6 +32,8 @@ namespace fbgemm_gpu {
 Tensor recat_embedding_grad_output_cuda(
     Tensor grad_output, // [B_local][T_global][D]
     std::vector<int64_t> num_features_per_rank) {
+  TENSOR_ON_CUDA_GPU(grad_output);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_output.get_device());
 
@@ -69,6 +72,7 @@ Tensor recat_embedding_grad_output_cuda(
 Tensor recat_embedding_grad_output_mixed_D_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
+  TENSOR_ON_CUDA_GPU(grad_output);
   TORCH_CHECK(grad_output.is_contiguous());
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -110,6 +114,9 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const Tensor& dim_sum_per_rank,
     const Tensor& cumsum_dim_sum_per_rank) {
+  TENSOR_ON_CUDA_GPU(grad_output);
+  TENSOR_ON_CUDA_GPU(dim_sum_per_rank);
+  TENSOR_ON_CUDA_GPU(cumsum_dim_sum_per_rank);
   TORCH_CHECK(grad_output.is_contiguous());
 
   at::cuda::OptionalCUDAGuard device_guard;
