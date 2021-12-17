@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -25,6 +26,12 @@ Tensor permute_pooled_embs_gpu(
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
+  // inv_permute_list is not being used so it's not checked here.
+  TENSOR_ON_CUDA_GPU(pooled_embs);
+  TENSOR_ON_CUDA_GPU(offset_dim_list);
+  TENSOR_ON_CUDA_GPU(permute_list);
+  TENSOR_ON_CUDA_GPU(inv_offset_dim_list);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(pooled_embs.get_device());
   // We couldn't pass the "pooled_embs.is_contiguous()" check in the backward
@@ -35,9 +42,9 @@ Tensor permute_pooled_embs_gpu(
   const int64_t T = permute_list.numel();
   const int64_t dim_sum = pooled_embs_contiguous.size(1);
   // inv_permute_list is not being used so it's not checked here.
-  TORCH_CHECK(pooled_embs_contiguous.device() == offset_dim_list.device());
-  TORCH_CHECK(pooled_embs_contiguous.device() == permute_list.device());
-  TORCH_CHECK(pooled_embs_contiguous.device() == inv_offset_dim_list.device());
+  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, offset_dim_list);
+  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, permute_list);
+  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, inv_offset_dim_list);
   TORCH_CHECK(offset_dim_list.numel() == permute_list.numel() + 1);
   TORCH_CHECK(offset_dim_list.numel() == inv_offset_dim_list.numel());
   Tensor permuted_pooled_embs = at::empty_like(pooled_embs_contiguous);
