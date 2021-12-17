@@ -69,8 +69,8 @@ class Jagged2DToDenseGPUOp
     ctx->save_for_backward({offsets});
     ctx->saved_data["total_L"] = total_L;
 
-    return {jagged_2d_to_dense_forward_cuda(
-        values, offsets, max_sequence_length)};
+    return {
+        jagged_2d_to_dense_forward_cuda(values, offsets, max_sequence_length)};
   }
 
   static torch::autograd::variable_list backward(
@@ -83,8 +83,8 @@ class Jagged2DToDenseGPUOp
 
     using torch::autograd::Variable;
     auto grad_padded_values = grad_outputs[0];
-    auto grad_values = jagged_2d_to_dense_backward_cuda(
-        grad_padded_values, offsets, total_L);
+    auto grad_values =
+        jagged_2d_to_dense_backward_cuda(grad_padded_values, offsets, total_L);
     return {
         grad_values,
         Variable(), // offsets

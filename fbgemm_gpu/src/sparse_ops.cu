@@ -1310,10 +1310,8 @@ __global__ void jagged_2d_to_dense_forward_kernel(
   }
 }
 
-Tensor jagged_2d_to_dense_forward_cuda(
-    Tensor values,
-    Tensor offsets,
-    int32_t max_L) {
+Tensor
+jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
@@ -1394,10 +1392,8 @@ Tensor jagged_2d_to_dense_backward_cuda(
   int32_t B = grad_padded_values.size(0);
   int32_t max_L = grad_padded_values.size(1);
   int32_t D = grad_padded_values.size(2);
-  auto grad_values =
-      at::zeros({total_L, D}, grad_padded_values.options());
-  const auto grad_padded_values_config =
-      grad_padded_values.contiguous();
+  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+  const auto grad_padded_values_config = grad_padded_values.contiguous();
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
