@@ -88,14 +88,15 @@ def generate_requests(
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
 
-        logging.warning("Ignoring L parameter as requests data file has been provided")
-
+        average_L = 0
         if tables is not None:
             emb_tables = tuple(int(x) for x in tables.split(","))
             indices = torch.zeros(0, dtype=indices_tensor.dtype)
             offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
+            total_L = 0
             for t in emb_tables:
                 t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
+                total_L += t_offsets[-1] - t_offsets[0]
                 indices = torch.cat(
                     (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
                 )
@@ -107,6 +108,7 @@ def generate_requests(
                 )
             indices_tensor = indices
             offsets_tensor = offsets
+            average_L = int(total_L / B)
 
             assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
                 f"Requested tables: {emb_tables} "
@@ -117,12 +119,16 @@ def generate_requests(
                 f"on tables: {emb_tables}"
             )
         else:
+            average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
             assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
                 f"Data file (indices = {indices_tensor.size()}, "
                 f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
                 f"does not conform to inputs (T, B) = ({T}, {B})."
             )
 
+        assert (
+            L == average_L
+        ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
         assert E > max(indices_tensor), (
             f"Number of embeddings is not enough to support maximum index "
             f"provided by data file {E} vs. {max(indices_tensor)}"
