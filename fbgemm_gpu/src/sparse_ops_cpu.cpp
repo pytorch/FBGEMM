@@ -861,10 +861,8 @@ void jagged_2d_to_dense_forward_kernel(
   }
 }
 
-Tensor jagged_2d_to_dense_forward_cpu(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_L) {
+Tensor
+jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
