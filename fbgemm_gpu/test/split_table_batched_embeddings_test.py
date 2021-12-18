@@ -1043,7 +1043,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
         )
 
-        # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
@@ -1562,7 +1561,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
-            # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
             cc = cc.double()
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
