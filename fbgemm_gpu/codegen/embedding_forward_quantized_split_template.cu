@@ -1104,6 +1104,20 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     Tensor lxu_cache_locations,
     int64_t unused
 ) {
+    TENSOR_ON_CUDA_GPU(dev_weights);
+    TENSOR_ON_CUDA_GPU(uvm_weights);
+    TENSOR_ON_CUDA_GPU(weights_placements);
+    TENSOR_ON_CUDA_GPU(weights_offsets);
+    TENSOR_ON_CUDA_GPU(weights_tys);
+    TENSOR_ON_CUDA_GPU(D_offsets);
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    {% if weighted %}
+    TENSOR_ON_CUDA_GPU(indice_weights);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
@@ -1303,6 +1317,12 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets) {
+
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    TENSOR_ON_CUDA_GPU(hash_table);
+    TENSOR_ON_CUDA_GPU(hash_table_offsets);
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(indices.get_device());
     auto dense_indices = at::empty_like(indices);
@@ -1334,6 +1354,12 @@ Tensor pruned_array_lookup_cuda(
     Tensor offsets,
     Tensor index_remappings,
     Tensor index_remappings_offsets) {
+
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(offsets);
+  TENSOR_ON_CUDA_GPU(index_remappings);
+  TENSOR_ON_CUDA_GPU(index_remappings_offsets);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
   auto dense_indices = at::empty_like(indices);
