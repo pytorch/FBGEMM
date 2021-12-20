@@ -304,6 +304,25 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% endif %}
     int64_t unused
 ) {
+    TENSOR_ON_CUDA_GPU(dev_weights);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(uvm_weights);
+    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_ON_CUDA_GPU(weights_placements);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(weights_offsets);
+    {% if not nobag %}
+    TENSOR_ON_CUDA_GPU(D_offsets);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    {% if weighted %}
+    TENSOR_ON_CUDA_GPU(indice_weights);
+    {% endif %}
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+    {% endif %}
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 

@@ -187,6 +187,24 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     Tensor lxu_cache_locations,
     {% endif %}
     Tensor feature_requires_grad) {
+    TENSOR_ON_CUDA_GPU(grad_output);
+    TENSOR_ON_CUDA_GPU(dev_weights);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(uvm_weights);
+    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_ON_CUDA_GPU(weights_placements);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(weights_offsets);
+    TENSOR_ON_CUDA_GPU(D_offsets);
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+    {% endif %}
+    if (feature_requires_grad.defined()) {
+        TENSOR_ON_CUDA_GPU(feature_requires_grad);
+    }
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
     const auto T = D_offsets.size(0) - 1;

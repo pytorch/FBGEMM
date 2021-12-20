@@ -110,6 +110,11 @@ void bounds_check_indices_cuda(
     Tensor offsets,
     int64_t bounds_check_mode_,
     Tensor warning) {
+  TENSOR_ON_CUDA_GPU(rows_per_table);
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(offsets);
+  TENSOR_ON_CUDA_GPU(warning);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
 
