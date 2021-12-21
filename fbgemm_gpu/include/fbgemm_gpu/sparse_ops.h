@@ -298,4 +298,34 @@ histogram_binning_calibration_by_feature_cuda(
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 
+// Same as above, but accepts generic "bin_boundaries", which is assumed to be
+// sorted.
+//
+// Returns calibrated_prediction.
+std::tuple<at::Tensor, at::Tensor>
+generic_histogram_binning_calibration_by_feature_cpu(
+    const at::Tensor& logit,
+    const at::Tensor& segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    const at::Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
+std::tuple<at::Tensor, at::Tensor>
+generic_histogram_binning_calibration_by_feature_cuda(
+    const at::Tensor& logit,
+    const at::Tensor& segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    const at::Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
 } // namespace fbgemm_gpu

@@ -133,5 +133,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "histogram_binning_calibration_by_feature",
       fbgemm_gpu::histogram_binning_calibration_by_feature_cuda);
+  DISPATCH_TO_CUDA(
+      "generic_histogram_binning_calibration_by_feature",
+      fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
   DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
 }

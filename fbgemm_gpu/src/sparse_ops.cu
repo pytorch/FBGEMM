@@ -1728,4 +1728,143 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   return std::make_tuple(calibrated_prediction, bin_ids);
 }
 
+template <typename T>
+__global__ void generic_histogram_binning_calibration_by_feature_kernel(
+    const int64_t num_logits,
+    const int64_t num_bins,
+    const int64_t num_segments,
+    const double recalibrate_value,
+    const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value,
+    const T* const logit_data,
+    const int64_t* const dense_segment_value_data,
+    const double* const bin_num_examples_data,
+    const double* const bin_num_positives_data,
+    const double* const bin_boundaries,
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
+  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= num_logits) {
+    return;
+  }
+
+  const T pre_sigmoid = logit_data[index] + recalibrate_value;
+  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
+
+  // Perform binary search.
+  int left = 0;
+  int right = num_bins - 1;
+  while (left != right) {
+    const int middle = (left + right) >> 1;
+    if (bin_boundaries[middle] < uncalibrated) {
+      left = middle + 1;
+    } else {
+      right = middle;
+    }
+  }
+  const int curr_bin_id = left;
+
+  const int64_t curr_segment_value =
+      dense_segment_value_data[index] > num_segments
+      ? 0
+      : std::max(0L, dense_segment_value_data[index] * num_bins);
+
+  bin_ids_data[index] = curr_bin_id + curr_segment_value;
+
+  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
+  if (curr_bin_num_examples > bin_ctr_in_use_after) {
+    const auto curr_bin_ctr =
+        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
+    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
+        uncalibrated * (1.0 - bin_ctr_weight_value);
+  } else {
+    calibrated_prediction_data[index] = uncalibrated;
+  }
+}
+
+std::tuple<Tensor, Tensor>
+generic_histogram_binning_calibration_by_feature_cuda(
+    const Tensor& logit,
+    const Tensor& segment_value,
+    const Tensor& segment_lengths,
+    int64_t num_segments,
+    const Tensor& bin_num_examples,
+    const Tensor& bin_num_positives,
+    const Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after,
+    double bin_ctr_weight_value) {
+  TENSOR_ON_CUDA_GPU(logit);
+  TENSOR_ON_CUDA_GPU(segment_value);
+  TENSOR_ON_CUDA_GPU(segment_lengths);
+  TENSOR_ON_CUDA_GPU(bin_num_examples);
+  TENSOR_ON_CUDA_GPU(bin_num_positives);
+  TENSOR_ON_CUDA_GPU(bin_boundaries);
+  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+  TORCH_CHECK(
+      bin_num_examples.numel() ==
+      (num_segments + 1) * (bin_boundaries.numel() + 1));
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(logit.get_device());
+
+  // Convert lengths to offsets for better handling on GPUs.
+  const auto segment_lengths_packed = segment_lengths.contiguous();
+  auto segment_offsets =
+      asynchronous_complete_cumsum_gpu(segment_lengths_packed.view(-1));
+
+  // dense_segment_value is used as a temporary storage.
+  Tensor dense_segment_value =
+      at::zeros({logit.numel()}, segment_value.options());
+
+  const int32_t num_threads = 512;
+  const auto segment_value_packed = segment_value.contiguous();
+  const auto segment_offsets_packed = segment_offsets.contiguous();
+  auto dense_segment_value_packed = dense_segment_value.contiguous();
+  AT_DISPATCH_INDEX_TYPES(
+      segment_offsets.scalar_type(), "to_dense_segment_value_cuda", [&]() {
+        to_dense_segment_value_kernel<index_t>
+            <<<fbgemm_gpu::div_round_up(segment_offsets.numel(), num_threads),
+               num_threads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                segment_offsets.numel(),
+                segment_value_packed.data_ptr<int64_t>(),
+                segment_offsets_packed.data_ptr<index_t>(),
+                dense_segment_value_packed.data_ptr<int64_t>());
+      });
+
+  Tensor calibrated_prediction = at::empty_like(logit);
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  const double recalibrate_value = std::log(positive_weight);
+
+  const auto logit_packed = logit.contiguous();
+  const auto bin_num_examples_packed = bin_num_examples.contiguous();
+  const auto bin_num_positives_packed = bin_num_positives.contiguous();
+  const auto bin_boundaries_packed = bin_boundaries.contiguous();
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      logit.type(), "histogram_binning_calibration_by_feature_cuda", [&]() {
+        generic_histogram_binning_calibration_by_feature_kernel<scalar_t>
+            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
+               num_threads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                logit.numel(),
+                bin_boundaries.numel() + 1,
+                num_segments,
+                recalibrate_value,
+                bin_ctr_in_use_after,
+                bin_ctr_weight_value,
+                logit_packed.data_ptr<scalar_t>(),
+                dense_segment_value_packed.data_ptr<int64_t>(),
+                bin_num_examples_packed.data_ptr<double>(),
+                bin_num_positives_packed.data_ptr<double>(),
+                bin_boundaries_packed.data_ptr<double>(),
+                calibrated_prediction.data_ptr<scalar_t>(),
+                bin_ids.data_ptr<int64_t>());
+      });
+
+  return std::make_tuple(calibrated_prediction, bin_ids);
+}
+
 } // namespace fbgemm_gpu
