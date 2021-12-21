@@ -18,18 +18,18 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 
 # Import all uvm enums from c++ library
-create_enums(globals(), torch.ops.fb.fbgemm_gpu_uvm_enum_query)
+create_enums(globals(), torch.ops.fbgemm.fbgemm_gpu_uvm_enum_query)
 
 
 def cudaMemAdvise(
     t: torch.Tensor,
     advice: Enum,
 ) -> None:
-    torch.ops.fb.cuda_mem_advise(t, advice.value)
+    torch.ops.fbgemm.cuda_mem_advise(t, advice.value)
 
 
 def cudaMemPrefetchAsync(
     t: torch.Tensor,
     device_t: Optional[torch.Tensor] = None,
 ) -> None:
-    torch.ops.fb.cuda_mem_prefetch_async(t, device_t)
+    torch.ops.fbgemm.cuda_mem_prefetch_async(t, device_t)

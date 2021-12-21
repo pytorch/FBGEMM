@@ -151,6 +151,38 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           c10::DispatchKey::CPU, TORCH_FN(pruned_array_lookup_cpu)));
 }
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.impl(
+      "int_nbit_split_embedding_codegen_lookup_function",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(int_nbit_split_embedding_codegen_lookup_function_cpu)));
+
+  // GPU version of pruned_hashmap needs to use CPU version of
+  // pruned_hashmap_insert
+  m.def(
+      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
+  m.impl(
+      "pruned_hashmap_insert",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(pruned_hashmap_insert_unweighted_cpu)));
+
+  // CPU version of hashmap Lookup isn't used. For CPUs, we should use
+  // PrunedMapCPU below.
+  m.impl(
+      "pruned_hashmap_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
+
+  // CPU version of array lookup.
+  m.impl(
+      "pruned_array_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(pruned_array_lookup_cpu)));
+}
+
 class PrunedMapCPU : public torch::jit::CustomClassHolder {
  public:
   PrunedMapCPU() {}

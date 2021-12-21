@@ -1875,7 +1875,7 @@ def bounds_check_indices(  # noqa C901
     # forward
     time_per_iter = benchmark_requests(
         requests,
-        lambda indices, offsets, _: torch.ops.fb.bounds_check_indices(
+        lambda indices, offsets, _: torch.ops.fbgemm.bounds_check_indices(
             rows_per_table,
             indices,
             offsets,

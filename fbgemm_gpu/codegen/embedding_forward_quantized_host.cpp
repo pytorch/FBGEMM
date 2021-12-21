@@ -157,3 +157,28 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       torch::dispatch(
           c10::DispatchKey::CUDA, TORCH_FN(pruned_array_lookup_cuda)));
 }
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> Tensor");
+  m.impl(
+      "int_nbit_split_embedding_codegen_lookup_function",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(int_nbit_split_embedding_codegen_lookup_function)));
+
+  m.def(
+      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
+  m.impl(
+      "pruned_hashmap_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(pruned_hashmap_lookup_unweighted_cuda)));
+
+  m.def(
+      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
+  m.impl(
+      "pruned_array_lookup",
+      torch::dispatch(
+          c10::DispatchKey::CUDA, TORCH_FN(pruned_array_lookup_cuda)));
+}

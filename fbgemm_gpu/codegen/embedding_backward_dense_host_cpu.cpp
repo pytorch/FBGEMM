@@ -176,4 +176,12 @@ TORCH_LIBRARY_IMPL(fb, CPU, m) {
           TORCH_FN(split_embedding_codegen_lookup_dense_function)));
 }
 
+TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
+  m.impl(
+      "dense_embedding_codegen_lookup_function",
+      torch::dispatch(
+          c10::DispatchKey::CPU,
+          TORCH_FN(split_embedding_codegen_lookup_dense_function)));
+}
+
 } // namespace
