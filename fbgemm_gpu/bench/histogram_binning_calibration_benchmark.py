@@ -51,25 +51,43 @@ def main(
     warmup_runs: int,
 ) -> None:
 
+    data_types = [torch.half, torch.float, torch.double]
+
     total_time = {
         "hbc": {
             "cpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
+                torch.double: 0.0,
             },
             "gpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
+                torch.double: 0.0,
             },
         },
         "hbc_by_feature": {
             "cpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
+                torch.double: 0.0,
             },
             "gpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
+                torch.double: 0.0,
+            },
+        },
+        "generic_hbc_by_feature": {
+            "cpu": {
+                torch.half: 0.0,
+                torch.float: 0.0,
+                torch.double: 0.0,
+            },
+            "gpu": {
+                torch.half: 0.0,
+                torch.float: 0.0,
+                torch.double: 0.0,
             },
         },
     }
@@ -89,9 +107,13 @@ def main(
 
     lower_bound: float = 0.0
     upper_bound: float = 1.0
+    w: float = (upper_bound - lower_bound) / num_bins
 
     bin_num_examples: Tensor = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
     bin_num_positives: Tensor = torch.empty([num_bins], dtype=torch.float64).fill_(0.0)
+    bin_boundaries: Tensor = torch.arange(
+        lower_bound + w, upper_bound - w / 2, w, dtype=torch.float64
+    )
 
     by_feature_bin_num_examples: Tensor = torch.empty(
         [num_bins * (num_segments + 1)], dtype=torch.float64
@@ -128,8 +150,22 @@ def main(
             0.9995,
         )
 
+    def fbgemm_generic_hbc_by_feature_cpu(input: Tensor) -> Tuple[Tensor, Tensor]:
+        return torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
+            input,
+            segment_values,
+            segment_lengths,
+            num_segments,
+            by_feature_bin_num_examples,
+            by_feature_bin_num_positives,
+            bin_boundaries,
+            0.4,
+            0,
+            0.9995,
+        )
+
     for step in range(iters + warmup_runs):
-        for data_type in [torch.half, torch.float]:
+        for data_type in data_types:
             curr_input = input_data_cpu.to(data_type)
             hbc_time, _ = benchmark_hbc_function(
                 fbgemm_hbc_cpu,
@@ -139,9 +175,16 @@ def main(
             hbc_by_feature_time, _ = benchmark_hbc_function(
                 fbgemm_hbc_by_feature_cpu, curr_input
             )
+
+            generic_hbc_by_feature_time, _ = benchmark_hbc_function(
+                fbgemm_generic_hbc_by_feature_cpu, curr_input
+            )
             if step >= warmup_runs:
                 total_time["hbc"]["cpu"][data_type] += hbc_time
                 total_time["hbc_by_feature"]["cpu"][data_type] += hbc_by_feature_time
+                total_time["generic_hbc_by_feature"]["cpu"][
+                    data_type
+                ] += generic_hbc_by_feature_time
 
         if torch.cuda.is_available():
             bin_num_examples_gpu: Tensor = bin_num_examples.cuda()
@@ -183,7 +226,27 @@ def main(
                     0.9995,
                 )
 
-            for data_type in [torch.half, torch.float]:
+            bin_boundaries_gpu: Tensor = bin_boundaries.cuda()
+
+            def fbgemm_generic_hbc_by_feature_gpu(
+                input: Tensor,
+            ) -> Tuple[Tensor, Tensor]:
+                return (
+                    torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
+                        input,
+                        segment_values_gpu,
+                        segment_lengths_gpu,
+                        num_segments,
+                        by_feature_bin_num_examples_gpu,
+                        by_feature_bin_num_positives_gpu,
+                        bin_boundaries_gpu,
+                        0.4,
+                        0,
+                        0.9995,
+                    )
+                )
+
+            for data_type in data_types:
                 curr_input_gpu = input_data_cpu.cuda().to(data_type)
                 hbc_time, _ = benchmark_hbc_function(
                     fbgemm_hbc_gpu,
@@ -194,11 +257,19 @@ def main(
                     fbgemm_hbc_by_feature_gpu,
                     curr_input_gpu,
                 )
+
+                generic_hbc_by_feature_time, _ = benchmark_hbc_function(
+                    fbgemm_generic_hbc_by_feature_gpu,
+                    curr_input_gpu,
+                )
                 if step >= warmup_runs:
                     total_time["hbc"]["gpu"][data_type] += hbc_time
                     total_time["hbc_by_feature"]["gpu"][
                         data_type
                     ] += hbc_by_feature_time
+                    total_time["generic_hbc_by_feature"]["gpu"][
+                        data_type
+                    ] += generic_hbc_by_feature_time
 
     for op, curr_items in total_time.items():
         for platform, data_items in curr_items.items():
