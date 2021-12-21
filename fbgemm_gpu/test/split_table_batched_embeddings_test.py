@@ -3438,14 +3438,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 warning.cuda(),
             )
         indices_copy = indices.clone()
-        torch.ops.fb.bounds_check_indices(
+        torch.ops.fbgemm.bounds_check_indices(
             rows_per_table, indices, offsets, bounds_check_mode, warning
         )
         # we don't modify when we are in-bounds.
         torch.testing.assert_allclose(indices_copy, indices)
         indices[:] = torch.iinfo(dtype).max
         if bounds_check_mode != BoundsCheckMode.FATAL:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table, indices, offsets, bounds_check_mode, warning
             )
             torch.testing.assert_allclose(indices, torch.zeros_like(indices))
@@ -3454,7 +3454,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):
-                    torch.ops.fb.bounds_check_indices(
+                    torch.ops.fbgemm.bounds_check_indices(
                         rows_per_table, indices, offsets, bounds_check_mode, warning
                     )
             # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
@@ -3468,7 +3468,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if offsets.numel() > 1:
             offsets[-1] += 100
         if bounds_check_mode != BoundsCheckMode.FATAL:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table, indices, offsets, bounds_check_mode, warning
             )
             if offsets.numel() > 0:
@@ -3482,7 +3482,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):
-                    torch.ops.fb.bounds_check_indices(
+                    torch.ops.fbgemm.bounds_check_indices(
                         rows_per_table, indices, offsets, bounds_check_mode, warning
                     )
 
