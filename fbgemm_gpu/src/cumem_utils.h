@@ -44,6 +44,10 @@ void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t);
 // table on fork - causing slowdown on the next access from a CPU.
 void uvm_mem_advice_dont_fork(Tensor t);
 
+// Copy a contigious uvm Tensor (uvm_storage(t) is true) into a CPU Tensor
+// The copy uses single threaded memcpy
+Tensor uvm_to_cpu_clone(Tensor t);
+
 FBGEMM_GPU_ENUM_CREATE_TAG(uvm)
 
 } // namespace fbgemm_gpu
