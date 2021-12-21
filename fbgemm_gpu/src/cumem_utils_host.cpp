@@ -43,6 +43,8 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "uvm_mem_advice_dont_fork(Tensor t) -> ()",
       TORCH_FN(uvm_mem_advice_dont_fork));
 
+  m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
+
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
 }
 

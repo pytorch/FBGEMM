@@ -9,6 +9,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include <sys/mman.h>
+#include <unistd.h>
+#include <cstring>
 
 #include "cumem_utils.h"
 #include "fbgemm_gpu/enum_utils.h"
@@ -116,6 +118,21 @@ Tensor new_managed_tensor_internal(
   return at::empty({0}, self.options())
       .set_(indirect_storage, 0, sizes, strides);
 }
+
+std::tuple<void*, size_t> adjust_to_page_boundaries(void* ptr, size_t size) {
+  static uint64_t page_mask = ([]() -> uint64_t {
+    uint64_t page_size = (uint64_t)sysconf(_SC_PAGESIZE);
+    return (page_size - 1);
+  })();
+
+  uint64_t raw_ptr = (uint64_t)ptr;
+  uint64_t raw_ptr_adjusted = raw_ptr & ~page_mask;
+  uint64_t raw_ptr_end_adjusted = (raw_ptr + size + page_mask) & ~page_mask;
+  uint64_t size_adjusted = raw_ptr_end_adjusted - raw_ptr_adjusted;
+
+  return std::make_tuple((void*)raw_ptr_adjusted, (size_t)size_adjusted);
+}
+
 } // namespace
 
 // Allocate a cuda Tensor with unified managed memory (UVM)
@@ -138,6 +155,12 @@ Tensor new_managed_tensor(Tensor self, std::vector<std::int64_t> sizes) {
   AT_CUDA_CHECK(cudaMemAdvise(
       ptr, size_bytes, cudaMemAdviseSetAccessedBy, at::cuda::current_device()));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  // Work around fork issue - see uvm_mem_advice_dont_fork for details
+  auto adjusted = adjust_to_page_boundaries(ptr, size_bytes);
+  int result =
+      madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
+  TORCH_CHECK(result == 0)
 
   return t;
 }
@@ -234,7 +257,6 @@ int64_t uvm_get_guard_index(Tensor& t) {
   }
   return cuda_device_index;
 }
-
 } // namespace
 
 void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
@@ -302,11 +324,28 @@ void uvm_mem_advice_dont_fork(Tensor t) {
   size_t size_bytes = at::detail::computeStorageNbytes(
       t.sizes(), t.strides(), t.dtype().itemsize());
 
-  int result = madvise(ptr, size_bytes, MADV_DONTFORK);
+  auto adjusted = adjust_to_page_boundaries(ptr, size_bytes);
+
+  int result =
+      madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
 
   TORCH_CHECK(result == 0)
 
   return;
+}
+
+Tensor uvm_to_cpu_clone(Tensor t) {
+  TORCH_CHECK(uvm_storage(t));
+  TORCH_CHECK(t.is_contiguous());
+
+  Tensor cpu_clone = at::empty_like(t, t.options().device(kCPU));
+
+  size_t size_bytes = at::detail::computeStorageNbytes(
+      t.sizes(), t.strides(), t.dtype().itemsize());
+
+  memcpy(cpu_clone.data_ptr(), t.data_ptr(), size_bytes);
+
+  return cpu_clone;
 }
 
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
