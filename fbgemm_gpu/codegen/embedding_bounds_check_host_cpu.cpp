@@ -110,3 +110,10 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       torch::dispatch(
           c10::DispatchKey::CPU, TORCH_FN(bounds_check_indices_cpu)));
 }
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.impl(
+      "bounds_check_indices",
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(bounds_check_indices_cpu)));
+}

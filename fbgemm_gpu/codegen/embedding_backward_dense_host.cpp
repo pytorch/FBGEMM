@@ -391,3 +391,13 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           c10::DispatchKey::CUDA,
           TORCH_FN(split_embedding_codegen_lookup_dense_function)));
 }
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+  m.impl(
+      "dense_embedding_codegen_lookup_function",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(split_embedding_codegen_lookup_dense_function)));
+}
