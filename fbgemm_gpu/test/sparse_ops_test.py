@@ -1188,6 +1188,99 @@ class SparseOpsTest(unittest.TestCase):
                 )
             )
 
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(data_type=st.sampled_from([torch.half, torch.float32]))
+    @settings(verbosity=Verbosity.verbose, deadline=None)
+    def test_generic_histogram_binning_calibration_by_feature(
+        self, data_type: torch.dtype
+    ) -> None:
+        num_bins = 5000
+        num_segments = 42
+
+        logit = torch.tensor([-0.0018, 0.0085, 0.0090, 0.0003, 0.0029]).type(data_type)
+
+        segment_value = torch.tensor([40, 31, 32, 13, 31])
+        lengths = torch.tensor([[1], [1], [1], [1], [1]])
+
+        num_interval = num_bins * (num_segments + 1)
+        bin_num_examples = torch.empty([num_interval], dtype=torch.float64).fill_(0.0)
+        bin_num_positives = torch.empty([num_interval], dtype=torch.float64).fill_(0.0)
+
+        lower_bound = 0.0
+        upper_bound = 1.0
+        w = (upper_bound - lower_bound) / num_bins
+        bin_boundaries = torch.arange(
+            lower_bound + w, upper_bound - w / 2, w, dtype=torch.float64
+        )
+
+        (
+            calibrated_prediction,
+            bin_ids,
+        ) = torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
+            logit=logit,
+            segment_value=segment_value,
+            segment_lengths=lengths,
+            num_segments=num_segments,
+            bin_num_examples=bin_num_examples,
+            bin_num_positives=bin_num_positives,
+            bin_boundaries=bin_boundaries,
+            positive_weight=0.4,
+            bin_ctr_in_use_after=10000,
+            bin_ctr_weight_value=0.9995,
+        )
+
+        expected_calibrated_prediction = torch.tensor(
+            [0.2853, 0.2875, 0.2876, 0.2858, 0.2863]
+        ).type(data_type)
+        expected_bin_ids = torch.tensor(
+            [206426, 161437, 166437, 71428, 161431], dtype=torch.long
+        )
+
+        torch.testing.assert_allclose(
+            calibrated_prediction,
+            expected_calibrated_prediction,
+            rtol=1e-03,
+            atol=1e-03,
+        )
+
+        self.assertTrue(
+            torch.equal(
+                bin_ids.long(),
+                expected_bin_ids,
+            )
+        )
+
+        if torch.cuda.is_available():
+            (
+                calibrated_prediction_gpu,
+                bin_ids_gpu,
+            ) = torch.ops.fbgemm.generic_histogram_binning_calibration_by_feature(
+                logit=logit.cuda(),
+                segment_value=segment_value.cuda(),
+                segment_lengths=lengths.cuda(),
+                num_segments=num_segments,
+                bin_num_examples=bin_num_examples.cuda(),
+                bin_num_positives=bin_num_positives.cuda(),
+                bin_boundaries=bin_boundaries.cuda(),
+                positive_weight=0.4,
+                bin_ctr_in_use_after=10000,
+                bin_ctr_weight_value=0.9995,
+            )
+
+            torch.testing.assert_allclose(
+                calibrated_prediction_gpu,
+                expected_calibrated_prediction.cuda(),
+                rtol=1e-03,
+                atol=1e-03,
+            )
+
+            self.assertTrue(
+                torch.equal(
+                    bin_ids_gpu.long(),
+                    expected_bin_ids.cuda(),
+                )
+            )
+
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_segment_sum_csr(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
