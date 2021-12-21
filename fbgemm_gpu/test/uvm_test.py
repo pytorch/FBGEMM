@@ -192,6 +192,29 @@ class UvmTest(unittest.TestCase):
 
         torch.ops.fbgemm.uvm_mem_advice_dont_fork(cpu_t)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        sizes=st.lists(
+            st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
+        ),
+        vanilla=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_uvm_to_cpu_clone(self, sizes: List[int], vanilla: bool) -> None:
+        op = (
+            torch.ops.fb.new_managed_tensor
+            if not vanilla
+            else torch.ops.fb.new_vanilla_managed_tensor
+        )
+        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+        assert torch.ops.fb.is_uvm_tensor(uvm_t)
+        assert torch.ops.fb.uvm_storage(uvm_t)
+
+        cpu_clone = torch.ops.fb.uvm_to_cpu_clone(uvm_t)
+
+        assert not torch.ops.fb.is_uvm_tensor(cpu_clone)
+        assert not torch.ops.fb.uvm_storage(cpu_clone)
+
 
 if __name__ == "__main__":
     unittest.main()
