@@ -48,6 +48,15 @@ inline bool torch_tensor_on_cuda_gpu_check(
   return !ten.has_value() || ten->is_cuda();
 }
 
+inline bool torch_tensor_empty_or_on_cuda_gpu_check(const at::Tensor& ten) {
+  return (ten.numel() == 0) || ten.is_cuda();
+}
+
+inline bool torch_tensor_empty_or_on_cuda_gpu_check(
+    const c10::optional<at::Tensor>& ten) {
+  return !ten.has_value() || (ten->numel() == 0) || ten->is_cuda();
+}
+
 #define DISPATCH_TO_CUDA(name, function) \
   m.impl(name, torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(function)))
 
@@ -69,6 +78,12 @@ inline bool torch_tensor_on_cuda_gpu_check(
   TORCH_CHECK(                                                 \
       torch_tensor_on_cuda_gpu_check(x),                       \
       #x " must be a CUDA tensor; it is currently on device ", \
+      torch_tensor_device_name(x))
+
+#define TENSOR_EMPTY_OR_ON_CUDA_GPU(x)                                  \
+  TORCH_CHECK(                                                          \
+      torch_tensor_empty_or_on_cuda_gpu_check(x),                       \
+      #x " must be empty or a CUDA tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
 #define TENSORS_ON_SAME_DEVICE(x, y)                                       \
