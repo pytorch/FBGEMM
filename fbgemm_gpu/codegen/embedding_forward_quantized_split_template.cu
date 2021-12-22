@@ -172,7 +172,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -368,7 +368,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -570,7 +570,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -773,7 +773,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
