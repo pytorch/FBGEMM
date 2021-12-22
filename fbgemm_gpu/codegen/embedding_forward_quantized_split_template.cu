@@ -1113,10 +1113,10 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     TENSOR_ON_CUDA_GPU(indices);
     TENSOR_ON_CUDA_GPU(offsets);
     {% if weighted %}
-    TENSOR_ON_CUDA_GPU(indice_weights);
+    TENSOR_EMPTY_OR_ON_CUDA_GPU(indice_weights);
     {% endif %}
-    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
-    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+    TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_locations);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
