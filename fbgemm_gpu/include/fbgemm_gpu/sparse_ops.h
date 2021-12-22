@@ -328,4 +328,13 @@ generic_histogram_binning_calibration_by_feature_cuda(
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
 
+std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
+    const at::Tensor& weights,
+    const at::Tensor& indicator,
+    const double threshold,
+    at::ScalarType compressed_indices_dtype,
+    const bool abs,
+    const int64_t min_non_pruned_rows,
+    const c10::optional<double>& min_save_ratio);
+
 } // namespace fbgemm_gpu

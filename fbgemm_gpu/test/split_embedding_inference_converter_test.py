@@ -207,7 +207,6 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-1,
         )
 
-    @unittest.skipIf(open_source, "Not yet in OSS")
     @given(
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
@@ -284,7 +283,6 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 rtol=1.0e-1,
             )
 
-    @unittest.skipIf(open_source, "Not yet in OSS")
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),

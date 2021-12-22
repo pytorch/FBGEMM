@@ -1282,6 +1282,125 @@ Tensor segment_sum_csr_cpu(
                         }));
   return output;
 }
+
+bool should_prune(
+    const Tensor& weights,
+    const int64_t num_rows_kept,
+    double min_save_ratio) {
+  TENSOR_ON_CPU(weights);
+  const auto weight_sizes = weights.sizes();
+
+  const int64_t data_byte_size = sizeof(float);
+  const int64_t num_cols = weight_sizes[1];
+
+  // Size of the pruned weights tensor.
+  const int64_t lut_after_prune_size =
+      num_rows_kept * num_cols * data_byte_size;
+
+  constexpr auto index_byte_size = sizeof(int);
+  const auto lut_num_row = weight_sizes[0];
+  const int64_t compressed_idx_overhead_size = lut_num_row * index_byte_size;
+
+  const int64_t original_size = data_byte_size * weights.numel();
+  return (compressed_idx_overhead_size + lut_after_prune_size) <
+      min_save_ratio * original_size;
+}
+
+// This operator introduces sparsity to a weight matrix by applying
+// magnitude based pruning at a row level. The importance level of a row is
+// specified using an 'indicator' vector which contains a single value per
+// row of the weight matrix.
+//
+// A row is considered important and not pruned if the indicator value for that
+// particular row is greater than the pruning 'threshold' value.
+//
+// This operator doesn't zero out the pruned rows in-place. Instead, it returns
+// a tuple that contains a pruned weights tensor as well as a map that can be
+// used to refer the original row in the pruned weights tensor. We refer this
+// map as 'compressed indices map' going forward.
+
+// The compressed indices map is an 1D tensor that contains one entry per
+// original row in 'weights'. The array index is the index for the original
+// non-pruned weight tensor and the value would be the re-mapped index in the
+// pruned weights tensor. If the value for a index is -1, it means the
+// corresponding row has been pruned from the original weight tensor.
+
+// Arguments:
+// 'weights' - the weight tensor that needs to be pruned rowwise.
+// 'indicator' - the magnitude for every row of the 'weights' matrix.
+// 'threshold' - the pruning threshold that will be used for comparison
+//     against the indicator row value.
+// 'compressed_indices_dtype' - dtype for the compressed map indices.
+//     This should be either int32 or int64.
+// 'abs' - whether we should perform abs() on the indicator value or not.
+// 'min_non_pruned_rows' - a minimum threshold on the number of rows
+//     that should be present after pruning.
+// 'min_save_ratio' - a parameter to tradeoff between lookup table CPU overhead
+//     with the reduction in memory bandwidth due to pruned rows.
+//     Pruning will be skipped for the entire matrix if the physical size of
+//     pruned weights and indices mapping is greater than
+//     min_save_ratio * weights size.
+//     'compressed indices map' will contain a single element [0] in this case.
+//
+// Returns: a tuple,
+// - The first value is the pruned weight tensor whose dtype is float.
+// - The second value is a 1D tensor whose dtype is 'compressed_indices_dtype'.
+std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
+    const Tensor& weights,
+    const Tensor& indicator,
+    const double threshold,
+    at::ScalarType compressed_indices_dtype,
+    const bool abs,
+    const int64_t min_non_pruned_rows,
+    const c10::optional<double>& min_save_ratio) {
+  TENSOR_ON_CPU(weights);
+  TENSOR_ON_CPU(indicator);
+  TENSOR_NDIM_EQUALS(weights, 2);
+  TORCH_CHECK(
+      indicator.numel() == weights.sizes()[0],
+      "Number of elements in 'indicator' should be equivalent to "
+      "number of rows in 'weights'.")
+  TORCH_CHECK(
+      threshold >= 0.0, "Threshold should be greater than or equal to zero.");
+  TORCH_CHECK(
+      compressed_indices_dtype == at::ScalarType::Int ||
+          compressed_indices_dtype == at::ScalarType::Long,
+      "'compressed_indices_dtype' should be Int/Long.");
+
+  const auto indicator_contig = indicator.expect_contiguous();
+  const auto indicator_data = indicator_contig->data_ptr<float>();
+  auto rowwise_prune_mask = at::empty({indicator.numel()}, at::kBool);
+  int num_kept = 0;
+  for (const auto i : c10::irange(indicator.numel())) {
+    const float val = abs ? std::abs(indicator_data[i]) : indicator_data[i];
+    bool should_keep_row = val > threshold;
+
+    // The total number of rows post-pruning should be greater than or equal
+    // to 'min_non_pruned_rows'.
+    // Skip pruning the current row to satisfy the above criteria.
+    if (num_kept < min_non_pruned_rows &&
+        num_kept + (indicator.numel() - i) <= min_non_pruned_rows) {
+      should_keep_row = true;
+    }
+    if (!should_keep_row) {
+      rowwise_prune_mask[i] = false;
+      continue;
+    }
+    rowwise_prune_mask[i] = true;
+    num_kept++;
+  }
+
+  if (min_save_ratio.has_value() &&
+      !should_prune(weights, min_non_pruned_rows, min_save_ratio.value())) {
+    auto compressed_indices_mapping = at::empty({1}, compressed_indices_dtype);
+    compressed_indices_mapping[0] = 0;
+    return std::tuple<Tensor, Tensor>(weights, compressed_indices_mapping);
+  }
+
+  return at::native::_rowwise_prune(
+      weights, rowwise_prune_mask, compressed_indices_dtype);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1311,6 +1430,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, float positive_weight, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
       "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+  m.def(
+      "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, int min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1347,4 +1468,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "generic_histogram_binning_calibration_by_feature",
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cpu);
   m.impl("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
+  m.impl(
+      "embedding_bag_rowwise_prune", fbgemm_gpu::embedding_bag_rowwise_prune);
 }
