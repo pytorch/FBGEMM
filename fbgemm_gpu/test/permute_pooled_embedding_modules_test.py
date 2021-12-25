@@ -91,11 +91,9 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         output.sum().backward()
 
         # check grads for fc1 when permuted, equals to fc2 weights times input_sum
+        permute_res = net.permute_pooled_embeddings(net.fc1.weight.grad.view(1, 10))
         self.assertTrue(
-            net.permute_pooled_embeddings(net.fc1.weight.grad.view(1, 10))
-            .isclose(input_sum * net.fc2.weight)
-            .all()
-            .item()
+            permute_res.isclose(input_sum * net.fc2.weight, rtol=1e-03).all().item()
         )
 
     def test_compatibility(self) -> None:
