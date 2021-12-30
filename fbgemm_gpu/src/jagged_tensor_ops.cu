@@ -84,6 +84,7 @@ jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
                       offsets_contig.packed_accessor32<index_t, 1>(),
                       values_contig.packed_accessor64<scalar_t, 2>(),
                       padded_values.packed_accessor64<scalar_t, 3>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
 
@@ -160,6 +161,7 @@ Tensor jagged_2d_to_dense_backward_cuda(
                       grad_padded_values_config
                           .packed_accessor64<scalar_t, 3>(),
                       grad_values.packed_accessor64<scalar_t, 2>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
 
@@ -224,6 +226,7 @@ Tensor jagged_1d_to_dense_gpu(
                       offsets_contig.packed_accessor32<index_t, 1>(),
                       values_contig.packed_accessor64<scalar_t, 1>(),
                       padded_values.packed_accessor64<scalar_t, 2>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
 
