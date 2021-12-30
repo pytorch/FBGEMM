@@ -1166,9 +1166,15 @@ struct VecNT {};
 template <>
 struct VecNT<1> {
   float acc;
+
   DEVICE_INLINE VecNT() {
     acc = 0;
   }
+
+  DEVICE_INLINE VecNT(float a) {
+    acc = a;
+  }
+
   DEVICE_INLINE void store(float* output_ptr) {
     *output_ptr = acc;
   }
@@ -1214,8 +1220,13 @@ struct VecNT<1> {
 template <>
 struct VecNT<2> {
   float2 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float2();
+  }
+
+  DEVICE_INLINE VecNT(half2 a) {
+    acc = __half22float2(a);
   }
 
   DEVICE_INLINE void store(float* output_ptr) {
@@ -1265,9 +1276,16 @@ struct VecNT<2> {
 template <>
 struct VecNT<4> {
   float4 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float4();
   }
+
+  DEVICE_INLINE VecNT(uint32_t v, half2 shift_scale) {
+    acc = make_zero_float4();
+    acc = accumulate_packed_int8(acc, v, shift_scale);
+  }
+
   DEVICE_INLINE void store(float* output_ptr) {
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
@@ -1347,8 +1365,14 @@ struct VecNT<4> {
 template <>
 struct VecNT<8> {
   float8 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float8();
+  }
+
+  DEVICE_INLINE VecNT(uint32_t v, half2 shift_scale) {
+    acc = make_zero_float8();
+    acc = accumulate_packed_int4(acc, v, shift_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr) {

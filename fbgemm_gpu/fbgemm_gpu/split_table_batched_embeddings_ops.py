@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from itertools import accumulate
 from math import log2
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type, Union
+from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
@@ -1458,84 +1458,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             param.uniform_(min_val, max_val)
 
 
-class SequenceEmbeddingCodegen(SplitTableBatchedEmbeddingBagsCodegen):
-    """
-    This class wraps around SplitTableBatchedEmbeddingBagsCodegen to get
-    sequence embedding op: nn.EmbeddingBag(sparse=True)
-    """
-
-    def __init__(
-        self,
-        **kwargs: Any,
-    ) -> None:
-        # assert T == 1
-        assert "embedding_specs" in kwargs
-        assert len(kwargs["embedding_specs"]) == 1
-        super(SequenceEmbeddingCodegen, self).__init__(
-            **kwargs,
-        )
-
-    # @torch.jit.ignore
-    def forward(
-        self,
-        indices: Tensor,
-        offsets: Optional[Tensor] = None,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-    ) -> Tensor:
-        offsets = torch.arange(
-            0,
-            indices.numel() + 1,
-            device=indices.device,
-            dtype=torch.int64,
-        )
-        return super(SequenceEmbeddingCodegen, self).forward(
-            indices,
-            offsets,
-            per_sample_weights,
-            feature_requires_grad,
-        )
-
-
-class DenseSequenceEmbeddingCodegen(DenseTableBatchedEmbeddingBagsCodegen):
-    """
-    This class wraps around DenseTableBatchedEmbeddingBagsCodegen to get
-    sequence embedding op, nn.EmbeddingBag(sparse=False)
-    """
-
-    def __init__(
-        self,
-        **kwargs: Any,
-    ) -> None:
-        # assert T == 1
-        assert "embedding_specs" in kwargs
-        assert len(kwargs["embedding_specs"]) == 1
-        super(DenseSequenceEmbeddingCodegen, self).__init__(
-            **kwargs,
-        )
-
-    # @torch.jit.ignore
-    def forward(
-        self,
-        indices: Tensor,
-        offsets: Optional[Tensor] = None,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-    ) -> Tensor:
-        offsets = torch.arange(
-            0,
-            indices.numel() + 1,
-            device=indices.device,
-            dtype=torch.int64,
-        )
-        return super(DenseSequenceEmbeddingCodegen, self).forward(
-            indices,
-            offsets,
-            per_sample_weights,
-            feature_requires_grad,
-        )
-
-
 def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
@@ -1653,6 +1575,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        # mixed D is not supported by no bag kernels
+        mixed_D = not all(d == dims[0] for d in dims)
+        if mixed_D:
+            assert (
+                self.pooling_mode != PoolingMode.NONE
+            ), "Mixed dimension tables are only supported for pooling tables."
 
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
@@ -2079,6 +2008,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 cache_sets = (
                     int(1.0 * free_memory / self.max_D_cache) + ASSOC - 1
                 ) // ASSOC
+            cache_sets = 1 if cache_sets == 0 else cache_sets
         cache_load_factor = (
             1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
         )
