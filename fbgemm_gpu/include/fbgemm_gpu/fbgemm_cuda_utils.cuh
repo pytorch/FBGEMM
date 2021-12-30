@@ -1458,6 +1458,26 @@ struct VecNT<8> {
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
+DEVICE_INLINE float float1_max(float val) {
+  return val;
+}
+
+DEVICE_INLINE float float1_min(float val) {
+  return val;
+}
+
+DEVICE_INLINE float float2_max(float2 val) {
+  float max_val = val.x;
+  max_val = max(max_val, val.y);
+  return max_val;
+}
+
+DEVICE_INLINE float float2_min(float2 val) {
+  float min_val = val.x;
+  min_val = min(min_val, val.y);
+  return min_val;
+}
+
 DEVICE_INLINE float float4_max(float4 val) {
   float max_val = val.x;
   max_val = max(max_val, val.y);

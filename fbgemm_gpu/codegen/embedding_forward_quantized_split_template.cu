@@ -171,9 +171,10 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 }
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
+{% for bit_width in [32, 16, 8, 4] %}
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
-__global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
+__global__ void {{ type_map[bit_width].enum_name }}_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
   const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
@@ -196,7 +197,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   int32_t T = D_offsets.size(0) - 1;
   int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-      return;
+    return;
   }
   static_assert(
     std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
@@ -209,7 +210,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   int32_t D_end = D_offsets[t + 1];
   int32_t D = D_end - D_start;
   SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::FP32) {
+  if (weight_ty != SparseType::{{ type_map[bit_width].enum_name }}) {
       return;
   }
 
@@ -246,208 +247,12 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   } else {
       weights = &uvm_weights[weights_offset];
   }
-  constexpr size_t kOutputsPerThread = 1;
+  constexpr size_t kOutputsPerThread = {{ (32 // bit_width) }};
 
   constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
-  VecNT<1> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
-    __shared__ AllBuffers buffers;
-
-    {% if weighted %}
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
-    __shared__ AllIndiceWeights buffers_indice_weights;
-    {% endif %}
-
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
-        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
-        valid = valid && (idx != -1);
-        const uint4* row;
-        if (cache_valid && cache_idx != kCacheLocationMissing) {
-          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
-        } else if (valid) {
-          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
-        } else {
-          row = reinterpret_cast<const uint4*>(&weights[0]);
-        }
-        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
-
-        {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        {% endif %}
-      }
-    }
-    // equivalent to fence + wait.
-    cp_async_wait<0>();
-    __syncwarp();
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
-        {% endif %}
-        #pragma unroll MaxNum128BRows
-        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-          float v = reinterpret_cast<const float*>(row)[kWarpSize * j + threadIdx.x];
-          if (valid) {
-            {% if weighted %}
-            accumulators[i][j].fma(v, row_weight);
-            {% else %}
-            accumulators[i][j].add(v);
-            {% endif %}
-          }
-        }
-      }
-    }
-  }
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    float inv_L = 1.0 / Ls[i];
-
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-            accumulators[i][j].mul(inv_L);
-        }
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][D_start + output_d]);
-        }
-      }
-    } else if (std::is_same<output_t, uint8_t>::value) {
-      // INT8:
-      // apply per feature row-wise int8
-      float thread_local_min = std::numeric_limits<float>::max();
-      float thread_local_max = std::numeric_limits<float>::lowest();
-      float2 qparams;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-            accumulators[i][j].mul(inv_L);
-        }
-        if (output_d >= 0 && output_d < D) {
-          thread_local_max = max(thread_local_max, accumulators[i][j].acc);
-          thread_local_min = min(thread_local_min, accumulators[i][j].acc);
-        }
-      }
-      qparams = warp_find_qparams(thread_local_min, thread_local_max);
-      int output_D_start = D_start + t * 8;
-      int output_D_end = output_D_start + D;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams);
-        }
-      }
-      if (threadIdx.x == 0) {
-        store_qparams_to_row(&output[b][output_D_end], qparams);
-      }
-    } else {
-      // INT4: not implemented yet
-    }
-  }
-}
-
-// TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * kWarpSize)
-__global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-  int64_t pooling_mode,
-  {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
-      indice_weights,
-  {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-      output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
-  ) {
-  int32_t B = output.size(0);
-  int32_t T = D_offsets.size(0) - 1;
-  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-      return;
-  }
-  static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
-    "output_t can only be float or half or bytes now"
-  );
-
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
-
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::FP16) {
-      return;
-  }
-
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
-
-  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
-    return;
-  }
-
-  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
-
-  int64_t weights_offset = weights_offsets[t];
-  const int32_t D_total = padded_D(D, weight_ty);
-  const int32_t D_padding = D_total - D;
-
-  uint32_t warp_idx = threadIdx.y;
-  int32_t indices_starts[OutputRowsPerThread];
-  int32_t Ls[OutputRowsPerThread];
-  int32_t max_Ls = 0;
-
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    int32_t indices_start = offsets[t * B + b];
-    int32_t indices_end = offsets[t * B + b + 1];
-    indices_starts[i] = indices_start;
-    Ls[i] = indices_end - indices_start;
-    max_Ls = max(max_Ls, Ls[i]);
-  }
-
-  const uint8_t* __restrict__ weights;
-  const auto placement = static_cast<PlacementType>(weights_placements[t]);
-  if (placement == PlacementType::DEVICE) {
-      weights = &dev_weights[weights_offset];
-  } else {
-      weights = &uvm_weights[weights_offset];
-  }
-  constexpr size_t kOutputsPerThread = 2;
-
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
-  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
-
-  VecNT<2> accumulators[OutputRowsPerThread][MaxNum128BRows];
+  VecNT<{{ (32 // bit_width) }}> accumulators[OutputRowsPerThread][MaxNum128BRows];
 
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
@@ -494,209 +299,9 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
         const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-
-        {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
-        {% endif %}
-
-        #pragma unroll MaxNum128BRows
-        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-          __half2 v = reinterpret_cast<const __half2*>(row)[kWarpSize * j + threadIdx.x];
-
-          if (valid) {
-            {% if weighted %}
-            accumulators[i][j].fma(v, row_weight);
-            {% else %}
-            accumulators[i][j].add(v);
-            {% endif %}
-          }
-        }
-      }
-    }
-  }
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    float inv_L = 1.0 / Ls[i];
-
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
-
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-            accumulators[i][j].mul(inv_L);
-        }
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][D_start + output_d]);
-        }
-      }
-    } else if (std::is_same<output_t, uint8_t>::value) {
-      // INT8:
-      // apply per feature row-wise int8
-      float thread_local_min = std::numeric_limits<float>::max();
-      float thread_local_max = std::numeric_limits<float>::lowest();
-      float2 qparams;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-            accumulators[i][j].mul(inv_L);
-        }
-        if (output_d >= 0 && output_d < D) {
-          thread_local_max = max(thread_local_max, max(accumulators[i][j].acc.x, accumulators[i][j].acc.y));
-          thread_local_min = min(thread_local_min, min(accumulators[i][j].acc.x, accumulators[i][j].acc.y));
-        }
-      }
-
-      qparams = warp_find_qparams(thread_local_min, thread_local_max);
-      int output_D_start = D_start + t * 8;
-      int output_D_end = output_D_start + D;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams);
-        }
-      }
-      if (threadIdx.x == 0) {
-        store_qparams_to_row(&output[b][output_D_end], qparams);
-      }
-    } else {
-      // INT4: not implemented yet
-    }
-  }
-}
-
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * kWarpSize)
-__global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-  int64_t pooling_mode,
-  {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
-      indice_weights,
-  {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-      output, // [B][total_D]
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
-  ) {
-  int32_t B = output.size(0);
-  int32_t T = D_offsets.size(0) - 1;
-  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-      return;
-  }
-  static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
-    "output_t can only be float or half or bytes now"
-  );
-
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
-
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::INT8) {
-      return;
-  }
-
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
-
-  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
-    return;
-  }
-
-  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
-
-  int64_t weights_offset = weights_offsets[t];
-  const int32_t D_total = padded_D(D, weight_ty);
-  const int32_t D_padding = D_total - D;
-
-  uint32_t warp_idx = threadIdx.y;
-  int32_t indices_starts[OutputRowsPerThread];
-  int32_t Ls[OutputRowsPerThread];
-  int32_t max_Ls = 0;
-
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    int32_t indices_start = offsets[t * B + b];
-    int32_t indices_end = offsets[t * B + b + 1];
-    indices_starts[i] = indices_start;
-    Ls[i] = indices_end - indices_start;
-    max_Ls = max(max_Ls, Ls[i]);
-  }
-
-  const uint8_t* __restrict__ weights;
-  const auto placement = static_cast<PlacementType>(weights_placements[t]);
-  if (placement == PlacementType::DEVICE) {
-      weights = &dev_weights[weights_offset];
-  } else {
-      weights = &uvm_weights[weights_offset];
-  }
-  constexpr size_t kOutputsPerThread = 4;
-
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
-  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
-
-  VecNT<4> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
-
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
-    __shared__ AllBuffers buffers;
-
-    {% if weighted %}
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
-    __shared__ AllIndiceWeights buffers_indice_weights;
-    {% endif %}
-
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
-        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
-        valid = valid && (idx != -1);
-        const uint4* row;
-        if (cache_valid && cache_idx != kCacheLocationMissing) {
-          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
-        } else if (valid) {
-          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
-        } else {
-          row = reinterpret_cast<const uint4*>(&weights[0]);
-        }
-        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
-
-        {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        {% endif %}
-      }
-    }
-    // equivalent to fence + wait.
-    cp_async_wait<0>();
-    __syncwarp();
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+        {% if bit_width in [8, 4] %}
         half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
+        {% endif %}
 
         {% if weighted %}
         float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
@@ -704,215 +309,12 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
 
         #pragma unroll MaxNum128BRows
         for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
+          {{ type_map[bit_width].cpp_type_name }} v = reinterpret_cast<const {{ type_map[bit_width].cpp_type_name }}*>(row)[kWarpSize * j + threadIdx.x];
           if (valid) {
             {% if weighted %}
-            accumulators[i][j].fma(v, shift_scale, row_weight);
+            accumulators[i][j].fma(v, {% if bit_width in [8, 4] %} shift_scale, {% endif %} row_weight);
             {% else %}
-            accumulators[i][j].add(v, shift_scale);
-            {% endif %}
-          }
-        }
-      }
-    }
-  }
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    float inv_L = 1.0 / Ls[i];
-
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
-
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][D_start + output_d]);
-        }
-      }
-    } else if (std::is_same<output_t, uint8_t>::value) {
-      // INT8:
-      // apply per feature row-wise int8
-      float thread_local_min = std::numeric_limits<float>::max();
-      float thread_local_max = std::numeric_limits<float>::lowest();
-      float2 qparams;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
-        if (output_d >= 0 && output_d < D) {
-          thread_local_max = max(thread_local_max, float4_max(accumulators[i][j].acc));
-          thread_local_min = min(thread_local_min, float4_min(accumulators[i][j].acc));
-        }
-      }
-
-      qparams = warp_find_qparams(thread_local_min, thread_local_max);
-      int output_D_start = D_start + t * 8;
-      int output_D_end = output_D_start + D;
-      #pragma unroll MaxNum128BRows
-      for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams);
-        }
-      }
-      if (threadIdx.x == 0) {
-        store_qparams_to_row(&output[b][output_D_end], qparams);
-      }
-    } else {
-      // INT4: not implemented yet
-    }
-  }
-}
-
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * kWarpSize)
-__global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-  int64_t pooling_mode,
-  {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
-      indice_weights,
-  {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-      output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
-  ) {
-  int32_t B = output.size(0);
-  int32_t T = D_offsets.size(0) - 1;
-  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
-    return;
-  }
-  static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
-    "output_t can only be float or half or bytes now"
-  );
-
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
-
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::INT4) {
-      return;
-  }
-
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
-
-  if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
-    return;
-  }
-
-  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
-
-  int64_t weights_offset = weights_offsets[t];
-  const int32_t D_total = padded_D(D, weight_ty);
-  const int32_t D_padding = D_total - D;
-
-  uint32_t warp_idx = threadIdx.y;
-  int32_t indices_starts[OutputRowsPerThread];
-  int32_t Ls[OutputRowsPerThread];
-  int32_t max_Ls = 0;
-
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    int32_t indices_start = offsets[t * B + b];
-    int32_t indices_end = offsets[t * B + b + 1];
-    indices_starts[i] = indices_start;
-    Ls[i] = indices_end - indices_start;
-    max_Ls = max(max_Ls, Ls[i]);
-  }
-
-  const uint8_t* __restrict__ weights;
-  const auto placement = static_cast<PlacementType>(weights_placements[t]);
-  if (placement == PlacementType::DEVICE) {
-      weights = &dev_weights[weights_offset];
-  } else {
-      weights = &uvm_weights[weights_offset];
-  }
-  constexpr size_t kOutputsPerThread = 8;
-
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
-  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
-
-  VecNT<8> accumulators[OutputRowsPerThread][MaxNum128BRows];
-
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
-
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
-    __shared__ AllBuffers buffers;
-
-    {% if weighted %}
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
-    __shared__ AllIndiceWeights buffers_indice_weights;
-    {% endif %}
-
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
-        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
-        valid = valid && (idx != -1);
-        const uint4* row;
-        if (cache_valid && cache_idx != kCacheLocationMissing) {
-          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
-        } else if (valid) {
-          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
-        } else {
-          row = reinterpret_cast<const uint4*>(&weights[0]);
-        }
-        cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
-
-        {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        {% endif %}
-      }
-    }
-    // equivalent to fence + wait.
-    cp_async_wait<0>();
-    __syncwarp();
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
-
-        {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
-        {% endif %}
-
-        #pragma unroll MaxNum128BRows
-        for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-          uint32_t v = reinterpret_cast<const uint32_t*>(row)[kWarpSize * j + threadIdx.x];
-          if (valid) {
-            {% if weighted %}
-            accumulators[i][j].fma(v, shift_scale, row_weight);
-            {% else %}
-            accumulators[i][j].add(v, shift_scale);
+            accumulators[i][j].add(v{% if bit_width in [8, 4] %}, shift_scale {% endif %});
             {% endif %}
           }
         }
@@ -952,8 +354,8 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
           accumulators[i][j].mul(inv_L);
         }
         if (output_d >= 0 && output_d < D) {
-          thread_local_max = max(thread_local_max, float8_max(accumulators[i][j].acc));
-          thread_local_min = min(thread_local_min, float8_min(accumulators[i][j].acc));
+          thread_local_max = max(thread_local_max, float{{ (32 // bit_width) }}_max(accumulators[i][j].acc));
+          thread_local_min = min(thread_local_min, float{{ (32 // bit_width) }}_min(accumulators[i][j].acc));
         }
       }
 
@@ -975,6 +377,7 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     }
   }
 }
+{% endfor %}
 
 __device__ inline uint32_t pruned_hash_function(uint32_t h) {
     // MurmorHash3 32-bit mixing function.
@@ -1152,7 +555,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     constexpr int32_t kWarpsPerBlock = 4;
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::INT4_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1192,7 +595,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
 
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::INT8_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1234,7 +637,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #undef X
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::FP16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1276,7 +679,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cuda(
     #undef X
 
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    nbit::FP32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -1397,4 +800,4 @@ Tensor pruned_array_lookup_cuda(
   return dense_indices;
 }
 {% endif %}
-// clang-format on
+        // clang-format on

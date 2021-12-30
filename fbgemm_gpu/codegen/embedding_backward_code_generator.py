@@ -884,16 +884,28 @@ def forward_split() -> None:
 
 
 def forward_quantized() -> None:
+    @dataclass
+    class elem_type:
+        enum_name: str
+        cpp_type_name: str
+
+    type_map = {
+        32: elem_type("FP32", "float"),
+        16: elem_type("FP16", "__half2"),
+        8: elem_type("INT8", "uint32_t"),
+        4: elem_type("INT4", "uint32_t"),
+    }
+
     template = env.get_template("embedding_forward_quantized_split_template.cu")
-    src_cu = template.render(weighted=False)
+    src_cu = template.render(weighted=False, type_map=type_map)
     write("gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu", src_cu)
-    src_cu = template.render(weighted=True)
+    src_cu = template.render(weighted=True, type_map=type_map)
     write("gen_embedding_forward_quantized_split_weighted_codegen_cuda.cu", src_cu)
 
     template = env.get_template("embedding_forward_quantized_cpu_template.cpp")
-    src_cu = template.render(weighted=False)
+    src_cu = template.render(weighted=False, type_map=type_map)
     write("gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp", src_cu)
-    src_cu = template.render(weighted=True)
+    src_cu = template.render(weighted=True, type_map=type_map)
     write("gen_embedding_forward_quantized_weighted_codegen_cpu.cpp", src_cu)
 
 
