@@ -1753,7 +1753,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fb.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
