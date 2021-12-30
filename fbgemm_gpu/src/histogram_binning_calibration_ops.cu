@@ -93,6 +93,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
                 bin_num_positives_packed.data_ptr<double>(),
                 calibrated_prediction.data_ptr<scalar_t>(),
                 bin_ids.data_ptr<int64_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
@@ -206,6 +207,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
                 segment_value_packed.data_ptr<int64_t>(),
                 segment_offsets_packed.data_ptr<index_t>(),
                 dense_segment_value_packed.data_ptr<int64_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   Tensor calibrated_prediction = at::empty_like(logit);
@@ -237,6 +239,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
                 bin_num_positives_packed.data_ptr<double>(),
                 calibrated_prediction.data_ptr<scalar_t>(),
                 bin_ids.data_ptr<int64_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
@@ -346,6 +349,7 @@ generic_histogram_binning_calibration_by_feature_cuda(
                 segment_value_packed.data_ptr<int64_t>(),
                 segment_offsets_packed.data_ptr<index_t>(),
                 dense_segment_value_packed.data_ptr<int64_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   Tensor calibrated_prediction = at::empty_like(logit);
@@ -376,6 +380,7 @@ generic_histogram_binning_calibration_by_feature_cuda(
                 bin_boundaries_packed.data_ptr<double>(),
                 calibrated_prediction.data_ptr<scalar_t>(),
                 bin_ids.data_ptr<int64_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);
