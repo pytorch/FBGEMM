@@ -3515,7 +3515,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if bounds_check_mode == BoundsCheckMode.WARNING:
                 # -1 because when we have 2 elements in offsets, we have only 1
                 # warning for the pair.
-                self.assertEqual(warning.item(), min(2, offsets.numel() - 1))
+                self.assertGreaterEqual(warning.item(), min(2, offsets.numel() - 1))
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):
