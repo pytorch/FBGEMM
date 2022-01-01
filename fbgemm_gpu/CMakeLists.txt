@@ -222,7 +222,7 @@ set_source_files_properties(
 
 set(fbgemm_gpu_sources_gpu
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
-    src/histogram_binning_calibration_ops.c, src/jagged_tensor_ops.cu
+    src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
     src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu)
 
