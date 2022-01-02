@@ -1011,28 +1011,39 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   // on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive
   // on the XU. b) doing a 256-entry shared memory LUT on 8-bit pairs is
   // expensive on SMEM throughput. Credit to @jhj.
-  res.vals[0] = hmul_short2(v & 0x000F000F, 32768);
-  res.vals[1] = hmul_short2(v & 0x00F000F0, 32768);
+  res.vals[0] = hmul_short2(v & 0x000F000F, __float2half(32768));
+  res.vals[1] = hmul_short2(v & 0x00F000F0, __float2half(32768));
   v >>= 8;
-  res.vals[2] = hmul_short2(v & 0x000F000F, 32768);
-  res.vals[3] = hmul_short2(v & 0x00F000F0, 32768);
+  res.vals[2] = hmul_short2(v & 0x000F000F, __float2half(32768));
+  res.vals[3] = hmul_short2(v & 0x00F000F0, __float2half(32768));
+
+  half shift_scale_x = __low2half(shift_scale);
+  half shift_scale_y = __high2half(shift_scale);
 
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[2] = hfma2(
       res.vals[2],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[3] = hfma2(
       res.vals[3],
-      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
   return res;
 }
 
@@ -1041,17 +1052,25 @@ dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
   half4 res;
   uint32_t v = packedVals;
   // See comment above, this is a minor variation.
-  res.vals[0] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[0] = hmul_short2(v & 0x00FF00FF, __float2half(32768));
   v >>= 8;
-  res.vals[1] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[1] = hmul_short2(v & 0x00FF00FF, __float2half(32768));
+
+  half shift_scale_x = __low2half(shift_scale);
+  half shift_scale_y = __high2half(shift_scale);
+
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   return res;
 }
 
