@@ -10,7 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/script.h>
 #include "c10/core/ScalarType.h"
-#include "codegen/embedding_common.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
 

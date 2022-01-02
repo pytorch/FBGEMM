@@ -108,3 +108,23 @@ std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
     at::Tensor lxu_cache_state,
     int64_t time_stamp,
     at::Tensor lru_state);
+
+/**
+ * "Transpose" embedding inputs by sorting indices by their values.
+ * Logically this transpose compressed sparse row (CSR) representation
+ * stored in indices and offsets to compressed sparse column (CSC).
+ */
+std::tuple<
+    at::Tensor /*linear_indices*/,
+    at::Tensor /*linear_indices_sorted*/,
+    at::Tensor /*infos_sorted*/,
+    at::Tensor /*sorted_linear_indices_run*/,
+    at::Tensor /*sorted_linear_indices_run_lengths*/,
+    at::Tensor /*sorted_linear_indices_num_runs*/,
+    at::Tensor /*sorted_linear_indices_cumulative_run_lengths*/>
+transpose_embedding_input(
+    at::Tensor hash_size_cumsum,
+    int64_t total_hash_size_bits,
+    at::Tensor indices,
+    at::Tensor offsets,
+    bool nobag = false);
