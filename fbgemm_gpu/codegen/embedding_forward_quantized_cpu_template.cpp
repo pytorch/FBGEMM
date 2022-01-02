@@ -10,8 +10,8 @@
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
 
-#include "codegen/embedding_common.h"
 #include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 #include <immintrin.h>
 #include <emmintrin.h>

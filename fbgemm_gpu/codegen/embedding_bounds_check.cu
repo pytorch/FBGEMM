@@ -4,7 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "codegen/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
