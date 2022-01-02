@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -399,24 +400,9 @@ std::vector<Tensor> all_to_one_device(
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "merge_pooled_embeddings(Tensor[] pooled_embeddings, int batch_size, Device target_device) -> Tensor");
-}
-
-TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl(
-      "merge_pooled_embeddings",
-      torch::dispatch(
-          c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
-}
-
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  DISPATCH_TO_CUDA(
+      "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
   m.def(
       "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
-}
-
-TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl(
-      "all_to_one_device",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(fbgemm_gpu::all_to_one_device)));
+  DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
 }

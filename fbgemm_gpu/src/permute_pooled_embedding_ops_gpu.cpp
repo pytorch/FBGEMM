@@ -5,16 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include <ATen/ATen.h>
-#include <ATen/Parallel.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/util/irange.h>
-#include <fbgemm_gpu/permute_pooled_embedding_ops.h>
-#include <torch/library.h>
 #include <torch/script.h>
-#include <torch/torch.h>
-#include <limits>
-#include <type_traits>
 #include <vector>
+
+#include "fbgemm_gpu/permute_pooled_embedding_ops.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -138,11 +135,7 @@ Tensor permute_pooled_embs_auto_grad_cpu(
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
-  m.impl(
-      "permute_pooled_embs",
-      torch::dispatch(
-          c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm_gpu::permute_pooled_embs_gpu)));
+  DISPATCH_TO_CUDA("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_gpu);
   m.def(
       "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   m.impl(
@@ -150,9 +143,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       torch::dispatch(
           c10::DispatchKey::CPU,
           TORCH_FN(fbgemm_gpu::permute_pooled_embs_auto_grad_cpu)));
-  m.impl(
+  DISPATCH_TO_CUDA(
       "permute_pooled_embs_auto_grad",
-      torch::dispatch(
-          c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm_gpu::permute_pooled_embs_auto_grad_gpu)));
+      fbgemm_gpu::permute_pooled_embs_auto_grad_gpu);
 }

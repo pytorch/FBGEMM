@@ -8,7 +8,9 @@
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <torch/script.h>
+#include <torch/library.h>
+
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -24,10 +26,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   // or DCE'd, etc.
   m.def(
       "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
-  m.impl(
-      "bounds_check_indices",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(bounds_check_indices_cuda)));
+  DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -35,8 +34,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // or DCE'd, etc.
   m.def(
       "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
-  m.impl(
-      "bounds_check_indices",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(bounds_check_indices_cuda)));
+  DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
 }

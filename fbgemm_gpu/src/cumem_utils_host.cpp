@@ -7,6 +7,7 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 #include "fbgemm_gpu/enum_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include "cumem_utils.h"
 
@@ -21,18 +22,11 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "uvm_to_device(Tensor self, Tensor prototype) -> Tensor",
       TORCH_FN(uvm_to_device));
   m.def("uvm_to_cpu(Tensor t) -> Tensor");
-  m.impl(
-      "uvm_to_cpu",
-      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(uvm_to_cpu)));
+  DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu);
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.impl(
-      "new_managed_tensor",
-      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(new_managed_tensor)));
+  DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.impl(
-      "new_vanilla_managed_tensor",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(new_vanilla_managed_tensor)));
+  DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
       "cuda_mem_advise(Tensor t, int advice) -> ()",
       TORCH_FN(uvm_cuda_mem_advise));
@@ -55,18 +49,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "uvm_to_device(Tensor self, Tensor prototype) -> Tensor",
       TORCH_FN(uvm_to_device));
   m.def("uvm_to_cpu(Tensor t) -> Tensor");
-  m.impl(
-      "uvm_to_cpu",
-      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(uvm_to_cpu)));
+  DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu);
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.impl(
-      "new_managed_tensor",
-      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(new_managed_tensor)));
+  DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.impl(
-      "new_vanilla_managed_tensor",
-      torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(new_vanilla_managed_tensor)));
+  DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
       "cuda_mem_advise(Tensor t, int advice) -> ()",
       TORCH_FN(uvm_cuda_mem_advise));
