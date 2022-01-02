@@ -11,9 +11,9 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 
-#include "codegen/embedding_common.h"
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
 
