@@ -1017,6 +1017,10 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   res.vals[2] = hmul_short2(v & 0x000F000F, __float2half(32768));
   res.vals[3] = hmul_short2(v & 0x00F000F0, __float2half(32768));
 
+  // ~5% perf gain is observed with the explicit type conversions using
+  // __float2half on Nvidia A100 GPUs (https://fburl.com/diff/ss8372zw) using
+  // NVCC 11.0. Additionally, HIP compiler requires these explicit type
+  // conversions.
   half shift_scale_x = __low2half(shift_scale);
   half shift_scale_y = __high2half(shift_scale);
 
