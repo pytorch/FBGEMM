@@ -127,16 +127,16 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
+            int64_t idx_j = shfl_sync(idx, j);
             {% if nobag %}
             int64_t output_j = indices_start + l_start + j;
             {% endif %}
             {% if not dense %}
-            int32_t cache_idx_j = __shfl_sync(0xFFFFFFFF, cache_idx, j);
+            int32_t cache_idx_j = shfl_sync(cache_idx, j);
             {% endif %}
 
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
             {% endif %}
 
             {% if not dense %}
