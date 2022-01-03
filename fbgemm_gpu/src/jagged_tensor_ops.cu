@@ -18,9 +18,9 @@ __global__ void jagged_2d_to_dense_forward_kernel(
     int32_t B,
     int32_t max_L,
     int32_t D,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 2> values,
-    at::PackedTensorAccessor64<scalar_t, 3> padded_values) {
+    const at::PackedTensorAccessor32<scalar_t, 2> values,
+    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor32<scalar_t, 3> padded_values) {
   int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t l = b_l / B;
   int32_t b = b_l % B;
@@ -31,17 +31,12 @@ __global__ void jagged_2d_to_dense_forward_kernel(
   int32_t row_end = offsets[b + 1];
   int32_t length = row_end - row_start;
   if (l < length) {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        padded_values[b][l][d + threadIdx.x] =
-            values[row_start + l][d + threadIdx.x];
-      }
+    for (int32_t d = threadIdx.x; d < D; d += kWarpSize) {
+      padded_values[b][l][d] = values[row_start + l][d];
     }
   } else {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        padded_values[b][l][d + threadIdx.x] = 0.0;
-      }
+    for (int32_t d = threadIdx.x; d < D; d += kWarpSize) {
+      padded_values[b][l][d] = 0.0;
     }
   }
 }
@@ -70,20 +65,16 @@ jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
             "jagged_2d_to_dense_forward_kernel_2",
             ([&]() {
               jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         (B * max_L),
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     dim3(
-                         fbgemm_gpu::kWarpSize,
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                  <<<div_round_up((B * max_L), kMaxThreads / kWarpSize),
+                     dim3(kWarpSize, kMaxThreads / kWarpSize),
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       B,
                       max_L,
                       D,
+                      values_contig.packed_accessor32<scalar_t, 2>(),
                       offsets_contig.packed_accessor32<index_t, 1>(),
-                      values_contig.packed_accessor64<scalar_t, 2>(),
-                      padded_values.packed_accessor64<scalar_t, 3>());
+                      padded_values.packed_accessor32<scalar_t, 3>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
@@ -96,9 +87,9 @@ __global__ void jagged_2d_to_dense_backward_kernel(
     int32_t B,
     int32_t max_L,
     int32_t D,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 3> grad_padded_values,
-    at::PackedTensorAccessor64<scalar_t, 2> grad_values) {
+    const at::PackedTensorAccessor32<scalar_t, 3> grad_padded_values,
+    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor32<scalar_t, 2> grad_values) {
   int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t l = b_l / B;
   int32_t b = b_l % B;
@@ -109,11 +100,8 @@ __global__ void jagged_2d_to_dense_backward_kernel(
   int32_t row_end = offsets[b + 1];
   int32_t length = row_end - row_start;
   if (l < length) {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        grad_values[row_start + l][d + threadIdx.x] =
-            grad_padded_values[b][l][d + threadIdx.x];
-      }
+    for (int32_t d = threadIdx.x; d < D; d += kWarpSize) {
+      grad_values[row_start + l][d] = grad_padded_values[b][l][d];
     }
   }
 }
@@ -146,21 +134,17 @@ Tensor jagged_2d_to_dense_backward_cuda(
             "jagged_2d_to_dense_backward_kernel_2",
             ([&]() {
               jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         (B * max_L),
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     dim3(
-                         fbgemm_gpu::kWarpSize,
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
+                  <<<div_round_up((B * max_L), kMaxThreads / kWarpSize),
+                     dim3(kWarpSize, kMaxThreads / kWarpSize),
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       B,
                       max_L,
                       D,
-                      offsets_contig.packed_accessor32<index_t, 1>(),
                       grad_padded_values_config
-                          .packed_accessor64<scalar_t, 3>(),
-                      grad_values.packed_accessor64<scalar_t, 2>());
+                          .packed_accessor32<scalar_t, 3>(),
+                      offsets_contig.packed_accessor32<index_t, 1>(),
+                      grad_values.packed_accessor32<scalar_t, 2>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
@@ -173,9 +157,9 @@ __global__ void jagged_1d_to_dense_kernel(
     int32_t B,
     int32_t max_L,
     data_t padding_value,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<data_t, 1> values,
-    at::PackedTensorAccessor64<data_t, 2> padded_values) {
+    const at::PackedTensorAccessor32<data_t, 1> values,
+    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor32<data_t, 2> padded_values) {
   const int32_t b_l = blockIdx.x * blockDim.x + threadIdx.x;
   if (b_l >= B * max_L) {
     return;
@@ -223,9 +207,9 @@ Tensor jagged_1d_to_dense_gpu(
                       B,
                       max_L,
                       padding_value,
+                      values_contig.packed_accessor32<scalar_t, 1>(),
                       offsets_contig.packed_accessor32<index_t, 1>(),
-                      values_contig.packed_accessor64<scalar_t, 1>(),
-                      padded_values.packed_accessor64<scalar_t, 2>());
+                      padded_values.packed_accessor32<scalar_t, 2>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
