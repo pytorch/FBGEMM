@@ -6,6 +6,10 @@
  */
 #pragma once
 
+#ifdef __HIP_PLATFORM_HCC__
+#define HIPCUB_ARCH 1
+#endif
+
 #include <cuda.h>
 
 // clang-format off

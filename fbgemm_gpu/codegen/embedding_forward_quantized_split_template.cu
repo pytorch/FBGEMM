@@ -309,7 +309,11 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
     }
     // equivalent to fence + wait.
     cp_async_wait<0>();
+#ifdef __HIP_PLATFORM_HCC__
+    __syncthreads();
+#else
     __syncwarp();
+#endif
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -507,9 +511,21 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
                 found = true;
                 dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
             }
+#ifdef __HIP_PLATFORM_HCC__
+            // FIXME: __any_sync with mask isn't supported by HIP yet.
+            // See https://fburl.com/fvy7j0lq for the similar context.
+            // assert false here with https://fburl.com/pfm7enw2
+            assert(false);
+            if (__any(found)) {
+#else
             if (__any_sync(subwarp_mask, found)) {
+#endif
                 break;
+#ifdef __HIP_PLATFORM_HCC__
+            } else if (__any(empty)) {
+#else
             } else if (__any_sync(subwarp_mask, empty)) {
+#endif
                 dense_indices[indices_start + l_start + subwarp_id] = -1;
                 break;
             }

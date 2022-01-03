@@ -189,13 +189,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% endif %}
             for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
                 {% if not nobag %}
-                int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
-                int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
+                int32_t b_j = shfl_sync(b, j);
+                int32_t D_start_j = shfl_sync(D_start, j);
                 {% else %}
-                int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
+                int32_t l_j = shfl_sync(l, j);
                 {% endif %}
+
                 {% if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+                at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
                 {% endif %}
 
         #pragma unroll kMaxVecsPerThread
@@ -546,13 +547,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
         for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
-            int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
-            int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
+            int32_t b_j = shfl_sync(b, j);
+            int32_t D_start_j = shfl_sync(D_start, j);
             {% else %}
-            int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
+            int32_t l_j = shfl_sync(l, j);
             {% endif %}
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
             {% endif %}
 
             #pragma unroll kMaxVecsPerThread
@@ -757,7 +758,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
+#ifndef __HIP_PLATFORM_HCC__
     cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
+#else
+    // MI100 has 64 KB local memory (shared memory) per workgroup
+    max_shared_bytes = 64 << 10;
+#endif
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     int shared_kb = max_shared_bytes >> 10;
     // V100: 64 KB; A100: 96 KB.
@@ -958,6 +964,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // over 48 KB per block are architecture-specific, as such they
             // must use dynamic shared memory (rather than statically sized
             // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+
+#ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
@@ -970,7 +978,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {{ kMaxVecsPerThread }}>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
@@ -980,7 +990,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
-                // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
                 <<<div_round_up(long_run_ids.numel(), kMaxThreads),
                     dim3(kWarpSize, BT_block_size),
                     BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
@@ -1031,6 +1040,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% endif %}
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+#ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
@@ -1043,6 +1053,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {{ kMaxVecsPerThread }}>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
