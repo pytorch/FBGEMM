@@ -15,6 +15,9 @@
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
+// FIXME: Enable merge_pooled_embeddings for HIP.
+// AMD GPUs don't seem to have nvml equivalent library support.
+#ifndef __HIP_PLATFORM_HCC__
 #include <nvml.h>
 
 #include <algorithm>
@@ -406,3 +409,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
 }
+#endif

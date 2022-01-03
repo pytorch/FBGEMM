@@ -6,7 +6,9 @@
  */
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
+#ifndef __HIP_PLATFORM_HCC__
 #include <math_constants.h>
+#endif
 #include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -44,7 +46,7 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     const auto inverse_scale = 255.0f / (range + kEpsilon);
     for (std::size_t col = 0; col < ncols; ++col) {
       output_row[col] =
-          std::lrintf((input_row[col] - minimum_element) * inverse_scale);
+          lrintf((input_row[col] - minimum_element) * inverse_scale);
     }
   }
 }
@@ -71,8 +73,15 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
   const int output_columns = ncols_aligned + 2 * sizeof(float);
 
   // starting values for future reductions
+#ifdef __HIP_PLATFORM_HCC__
+#define HIPRT_INF_F __int_as_float(0x7f800000)
+  float minimum_element = HIPRT_INF_F;
+  float maximum_element = -HIPRT_INF_F;
+#undef HIPRT_INF_F
+#else
   float minimum_element = CUDART_INF_F;
   float maximum_element = -CUDART_INF_F;
+#endif
 
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
@@ -145,7 +154,7 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
       // TODO: lift range_list into shared memory. However, when nrows is large,
       // it might exceed the size of shared memory.
       const auto inverse_scale = 255.0f / (range_list[row] + kEpsilon);
-      output_addr[0] = std::lrintf((input[input_idx] - bias) * inverse_scale);
+      output_addr[0] = lrintf((input[input_idx] - bias) * inverse_scale);
     }
   }
 }
@@ -222,8 +231,7 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
       std::uint8_t quantized = QUANTIZE_OPS_MAX(
           0,
           QUANTIZE_OPS_MIN(
-              static_cast<int>(
-                  std::lrintf((X - minimum_element) * inverse_scale)),
+              static_cast<int>(lrintf((X - minimum_element) * inverse_scale)),
               static_cast<int>((1 << bit_rate) - 1)));
 
       if (col % num_elem_per_byte == 0) {

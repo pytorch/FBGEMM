@@ -397,7 +397,7 @@ def rowwise_adagrad() -> None:
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
     }
-    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
+    multiplier = shfl_sync(multiplier, 0);
     """
     split_weight_update_cpu = """
         at::acc_type<scalar_t, true> g_local_sum_square = 0.0;
@@ -474,8 +474,8 @@ def rowwise_weighted_adagrad() -> None:
         multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
         correction = 1.0 - multiplier * weight_decay;
     }
-    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
-    correction = __shfl_sync(0xFFFFFFFF, correction, 0);
+    multiplier = shfl_sync(multiplier, 0);
+    correction = shfl_sync(correction, 0);
     """
     split_weight_update_cpu = """
         // weight_decay not supported for cpu version
@@ -636,7 +636,7 @@ def partial_rowwise_lamb() -> None:
         m2 = beta2 * momentum2[idx] + (1.0 - beta2) * g_avg_square;
         momentum2[idx] = m2;
     }
-    m2 = __shfl_sync(0xFFFFFFFF, m2, 0);
+    m2 = shfl_sync(m2, 0);
     at::acc_type<cache_t, true> m2_hat = 1.0 / (sqrtf((m2 / (1.0 - powf(beta2, iter)))) + eps);
 
     at::acc_type<cache_t, true> weight_sum_sq = 0.0;
@@ -772,7 +772,7 @@ def partial_rowwise_adam() -> None:
         momentum2[idx] = v_t;
         v_hat_t = v_t / (1.0 - powf(beta2, iter));
     }
-    v_hat_t = __shfl_sync(0xFFFFFFFF, v_hat_t, 0);
+    v_hat_t = shfl_sync(v_hat_t, 0);
     """
 
     split_weight_update = """

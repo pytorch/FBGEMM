@@ -279,11 +279,14 @@ void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
 
   device_guard.set_index(cuda_device_index);
 
+#ifndef __HIP_PLATFORM_HCC__
+  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
   AT_CUDA_CHECK(cudaMemAdvise(
       ptr,
       size_bytes,
       static_cast<enum cudaMemoryAdvise>(cudaMemoryAdvise),
       hint_device));
+#endif
   return;
 }
 
@@ -348,6 +351,8 @@ Tensor uvm_to_cpu_clone(Tensor t) {
   return cpu_clone;
 }
 
+#ifndef __HIP_PLATFORM_HCC__
+// FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
 
 FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
@@ -358,5 +363,6 @@ FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetAccessedBy),
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetAccessedBy),
 } FBGEMM_GPU_ENUM_REGISTER_END
+#endif
 
 } // namespace fbgemm_gpu
