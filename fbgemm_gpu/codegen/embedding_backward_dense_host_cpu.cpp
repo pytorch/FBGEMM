@@ -65,6 +65,11 @@ class SplitLookupFunction_Dense_Op
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["pooling_mode"] = pooling_mode;
 
+    int64_t output_dtype = -1 /* double */;
+    if (host_weights.scalar_type() == at::kHalf ||
+        host_weights.scalar_type() == at::ScalarType::Byte) {
+      output_dtype = static_cast<int64_t>(SparseType::FP32);
+    }
     return {split_embedding_codegen_forward_cpu(
         host_weights,
         weights_offsets,
@@ -74,7 +79,8 @@ class SplitLookupFunction_Dense_Op
         indices,
         offsets,
         pooling_mode,
-        indice_weights_value)};
+        indice_weights_value,
+        output_dtype)};
   }
 
   static torch::autograd::variable_list backward(

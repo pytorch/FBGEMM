@@ -400,14 +400,14 @@ def rowwise_adagrad() -> None:
     multiplier = shfl_sync(multiplier, 0);
     """
     split_weight_update_cpu = """
-        at::acc_type<scalar_t, true> g_local_sum_square = 0.0;
+        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        at::acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
+        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
-        at::acc_type<scalar_t, true> multiplier;
+        at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;

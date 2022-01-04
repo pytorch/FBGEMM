@@ -115,6 +115,13 @@ struct Vec4T<float> {
 #endif
   }
 
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
+  }
+
   DEVICE_INLINE void store(float* p) {
     *((float4*)p) = acc;
   }
@@ -136,6 +143,13 @@ struct Vec4T<float> {
     out.a = __float22half2_rn(a);
     out.b = __float22half2_rn(b);
     out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) {
+    p[0] = acc.x;
+    p[1] = acc.y;
+    p[2] = acc.z;
+    p[3] = acc.w;
   }
 
   DEVICE_INLINE void store(double* p) {
@@ -216,6 +230,13 @@ struct Vec4T<at::Half> {
 #endif
   }
 
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
+  }
+
   DEVICE_INLINE Vec4T(const float* p) {
     acc = *((const float4*)p);
   }
@@ -240,6 +261,13 @@ struct Vec4T<at::Half> {
     out.a = __float22half2_rn(a);
     out.b = __float22half2_rn(b);
     out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) {
+    p[0] = acc.x;
+    p[1] = acc.y;
+    p[2] = acc.z;
+    p[3] = acc.w;
   }
 
   DEVICE_INLINE void store(float* p) {
@@ -325,6 +353,125 @@ struct Vec4T<at::Half> {
 };
 
 template <>
+struct Vec4T<at::BFloat16> {
+  float4 acc;
+  DEVICE_INLINE Vec4T() {
+    acc.x = 0;
+    acc.y = 0;
+    acc.z = 0;
+    acc.w = 0;
+  }
+
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
+  }
+
+  DEVICE_INLINE Vec4T(const at::Half* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
+  }
+
+  DEVICE_INLINE Vec4T(const float* p) {
+    acc = *((const float4*)p);
+  }
+
+  DEVICE_INLINE Vec4T(const double* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
+  }
+
+  DEVICE_INLINE void store(at::Half* p) {
+    float2 a;
+    a.x = acc.x;
+    a.y = acc.y;
+
+    float2 b;
+    b.x = acc.z;
+    b.y = acc.w;
+
+    Half4 out;
+    out.a = __float22half2_rn(a);
+    out.b = __float22half2_rn(b);
+    out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) {
+    p[0] = acc.x;
+    p[1] = acc.y;
+    p[2] = acc.z;
+    p[3] = acc.w;
+  }
+
+  DEVICE_INLINE void store(float* p) {
+    *((float4*)p) = acc;
+  }
+
+  DEVICE_INLINE void store(double* p) {
+    p[0] = acc.x;
+    p[1] = acc.y;
+    p[2] = acc.z;
+    p[3] = acc.w;
+  }
+
+  DEVICE_INLINE void store(uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
+    dst[0] = src[0];
+    dst[1] = src[1];
+    dst[2] = src[2];
+    dst[3] = src[3];
+  }
+
+  // this <- this + a * b
+  DEVICE_INLINE void fma_(Vec4T<at::Half> a, float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+    acc.z = __fmaf_rn(a.acc.z, b, acc.z);
+    acc.w = __fmaf_rn(a.acc.w, b, acc.w);
+  }
+
+  DEVICE_INLINE void fma_(Vec4T<float> a, float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+    acc.z = __fmaf_rn(a.acc.z, b, acc.z);
+    acc.w = __fmaf_rn(a.acc.w, b, acc.w);
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<float> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(Vec4T<at::Half> a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+    acc.z += a.acc.z;
+    acc.w += a.acc.w;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+    acc.z *= scale;
+    acc.w *= scale;
+  }
+};
+
+template <>
 struct Vec4T<double> {
   double4 acc;
   DEVICE_INLINE Vec4T() {
@@ -360,6 +507,13 @@ struct Vec4T<double> {
     acc.z = b.x;
     acc.w = b.y;
 #endif
+  }
+
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+    acc.z = p[2];
+    acc.w = p[3];
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -398,6 +552,13 @@ struct Vec4T<double> {
     out.a = __float22half2_rn(a);
     out.b = __float22half2_rn(b);
     out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) {
+    p[0] = acc.x;
+    p[1] = acc.y;
+    p[2] = acc.z;
+    p[3] = acc.w;
   }
 
   DEVICE_INLINE static void copy(const double* src, double* dst) {

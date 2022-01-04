@@ -38,13 +38,13 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
   }
 }
 
-template <typename cache_t, typename emb_t>
+template <typename grad_t>
 __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>
+    at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean) {
   int32_t B = grad_output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -64,13 +64,13 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
 
   if (L != 0) {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
       grad_out_vec.mul_(1.0 / L);
       grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
     }
   } else {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
       grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
     }
   }
@@ -80,13 +80,13 @@ __global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
 {% if not nobag or not weighted %}
 template <
     typename emb_t,
+    typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread>
 __global__ void
 __launch_bounds__(kMaxThreads)
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>
-        grad_output,
+    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits> grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -205,10 +205,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     ++i) {
                     int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                     {% if not nobag %}
-                    Vec4T<at::acc_type<cache_t, true>> grad_out_vec(
+                    Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
                         &grad_output[b_j][0] + D_start_j + d);
                     {% else %}
-                    Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[l_j][d]);
+                    Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
                     {% endif %}
                     {% if weighted %}
                     grad_sum[i].fma_(grad_out_vec, idx_weight_j);
@@ -430,13 +430,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
 template <
     typename emb_t,
+    typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread>
 __global__
 __launch_bounds__(kBackwardMaxThreads)
 void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1(
-    const at::PackedTensorAccessor32<at::acc_type<cache_t,true>, 2, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
@@ -562,10 +563,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     ++i) {
                 int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                 {% if not nobag %}
-                Vec4T<at::acc_type<cache_t, true>> grad_out_vec(
+                Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
                     &grad_output[b_j][0] + D_start_j + d);
                 {% else %}
-                Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[l_j][d]);
+                Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
                 {% endif %}
                 {% if weighted %}
                 grad_sum[i].fma_(grad_out_vec, idx_weight_j);
@@ -827,14 +828,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
 
     {% if not dense %}
-    DISPATCH_EMB_CACHE_TYPES(
+    DISPATCH_EMB_GRAD_CACHE_TYPES(
+        dev_weights.type(),
+        grad_output.type(),
+        lxu_cache_weights.type(),
     {% else %}
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    {% endif %}
         dev_weights.type(),
-        {% if not dense %}
-        lxu_cache_weights.type(),
-        {% endif %}
+    {% endif %}
         "split_embedding_backward_{{ optimizer }}_exact_kernel",
         ([&] {
 
@@ -887,14 +888,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             linear_indices_sorted.reset();
 
             auto grad_output_accessor = grad_output.packed_accessor32<
-                at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>,
+                {{ "at::acc_type<scalar_t, true>" if dense else "grad_t" }},
                 2,
                 at::RestrictPtrTraits>();
             {% if not nobag %}
             Tensor grad_output_mean;
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
-              grad_mean_kernel<{{ "scalar_t, scalar_t" if dense else "cache_t, emb_t" }}>
+              grad_mean_kernel<{{ "at::acc_type<scalar_t, true>" if dense else "grad_t" }}>
                   <<<div_round_up((B * T), kMaxThreads / kWarpSize),
                      dim3(kWarpSize, kMaxThreads / kWarpSize),
                      0,
@@ -905,12 +906,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                       offsets
                           .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                       grad_output_mean.packed_accessor32<
-                          at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>,
+                          {{ "at::acc_type<scalar_t, true>" if dense else "grad_t" }},
                           2,
                           at::RestrictPtrTraits>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
               grad_output_accessor = grad_output_mean.packed_accessor32<
-                  at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>,
+                  {{ "at::acc_type<scalar_t, true>" if dense else "grad_t" }},
                   2,
                   at::RestrictPtrTraits>();
             }
@@ -970,9 +971,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
+                grad_t,
                 cache_t,
                 {% else %}
                 scalar_t,
+                at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>,
@@ -984,9 +987,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
+                grad_t,
                 cache_t,
                 {% else %}
                 scalar_t,
+                at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
@@ -1045,9 +1050,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
                 emb_t,
+                grad_t,
                 cache_t,
                 {% else %}
                 scalar_t,
+                at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>,
@@ -1058,9 +1065,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
                 emb_t,
+                grad_t,
                 cache_t,
                 {% else %}
                 scalar_t,
+                at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
