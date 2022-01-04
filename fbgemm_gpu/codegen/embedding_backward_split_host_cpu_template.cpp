@@ -28,7 +28,8 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     int64_t pooling_mode,
     Tensor indice_weights,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }});
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype);
 
 namespace {
 
@@ -52,7 +53,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }}) {
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -67,6 +69,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     ctx->saved_data["gradient_clipping"] = gradient_clipping;
     ctx->saved_data["max_gradient"] = max_gradient;
     ctx->saved_data["stochastic_rounding"] = stochastic_rounding;
+    ctx->saved_data["output_dtype"] = output_dtype;
 
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
@@ -81,7 +84,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         indices,
         offsets,
         pooling_mode,
-        indice_weights_value)};
+        indice_weights_value,
+        output_dtype)};
   }
 
   static torch::autograd::variable_list backward(
@@ -110,6 +114,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     auto gradient_clipping = ctx->saved_data["gradient_clipping"].toBool();
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
     auto stochastic_rounding = ctx->saved_data["stochastic_rounding"].toBool();
+    auto output_dtype = ctx->saved_data["output_dtype"].toInt();
 
     {% for (var, ivalue_cast) in args.saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
@@ -134,7 +139,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         pooling_mode,
         indice_weights,
         stochastic_rounding,
-        {{ args.split_function_arg_names | join(", ") }});
+        {{ args.split_function_arg_names | join(", ") }},
+        output_dtype);
     // NOTE: MEAN pooling will not work with indice_weights!
     auto grad_indice_weights = indice_weights.defined()
         ? split_embedding_codegen_grad_indice_weights_cpu(
@@ -163,7 +169,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         Variable(), // gradient_clipping
         Variable(), // max_gradient
         Variable(), // stochastic_rounding
-        {{ args.split_variables | join(", ") }}
+        {{ args.split_variables | join(", ") }},
+        Variable(), // output_dtype
     };
   }
 };
@@ -204,7 +211,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
       gradient_clipping,
       max_gradient,
       stochastic_rounding,
-      {{ args.split_function_arg_names | join(", ") }})[0];
+      {{ args.split_function_arg_names | join(", ") }},
+      output_dtype)[0];
 }
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {

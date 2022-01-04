@@ -16,7 +16,8 @@ enum class SparseType : uint8_t {
   INT8 = 2,
   INT4 = 3,
   INT2 = 4,
-  INVALID = 5,
+  BF16 = 5,
+  INVALID = 6,
 };
 
 enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };

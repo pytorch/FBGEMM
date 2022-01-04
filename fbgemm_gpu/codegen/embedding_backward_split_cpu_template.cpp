@@ -32,7 +32,7 @@ struct half2float16<at::Half> {
 } // namespace internal
 
 namespace {
-template <typename scalar_t>
+template <typename scalar_t, typename grad_t>
 void split_embedding_backward_exact_cpu_kernel(
     Tensor grad_output,
     Tensor host_weights,
@@ -53,9 +53,6 @@ void split_embedding_backward_exact_cpu_kernel(
     const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
     {% endif %}
     {{ args.split_cpu_kernel_args | join(", ") }}) {
-  using grad_t = at::acc_type<scalar_t, true>;
-
-  // const auto grad_output_accessor = grad_output.accessor<grad_t, 2>();
   const grad_t* grad_output_data = grad_output.data_ptr<grad_t>();
   auto host_weights_data = host_weights.accessor<scalar_t, 1>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
@@ -91,8 +88,8 @@ void split_embedding_backward_exact_cpu_kernel(
         offsets.accessor<int64_t, 1>(),
         indices.accessor<int64_t, 1>(),
         indice_weights.defined()
-            ? indice_weights.accessor<grad_t, 1>()
-            : at::TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr),
+            ? indice_weights.accessor<at::acc_type<scalar_t, true>, 1>()
+            : at::TensorAccessor<at::acc_type<scalar_t, true>, 1>(nullptr, nullptr, nullptr),
         pooling_mode,
         table_to_feature_offset + t,
         hash_size);
@@ -118,7 +115,8 @@ void split_embedding_backward_exact_cpu_kernel(
         table_to_feature_offset[t + 1] > table_to_feature_offset[t] + 1;
 
     {% if optimizer == "rowwise_adagrad" %}
-    constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value;
+    constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value
+                                && std::is_same<scalar_t, grad_t>::value;
     // || std::is_same<scalar_t, at::Half>::value;
     if (use_fbgemm && !is_shared_table) {
       // fbgemm handles common case of no shared table
@@ -181,11 +179,11 @@ void split_embedding_backward_exact_cpu_kernel(
       // no fbgemm
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
-      grad_t grad_buffer[D];
+      at::acc_type<grad_t, true> grad_buffer[D];
       for (int c = c_begin; c < c_end; ++c) {
         int64_t idx = col_segment_indices[c];
         if (c == c_begin || col_segment_indices[c - 1] != idx) {
-          memset(grad_buffer, 0, D * sizeof(grad_t));
+          memset(grad_buffer, 0, D * sizeof(at::acc_type<grad_t, true>));
         }
         const int64_t embedding_begin = table_begin + idx * D;
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
@@ -196,10 +194,12 @@ void split_embedding_backward_exact_cpu_kernel(
           }
           int b = batched_cscs[t].row_indices[r];
           for (int64_t d = 0; d < D; ++d) {
-            grad_buffer[d] += batched_cscs[t].weights != nullptr
-                ? grad_output_data[b * grad_stride + D_offset + d] *
-                    batched_cscs[t].weights[r]
-                : grad_output_data[b * grad_stride + D_offset + d];
+            if (batched_cscs[t].weights != nullptr) {
+              grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d] *
+                    batched_cscs[t].weights[r];
+            } else {
+              grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d];
+            }
           }
         }
         if (c == c_end - 1 || col_segment_indices[c + 1] != idx) {
@@ -287,8 +287,11 @@ void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor indice_weights,
     {% if not dense %}
     bool stochastic_rounding,
-    {% endif %}
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype
+    {% else %}
     {{ args.split_function_args | join(", ") }}
+    {% endif %}
 ) {
 
   int64_t T = D_offsets.numel() - 1;
@@ -326,28 +329,35 @@ void split_embedding_backward_exact_cpu_dense_kernel(
 
   grad_output = grad_output.contiguous();
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
-        split_embedding_backward_exact_cpu_kernel<scalar_t>(
-            grad_output,
-            host_weights,
-            weights_offsets_data,
-            D_offsets_data,
-            hash_size_cumsum,
-            indices,
-            offsets,
-            pooling_mode,
-            indice_weights,
-            num_tables,
-            B,
-            table_to_feature_offset,
-            {% if "momentum1_offsets" in args.split_function_arg_names %}
-            momentum1_offsets_data,
-            {% endif %}
-            {% if "momentum2_offsets" in args.split_function_arg_names %}
-            momentum2_offsets_data,
-            {% endif %}
-            {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      grad_output.scalar_type(),
+      "split_embedding_backward_exact_cpu_outer", [&]() {
+        using grad_t = scalar_t;
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+              split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
+                  grad_output,
+                  host_weights,
+                  weights_offsets_data,
+                  D_offsets_data,
+                  hash_size_cumsum,
+                  indices,
+                  offsets,
+                  pooling_mode,
+                  indice_weights,
+                  num_tables,
+                  B,
+                  table_to_feature_offset,
+                  {% if "momentum1_offsets" in args.split_function_arg_names %}
+                  momentum1_offsets_data,
+                  {% endif %}
+                  {% if "momentum2_offsets" in args.split_function_arg_names %}
+                  momentum2_offsets_data,
+                  {% endif %}
+                  {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
+            });
       });
 
   return;

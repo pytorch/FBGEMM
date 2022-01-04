@@ -19,7 +19,8 @@ at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor indices,
     at::Tensor offsets,
     int64_t pooling_mode,
-    at::Tensor indice_weights);
+    at::Tensor indice_weights,
+    int64_t output_dtype = 0 /* SparseType.FP32 */);
 
 at::Tensor split_embedding_codegen_grad_indice_weights_cpu(
     at::Tensor grad_output,

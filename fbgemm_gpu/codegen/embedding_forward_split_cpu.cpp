@@ -89,9 +89,11 @@ void split_embedding_forward_cpu_kernel(
   auto output_data = output.data_ptr<output_t>();
   auto output_stride = output.size(1);
 
-  constexpr bool use_fbgemm = std::is_same<weights_t, float>::value ||
-      std::is_same<weights_t, at::Half>::value ||
-      std::is_same<weights_t, uint8_t>::value;
+  constexpr bool use_fbgemm = (std::is_same<weights_t, float>::value ||
+                               std::is_same<weights_t, at::Half>::value ||
+                               std::is_same<weights_t, uint8_t>::value) &&
+      std::is_same<output_t, float>::value &&
+      std::is_same<ind_weights_t, float>::value;
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
     for (int t = 0; t < T; ++t) {
@@ -140,12 +142,12 @@ void split_embedding_forward_cpu_kernel(
             reinterpret_cast<float*>(
                 output_data + b_begin * output_stride + D_begin));
       } else {
-        output_t output_buf[D];
+        at::acc_type<output_t, true> output_buf[D];
         for (int b = b_begin; b < b_end; ++b) {
           const auto pool_begin = offsets_data[t * B + b];
           const auto pool_end = offsets_data[t * B + b + 1];
           const auto L = pool_end - pool_begin;
-          memset(output_buf, 0, D * sizeof(output_t));
+          memset(output_buf, 0, D * sizeof(at::acc_type<output_t, true>));
           for (auto p = pool_begin; p < pool_end; ++p) {
             int64_t idx = indices_data[p];
             if (idx < 0 || idx >= hash_size) {
@@ -156,10 +158,11 @@ void split_embedding_forward_cpu_kernel(
             for (int64_t d = 0; d < D; ++d) {
               output_buf[d] +=
                   (indice_weights.defined()
-                       ? static_cast<output_t>(
+                       ? static_cast<at::acc_type<output_t, true>>(
                              weights_data[embedding_begin + d]) *
-                           static_cast<output_t>(indice_weights_data[p])
-                       : static_cast<output_t>(
+                           static_cast<at::acc_type<output_t, true>>(
+                               indice_weights_data[p])
+                       : static_cast<at::acc_type<output_t, true>>(
                              weights_data[embedding_begin + d]));
             }
           }
@@ -196,7 +199,8 @@ Tensor split_embedding_codegen_forward_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    Tensor indice_weights) {
+    Tensor indice_weights,
+    int64_t output_dtype) {
   int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
@@ -204,9 +208,12 @@ Tensor split_embedding_codegen_forward_cpu(
   TORCH_CHECK(B >= 0);
 
   Tensor output;
-  if (weights.scalar_type() == at::kHalf ||
-      weights.scalar_type() == at::ScalarType::Byte) {
+  if (output_dtype == static_cast<int64_t>(SparseType::FP32)) {
     output = at::empty({B, total_D}, weights.options().dtype(at::kFloat));
+  } else if (output_dtype == static_cast<int64_t>(SparseType::FP16)) {
+    output = at::empty({B, total_D}, weights.options().dtype(at::kHalf));
+  } else if (output_dtype == static_cast<int64_t>(SparseType::BF16)) {
+    output = at::empty({B, total_D}, weights.options().dtype(at::kBFloat16));
   } else {
     output = at::empty({B, total_D}, weights.options());
   }
@@ -216,27 +223,37 @@ Tensor split_embedding_codegen_forward_cpu(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
-      at::ScalarType::Byte,
-      weights.scalar_type(),
+      at::ScalarType::BFloat16,
+      output.scalar_type(),
       "split_embedding_cpu_forward",
       [&]() {
-        using output_t = std::conditional<
-            std::is_same<scalar_t, double>::value,
-            double,
-            float>::type;
-        split_embedding_forward_cpu_kernel<scalar_t, output_t, output_t>(
-            weights,
-            weights_offsets,
-            D_offsets,
-            total_D,
-            hash_size_cumsum,
-            indices,
-            offsets,
-            pooling_mode,
-            indice_weights,
-            output);
+        using output_t = scalar_t;
+        AT_DISPATCH_FLOATING_TYPES_AND2(
+            at::ScalarType::Half,
+            at::ScalarType::Byte,
+            weights.scalar_type(),
+            "split_embedding_cpu_forward",
+            [&]() {
+              using ind_weights_t = std::conditional<
+                  std::is_same<scalar_t, double>::value,
+                  double,
+                  float>::type;
+              split_embedding_forward_cpu_kernel<
+                  scalar_t,
+                  ind_weights_t,
+                  output_t>(
+                  weights,
+                  weights_offsets,
+                  D_offsets,
+                  total_D,
+                  hash_size_cumsum,
+                  indices,
+                  offsets,
+                  pooling_mode,
+                  indice_weights,
+                  output);
+            });
       });
-
   return output;
 }
 
@@ -263,7 +280,8 @@ void split_embedding_grad_indice_weights_cpu_kernel(
 
   const auto weights_data = weights.accessor<weights_t, 1>();
   const auto grad_output_data = grad_output.accessor<grad_t, 2>();
-  auto grad_indice_weights_data = grad_indice_weights.accessor<grad_t, 1>();
+  auto grad_indice_weights_data =
+      grad_indice_weights.accessor<at::acc_type<grad_t, true>, 1>();
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
     for (int64_t t = 0; t < T; ++t) {
@@ -281,7 +299,9 @@ void split_embedding_grad_indice_weights_cpu_kernel(
         for (auto p = pool_begin; p < pool_end; ++p) {
           const int64_t embedding_begin = table_begin + indices_data[p] * D;
           for (int64_t d = 0; d < D; ++d) {
-            grad_indice_weights_data[p] += grad_output_data[b][D_begin + d] *
+            grad_indice_weights_data[p] +=
+                static_cast<at::acc_type<weights_t, true>>(
+                    grad_output_data[b][D_begin + d]) *
                 weights_data[embedding_begin + d];
           }
         }
@@ -298,18 +318,22 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
     Tensor indices,
     Tensor offsets,
     Tensor feature_requires_grad) {
-  auto grad_indice_weights =
-      zeros_like(indices, indices.options().dtype(grad_output.dtype()));
-
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      weights.scalar_type(), "split_embedding_grad_indice_weights_cpu", [&]() {
-        using weights_t = scalar_t;
+  auto grad_indice_weights = zeros_like(
+      indices,
+      indices.options().dtype(
+          at::toAccumulateType(grad_output.scalar_type(), true)));
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      grad_output.scalar_type(),
+      "split_embedding_grad_indice_weights_cpu_outer",
+      [&]() {
+        using grad_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            grad_output.scalar_type(),
-            "split_embedding_grad_indice_weights_cpu_inner",
+            weights.scalar_type(),
+            "split_embedding_grad_indice_weights_cpu",
             [&]() {
-              using grad_t = scalar_t;
-
+              using weights_t = scalar_t;
               split_embedding_grad_indice_weights_cpu_kernel<weights_t, grad_t>(
                   grad_output,
                   weights,

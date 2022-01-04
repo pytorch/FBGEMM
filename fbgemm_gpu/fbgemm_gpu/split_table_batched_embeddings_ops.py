@@ -251,6 +251,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert (
                 output_dtype == SparseType.FP32
+                or output_dtype == SparseType.FP16
+                or output_dtype == SparseType.BF16
             ), "Fused pooled embedding quantization only supported for cuda."
 
         if device is not None:
