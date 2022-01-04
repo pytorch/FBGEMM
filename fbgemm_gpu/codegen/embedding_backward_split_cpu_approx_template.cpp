@@ -43,8 +43,8 @@ void split_embedding_backward_approx_cpu_kernel(
   const auto offsets_data = offsets.accessor<int64_t, 1>();
   // If indice_weights are not defined, then this accessor won't be used
   auto indice_weights_data = indice_weights.defined()
-      ? indice_weights.accessor<grad_t, 1>()
-      : at::TensorAccessor<grad_t, 1>(nullptr, nullptr, nullptr);
+      ? indice_weights.accessor<at::acc_type<scalar_t, true>, 1>()
+      : at::TensorAccessor<at::acc_type<scalar_t, true>, 1>(nullptr, nullptr, nullptr);
 
   for (int64_t t = 0; t < T; ++t) {
     int feature_begin = t; // to conform interface with exact
@@ -68,8 +68,8 @@ void split_embedding_backward_approx_cpu_kernel(
           for (int64_t d = 0; d < D; ++d) {
             grad_buffer[d] = scale_factor *
                 (indice_weights.defined()
-                     ? grad_output_data[b][D_begin + d] * indice_weights_data[p]
-                     : grad_output_data[b][D_begin + d]);
+                     ? static_cast<scalar_t>(grad_output_data[b][D_begin + d] * indice_weights_data[p])
+                     : static_cast<scalar_t>(grad_output_data[b][D_begin + d]));
           }
           {{ split_weight_update_cpu }};
         } // for each p
@@ -99,7 +99,8 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
     {% if not dense %}
     bool stochastic_rounding,
     {% endif %}
-    {{args.split_function_args | join(", ")}}
+    {{args.split_function_args | join(", ")}},
+    int64_t output_dtype
 ) {
   int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
@@ -187,8 +188,11 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   {% endif %}
 
-  AT_DISPATCH_FLOATING_TYPES(
-      grad_output.scalar_type(), "split_embedding_backward_cpu", [&]() {
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      grad_output.scalar_type(),
+      "split_embedding_backward_cpu", [&]() {
         using grad_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             host_weights.scalar_type(),
