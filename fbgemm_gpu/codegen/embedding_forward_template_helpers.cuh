@@ -10,7 +10,7 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <THC/THCAtomics.cuh>
+#include <ATen/cuda/Atomic.cuh>
 
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
