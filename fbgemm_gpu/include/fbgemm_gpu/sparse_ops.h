@@ -163,10 +163,32 @@ at::Tensor jagged_2d_to_dense_backward_cuda(
     at::Tensor offsets,
     int32_t total_L);
 
+std::tuple<std::vector<at::Tensor>, std::vector<at::Tensor>>
+stacked_jagged_2d_to_dense_forward_cuda(
+    at::Tensor values,
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key);
+
+at::Tensor stacked_jagged_2d_to_dense_backward_cuda(
+    int64_t B,
+    int64_t D,
+    int64_t total_L,
+    const std::vector<at::Tensor>& grad_padded_values_per_key,
+    const std::vector<at::Tensor>& offsets_tensor_per_key,
+    const std::vector<int64_t>& offset_per_key);
+
 at::Tensor jagged_1d_to_dense_gpu(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L,
+    int64_t padding_value);
+
+std::vector<at::Tensor> stacked_jagged_1d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value);
 
 // Divide the prediction range (e.g., [0, 1]) into B bins. In each bin, use
