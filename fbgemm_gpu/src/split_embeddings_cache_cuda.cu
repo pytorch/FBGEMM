@@ -24,7 +24,7 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
-#include <THC/THCAtomics.cuh>
+#include <ATen/cuda/Atomic.cuh>
 #include <limits>
 #include <mutex>
 
