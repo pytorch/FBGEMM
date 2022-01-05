@@ -3330,7 +3330,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         hash_table[:, :] = -1
         hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
 
-        torch.ops.fb.pruned_hashmap_insert(
+        torch.ops.fbgemm.pruned_hashmap_insert(
             indices, dense_indices, offsets, hash_table, hash_table_offsets
         )
 
@@ -3349,7 +3349,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu_hashtable:
             dense_indices_ = ht.lookup(indices, offsets)
         else:
-            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+            dense_indices_ = torch.ops.fbgemm.pruned_hashmap_lookup(
                 indices, offsets, hash_table, hash_table_offsets
             )
 
@@ -3362,7 +3362,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu_hashtable:
             dense_indices_ = ht.lookup(indices, offsets)
         else:
-            dense_indices_ = torch.ops.fb.pruned_hashmap_lookup(
+            dense_indices_ = torch.ops.fbgemm.pruned_hashmap_lookup(
                 indices, offsets, hash_table, hash_table_offsets
             )
 

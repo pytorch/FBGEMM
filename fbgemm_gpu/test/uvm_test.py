@@ -202,18 +202,18 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu_clone(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         cpu_clone = torch.ops.fb.uvm_to_cpu_clone(uvm_t)
 
-        assert not torch.ops.fb.is_uvm_tensor(cpu_clone)
-        assert not torch.ops.fb.uvm_storage(cpu_clone)
+        assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
+        assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
 
 
 if __name__ == "__main__":
