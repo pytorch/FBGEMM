@@ -23,8 +23,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <ATen/cuda/Atomic.cuh>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <limits>
 #include <mutex>
 
