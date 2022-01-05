@@ -128,6 +128,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
   DISPATCH_TO_CUDA(
+      "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_2d_to_dense_forward",
+      fbgemm_gpu::stacked_jagged_2d_to_dense_forward_cuda);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_2d_to_dense_backward",
+      fbgemm_gpu::stacked_jagged_2d_to_dense_backward_cuda);
+  DISPATCH_TO_CUDA(
       "histogram_binning_calibration",
       fbgemm_gpu::histogram_binning_calibration_cuda);
   DISPATCH_TO_CUDA(

@@ -13,6 +13,12 @@ from typing import Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.sparse_ops import (
+    jagged_1d_to_dense,
+    jagged_2d_to_dense,
+    stacked_jagged_1d_to_dense,
+    stacked_jagged_2d_to_dense,
+)
 from hypothesis import Verbosity, given, settings
 
 try:
@@ -435,8 +441,6 @@ class SparseOpsTest(unittest.TestCase):
             None,
         )
 
-        print(f"new_lengths_gpu={new_lengths_gpu}")
-        print(f"new_indices_gpu={new_indices_gpu}")
         torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref)
         torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref)
 
@@ -830,7 +834,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().half().detach().requires_grad_(True)
         else:
             values = ref_values.clone().detach().requires_grad_(True)
-        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+        output_values = jagged_2d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -846,7 +850,7 @@ class SparseOpsTest(unittest.TestCase):
                 values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+            output_values = jagged_2d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -876,7 +880,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(True)
-        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+        output_values = jagged_2d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -889,7 +893,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
+            output_values = jagged_2d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -902,6 +906,62 @@ class SparseOpsTest(unittest.TestCase):
             expected_grad = expected_grad.cuda()
             output_values.backward(ref_output_values)
             torch.testing.assert_allclose(expected_grad, values.grad)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        T=st.integers(min_value=1, max_value=20),
+        B=st.integers(min_value=1, max_value=128),
+        D=st.integers(min_value=1, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=500),
+    )
+    def test_stacked_jagged_2d_to_dense(
+        self,
+        T: int,
+        B: int,
+        D: int,
+        max_sequence_length: int,
+    ) -> None:
+        D = D * 4
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B * T)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_).cuda()
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        ref_values = torch.rand(total_lengths, D).cuda()
+        ref_output_values = var_list_to_coo(
+            lengths,
+            ref_values,
+            max_sequence_length,
+            D,
+        ).to_dense()
+        lengths = lengths.view(T, B)
+
+        values = ref_values.clone().detach().requires_grad_(True)
+        output_values_per_table = stacked_jagged_2d_to_dense(
+            values=values,
+            lengths=lengths,
+            offset_per_key=[0]
+            + np.cumsum([lengths[t].sum().item() for t in range(T)]).tolist(),
+            max_lengths_per_key=[max_sequence_length] * T,
+        )
+        ref_output_values = jagged_2d_to_dense(
+            values=ref_values,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+        )
+        torch.testing.assert_allclose(
+            ref_output_values, torch.cat(output_values_per_table)
+        )
+
+        # test backward
+        output_values = torch.cat(output_values_per_table)
+        output_values.backward(ref_output_values)
+        torch.testing.assert_allclose(ref_values, values.grad)
 
     @settings(
         verbosity=Verbosity.verbose,
@@ -970,7 +1030,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(False)
-        output_values = torch.ops.fbgemm.jagged_1d_to_dense(
+        output_values = jagged_1d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -984,7 +1044,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(False)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = torch.ops.fbgemm.jagged_1d_to_dense(
+            output_values = jagged_1d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -1002,7 +1062,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(False)
-        output = torch.ops.fbgemm.jagged_1d_to_dense(
+        output = jagged_1d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=1,
@@ -1016,13 +1076,89 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(False)
             offsets = offsets.cuda()
             ref_output = ref_output.cuda()
-            output = torch.ops.fbgemm.jagged_1d_to_dense(
+            output = jagged_1d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=1,
                 padding_value=-1,
             )
             torch.testing.assert_allclose(ref_output, output)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        T=st.integers(min_value=1, max_value=20),
+        B=st.integers(min_value=1, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=500),
+        padding_value=st.integers(min_value=-100000, max_value=100000),
+    )
+    def test_stacked_jagged_1d_to_dense(
+        self,
+        T: int,
+        B: int,
+        max_sequence_length: int,
+        padding_value: int,
+    ) -> None:
+        def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
+            return torch.repeat_interleave(
+                torch._dim_arange(lengths, 0).long(),
+                lengths.long(),
+            )
+
+        # Converts lengths + values format to COO format
+        # [B], [N] -> [B, N'].
+        # pyre-ignore Missing return annotation [3]
+        def var_list_to_coo(
+            lengths: torch.Tensor,
+            values: torch.Tensor,
+            N: int,
+        ):
+            rows = lengths_to_segment_ids(lengths)
+            num_rows = lengths.size()[0]
+            # This does D&H sync
+            offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+            output_size = lengths.sum()
+            # This does D&H sync
+            cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
+            indices = torch.stack([rows, cols])
+            dims = [num_rows, N]
+            # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
+            return torch.sparse_coo_tensor(
+                indices=indices,
+                values=values,
+                size=dims,
+            )
+
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B * T)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_).cuda()
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        lengths = lengths.view(T, B)
+        ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,)).cuda()
+
+        values = ref_values.clone().detach().requires_grad_(False)
+        output_values_per_table = stacked_jagged_1d_to_dense(
+            values=values,
+            lengths=lengths,
+            offset_per_key=[0]
+            + np.cumsum([lengths[t].sum().item() for t in range(T)]).tolist(),
+            max_lengths_per_key=[max_sequence_length] * T,
+            padding_value=padding_value,
+        )
+        ref_output_values = jagged_1d_to_dense(
+            values=ref_values,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+            padding_value=padding_value,
+        )
+        torch.testing.assert_allclose(
+            ref_output_values, torch.cat(output_values_per_table)
+        )
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(data_type=st.sampled_from([torch.half, torch.float32]))
