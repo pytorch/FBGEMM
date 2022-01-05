@@ -1896,7 +1896,7 @@ def hashtable(  # noqa C901
     assert hash_table.numel() * 4 < 2 ** 32
     # initialize
     hash_table[:, :] = -1
-    torch.ops.fb.pruned_hashmap_insert(
+    torch.ops.fbgemm.pruned_hashmap_insert(
         chosen_indices, dense_indices, offsets, hash_table, hash_table_offsets
     )
 
@@ -1919,7 +1919,7 @@ def hashtable(  # noqa C901
 
     empirical_hit_rate = np.mean(
         [
-            torch.ops.fb.pruned_hashmap_lookup(
+            torch.ops.fbgemm.pruned_hashmap_lookup(
                 indices, offsets, hash_table, hash_table_offsets
             )
             .ne(-1)
@@ -1932,7 +1932,7 @@ def hashtable(  # noqa C901
 
     time_per_iter = benchmark_requests(
         requests,
-        lambda indices, offsets, _: torch.ops.fb.pruned_hashmap_lookup(
+        lambda indices, offsets, _: torch.ops.fbgemm.pruned_hashmap_lookup(
             indices, offsets, hash_table, hash_table_offsets
         ),
     )
@@ -2010,7 +2010,7 @@ def pruned_array(  # noqa C901
 
     time_per_iter = benchmark_requests(
         requests,
-        lambda indices, offsets, _: torch.ops.fb.pruned_array_lookup(
+        lambda indices, offsets, _: torch.ops.fbgemm.pruned_array_lookup(
             indices,
             offsets,
             index_remappings,
