@@ -78,6 +78,21 @@ def fused_rowwise_8bit_dequantize_reference(fused_quantized: np.ndarray) -> np.n
     return quantized_data * scale + bias
 
 
+def fused_rowwise_8bit_dequantize_reference_half(
+    fused_quantized: np.ndarray,
+) -> np.ndarray:
+    scale = bytes_to_half_floats(
+        fused_quantized[..., -8:-4].astype(np.uint8).reshape(-1, 4)
+    )
+    scale = scale.reshape(fused_quantized.shape[:-1] + (scale.shape[-1],))
+    bias = bytes_to_half_floats(
+        fused_quantized[..., -4:].astype(np.uint8).reshape(-1, 4)
+    )
+    bias = bias.reshape(fused_quantized.shape[:-1] + (bias.shape[-1],))
+    quantized_data = fused_quantized[..., :-8]
+    return quantized_data * scale + bias
+
+
 def fused_rowwise_nbit_quantize_reference(data: np.ndarray, bit: int) -> np.ndarray:
     minimum = np.min(data, axis=1).astype(np.float16).astype(np.float32)
     maximum = np.max(data, axis=1)
