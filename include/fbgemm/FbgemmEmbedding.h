@@ -15,7 +15,8 @@ namespace fbgemm {
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 class EmbeddingSpMDMKernelSignature {
  public:
   /**
@@ -43,7 +44,7 @@ class EmbeddingSpMDMKernelSignature {
       const IndexType* indices,
       const OffsetType* offsets_or_lengths,
       const float* weights, // optional, can be null for non-weighted sum
-      float* out)>;
+      OutType* out)>;
 };
 
 /**
@@ -62,16 +63,20 @@ class EmbeddingSpMDMKernelSignature {
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
-FBGEMM_API
-    typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
-    GenerateEmbeddingSpMDM(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch = 16,
-        bool is_weight_positional = false,
-        bool use_offsets = true);
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    InType,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDM(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
@@ -80,29 +85,38 @@ FBGEMM_API
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
-FBGEMM_API
-    typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
-    GenerateEmbeddingSpMDMWithStrides(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch = 16,
-        bool is_weight_positional = false,
-        bool use_offsets = true,
-        std::int64_t output_stride = -1,
-        std::int64_t input_stride = -1);
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    InType,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMWithStrides(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
  * @tparam OffsetType can be int32_t or int64_t
  * @param bit_rate can be 2 or 4
  */
-template <typename IndexType, typename OffsetType = std::int32_t>
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     std::uint8_t,
     IndexType,
-    OffsetType>::Type
+    OffsetType,
+    OutType>::Type
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
@@ -111,6 +125,32 @@ GenerateEmbeddingSpMDMNBit(
     int prefetch = 16,
     bool is_weight_positional = false,
     bool use_offsets = true);
+
+/**
+ * @param output_stride If -1, output_stride is same as block_size
+ * @param input_stride in Bytes. If -1, input_stride is same as
+ *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
+ */
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    std::uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMNBitWithStrides(
+    int bit_rate,
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
 template <
     typename InType,
