@@ -55,7 +55,9 @@ class Fused8BitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 EmbeddingSpMDMWeightChoice,
                                                 bool,
                                                 bool,
-                                                EmbeddingSpMDMCornerCase>> {};
+                                                EmbeddingSpMDMCornerCase,
+                                                bool,
+                                                bool>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -75,12 +77,14 @@ INSTANTIATE_TEST_CASE_P(
             NONE,
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
-            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
+        ::testing::Bool(), // output float or float16
+        ::testing::Bool())); // scale_bias_last
 
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
-      normalize_by_lengths, use_offsets;
+      normalize_by_lengths, use_offsets, is_output_float, scale_bias_last;
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
@@ -90,9 +94,22 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       weight_choice,
       normalize_by_lengths,
       use_offsets,
-      corner_case) = GetParam();
+      corner_case,
+      is_output_float,
+      scale_bias_last) = GetParam();
   is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   use_weight = weight_choice != UNWEIGHTED;
+
+  if (corner_case != NONE || weight_choice == POSITIONAL_WEIGHTED) {
+    // Check corner case only for subset of tests.
+    if (normalize_by_lengths || !is_output_float || !scale_bias_last) {
+      return;
+    }
+  }
+  if (is_wt_positional && !use_weight) {
+    // weight positional only makes sense when use_weight is true
+    return;
+  }
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -105,18 +122,27 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
-    int fused_embedding_dim = embedding_dim + 2 * sizeof(float);
+    int fused_embedding_dim =
+        embedding_dim + 2 * (scale_bias_last ? sizeof(float) : sizeof(float16));
     vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
     for (int i = 0; i < num_rows; i++) {
       for (int ii = 0; ii < embedding_dim; ii++) {
-        fused_embedding_table[i * fused_embedding_dim + ii] =
-            entries(generator);
+        fused_embedding_table
+            [i * fused_embedding_dim + ii +
+             (scale_bias_last ? 0 : 2 * sizeof(float16))] = entries(generator);
       }
       float* scale_bias = reinterpret_cast<float*>(
           fused_embedding_table.data() + i * fused_embedding_dim +
-          embedding_dim);
-      scale_bias[0] = embedding_distribution(generator);
-      scale_bias[1] = embedding_distribution(generator);
+          (scale_bias_last ? embedding_dim : 0));
+      if (scale_bias_last) {
+        scale_bias[0] = embedding_distribution(generator);
+        scale_bias[1] = embedding_distribution(generator);
+      } else {
+        reinterpret_cast<float16*>(scale_bias)[0] =
+            cpu_float2half_rn(embedding_distribution(generator));
+        reinterpret_cast<float16*>(scale_bias)[1] =
+            cpu_float2half_rn(embedding_distribution(generator));
+      }
     }
 
     vector<int64_t> lengths, offsets, indices;
@@ -140,143 +166,109 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     const int32_t* offsets_or_lengths_32 =
         (use_offsets ? offsets_32 : lengths_32).data();
 
-    vector<float> output_sls_ref(batch_size * embedding_dim);
-    vector<float> output_slws_ref(output_sls_ref.size()),
-        output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
+    // Sentries at the end to make sure masking is done correctly not to write
+    // out of bounds.
+    constexpr int num_sentries = 10;
+    const float sentry_value = 1.0f;
+    int output_size_wo_sentries = batch_size * embedding_dim;
+    vector<float> output_ref(output_size_wo_sentries + num_sentries);
+    vector<float> output(output_ref.size());
+    vector<float16> output_ref_fp16(output.size()), output_fp16(output.size());
+    for (int i = output_size_wo_sentries; i < output.size(); ++i) {
+      output_ref[i] = sentry_value;
+      output[i] = sentry_value;
+      output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
+      output_fp16[i] = cpu_float2half_rn(sentry_value);
+    }
 
-    vector<float>& output_ref = use_weight ? output_slws_ref : output_sls_ref;
-    vector<float>& output = use_weight ? output_slws : output_sls;
     bool success, success_ref;
 
-    if (isOffset64b) {
-      if (isIndex64b) {
-        success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t>(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+#define TEST_BASE(                                             \
+    indices,                                                   \
+    offsets_or_lengths,                                        \
+    output_ref,                                                \
+    output,                                                    \
+    IndexType,                                                 \
+    OffsetType,                                                \
+    OutType)                                                   \
+  success_ref = EmbeddingSpMDM_ref<uint8_t>(                   \
+      embedding_dim,                                           \
+      batch_size,                                              \
+      lengths_sum,                                             \
+      num_rows,                                                \
+      fused_embedding_table.data(),                            \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
+      offsets_or_lengths,                                      \
+      use_weight ? weights.data() : nullptr,                   \
+      normalize_by_lengths,                                    \
+      output_ref.data(),                                       \
+      is_wt_positional,                                        \
+      use_offsets,                                             \
+      /*output_stride=*/-1,                                    \
+      /*input_stride=*/-1,                                     \
+      scale_bias_last);                                        \
+                                                               \
+  auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
+      uint8_t,                                                 \
+      IndexType,                                               \
+      OffsetType,                                              \
+      OutType>(                                                \
+      embedding_dim,                                           \
+      use_weight,                                              \
+      normalize_by_lengths,                                    \
+      prefetch,                                                \
+      is_wt_positional,                                        \
+      use_offsets,                                             \
+      /*output_stride=*/-1,                                    \
+      /*input_stride=*/-1,                                     \
+      scale_bias_last);                                        \
+  success = kernel(                                            \
+      batch_size,                                              \
+      lengths_sum,                                             \
+      num_rows,                                                \
+      fused_embedding_table.data(),                            \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
+      offsets_or_lengths,                                      \
+      use_weight ? weights.data() : nullptr,                   \
+      output.data());
 
-        auto kernel = GenerateEmbeddingSpMDM<uint8_t, int64_t, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
-      } else {
-        success_ref = EmbeddingSpMDM_ref<uint8_t, int32_t>(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
+#define TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, OffsetType) \
+  if (is_output_float) {                                                  \
+    TEST_BASE(                                                            \
+        indices,                                                          \
+        offsets_or_lengths,                                               \
+        output_ref,                                                       \
+        output,                                                           \
+        IndexType,                                                        \
+        OffsetType,                                                       \
+        float);                                                           \
+  } else {                                                                \
+    TEST_BASE(                                                            \
+        indices,                                                          \
+        offsets_or_lengths,                                               \
+        output_ref_fp16,                                                  \
+        output_fp16,                                                      \
+        IndexType,                                                        \
+        OffsetType,                                                       \
+        float16);                                                         \
+  }
 
-        auto kernel = GenerateEmbeddingSpMDM<uint8_t, int32_t, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            output.data());
-      }
+#define TEST_OFFSET_TYPE(indices, IndexType)                           \
+  if (isOffset64b) {                                                   \
+    TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, int64_t);    \
+  } else {                                                             \
+    TEST_OUT_TYPE(indices, offsets_or_lengths_32, IndexType, int32_t); \
+  }
+
+    if (isIndex64b) {
+      TEST_OFFSET_TYPE(indices, int64_t);
     } else {
-      if (isIndex64b) {
-        success_ref = EmbeddingSpMDM_ref<uint8_t, int64_t>(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
-
-        auto kernel = GenerateEmbeddingSpMDM<uint8_t, int64_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices.data(),
-            offsets_or_lengths_32,
-            use_weight ? weights.data() : nullptr,
-            output.data());
-      } else {
-        success_ref = EmbeddingSpMDM_ref<uint8_t, int32_t>(
-            embedding_dim,
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths,
-            use_weight ? weights.data() : nullptr,
-            normalize_by_lengths,
-            output_ref.data(),
-            is_wt_positional,
-            use_offsets);
-
-        auto kernel = GenerateEmbeddingSpMDM<uint8_t, int32_t>(
-            embedding_dim,
-            use_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_wt_positional,
-            use_offsets);
-        success = kernel(
-            batch_size,
-            lengths_sum,
-            num_rows,
-            fused_embedding_table.data(),
-            corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
-            offsets_or_lengths_32,
-            use_weight ? weights.data() : nullptr,
-            output.data());
-      }
+      TEST_OFFSET_TYPE(indices_32, int32_t);
     }
+
+#undef TEST_OFFSET_TYPE
+#undef TEST_OUT_TYPE
+#undef TEST_BASE
 
     // Check correctness
     EXPECT_EQ(success, success_ref)
@@ -287,9 +279,25 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     }
     if (success) {
       for (int i = 0; i < output.size(); ++i) {
-        EXPECT_EQ(output[i], output_ref[i])
-            << "results differ at (" << i << ") reference: " << output_ref[i]
-            << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
+        float actual =
+            is_output_float ? output[i] : cpu_half2float(output_fp16[i]);
+        float expected = is_output_float ? output_ref[i]
+                                         : cpu_half2float(output_ref_fp16[i]);
+        EXPECT_EQ(actual, expected)
+            << "results differ at (" << i << ") reference: " << expected
+            << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
+      }
+      for (int offset = output_size_wo_sentries;
+           offset < output_size_wo_sentries + num_sentries;
+           ++offset) {
+        float actual = is_output_float ? output[offset]
+                                       : cpu_half2float(output_fp16[offset]);
+        float expected = is_output_float
+            ? output_ref[offset]
+            : cpu_half2float(output_ref_fp16[offset]);
+        EXPECT_EQ(actual, expected)
+            << "results differ at (" << offset << ") reference: " << expected
+            << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
       }
     }
   } // end for input
@@ -298,7 +306,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
   bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
-      normalize_by_lengths, use_offsets;
+      normalize_by_lengths, use_offsets, is_output_float, scale_bias_last;
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
@@ -308,9 +316,15 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
       weight_choice,
       normalize_by_lengths,
       use_offsets,
-      corner_case) = GetParam();
+      corner_case,
+      is_output_float,
+      scale_bias_last) = GetParam();
   is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   use_weight = weight_choice != UNWEIGHTED;
+
+  if (!is_output_float || !scale_bias_last) {
+    return;
+  }
 
   constexpr float sparsity = 0.7;
 
