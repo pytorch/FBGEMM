@@ -222,6 +222,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input) -> Tensor");
   m.def(
+      "Fused8BitRowwiseQuantizedToFloatMixedDim(Tensor input, Tensor D_offsets, int output_dtype) -> Tensor");
+  m.def(
       "FloatToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "HalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");

@@ -93,6 +93,10 @@ at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
 
+at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
+    const at::Tensor& input,
+    const at::Tensor& D_offsets,
+    const int64_t output_dtype);
 at::Tensor _float_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
