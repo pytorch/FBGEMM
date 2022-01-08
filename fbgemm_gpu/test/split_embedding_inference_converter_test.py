@@ -210,12 +210,16 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
     @given(
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
+        quantize_type=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.INT8, SparseType.INT4]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_l2_norm_pruning_workflow(
         self,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
+        quantize_type: SparseType,
     ) -> None:
         D = 128
         T = 2
@@ -261,7 +265,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
 
             # Apply pruning / quantization transformations on the model!
             split_emb_infer_converter = SplitEmbInferenceConverter(
-                quantize_type=SparseType.FP16,
+                quantize_type=quantize_type,
                 pruning_ratio=pruning_ratio,
                 use_array_for_index_remapping=use_array_for_index_remapping,
             )

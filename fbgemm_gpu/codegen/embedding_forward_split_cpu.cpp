@@ -21,33 +21,6 @@
 
 using Tensor = at::Tensor;
 
-namespace {
-void report_error_(
-    int t,
-    int B,
-    int b_begin,
-    int b_end,
-    const int64_t* offsets_data,
-    const int64_t* indices_data,
-    int64_t hash_size) {
-  for (int b = b_begin; b < b_end; ++b) {
-    const auto pool_begin = offsets_data[t * B + b];
-    const auto pool_end = offsets_data[t * B + b + 1];
-    for (auto p = pool_begin; p < pool_end; ++p) {
-      auto idx = indices_data[p];
-      TORCH_CHECK(
-          0 <= idx && idx < hash_size,
-          "Index ",
-          p,
-          " is out of bouunds: ",
-          idx,
-          ", range 0 to ",
-          hash_size);
-    }
-  }
-}
-} // namespace
-
 template <typename weights_t, typename ind_weights_t, typename output_t>
 void split_embedding_forward_cpu_kernel(
     Tensor weights,
@@ -183,7 +156,7 @@ void split_embedding_forward_cpu_kernel(
       } // !use_fbgemm
 
       if (!success) {
-        report_error_(
+        fbgemm_gpu::report_embedding_error(
             t, B, b_begin, b_end, offsets_data, indices_data, hash_size);
       } // !success
     } // for each t
