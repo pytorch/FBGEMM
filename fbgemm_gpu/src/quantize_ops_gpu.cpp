@@ -21,6 +21,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "Fused8BitRowwiseQuantizedToFloat",
       fbgemm_gpu::_fused8bitrowwise_to_float_gpu);
   DISPATCH_TO_CUDA(
+      "Fused8BitRowwiseQuantizedToFloatMixedDim",
+      fbgemm_gpu::_fused8bitrowwise_to_float_mixed_dim_gpu);
+  DISPATCH_TO_CUDA(
       "Fused8BitRowwiseQuantizedToHalf",
       fbgemm_gpu::_fused8bitrowwise_to_half_gpu);
   DISPATCH_TO_CUDA(
