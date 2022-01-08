@@ -2929,7 +2929,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = np.stack(comps)
                 comps = comps.transpose(1, 2, 0)
                 comps = comps.reshape(E, D)
-                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
 
             elif weights_ty_list[t] == SparseType.INT2:
                 (E, D_4) = np_weights.shape
@@ -2951,7 +2951,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = np.stack(comps)
                 comps = comps.transpose(1, 2, 0)
                 comps = comps.reshape(E, D)
-                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
 
             elif weights_ty_list[t] == SparseType.INT8:
                 (E, D) = np_weights.shape
@@ -2961,7 +2961,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
                     np.float32
                 )
-                bs[t].weight.detach().copy_(torch.tensor(comps).cuda())
+                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
 
             elif weights_ty_list[t] == SparseType.FP16:
                 comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
@@ -2973,7 +2973,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
 
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, False)
+        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
         if not use_cpu:
             fc2 = (
                 cc(indices.int(), offsets.int())
@@ -3021,7 +3021,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-2,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),
@@ -3099,7 +3098,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=50),
         D=st.integers(min_value=2, max_value=1024 - 8),

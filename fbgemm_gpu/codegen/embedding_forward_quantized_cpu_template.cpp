@@ -10,8 +10,10 @@
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
 
+#include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm/FbgemmEmbedding.h"
 
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -19,31 +21,6 @@
 namespace {
 
 using Tensor = at::Tensor;
-
-// From https://stackoverflow.com/questions/55084047/intel-vector-instruction-to-zero-extend-8-4-bit-values-packed-in-a-32-bit-int-to
-// TODO: dispatch at architecture time?
-__attribute__((always_inline)) inline __m256i cvt_nib_epi32_HSW(uint32_t x) {
-    __uint64_t x_b = _pdep_u64(x, 0x0F0F0F0F0F0F0F0F);
-    __m128i x_v = _mm_cvtsi64_si128(x_b);
-    return _mm256_cvtepu8_epi32(x_v);
-}
-
-__attribute__((always_inline)) inline __m256i cvt_nib_epi32_SKL(uint32_t x) {
-    __m256i input = _mm256_set1_epi32(x);
-    __m256i shifted = _mm256_srlv_epi32(input,_mm256_set_epi32(28,24,20,16,12,8,4,0));
-    return _mm256_and_si256(shifted, _mm256_set1_epi32(0xF));
-}
-
-__attribute__((always_inline)) inline __m256i cvt_hnib_epi32_SKL(uint16_t x) {
-    __m256i input = _mm256_set1_epi32(x);
-    __m256i shifted = _mm256_srlv_epi32(input,_mm256_set_epi32(14,12,10,8,6,4,2,0));
-    return _mm256_and_si256(shifted, _mm256_set1_epi32(0x3));
-}
-
-__attribute__((always_inline)) inline __m256i cvt_byte_SKL(uint64_t x) {
-    return _mm256_cvtepu8_epi32(_mm_set1_epi64x(x));
-}
-
 
 inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
     if (weight_ty == SparseType::FP32) { return dim * 4; }
@@ -67,7 +44,6 @@ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
   return round_up(r, 16);
 }
 
-
 inline uint32_t pruned_hash_function(uint32_t h) {
     // MurmorHash3 32-bit mixing function.
     h ^= h >> 16;
@@ -78,29 +54,7 @@ inline uint32_t pruned_hash_function(uint32_t h) {
     return h;
 }
 
-template <typename output_t>
-void store_vec(output_t* output_acc, __m256& acci) {
-  TORCH_CHECK(false);
-}
-
-template <>
-void store_vec(float* output_acc, __m256& acci) {
-  _mm256_storeu_ps(output_acc, acci);
-}
-
-template <>
-void store_vec(at::Half* output_acc, __m256& acci) {
-  _mm_storeu_si128(
-      reinterpret_cast<__m128i*>(output_acc),
-      _mm256_cvtps_ph(acci, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
-}
-
-template <>
-void store_vec(uint8_t* output_acc, __m256& acci) {
-  // FIXME: use qparams parameters to do INT8 row-wise quantization.
-}
-
-}
+} // namespace
 
 void pruned_hashmap_insert_{{ wdesc }}_cpu(
     Tensor indices,
@@ -159,40 +113,6 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
         }
     }
     return;
-}
-
-template <typename output_t>
-void store_result(
-    const int32_t D_vecs,
-    const int32_t D_tail_elements,
-    const std::vector<__m256>& acc,
-    __m256& scale_vec,
-    output_t* output_acc,
-    const bool acc_scaling
-) {
-    if (D_tail_elements == 0) {
-        for (auto i = 0; i < D_vecs; ++i) {
-            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-            store_vec(&output_acc[8 * i], acci);
-        }
-    } else {
-        for (auto i = 0; i < D_vecs - 1; ++i) {
-            auto acci = acc_scaling ? _mm256_mul_ps(acc[i], scale_vec) : acc[i];
-            store_vec(&output_acc[8 * i], acci);
-        }
-        if (std::is_same<output_t, float>::value) {
-            std::array<float, 8> vs;
-            auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-            store_vec(vs.data(), acci);
-            // To check D_tail_elements size
-            std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
-        } else if (std::is_same<output_t, at::Half>::value) {
-            std::array<at::Half, 8> vs;
-            auto acci = acc_scaling ? _mm256_mul_ps(acc[D_vecs - 1], scale_vec) : acc[D_vecs - 1];
-            store_vec(vs.data(), acci);
-            std::copy(vs.data(), vs.data() + D_tail_elements, &output_acc[8 * (D_vecs - 1)]);
-        }
-    }
 }
 
 Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
@@ -267,272 +187,136 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
                 TORCH_CHECK(placement != PlacementType::DEVICE);
-                if (placement == PlacementType::HOST) {
-                    weights_acc = dev_weights.data_ptr<uint8_t>();
-                } else {
-                    weights_acc = uvm_weights.data_ptr<uint8_t>();
-                }
+                Tensor weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
+                weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
                 const int32_t D_vecs = div_round_up(D, 8);
                 const int32_t D_tail_elements = D % 8;
                 const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
 
+                int tt;
+                for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
+                size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
+                const index_t* offsets_begin_ptr = offsets_acc + t * B;
+
+                using float16 = uint16_t;
+                using fbgemm_out_t = typename std::conditional<
+                    std::is_same<output_t, at::Half>::value,
+                    float16,
+                    float>::type;
+
+                bool success = true;
                 if (weight_ty == SparseType::FP32) {
-                    for (int32_t b = 0; b < B; ++b) {
-                        int32_t indices_start = offsets_acc[t * B + b];
-                        int32_t indices_end = offsets_acc[t * B + b + 1];
-                        int32_t L = indices_end - indices_start;
-                        acc.resize(D_vecs);
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_setzero_ps();
-                        }
-                        for (int32_t l = 0; l < L; ++l) {
-                            int64_t idx = indices_acc[indices_start + l];
-                            const __m256* row = idx == -1 ? reinterpret_cast<const __m256*>(zero_row.data()) : reinterpret_cast<const __m256*>(&weights[idx * D_bytes]);
-
-                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                            {% if weighted %}
-                            auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                // Note that we don't guarantee 32-byte alignment for row starts (just 16-byte), and therefore use unaligned loads.
-                                {% if weighted %}
-                                acc[i] = _mm256_fmadd_ps(scale, _mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
-                                {% else %}
-                                acc[i] = _mm256_add_ps(_mm256_loadu_ps(reinterpret_cast<const float*>(&row[i])), acc[i]);
-                                {% endif %}
-                            }
-                        }
-
-                        const bool acc_scaling = (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L > 0);
-                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
-                    }
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t>(
+                        D,
+                        {{ "true" if weighted else "false" }},
+                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        /*prefetch=*/16,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(float),
+                        /*scale_bias_last=*/false);
+                    success = kernel(
+                        B,
+                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        num_rows,
+                        reinterpret_cast<const float*>(weights),
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        {% if weighted %}
+                        indice_weights_acc + *offsets_begin_ptr,
+                        {% else %}
+                        nullptr,
+                        {% endif %}
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::FP16) {
-                    for (int32_t b = 0; b < B; ++b) {
-                        int32_t indices_start = offsets_acc[t * B + b];
-                        int32_t indices_end = offsets_acc[t * B + b + 1];
-                        int32_t L = indices_end - indices_start;
-                        acc.resize(D_vecs);
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_setzero_ps();
-                        }
-                        int32_t l = 0;
-                        int32_t LUnroll = (L / 2) * 2;
-                        for (; l < LUnroll; l += 2) {
-                            int64_t idx0 = indices_acc[indices_start + l + 0];
-                            int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                            const __m128i* row0 = idx0 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx0 * D_bytes]);
-                            const __m128i* row1 = idx1 == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx1 * D_bytes]);
-
-                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                            {% if weighted %}
-                            auto scale0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                            auto scale1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                            {% endif %}
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                {% if weighted %}
-                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtph_ps(row0[i]), acc[i]);
-                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtph_ps(row1[i]), acc[i]);
-                                {% else %}
-                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row0[i]), acc[i]);
-                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row1[i]), acc[i]);
-                                {% endif %}
-                            }
-                        }
-                        for (; l < L; ++l) {
-                            int64_t idx = indices_acc[indices_start + l];
-                            const __m128i* row = idx == -1 ? reinterpret_cast<const __m128i*>(zero_row.data()) : reinterpret_cast<const __m128i*>(&weights[idx * D_bytes]);
-
-                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                            {% if weighted %}
-                            auto scale = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                {% if weighted %}
-                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtph_ps(row[i]), acc[i]);
-                                {% else %}
-                                acc[i] = _mm256_add_ps(_mm256_cvtph_ps(row[i]), acc[i]);
-                                {% endif %}
-                            }
-                        }
-
-                        const bool acc_scaling = (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L > 0);
-                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
-                    }
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float16, index_t, index_t, fbgemm_out_t>(
+                        D,
+                        {{ "true" if weighted else "false" }},
+                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        /*prefetch=*/16,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(float16),
+                        /*scale_bias_last=*/false);
+                    success = kernel(
+                        B,
+                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        num_rows,
+                        reinterpret_cast<const float16*>(weights),
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        {% if weighted %}
+                        indice_weights_acc + *offsets_begin_ptr,
+                        {% else %}
+                        nullptr,
+                        {% endif %}
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT8) {
-                    for (int32_t b = 0; b < B; ++b) {
-                        int32_t indices_start = offsets_acc[t * B + b];
-                        int32_t indices_end = offsets_acc[t * B + b + 1];
-                        int32_t L = indices_end - indices_start;
-                        acc.resize(D_vecs);
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_setzero_ps();
-                        }
-
-                        int32_t l = 0;
-                        int32_t LUnroll = (L / 2) * 2;
-                        for (; l < LUnroll; l += 2) {
-                            int64_t idx0 = indices_acc[indices_start + l + 0];
-                            int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                            const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
-                            const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
-
-                            // note: unaligned accesses
-                            const uint64_t* vrow0 = reinterpret_cast<const uint64_t*>(row0 + 1);
-                            const uint64_t* vrow1 = reinterpret_cast<const uint64_t*>(row1 + 1);
-
-                            uint32_t scale_shift0 = row0[0];
-                            uint32_t scale_shift1 = row1[0];
-
-                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                            auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
-                            auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
-                            auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
-                            auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
-
-                            {% if weighted %}
-                            auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                            auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                            scale0 = _mm256_mul_ps(scale0, idx_weight0);
-                            scale1 = _mm256_mul_ps(scale1, idx_weight1);
-
-                            shift0 = _mm256_mul_ps(shift0, idx_weight0);
-                            shift1 = _mm256_mul_ps(shift1, idx_weight1);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
-                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
-                            }
-                        }
-                        for (; l < L; ++l) {
-                            int64_t idx = indices_acc[indices_start + l];
-                            const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
-                            const uint64_t* vrow = reinterpret_cast<const uint64_t*>(row + 1);
-                            uint32_t scale_shift = row[0];
-
-                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                            auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
-                            auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
-
-                            {% if weighted %}
-                            auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                            scale = _mm256_mul_ps(scale, idx_weight);
-                            shift = _mm256_mul_ps(shift, idx_weight);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_byte_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
-                            }
-                        }
-
-                        const bool acc_scaling = (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L > 0);
-                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
-                    }
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<uint8_t, index_t, index_t, fbgemm_out_t>(
+                        D,
+                        {{ "true" if weighted else "false" }},
+                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        /*prefetch=*/16,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        /*scale_bias_last=*/false);
+                    success = kernel(
+                        B,
+                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        num_rows,
+                        reinterpret_cast<const uint8_t*>(weights),
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        {% if weighted %}
+                        indice_weights_acc + *offsets_begin_ptr,
+                        {% else %}
+                        nullptr,
+                        {% endif %}
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT4) {
-                    for (int32_t b = 0; b < B; ++b) {
-                        int32_t indices_start = offsets_acc[t * B + b];
-                        int32_t indices_end = offsets_acc[t * B + b + 1];
-                        int32_t L = indices_end - indices_start;
-                        acc.resize(D_vecs);
-                        for (auto i = 0; i < D_vecs; ++i) {
-                            acc[i] = _mm256_setzero_ps();
-                        }
-
-                        int32_t l = 0;
-                        int32_t LUnroll = (L / 2) * 2;
-                        for (; l < LUnroll; l += 2) {
-                            int64_t idx0 = indices_acc[indices_start + l + 0];
-                            int64_t idx1 = indices_acc[indices_start + l + 1];
-
-                            const uint32_t* row0 = idx0 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx0 * D_bytes]);
-                            const uint32_t* row1 = idx1 == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx1 * D_bytes]);
-                            const uint32_t* vrow0 = reinterpret_cast<const uint32_t*>(row0 + 1);
-                            const uint32_t* vrow1 = reinterpret_cast<const uint32_t*>(row1 + 1);
-
-                            uint32_t scale_shift0 = row0[0];
-                            uint32_t scale_shift1 = row1[0];
-
-                            int64_t prefetch_idx0 = indices_acc[std::min<int32_t>(indices_start + l + 2, num_indices_m_1)];
-                            int64_t prefetch_idx1 = indices_acc[std::min<int32_t>(indices_start + l + 3, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx0 * D_bytes], _MM_HINT_T0);
-                            _mm_prefetch(&weights[prefetch_idx1 * D_bytes], _MM_HINT_T0);
-
-                            auto scale0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift0 & 0xFFFF)));
-                            auto scale1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift1 & 0xFFFF)));
-                            auto shift0 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift0 >> 16) & 0xFFFF)));
-                            auto shift1 = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift1 >> 16) & 0xFFFF)));
-
-                            {% if weighted %}
-                            auto idx_weight0 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 0]);
-                            auto idx_weight1 = _mm256_set1_ps(indice_weights_acc[indices_start + l + 1]);
-                            scale0 = _mm256_mul_ps(scale0, idx_weight0);
-                            scale1 = _mm256_mul_ps(scale1, idx_weight1);
-
-                            shift0 = _mm256_mul_ps(shift0, idx_weight0);
-                            shift1 = _mm256_mul_ps(shift1, idx_weight1);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                acc[i] = _mm256_fmadd_ps(scale0, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow0[i])), _mm256_add_ps(acc[i], shift0));
-                                acc[i] = _mm256_fmadd_ps(scale1, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow1[i])), _mm256_add_ps(acc[i], shift1));
-                            }
-                        }
-                        for (; l < L; ++l) {
-                            int64_t idx = indices_acc[indices_start + l];
-                            const uint32_t* row = idx == -1 ? reinterpret_cast<const uint32_t*>(zero_row.data()) : reinterpret_cast<const uint32_t*>(&weights[idx * D_bytes]);
-                            const uint32_t* vrow = reinterpret_cast<const uint32_t*>(row + 1);
-                            uint32_t scale_shift = row[0];
-
-                            int64_t prefetch_idx = indices_acc[std::min<int32_t>(indices_start + l + 1, num_indices_m_1)];
-                            _mm_prefetch(&weights[prefetch_idx * D_bytes], _MM_HINT_T0);
-
-                            auto scale = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>(scale_shift & 0xFFFF)));
-                            auto shift = _mm256_cvtph_ps(_mm_set1_epi16(static_cast<uint16_t>((scale_shift >> 16) & 0xFFFF)));
-
-                            {% if weighted %}
-                            auto idx_weight = _mm256_set1_ps(indice_weights_acc[indices_start + l]);
-                            scale = _mm256_mul_ps(scale, idx_weight);
-                            shift = _mm256_mul_ps(shift, idx_weight);
-                            {% endif %}
-
-                            for (auto i = 0; i < D_vecs; ++i) {
-                                acc[i] = _mm256_fmadd_ps(scale, _mm256_cvtepi32_ps(cvt_nib_epi32_SKL(vrow[i])), _mm256_add_ps(acc[i], shift));
-                            }
-                        }
-
-                        const bool acc_scaling = (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L > 0);
-                        const float acc_scale_factor = acc_scaling ? 1.0 / L : 1.0;
-                        __m256 scale_vec = _mm256_set1_ps(acc_scale_factor);
-                        store_result<output_t>(D_vecs, D_tail_elements, acc, scale_vec, output_acc + b * total_D + D_start, acc_scaling);
-                    }
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t>(
+                        /*bit_rate=*/4,
+                        D,
+                        {{ "true" if weighted else "false" }},
+                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        /*prefetch=*/16,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        /*scale_bias_last=*/false);
+                    success = kernel(
+                        B,
+                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        num_rows,
+                        reinterpret_cast<const uint8_t*>(weights),
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        {% if weighted %}
+                        indice_weights_acc + *offsets_begin_ptr,
+                        {% else %}
+                        nullptr,
+                        {% endif %}
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else {
                     throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
+                }
+                if (!success) {
+                    fbgemm_gpu::report_embedding_error(
+                        t,
+                        B,
+                        0,
+                        B,
+                        offsets_acc,
+                        indices_acc,
+                        num_rows,
+                        /*allow_minus_one=*/true);
                 }
             }
             return;

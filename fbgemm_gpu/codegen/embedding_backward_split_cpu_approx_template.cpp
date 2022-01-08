@@ -13,6 +13,7 @@
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
@@ -178,9 +179,11 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
             eps,
             // fbgemm follows caffe2 convention of negative learning rate
             -learning_rate);
-        // TODO: more friendly error msg.
-        // See report_error_ in embedding_forward_split_cpu.cpp
-        TORCH_CHECK(success);
+
+        if (!success) {
+          fbgemm_gpu::report_embedding_error(
+            t, B, b_begin, b_end, offsets_data, indices_data, hash_size);
+        }
       }
     }); // parallel_for
     return;
