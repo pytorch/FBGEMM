@@ -9,8 +9,15 @@
 #ifndef __HIP_PLATFORM_HCC__
 #include <math_constants.h>
 #endif
+
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+
+#include <ATen/ATen.h>
+#include <ATen/TensorUtils.h>
+#include <ATen/core/TensorAccessor.h>
 
 using Tensor = at::Tensor;
 
@@ -184,6 +191,47 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
       output_row[col] =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
     }
+  }
+}
+
+// Fused 8-bit rowwise -> FP32/FP16 kernel
+template <typename output_t>
+__global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
+    const at::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> input,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        D_offsets,
+    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
+  int total_D = input.size(1);
+  int batch_size = input.size(0);
+
+  int thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
+  int num_tables = D_offsets.size(0) - 1;
+  int qparam_size = 8;
+
+  if (batch_size == 0 || num_tables == 0) {
+    return;
+  }
+
+  // num_table * batch_size = total warps
+  // warp_id = num_tables * batch_idx + table_idx
+  int table_idx = thread_idx % num_tables;
+  int batch_idx = thread_idx / num_tables;
+  if (table_idx >= num_tables || batch_idx >= batch_size) {
+    return;
+  }
+  int table_qparam_offset = D_offsets[table_idx + 1] - qparam_size;
+  int table_D = D_offsets[table_idx + 1] - D_offsets[table_idx] - qparam_size;
+
+  // CUDA_KERNEL_ASSERT(table_qparam_offset <= total_D && "table_idx <
+  // total_D");
+
+  const float2 qparams =
+      *reinterpret_cast<const float2*>(&input[batch_idx][table_qparam_offset]);
+  int64_t input_offset = D_offsets[table_idx];
+  int64_t output_offset = input_offset - table_idx * qparam_size;
+  for (int i = threadIdx.x; i < table_D; i += kWarpSize) {
+    output[batch_idx][i + output_offset] =
+        input[batch_idx][i + input_offset] * qparams.x + qparams.y;
   }
 }
 
@@ -471,6 +519,63 @@ at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
 
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
+}
+
+at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
+    const at::Tensor& input,
+    const at::Tensor& D_offsets,
+    const int64_t output_dtype) {
+  // assumes input is 2D with [B x sum(D)] format.
+  // D_offsets is a 1D tensor that marks the boundary between quantized output
+  // row of each table
+  TENSOR_ON_CUDA_GPU(input);
+  TENSOR_ON_CUDA_GPU(D_offsets);
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  // TODO: torch check input is 2D
+  TORCH_CHECK(D_offsets.is_contiguous(), "D_offsets must be contiguous");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const int64_t batch_size = input.size(0);
+  const int qparam_size = 8;
+  // allocate a warp for each output row
+  const int num_tables = D_offsets.size(0) - 1;
+  int64_t output_dim =
+      input.size(1) - static_cast<int64_t>(qparam_size * num_tables);
+  at::Tensor output;
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      output = at::zeros(
+          {batch_size, output_dim}, input.options().dtype(at::kFloat));
+      break;
+    case SparseType::FP16:
+      output =
+          at::zeros({batch_size, output_dim}, input.options().dtype(at::kHalf));
+      break;
+    default:
+      TORCH_CHECK(false);
+  }
+  if (batch_size == 0) {
+    return output;
+  }
+  constexpr int threads_per_block = 256;
+  dim3 blockDim(kWarpSize, threads_per_block / kWarpSize);
+  dim3 gridDim(cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      output.scalar_type(),
+      "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
+      [&] {
+        _fused8bitrowwise_to_float_mixed_dim_cuda_kernel<scalar_t>
+            <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
+                input.packed_accessor32<uint8_t, 2, at::RestrictPtrTraits>(),
+                D_offsets
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                output.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+  return output;
 }
 
 template <typename input_t>
