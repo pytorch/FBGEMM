@@ -1481,6 +1481,11 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return r
 
 
+def align_to_cacheline(a: int) -> int:
+    # align each table to 128b cache line boundary.
+    return round_up(a, 128)
+
+
 def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
@@ -1491,11 +1496,6 @@ def nbit_construct_split_state(
     host_size = 0
     uvm_size = 0
     for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
-
-        def align_to_cacheline(a: int) -> int:
-            # align each table to 128b cache line boundary.
-            return round_up(a, 128)
-
         embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty)
         state_size = align_to_cacheline(num_embeddings * embedding_dim)
         if location == EmbeddingLocation.HOST:
@@ -1646,10 +1646,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "bounds_check_warning",
             torch.tensor([0], device=self.current_device, dtype=torch.int64),
         )
-
-        def align_to_cacheline(a: int) -> int:
-            # align each table to 128b cache line boundary.
-            return round_up(a, 128)
 
         weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]
         self.register_buffer(

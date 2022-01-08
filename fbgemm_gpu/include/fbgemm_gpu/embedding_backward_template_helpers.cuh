@@ -20,8 +20,8 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <ATen/cuda/Atomic.cuh>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
-#include <THC/THCAtomics.cuh>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
