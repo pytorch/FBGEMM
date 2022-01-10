@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and its affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -110,7 +110,7 @@ int main(int argc, const char* argv[]) {
 
   static const string license =
       "/*\n"
-      " * Copyright (c) Facebook, Inc. and its affiliates.\n"
+      " * Copyright (c) Meta Platforms, Inc. and its affiliates.\n"
       " * All rights reserved.\n"
       " * This source code is licensed under the BSD-style license found in the\n"
       " * LICENSE file in the root directory of this source tree.\n"
