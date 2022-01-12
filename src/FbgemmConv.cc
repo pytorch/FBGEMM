@@ -114,7 +114,8 @@ int fbgemmConv(
       if (SPATIAL_DIM == 3) {
         static_assert(
             std::is_same<typename processOutputType::outType, std::uint8_t>::
-                value,
+                    value ||
+                std::is_same<typename processOutputType::outType, float>::value,
             "For depthwise, only requantized output is supported");
 
         if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
@@ -381,6 +382,18 @@ int fbgemmConv(
       int num_threads,                                                     \
       const BlockingFactors* blocking_params);
 
+#define INSTANTIATE_FLOAT_OUT_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM)       \
+  template FBGEMM_API int fbgemmConv(                                      \
+      const conv_param_t<SPATIAL_DIM>& conv_p,                             \
+      const std::uint8_t* activations,                                     \
+      PackWeightsForConv<SPATIAL_DIM, std::int8_t, ACC_T>& packed_weights, \
+      float* out,                                                          \
+      std::int32_t* outBuffer,                                             \
+      ReQuantizeForFloat<RELU, Q_GRAN>& outProcess,                        \
+      int thread_id,                                                       \
+      int num_threads,                                                     \
+      const BlockingFactors* blocking_params);
+
 #define INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, SPATIAL_DIM) \
   INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, float)  \
   INSTANTIATE_BASE(ACC_T, Q_GRAN, RELU, SPATIAL_DIM, int32_t)
@@ -388,7 +401,10 @@ int fbgemmConv(
 #define INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, RELU) \
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 1)         \
   INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 2)         \
-  INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 3)
+  INSTANTIATE_BIAS_T(ACC_T, Q_GRAN, RELU, 3)         \
+  INSTANTIATE_FLOAT_OUT_BASE(ACC_T, Q_GRAN, RELU, 1) \
+  INSTANTIATE_FLOAT_OUT_BASE(ACC_T, Q_GRAN, RELU, 2) \
+  INSTANTIATE_FLOAT_OUT_BASE(ACC_T, Q_GRAN, RELU, 3)
 
 #define INSTANTIATE_RELU(ACC_T, Q_GRAN)        \
   INSTANTIATE_SPATIAL_DIM(ACC_T, Q_GRAN, true) \

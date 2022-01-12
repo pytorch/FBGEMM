@@ -26,10 +26,17 @@ int compare_validate_buffers(
             << ") reference: " << (int64_t)ref[i * ld + j]
             << ", FBGEMM: " << (int64_t)test[i * ld + j];
       } else {
-        EXPECT_LE(std::abs(ref[i * ld + j] - test[i * ld + j]), atol)
-            << "GEMM results differ at (" << i << ", " << j
-            << ") reference: " << ref[i * ld + j]
-            << ", FBGEMM: " << test[i * ld + j];
+        if (atol == 0) {
+          EXPECT_FLOAT_EQ(test[i * ld + j], ref[i * ld + j])
+              << "GEMM results differ at (" << i << ", " << j
+              << ") reference: " << ref[i * ld + j]
+              << ", FBGEMM: " << test[i * ld + j];
+        } else {
+          EXPECT_NEAR(test[i * ld + j], ref[i * ld + j], atol)
+              << "GEMM results differ at (" << i << ", " << j
+              << ") reference: " << ref[i * ld + j]
+              << ", FBGEMM: " << test[i * ld + j];
+        }
       }
     }
   }

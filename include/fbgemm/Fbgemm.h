@@ -1250,6 +1250,8 @@ template <
     typename nextOPType = DoNothing<outT, outT>>
 class FBGEMM_API ReQuantizeForFloat {
  public:
+  static constexpr int RELU_FUSED = FUSE_RELU;
+  static constexpr QuantizationGranularity QGRANType = Q_GRAN;
   using outType = outT;
   using inpType = inT;
   /**
@@ -1301,10 +1303,58 @@ class FBGEMM_API ReQuantizeForFloat {
       int ld_out,
       int ld_in) const;
 
+  float getAScale() const {
+    return Aq_scale_;
+  }
+  const float* getBScale() const {
+    return Bq_scale_;
+  }
+  const float* getCMultiplier() {
+    if (C_multiplier_.size() == 0) {
+      if (Q_GRAN == QuantizationGranularity::TENSOR) {
+        C_multiplier_.resize(1);
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        C_multiplier_.resize(groups_);
+      } else {
+        C_multiplier_.resize(ncols_);
+      }
+      for (int i = 0; i < C_multiplier_.size(); ++i) {
+        C_multiplier_[i] = Aq_scale_ * Bq_scale_[i];
+      }
+    }
+    return C_multiplier_.data();
+  }
+  std::int32_t getCZeroPoint() const {
+    return 0; // dummy
+  }
+  std::int32_t getAZeroPoint() const {
+    return Aq_zero_point_;
+  }
+  const std::int32_t* getBZeroPoint() const {
+    return Bq_zero_point_;
+  }
+  const std::int32_t* getColOffsets() const {
+    return q_col_offsets_;
+  }
+  const float* getBias() const {
+    return bias_;
+  }
+  std::uint32_t getNCols() const {
+    return ncols_;
+  }
+  const float* getActWScale() {
+    return getCMultiplier();
+  }
+
+  void setRowOffsets(const std::int32_t* row_offsets) {
+    q_row_offsets_ = row_offsets;
+  }
+
  private:
   nextOPType& nextop_;
   float Aq_scale_;
   const float* Bq_scale_;
+  std::vector<float> C_multiplier_;
   std::int32_t Aq_zero_point_;
   const std::int32_t* Bq_zero_point_;
   const std::int32_t* q_row_offsets_;
@@ -1366,22 +1416,16 @@ FBGEMM_API void fbgemmPacked(
  *        Note: Currently threading is not supported. This function does
  *              nothing for thread_ids > 0, i.e., returns early.
  */
-template <
-    typename packed_W,
-    typename outType,
-    bool FUSE_RELU,
-    QuantizationGranularity Q_GRAN,
-    int SPATIAL_DIM = 2,
-    typename BIAS_TYPE = std::int32_t>
+template <typename packed_W, typename processOutputType, int SPATIAL_DIM = 2>
 FBGEMM_API void fbgemmGroupwiseConv(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const std::uint8_t* activations,
     std::int32_t a_zero_point,
     std::int32_t* rowOffsetBuf,
     packed_W& packed_weights,
-    outType* out,
+    typename processOutputType::outType* out,
     std::int32_t* outBuffer,
-    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
+    processOutputType& outProcess,
     int thread_id,
     int num_threads);
 

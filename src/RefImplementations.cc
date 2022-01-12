@@ -190,6 +190,38 @@ void requantize_u8acc32_ref(
   }
 }
 
+void requantize_u8acc32_float_output_ref(
+    int M,
+    int N,
+    int ld,
+    const int32_t* inp,
+    float* out,
+    float A_scale,
+    const float* B_scale,
+    int32_t A_zero_point,
+    const int32_t* B_zero_point,
+    const int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const float* bias,
+    int ncols_per_quant_group,
+    bool fuse_relu) {
+  for (int i = 0; i < M; ++i) {
+    for (int j = 0; j < N; ++j) {
+      int32_t raw = inp[i * ld + j];
+      if (A_zero_point) {
+        raw -= A_zero_point * col_offsets[j];
+      }
+      raw -= B_zero_point[j / ncols_per_quant_group] * row_offsets[i];
+
+      float result = A_scale * B_scale[j / ncols_per_quant_group] * raw;
+      if (bias) {
+        result += bias[j];
+      }
+      out[i * ld + j] = fuse_relu ? std::max(result, 0.f) : result;
+    }
+  }
+}
+
 void matmul_u8i8acc32_ref(
     int M,
     int N,

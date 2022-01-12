@@ -62,6 +62,22 @@ FBGEMM_API void requantize_u8acc32_ref(
     int ncols_per_quant_group,
     bool fuse_relu = false);
 
+FBGEMM_API void requantize_u8acc32_float_output_ref(
+    int M,
+    int N,
+    int ld,
+    const int32_t* inp,
+    float* out,
+    float A_scale,
+    const float* B_scale,
+    int32_t A_zero_point,
+    const int32_t* B_zero_point,
+    const int32_t* row_offsets,
+    const int32_t* col_offsets,
+    const float* bias,
+    int ncols_per_quant_group,
+    bool fuse_relu = false);
+
 /**
  * @brief Reference implementation of matrix multiply with uint8 for A,
  * int8 for B, and 32-bit accumulation.

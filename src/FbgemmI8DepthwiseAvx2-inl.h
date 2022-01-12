@@ -25,14 +25,15 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     int K_PER_G,
-    typename BIAS_TYPE>
+    typename BIAS_TYPE,
+    typename OUT_TYPE = std::uint8_t>
 static ALWAYS_INLINE void requantize_(
     std::int32_t A_zero_point,
     const std::int32_t* B_zero_point,
     const float* C_multiplier,
     std::int32_t C_zero_point,
     const std::int32_t* C_int32,
-    std::uint8_t* C_uint8,
+    OUT_TYPE* C,
     int n,
     const std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
@@ -44,7 +45,8 @@ static ALWAYS_INLINE void requantize_(
   __m256i B_zero_point_v = _mm256_setzero_si256();
   if (Q_GRAN == QuantizationGranularity::TENSOR) {
     multiplier_v = _mm256_set1_ps(*C_multiplier);
-    if (std::is_same<BIAS_TYPE, float>::value) {
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value &&
+        std::is_same<BIAS_TYPE, float>::value) {
       act_times_w_rcp_v = _mm256_set1_ps(1.0 / (*act_times_w_scale));
     }
     B_zero_point_v = _mm256_set1_epi32(B_zero_point[0]);
@@ -220,7 +222,7 @@ static ALWAYS_INLINE void requantize_(
 
     // convert to float
     __m256 xf_v, yf_v, zf_v, wf_v;
-    if (HAS_BIAS) { // static if
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value && HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -361,25 +363,53 @@ static ALWAYS_INLINE void requantize_(
     }
     __m256 w_scaled_v = _mm256_mul_ps(wf_v, multiplier_v);
 
-    __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
-    __m256i y_rounded_v = _mm256_cvtps_epi32(y_scaled_v);
-    __m256i z_rounded_v = _mm256_cvtps_epi32(z_scaled_v);
-    __m256i w_rounded_v = _mm256_cvtps_epi32(w_scaled_v);
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value) {
+      __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
+      __m256i y_rounded_v = _mm256_cvtps_epi32(y_scaled_v);
+      __m256i z_rounded_v = _mm256_cvtps_epi32(z_scaled_v);
+      __m256i w_rounded_v = _mm256_cvtps_epi32(w_scaled_v);
 
-    __m256i xy_packed_v = _mm256_adds_epi16(
-        _mm256_packs_epi32(x_rounded_v, y_rounded_v), C_zero_point_epi16_v);
-    __m256i zw_packed_v = _mm256_adds_epi16(
-        _mm256_packs_epi32(z_rounded_v, w_rounded_v), C_zero_point_epi16_v);
-    __m256i xyzw_packed_v = _mm256_packus_epi16(xy_packed_v, zw_packed_v);
-    __m256i xyzw_clamped_v = _mm256_max_epu8(
-        FUSE_RELU ? C_zero_point_epi8_v : min_v,
-        _mm256_min_epu8(xyzw_packed_v, max_v));
+      __m256i xy_packed_v = _mm256_adds_epi16(
+          _mm256_packs_epi32(x_rounded_v, y_rounded_v), C_zero_point_epi16_v);
+      __m256i zw_packed_v = _mm256_adds_epi16(
+          _mm256_packs_epi32(z_rounded_v, w_rounded_v), C_zero_point_epi16_v);
+      __m256i xyzw_packed_v = _mm256_packus_epi16(xy_packed_v, zw_packed_v);
+      __m256i xyzw_clamped_v = _mm256_max_epu8(
+          FUSE_RELU ? C_zero_point_epi8_v : min_v,
+          _mm256_min_epu8(xyzw_packed_v, max_v));
 
-    xyzw_clamped_v =
-        _mm256_permutevar8x32_epi32(xyzw_clamped_v, permute_mask_v);
+      xyzw_clamped_v =
+          _mm256_permutevar8x32_epi32(xyzw_clamped_v, permute_mask_v);
 
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(C_uint8 + j), xyzw_clamped_v);
+      _mm256_storeu_si256(reinterpret_cast<__m256i*>(C + j), xyzw_clamped_v);
+    } else {
+      if (HAS_BIAS) {
+        x_scaled_v = _mm256_add_ps(
+            x_scaled_v,
+            _mm256_loadu_ps(reinterpret_cast<const float*>(bias) + j));
+        y_scaled_v = _mm256_add_ps(
+            y_scaled_v,
+            _mm256_loadu_ps(reinterpret_cast<const float*>(bias) + j + VLEN));
+        z_scaled_v = _mm256_add_ps(
+            z_scaled_v,
+            _mm256_loadu_ps(
+                reinterpret_cast<const float*>(bias) + j + 2 * VLEN));
+        w_scaled_v = _mm256_add_ps(
+            w_scaled_v,
+            _mm256_loadu_ps(
+                reinterpret_cast<const float*>(bias) + j + 3 * VLEN));
+      }
+      if (FUSE_RELU) {
+        x_scaled_v = _mm256_max_ps(x_scaled_v, _mm256_setzero_ps());
+        y_scaled_v = _mm256_max_ps(y_scaled_v, _mm256_setzero_ps());
+        z_scaled_v = _mm256_max_ps(z_scaled_v, _mm256_setzero_ps());
+        w_scaled_v = _mm256_max_ps(w_scaled_v, _mm256_setzero_ps());
+      }
+      _mm256_storeu_ps(reinterpret_cast<float*>(C) + j, x_scaled_v);
+      _mm256_storeu_ps(reinterpret_cast<float*>(C) + j + VLEN, y_scaled_v);
+      _mm256_storeu_ps(reinterpret_cast<float*>(C) + j + 2 * VLEN, z_scaled_v);
+      _mm256_storeu_ps(reinterpret_cast<float*>(C) + j + 3 * VLEN, w_scaled_v);
+    }
   } // j loop vectorized and unrolled 4x
 
   for (; j < n / VLEN * VLEN; j += VLEN) {
@@ -425,7 +455,7 @@ static ALWAYS_INLINE void requantize_(
 
     // Convert to float
     __m256 xf_v;
-    if (HAS_BIAS) { // static if
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value && HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v;
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
@@ -465,21 +495,34 @@ static ALWAYS_INLINE void requantize_(
           permute_mask_v));
     }
     __m256 x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
-    __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
 
-    __m256i x_packed_v = _mm256_adds_epi16(
-        _mm256_packs_epi32(x_rounded_v, _mm256_setzero_si256()),
-        C_zero_point_epi16_v);
-    x_packed_v = _mm256_packus_epi16(x_packed_v, _mm256_setzero_si256());
-    __m256i x_clamped_v = _mm256_max_epu8(
-        FUSE_RELU ? C_zero_point_epi8_v : min_v,
-        _mm256_min_epu8(x_packed_v, max_v));
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value) {
+      __m256i x_rounded_v = _mm256_cvtps_epi32(x_scaled_v);
 
-    x_clamped_v = _mm256_permutevar8x32_epi32(x_clamped_v, permute_mask_v);
+      __m256i x_packed_v = _mm256_adds_epi16(
+          _mm256_packs_epi32(x_rounded_v, _mm256_setzero_si256()),
+          C_zero_point_epi16_v);
+      x_packed_v = _mm256_packus_epi16(x_packed_v, _mm256_setzero_si256());
+      __m256i x_clamped_v = _mm256_max_epu8(
+          FUSE_RELU ? C_zero_point_epi8_v : min_v,
+          _mm256_min_epu8(x_packed_v, max_v));
 
-    _mm_storel_epi64(
-        reinterpret_cast<__m128i*>(C_uint8 + j),
-        _mm256_castsi256_si128(x_clamped_v));
+      x_clamped_v = _mm256_permutevar8x32_epi32(x_clamped_v, permute_mask_v);
+
+      _mm_storel_epi64(
+          reinterpret_cast<__m128i*>(C + j),
+          _mm256_castsi256_si128(x_clamped_v));
+    } else {
+      if (HAS_BIAS) {
+        x_scaled_v = _mm256_add_ps(
+            x_scaled_v,
+            _mm256_loadu_ps(reinterpret_cast<const float*>(bias) + j));
+      }
+      if (FUSE_RELU) {
+        x_scaled_v = _mm256_max_ps(x_scaled_v, _mm256_setzero_ps());
+      }
+      _mm256_storeu_ps(reinterpret_cast<float*>(C) + j, x_scaled_v);
+    }
   } // j loop vectorized
 
   for (; j < n; ++j) {
@@ -498,7 +541,7 @@ static ALWAYS_INLINE void requantize_(
       raw -= A_zero_point * col_offsets[j];
     }
     float raw_f;
-    if (HAS_BIAS) { // static if
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value && HAS_BIAS) { // static if
       if (std::is_same<BIAS_TYPE, float>::value) {
         raw_f = raw;
         raw_f += bias[j] / act_times_w_scale[quant_param_idx];
@@ -511,11 +554,18 @@ static ALWAYS_INLINE void requantize_(
     }
 
     float ab = raw_f * C_multiplier[quant_param_idx];
-    long rounded = lrintf(ab) + C_zero_point;
+    if (std::is_same<OUT_TYPE, std::uint8_t>::value) {
+      long rounded = lrintf(ab) + C_zero_point;
 
-    C_uint8[j] = std::max(
-        FUSE_RELU ? static_cast<long>(C_zero_point) : 0l,
-        std::min(255l, rounded));
+      C[j] = std::max(
+          FUSE_RELU ? static_cast<long>(C_zero_point) : 0l,
+          std::min(255l, rounded));
+    } else {
+      if (HAS_BIAS) {
+        ab += bias[j];
+      }
+      C[j] = FUSE_RELU ? std::max(ab, 0.0f) : ab;
+    }
   }
 }
 
