@@ -13,12 +13,6 @@ from typing import Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.sparse_ops import (
-    jagged_1d_to_dense,
-    jagged_2d_to_dense,
-    stacked_jagged_1d_to_dense,
-    stacked_jagged_2d_to_dense,
-)
 from hypothesis import Verbosity, given, settings
 
 try:
@@ -834,7 +828,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().half().detach().requires_grad_(True)
         else:
             values = ref_values.clone().detach().requires_grad_(True)
-        output_values = jagged_2d_to_dense(
+        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -850,7 +844,7 @@ class SparseOpsTest(unittest.TestCase):
                 values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = jagged_2d_to_dense(
+            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -880,7 +874,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(True)
-        output_values = jagged_2d_to_dense(
+        output_values = torch.ops.fbgemm.jagged_2d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -893,7 +887,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = jagged_2d_to_dense(
+            output_values = torch.ops.fbgemm.jagged_2d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -942,14 +936,14 @@ class SparseOpsTest(unittest.TestCase):
         lengths = lengths.view(T, B)
 
         values = ref_values.clone().detach().requires_grad_(True)
-        output_values_per_table = stacked_jagged_2d_to_dense(
+        output_values_per_table = torch.ops.fbgemm.stacked_jagged_2d_to_dense(
             values=values,
             lengths=lengths,
             offset_per_key=[0]
             + np.cumsum([lengths[t].sum().item() for t in range(T)]).tolist(),
             max_lengths_per_key=[max_sequence_length] * T,
         )
-        ref_output_values = jagged_2d_to_dense(
+        ref_output_values = torch.ops.fbgemm.jagged_2d_to_dense(
             values=ref_values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -1030,7 +1024,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(False)
-        output_values = jagged_1d_to_dense(
+        output_values = torch.ops.fbgemm.jagged_1d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -1044,7 +1038,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(False)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
-            output_values = jagged_1d_to_dense(
+            output_values = torch.ops.fbgemm.jagged_1d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
@@ -1062,7 +1056,7 @@ class SparseOpsTest(unittest.TestCase):
 
         # test cpu forward
         values = ref_values.clone().detach().requires_grad_(False)
-        output = jagged_1d_to_dense(
+        output = torch.ops.fbgemm.jagged_1d_to_dense(
             values=values,
             offsets=offsets,
             max_sequence_length=1,
@@ -1076,7 +1070,7 @@ class SparseOpsTest(unittest.TestCase):
             values = ref_values.clone().detach().requires_grad_(False)
             offsets = offsets.cuda()
             ref_output = ref_output.cuda()
-            output = jagged_1d_to_dense(
+            output = torch.ops.fbgemm.jagged_1d_to_dense(
                 values=values,
                 offsets=offsets,
                 max_sequence_length=1,
@@ -1142,7 +1136,7 @@ class SparseOpsTest(unittest.TestCase):
         ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,)).cuda()
 
         values = ref_values.clone().detach().requires_grad_(False)
-        output_values_per_table = stacked_jagged_1d_to_dense(
+        output_values_per_table = torch.ops.fbgemm.stacked_jagged_1d_to_dense(
             values=values,
             lengths=lengths,
             offset_per_key=[0]
@@ -1150,7 +1144,7 @@ class SparseOpsTest(unittest.TestCase):
             max_lengths_per_key=[max_sequence_length] * T,
             padding_value=padding_value,
         )
-        ref_output_values = jagged_1d_to_dense(
+        ref_output_values = torch.ops.fbgemm.jagged_1d_to_dense(
             values=ref_values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
