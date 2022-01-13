@@ -1363,27 +1363,6 @@ FBGEMM_API void fbgemmPacked(
  *              nothing for thread_ids > 0, i.e., returns early.
  *
  * @param rowOffsetBuf nullptr if B uses symmetric quantization
- */
-
-template <
-    typename packed_W,
-    typename outType,
-    typename processOutputType,
-    int SPATIAL_DIM = 2>
-FBGEMM_API void fbgemmGroupwiseConv(
-    const conv_param_t<SPATIAL_DIM>& conv_param,
-    const std::uint8_t* activations,
-    std::int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
-    packed_W& packed_weights,
-    outType* out,
-    std::int32_t* outBuffer,
-    const processOutputType& outProcess,
-    int thread_id,
-    int num_threads);
-
-/**
- * @param rowOffsetBuf nullptr if B uses symmetric quantization
  *        Note: Currently threading is not supported. This function does
  *              nothing for thread_ids > 0, i.e., returns early.
  */
@@ -1413,22 +1392,6 @@ FBGEMM_API void fbgemmGroupwiseConv(
 template <int SPATIAL_DIM = 2>
 FBGEMM_API int rowOffsetBufferSizeGConv(
     const conv_param_t<SPATIAL_DIM>& conv_param);
-
-/**
- * @brief Perform depthwise separable convolution
- */
-template <
-    typename packingAMatrix,
-    typename packingBMatrix,
-    typename outT,
-    typename processOutputType>
-void convDepthwiseSeparable(
-    const conv_param_t<>& conv_param_dw,
-    const conv_param_t<>& conv_param_1x1,
-    packingAMatrix& packdw,
-    packingBMatrix& packed_1x1,
-    outT* out,
-    const processOutputType& output);
 
 /**
  * @brief Is this depthwise convolution optimized?

@@ -905,635 +905,53 @@ void dispatchOutputProcessing(
       outProcess.getNCols(),
       groups,
       outProcess.getActWScale()};
+
+#define REQUANTIZE_BASE(ISA, C_PER_G, A_SYM, B_SYM, BIAS) \
+  requantizeOutputProcessingGConv##ISA<                   \
+      A_SYM,                                              \
+      B_SYM,                                              \
+      Q_GRAN,                                             \
+      BIAS,                                               \
+      FUSE_RELU,                                          \
+      C_PER_G>(out, inp, block, ld_out, ld_in, r);
+
+#define REQUANTIZE_BIAS(ISA, C_PER_G, A_SYM, B_SYM)              \
+  if (outProcess.getBias() == nullptr) {                         \
+    REQUANTIZE_BASE(ISA, C_PER_G, A_SYM, B_SYM, /*bias=*/false); \
+  } else {                                                       \
+    REQUANTIZE_BASE(ISA, C_PER_G, A_SYM, B_SYM, /*bias=*/true);  \
+  }
+
+#define REQUANTIZE_BSYM(ISA, C_PER_G, A_SYM)     \
+  if (b_symmetric) {                             \
+    REQUANTIZE_BIAS(ISA, C_PER_G, A_SYM, true);  \
+  } else {                                       \
+    REQUANTIZE_BIAS(ISA, C_PER_G, A_SYM, false); \
+  }
+
+#define REQUANTIZE_ASYM(ISA, C_PER_G)     \
+  if (a_zero_point == 0) {                \
+    REQUANTIZE_BSYM(ISA, C_PER_G, true);  \
+  } else {                                \
+    REQUANTIZE_BSYM(ISA, C_PER_G, false); \
+  }
+
+#define REQUANTIZE_C_PER_G(ISA) \
+  if (C_per_G == 2) {           \
+    REQUANTIZE_ASYM(ISA, 2);    \
+  } else if (C_per_G == 4) {    \
+    REQUANTIZE_ASYM(ISA, 4);    \
+  } else if (C_per_G == 8) {    \
+    REQUANTIZE_ASYM(ISA, 8);    \
+  } else {                      \
+    REQUANTIZE_ASYM(ISA, 16);   \
+  }
+
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
-      if (C_per_G == 2) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else if (C_per_G == 4) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else if (C_per_G == 8) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx512<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      }
+      REQUANTIZE_C_PER_G(Avx512);
     } else if (fbgemmHasAvx2Support()) {
-      if (C_per_G == 2) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  2>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else if (C_per_G == 4) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  4>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else if (C_per_G == 8) {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  8>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      } else {
-        if (a_zero_point == 0) {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  true,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        } else {
-          if (b_symmetric) {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  true,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          } else {
-            if (outProcess.getBias() == nullptr) {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  false,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            } else {
-              requantizeOutputProcessingGConvAvx2<
-                  false,
-                  false,
-                  Q_GRAN,
-                  true,
-                  FUSE_RELU,
-                  16>(out, inp, block, ld_out, ld_in, r);
-            }
-          }
-        }
-      }
+      REQUANTIZE_C_PER_G(Avx2);
     } else {
       assert(0 && "unsupported architecture");
     }
@@ -1541,6 +959,12 @@ void dispatchOutputProcessing(
     throw runtime_error("Failed to initialize cpuinfo!");
   }
 }
+
+#undef REQUANTIZE_C_PER_G
+#undef REQUANTIZE_ASYM
+#undef REQUANTIZE_BSYM
+#undef REQUANTIZE_BIAS
+#undef REQUANTIZE_BASE
 
 template <
     typename packed_W,
@@ -1694,8 +1118,8 @@ void fbgemmGroupwiseConv(
             G,
             C_per_G,
             is_requantization<processOutputType>());
-      }
-    }
+      } // for each g
+    } // for each i
   } else {
     assert(SPATIAL_DIM == 3 && "Unsupported SPATIAL_DIM");
 
@@ -1837,10 +1261,10 @@ void fbgemmGroupwiseConv(
               G,
               C_per_G,
               is_requantization<processOutputType>());
-        }
-      }
-    }
-  }
+        } // for each ot
+      } // for each g
+    } // for each i
+  } // SPATIAL_DIM == 3
 }
 
 template <int SPATIAL_DIM>

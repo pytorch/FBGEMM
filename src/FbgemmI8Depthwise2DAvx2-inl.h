@@ -119,8 +119,8 @@ template <
     bool HAS_BIAS,
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
-    typename BIAS_TYPE,
-    QuantizationGranularity Q_GRAN>
+    QuantizationGranularity Q_GRAN,
+    typename BIAS_TYPE>
 static ALWAYS_INLINE void depthwise_2d_(
     int N,
     int H,
@@ -185,8 +185,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -216,8 +215,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -247,8 +245,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -292,8 +289,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -341,8 +337,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -373,8 +368,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -406,8 +400,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -437,8 +430,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -468,8 +460,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             HAS_BIAS,
             A_SYMMETRIC,
             B_SYMMETRIC,
-            Q_GRAN,
-            BIAS_TYPE>(
+            Q_GRAN>(
             H,
             W,
             IC,
@@ -502,8 +493,8 @@ template <
     int S,
     bool FUSE_RELU,
     bool HAS_BIAS,
-    typename BIAS_TYPE,
-    QuantizationGranularity Q_GRAN>
+    QuantizationGranularity Q_GRAN,
+    typename BIAS_TYPE>
 static void depthwise_2d_(
     int N,
     int H,
@@ -534,7 +525,6 @@ static void depthwise_2d_(
           HAS_BIAS,
           true /*A_symmetric*/,
           true /*B_symmetric*/,
-          BIAS_TYPE,
           Q_GRAN>(
           N,
           H,
@@ -563,7 +553,6 @@ static void depthwise_2d_(
           HAS_BIAS,
           true /*A_symmetric*/,
           false /*B_symmetric*/,
-          BIAS_TYPE,
           Q_GRAN>(
           N,
           H,
@@ -594,7 +583,6 @@ static void depthwise_2d_(
           HAS_BIAS,
           false /*A_symmetric*/,
           true /*B_symmetric*/,
-          BIAS_TYPE,
           Q_GRAN>(
           N,
           H,
@@ -623,7 +611,6 @@ static void depthwise_2d_(
           HAS_BIAS,
           false /*A_symmetric*/,
           false /*B_symmetric*/,
-          BIAS_TYPE,
           Q_GRAN>(
           N,
           H,
@@ -654,8 +641,8 @@ static void depthwise_2d_(
 template <
     int S,
     bool FUSE_RELU,
-    typename BIAS_TYPE,
-    QuantizationGranularity Q_GRAN>
+    QuantizationGranularity Q_GRAN,
+    typename BIAS_TYPE>
 static void depthwise_2d_(
     int N,
     int H,
@@ -677,7 +664,7 @@ static void depthwise_2d_(
     int thread_id,
     int num_threads) {
   if (bias) {
-    depthwise_2d_<S, FUSE_RELU, true /*HAS_BIAS*/, BIAS_TYPE, Q_GRAN>(
+    depthwise_2d_<S, FUSE_RELU, true /*HAS_BIAS*/, Q_GRAN>(
         N,
         H,
         W,
@@ -698,7 +685,7 @@ static void depthwise_2d_(
         thread_id,
         num_threads);
   } else {
-    depthwise_2d_<S, FUSE_RELU, false /*HAS_BIAS*/, BIAS_TYPE, Q_GRAN>(
+    depthwise_2d_<S, FUSE_RELU, false /*HAS_BIAS*/, Q_GRAN>(
         N,
         H,
         W,
