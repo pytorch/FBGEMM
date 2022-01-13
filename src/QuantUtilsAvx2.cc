@@ -1362,8 +1362,204 @@ void requantizeOutputProcessingGConvAvx2(
   } // i loop
 }
 
-#define INSTANTIATE_REQUANTIZE_BIAS_TYPE(                                      \
-    A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE)                               \
+template <
+    bool A_SYMMETRIC,
+    bool B_SYMMETRIC,
+    QuantizationGranularity Q_GRAN,
+    bool HAS_BIAS,
+    bool FUSE_RELU,
+    int C_PER_G>
+void requantizeOutputProcessingGConvAvx2(
+    float* out,
+    const int32_t* inp,
+    const block_type_t& block,
+    int ld_out,
+    int ld_in,
+    const requantizationForFloatParams_t& r) {
+  // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
+  // using AVX2 instructions
+  int quant_param_idx = 0;
+  if (Q_GRAN == QuantizationGranularity::GROUP) {
+    int ncol_per_group = r.ncols / r.groups;
+    int g = block.col_start / ncol_per_group;
+    quant_param_idx = g;
+  }
+  __m256 multiplier_v = _mm256_set1_ps(r.A_scale * r.B_scale[quant_param_idx]);
+
+  assert(
+      (A_SYMMETRIC == (r.A_zero_point == 0)) &&
+      "A_SYMMETRIC == true if and only if A_zero_point == 0");
+  assert(
+      (B_SYMMETRIC ==
+       ((Q_GRAN == QuantizationGranularity::TENSOR && r.B_zero_point[0] == 0) ||
+        r.row_offsets == nullptr)) &&
+      "B_SYMMETRIC == true if and only if B_zero_point == 0 "
+      "or r.row_offsets == nullptr");
+  assert(
+      (HAS_BIAS == (r.bias != nullptr)) &&
+      "HAS_BIAS == true if and only if bias != nullptr");
+
+  __m256i A_zero_point_v = _mm256_set1_epi32(r.A_zero_point);
+
+  __m256i permute_mask_v =
+      _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
+
+  constexpr int VLEN = 8;
+  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+    int j = block.col_start;
+    for (; j < block.col_start + (block.col_size / VLEN * VLEN); j += VLEN) {
+      __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+          inp + (i - block.row_start) * ld_in + (j - block.col_start)));
+
+      if (!A_SYMMETRIC) {
+        __m256i col_off_v = _mm256_mullo_epi32(
+            A_zero_point_v,
+            _mm256_loadu_si256(
+                reinterpret_cast<const __m256i*>(r.col_offsets + j)));
+        x_v = _mm256_sub_epi32(x_v, col_off_v);
+      }
+
+      if (!B_SYMMETRIC) {
+        __m256i row_offset_v;
+
+        if (C_PER_G == 2) {
+          // When C_PER_G == 2, we need to handle 4 groups at a time to fully
+          // utilize 32B AVX2 vector register (C_PER_G * 4 * sizeof(int32_t) ==
+          // 32B)
+          // Load row_offsets for 4 groups and broadcast by 2 times.
+          row_offset_v =
+              _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                  _mm256_castps128_ps256(
+                      _mm_loadu_ps(reinterpret_cast<const float*>(
+                          r.row_offsets + (i - block.row_start) * 4))),
+                  permute_mask_v)));
+
+        }
+        // When C_PER_G == 4, we need to handle 2 groups at a time to fully
+        // utilize 32B AVX2 vector register (C_PER_G * 2 * sizeof(int32_t) ==
+        // 32B)
+        // When C_PER_G == 8, we just need 1 group at a time on the other hand.
+
+        // Groups 0 and 1 when C_PER_G == 4
+        // Group 0 when C_PER_G == 8
+        else if (C_PER_G == 4) {
+          // Load row_offsets for 2 groups and broadcast by 4 times each because
+          // we have 4 channels per group.
+          // groups 0 and 1
+          row_offset_v = _mm256_insertf128_si256(
+              _mm256_castsi128_si256(
+                  _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 0])),
+              _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 1]),
+              1);
+        } else if (C_PER_G == 8) {
+          row_offset_v =
+              _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
+        } else {
+          assert(C_PER_G == 16);
+          row_offset_v =
+              _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
+        }
+
+        __m256i B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[0]);
+        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          B_zero_point_v = _mm256_loadu_si256(
+              reinterpret_cast<const __m256i*>(r.B_zero_point + j));
+        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          if (C_PER_G == 2) {
+            B_zero_point_v =
+                _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+                    _mm256_castps128_ps256(
+                        _mm_loadu_ps(reinterpret_cast<const float*>(
+                            r.B_zero_point + quant_param_idx))),
+                    permute_mask_v)));
+          } else if (C_PER_G == 4) {
+            B_zero_point_v = _mm256_insertf128_si256(
+                _mm256_castsi128_si256(
+                    _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
+                _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
+                1);
+          } else if (C_PER_G == 8) {
+            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
+          } else {
+            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
+          }
+        }
+        row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
+        x_v = _mm256_sub_epi32(x_v, row_offset_v);
+      }
+      __m256 xf_v = _mm256_cvtepi32_ps(x_v);
+
+      /*
+       * Convert int32_t input to FP32 and multiply by FP32 scale.
+       * Both operations involve statistically unbiased roundings (with
+       * default MXCSR rounding mode):
+       * - Large int32_t values can't be exactly represented as FP32.
+       * CVTDQ2PS instruction on x86 would round it according to nearest
+       * FP32 value with ties to even (assuming default MXCSR rounding
+       * mode).
+       * - Product of two FP32 values is generally not exactly
+       * representation as an FP32 value, and will be rounded to nearest
+       * FP32 value with ties to even with default MXCSR rounding mode.
+       */
+      __m256 x_scaled_v;
+      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        x_scaled_v = _mm256_mul_ps(
+            xf_v,
+            _mm256_mul_ps(
+                _mm256_set1_ps(r.A_scale), _mm256_loadu_ps(r.B_scale + j)));
+      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        if (C_PER_G == 2) {
+          multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
+              _mm256_castps128_ps256(_mm_loadu_ps(r.B_scale + quant_param_idx)),
+              permute_mask_v));
+        } else if (C_PER_G == 4) {
+          multiplier_v = _mm256_insertf128_ps(
+              _mm256_castps128_ps256(_mm_set1_ps(r.B_scale[quant_param_idx])),
+              _mm_set1_ps(r.B_scale[quant_param_idx + 1]),
+              1);
+        } else {
+          multiplier_v = _mm256_set1_ps(r.B_scale[quant_param_idx]);
+        }
+        x_scaled_v = _mm256_mul_ps(
+            xf_v, _mm256_mul_ps(_mm256_set1_ps(r.A_scale), multiplier_v));
+      } else {
+        x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
+      }
+
+      if (HAS_BIAS) {
+        x_scaled_v = _mm256_add_ps(x_scaled_v, _mm256_loadu_ps(r.bias + j));
+      }
+      if (FUSE_RELU) {
+        x_scaled_v = _mm256_max_ps(_mm256_setzero_ps(), x_scaled_v);
+      }
+
+      _mm256_storeu_ps(out + i * ld_out + j, x_scaled_v);
+    } // j loop vectorized
+
+    const int remainder = block.col_start + block.col_size - j;
+    (void)remainder; // Suppress unused variable warning
+    assert(remainder == 0);
+  } // i loop
+}
+
+#define INSTANTIATE_REQUANTIZE_BASE(                      \
+    A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE, C_PER_G) \
+  template void requantizeOutputProcessingGConvAvx2<      \
+      A_SYM,                                              \
+      B_SYM,                                              \
+      Q_GRAN,                                             \
+      BIAS,                                               \
+      RELU,                                               \
+      C_PER_G,                                            \
+      BIAS_TYPE>(                                         \
+      uint8_t * out,                                      \
+      const int32_t* inp,                                 \
+      const block_type_t& block,                          \
+      int ld_out,                                         \
+      int ld_in,                                          \
+      const requantizationParams_t<BIAS_TYPE>& r);
+
+#define INSTANTIATE_C_PER_G(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE)       \
   template void FBGEMM_API                                                     \
   requantizeOutputProcessingAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE>( \
       uint8_t * out,                                                           \
@@ -1372,77 +1568,45 @@ void requantizeOutputProcessingGConvAvx2(
       int ld_out,                                                              \
       int ld_in,                                                               \
       const requantizationParams_t<BIAS_TYPE>& r);                             \
-  template void requantizeOutputProcessingGConvAvx2<                           \
-      A_SYM,                                                                   \
-      B_SYM,                                                                   \
-      Q_GRAN,                                                                  \
-      BIAS,                                                                    \
-      RELU,                                                                    \
-      2,                                                                       \
-      BIAS_TYPE>(                                                              \
-      uint8_t * out,                                                           \
-      const int32_t* inp,                                                      \
-      const block_type_t& block,                                               \
-      int ld_out,                                                              \
-      int ld_in,                                                               \
-      const requantizationParams_t<BIAS_TYPE>& r);                             \
-  template void requantizeOutputProcessingGConvAvx2<                           \
-      A_SYM,                                                                   \
-      B_SYM,                                                                   \
-      Q_GRAN,                                                                  \
-      BIAS,                                                                    \
-      RELU,                                                                    \
-      4,                                                                       \
-      BIAS_TYPE>(                                                              \
-      uint8_t * out,                                                           \
-      const int32_t* inp,                                                      \
-      const block_type_t& block,                                               \
-      int ld_out,                                                              \
-      int ld_in,                                                               \
-      const requantizationParams_t<BIAS_TYPE>& r);                             \
-  template void requantizeOutputProcessingGConvAvx2<                           \
-      A_SYM,                                                                   \
-      B_SYM,                                                                   \
-      Q_GRAN,                                                                  \
-      BIAS,                                                                    \
-      RELU,                                                                    \
-      8,                                                                       \
-      BIAS_TYPE>(                                                              \
-      uint8_t * out,                                                           \
-      const int32_t* inp,                                                      \
-      const block_type_t& block,                                               \
-      int ld_out,                                                              \
-      int ld_in,                                                               \
-      const requantizationParams_t<BIAS_TYPE>& r);                             \
-  template void requantizeOutputProcessingGConvAvx2<                           \
-      A_SYM,                                                                   \
-      B_SYM,                                                                   \
-      Q_GRAN,                                                                  \
-      BIAS,                                                                    \
-      RELU,                                                                    \
-      16,                                                                      \
-      BIAS_TYPE>(                                                              \
-      uint8_t * out,                                                           \
-      const int32_t* inp,                                                      \
-      const block_type_t& block,                                               \
-      int ld_out,                                                              \
-      int ld_in,                                                               \
-      const requantizationParams_t<BIAS_TYPE>& r);
+  INSTANTIATE_REQUANTIZE_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE, 2); \
+  INSTANTIATE_REQUANTIZE_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE, 4); \
+  INSTANTIATE_REQUANTIZE_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE, 8); \
+  INSTANTIATE_REQUANTIZE_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, BIAS_TYPE, 16);
 
-#define INSTANTIATE_REQUANTIZE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU)              \
-  INSTANTIATE_REQUANTIZE_BIAS_TYPE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, float)   \
-  INSTANTIATE_REQUANTIZE_BIAS_TYPE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, int32_t) \
+#define INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE(       \
+    A_SYM, B_SYM, Q_GRAN, BIAS, RELU, C_PER_G)       \
+  template void requantizeOutputProcessingGConvAvx2< \
+      A_SYM,                                         \
+      B_SYM,                                         \
+      Q_GRAN,                                        \
+      BIAS,                                          \
+      RELU,                                          \
+      C_PER_G>(                                      \
+      float* out,                                    \
+      const int32_t* inp,                            \
+      const block_type_t& block,                     \
+      int ld_out,                                    \
+      int ld_in,                                     \
+      const requantizationForFloatParams_t& r);
+
+#define INSTANTIATE_REQUANTIZE_BIAS_TYPE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU)    \
+  INSTANTIATE_C_PER_G(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, float)                \
+  INSTANTIATE_C_PER_G(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, int32_t)              \
   template void requantizeForFloatAvx2<A_SYM, B_SYM, Q_GRAN, BIAS, RELU>(     \
       float* out,                                                             \
       const int32_t* inp,                                                     \
       const block_type_t& block,                                              \
       int ld_out,                                                             \
       int ld_in,                                                              \
-      const requantizationForFloatParams_t& r);
+      const requantizationForFloatParams_t& r);                               \
+  INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 2); \
+  INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 4); \
+  INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 8); \
+  INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE(A_SYM, B_SYM, Q_GRAN, BIAS, RELU, 16);
 
-#define INSTANTIATE_A_SYM(B_SYM, Q_GRAN, BIAS, RELU)      \
-  INSTANTIATE_REQUANTIZE(true, B_SYM, Q_GRAN, BIAS, RELU) \
-  INSTANTIATE_REQUANTIZE(false, B_SYM, Q_GRAN, BIAS, RELU)
+#define INSTANTIATE_A_SYM(B_SYM, Q_GRAN, BIAS, RELU)                \
+  INSTANTIATE_REQUANTIZE_BIAS_TYPE(true, B_SYM, Q_GRAN, BIAS, RELU) \
+  INSTANTIATE_REQUANTIZE_BIAS_TYPE(false, B_SYM, Q_GRAN, BIAS, RELU)
 
 #define INSTANTIATE_B_SYM(Q_GRAN, BIAS, RELU) \
   INSTANTIATE_A_SYM(true, Q_GRAN, BIAS, RELU) \
@@ -1460,10 +1624,14 @@ void requantizeOutputProcessingGConvAvx2(
 INSTANTIATE_BIAS(true)
 INSTANTIATE_BIAS(false)
 
-#undef INSTANTIATE_A_SYM
-#undef INSTANTIATE_B_SYM
-#undef INSTANTIATE_Q_GRANS
 #undef INSTANTIATE_BIAS
+#undef INSTANTIATE_Q_GRANS
+#undef INSTANTIATE_B_SYM
+#undef INSTANTIATE_A_SYM
+#undef INSTANTIATE_REQUANTIZE_BIAS_TYPE
+#undef INSTANTIATE_REQUANTIZE_FOR_FLOAT_BASE
+#undef INSTANTIATE_C_PER_G
+#undef INSTANTIATE_REQUANTIZE_BASE
 
 static inline uint16_t floatToHalf(float val) {
 #ifdef _MSC_VER

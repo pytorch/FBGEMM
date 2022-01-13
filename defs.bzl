@@ -84,7 +84,6 @@ def get_fbgemm_avx2_srcs(msvc = False):
         "src/FbgemmFloat16ConvertAvx2.cc",
         "src/FbgemmI8Depthwise3DAvx2.cc",
         "src/FbgemmI8DepthwiseAvx2.cc",
-        "src/FbgemmI8DepthwisePerChannelQuantAvx2.cc",
         "src/FbgemmSparseDenseAvx2.cc",
         "src/FbgemmSparseDenseInt8Avx2.cc",
         "src/OptimizedKernelsAvx2.cc",
