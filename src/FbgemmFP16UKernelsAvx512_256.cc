@@ -10,7 +10,7 @@ namespace fbgemm {
 
 void NOINLINE gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -248,7 +248,7 @@ void NOINLINE gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -505,7 +505,7 @@ void NOINLINE gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -781,7 +781,7 @@ void NOINLINE gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -1076,7 +1076,7 @@ void NOINLINE gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -1390,7 +1390,7 @@ void NOINLINE gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -1723,7 +1723,7 @@ void NOINLINE gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"
@@ -2075,7 +2075,7 @@ void NOINLINE gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__)
+#if !defined(__clang__) || __clang_major__ >= 14
       "mov r14, %[gp]\t\n"
 #else
       "mov %[gp], %%r14\t\n"

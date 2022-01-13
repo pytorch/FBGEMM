@@ -393,7 +393,7 @@ int main(int argc, const char* argv[]) {
 
         srcfile << "  asm volatile(\n";
 
-        srcfile << "#if !defined(__clang__)"
+        srcfile << "#if !defined(__clang__) || __clang_major__ >= 14"
                 << "\n";
         addi(srcfile, "mov r14, %[gp]");
         srcfile << "#else\n";
