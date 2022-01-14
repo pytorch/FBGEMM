@@ -10,8 +10,6 @@
 #include <gtest/gtest.h>
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-using namespace ::testing;
-
 TEST(tensor_assert_test, gpu_asserts) {
   at::Tensor on_cpu_empty;
 
