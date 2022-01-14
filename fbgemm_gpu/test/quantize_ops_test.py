@@ -38,6 +38,8 @@ except Exception:
         gpu_available,
     )
 
+no_long_tests: bool = True
+
 
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -184,6 +186,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                     dequantized_data_trimmed.half(), reference.half()
                 )
 
+    @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
         ncols = 256
@@ -494,6 +497,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 dequantized_data_gpu.cpu().float(), dequantized_data.float()
             )
 
+    @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
         ncols = 256
