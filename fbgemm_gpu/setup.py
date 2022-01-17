@@ -38,4 +38,5 @@ setup(
     long_description=long_description,
     packages=["fbgemm_gpu"],
     cmake_args=[f"-DCMAKE_PREFIX_PATH={torch_root}"],
+    build_args=[f"-j{os.cpu_count() // 2}"],
 )
