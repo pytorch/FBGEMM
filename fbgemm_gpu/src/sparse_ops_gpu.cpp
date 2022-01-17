@@ -10,7 +10,6 @@
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
-#include <Python.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <stdexcept> // for logic_error
