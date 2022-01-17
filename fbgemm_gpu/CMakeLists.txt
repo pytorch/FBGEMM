@@ -13,18 +13,6 @@ if(SKBUILD)
   message("The project is built using scikit-build")
 endif()
 
-set(default_cuda_architectures 60 61 70 75 80)
-set(cuda_architectures_doc
-    "CUDA architectures to build for. Default is ${default_cuda_architectures}")
-set(cuda_architectures
-    "${default_cuda_architectures}"
-    CACHE STRING "${cuda_architectures_doc}")
-
-message("${message_line}")
-message("fbgemm_gpu:")
-message("Building for cuda_architectures = \"${cuda_architectures}\"")
-message("${message_line}")
-
 find_package(Torch REQUIRED)
 find_package(PythonExtensions REQUIRED)
 
@@ -257,8 +245,6 @@ add_library(fbgemm_gpu_py MODULE ${fbgemm_gpu_sources} ${gen_source_files}
 
 target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
 
-set_property(TARGET fbgemm_gpu_py PROPERTY CUDA_ARCHITECTURES
-                                           "${cuda_architectures}")
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
 target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
