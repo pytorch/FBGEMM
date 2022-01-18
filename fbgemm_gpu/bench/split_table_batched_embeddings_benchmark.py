@@ -1431,6 +1431,7 @@ def nbit_device(  # noqa C901
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
 @click.option("--reuse", default=0.1)
+@click.option("--uvm-num-embeddings", default=int(1e5))
 @click.option("--uvm-tables", default=1)
 @click.option("--uvm-bag-size", default=1)
 @click.option("--weighted", is_flag=True, default=False)
@@ -1451,6 +1452,7 @@ def nbit_uvm(
     num_embeddings: int,
     num_tables: int,
     reuse: float,
+    uvm_num_embeddings: int,
     uvm_tables: int,
     uvm_bag_size: int,
     weighted: bool,
@@ -1467,6 +1469,7 @@ def nbit_uvm(
     D = embedding_dim
     L = bag_size
     E = num_embeddings
+    E_uvm = uvm_num_embeddings
     T = num_tables
     T_uvm = uvm_tables
     assert T_uvm <= T
@@ -1494,7 +1497,7 @@ def nbit_uvm(
         [
             (
                 "",
-                E,
+                E_uvm,
                 d,
                 weights_precision,
                 managed_type,
@@ -1528,12 +1531,13 @@ def nbit_uvm(
             [
                 (
                     "",
-                    E,
+                    e,
                     d,
                     weights_precision,
                     managed_option,
                 )
-                for (d, managed_option) in zip(
+                for (e, d, managed_option) in zip(
+                    [E_uvm] * T_uvm + [E] * T_gpu,
                     Ds,
                     [managed_type] * T_uvm + [EmbeddingLocation.DEVICE] * T_gpu,
                 )
@@ -1550,7 +1554,7 @@ def nbit_uvm(
         B,
         T_uvm,
         L_uvm,
-        E,
+        E_uvm,
         reuse=reuse,
         alpha=alpha,
         weights_precision=weights_precision,
@@ -1582,6 +1586,17 @@ def nbit_uvm(
         + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
     )
 
+    if T_gpu > 0:
+        nparams_byte = sum(w.numel() for (w, _) in emb_mixed.split_embedding_weights())
+        logging.info(
+            f"{weights_precision} Embedding tables: {E * T + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
+            f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
+        )
+        logging.info(
+            f"Accessed weights per batch: {B * (T * L + T_uvm * L_uvm)} rows, "
+            f"{B * (T * L * sum(Ds[T_uvm:]) + T_uvm * L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
+        )
+
     time_per_iter = benchmark_requests(
         requests_uvm,
         lambda indices, offsets, per_sample_weights: emb_uvm.forward(
@@ -1593,7 +1608,7 @@ def nbit_uvm(
     )
     logging.info(
         f"UVM NBit Forward, {weights_precision}, B: {B}, "
-        f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
+        f"E_uvm: {E_uvm}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
         f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -1648,9 +1663,41 @@ def nbit_uvm(
         read_write_bytes_total = read_write_bytes_uvm + read_write_bytes_hbm
         logging.info(
             f"Mixed NBit Forward, {weights_precision}, B: {B}, "
-            f"E: {E}, T_GPU: {T_gpu}, T_UVM: {T_uvm}, D: {D}, L_GPU: {L}, L_UVM: {L_uvm}, W: {weighted}, "
+            f"E_GPU: {E}, E_UVM: {E_uvm}, T_GPU: {T_gpu}, T_UVM: {T_uvm}, D: {D}, L_GPU: {L}, L_UVM: {L_uvm}, W: {weighted}, "
             f"BW: {read_write_bytes_total / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
             f"Time: {time_per_iter * 1.0e6:.0f}us"
+        )
+
+        # benchmark prefetch
+        emb_mixed.reset_cache_states()
+        for indices, offsets, _ in requests:
+            emb_mixed.forward(indices, offsets)
+        prefetch_time, forward_time = benchmark_pipelined_requests(
+            requests,
+            lambda indices, offsets, indices_weights: emb_mixed.prefetch(
+                indices,
+                offsets,
+            ),
+            # pyre-fixme[6]: Expected `(Tensor, Tensor, Optional[Tensor]) -> None` for
+            #  3rd param but got `(indices: Any, offsets: Any, indices_weights: Any) ->
+            #  Tensor`.
+            lambda indices, offsets, indices_weights: emb_mixed.forward(
+                indices,
+                offsets,
+                indices_weights,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        )
+        e2e_time = prefetch_time + forward_time
+
+        logging.info(
+            f"Forward(LXU) {weights_precision}, reuse: {reuse}, alpha: {alpha}, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, "
+            f"Te2e: {e2e_time * 1.0e6:.0f}us, "
+            f"e2e BW: {read_write_bytes_total / e2e_time / 1.0e9: .2f} GB/s, "
+            f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
+            f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
+            f"{read_write_bytes_total / forward_time / 1.0e9: .2f} GB/s"
         )
 
 
