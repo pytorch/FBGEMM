@@ -138,7 +138,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
   vector<vector<int>> shapes;
   random_device r;
   default_random_engine generator(r());
-  uniform_int_distribution<int> dm(2, 1024 * 256);
+  uniform_int_distribution<int> dm(32, 1024 * 256);
 
   for (int i = 0; i < 10; i++) {
     int m = dm(generator);
@@ -159,6 +159,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
     if (do_clip) {
       A_fp32_ref[0] += 1024 * FP16_MAX;
       A_fp32_ref[1] = 1e-10;
+      A_fp32_ref[2] = 5.5e-8;
     }
 
     RoundToFloat16(A_fp32_ref.data(), A_fp32_final.data(), m, do_clip, do_clip);
@@ -186,6 +187,7 @@ TEST_P(FBGemmFloat16Test, Conversion_fake_rounding) {
     }
     if (do_clip) {
       EXPECT_EQ(A_fp32_final[1], 0.0);
+      EXPECT_EQ(A_fp32_final[2], 0.0);
     }
   }
 }
