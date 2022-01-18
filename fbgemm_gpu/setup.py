@@ -32,10 +32,14 @@ if "--cpu_only" in sys.argv:
     cpu_only_build = True
     sys.argv.remove("--cpu_only")
 
+cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
+if cpu_only_build:
+    cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
+
 setup(
     name="fbgemm_gpu",
     version="0.0.1",
     long_description=long_description,
     packages=["fbgemm_gpu"],
-    cmake_args=[f"-DCMAKE_PREFIX_PATH={torch_root}"],
+    cmake_args=cmake_args,
 )
