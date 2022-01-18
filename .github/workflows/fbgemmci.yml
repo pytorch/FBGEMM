@@ -232,8 +232,7 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
-        TORCH_CUDA_ARCH_LIST="6.0" python setup.py build
+        sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc TORCH_CUDA_ARCH_LIST="6.0" python setup.py install
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}
@@ -264,4 +263,4 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        python setup.py build --cpu_only
+        sudo python setup.py install --cpu_only
