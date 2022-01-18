@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 
-project(
-  fbgemm_gpu
-  VERSION 0.0.1
-  LANGUAGES CXX C CUDA)
+option(FBGEMM_CPU_ONLY "Build fbgemm_gpu without GPU support" OFF)
 
 set(message_line
     "-------------------------------------------------------------")
@@ -11,6 +8,23 @@ message("${message_line}")
 
 if(SKBUILD)
   message("The project is built using scikit-build")
+endif()
+if(FBGEMM_CPU_ONLY)
+  message("Building for CPU-only")
+endif()
+
+message("${message_line}")
+
+if(FBGEMM_CPU_ONLY)
+  project(
+    fbgemm_gpu
+    VERSION 0.0.1
+    LANGUAGES CXX C)
+else()
+  project(
+    fbgemm_gpu
+    VERSION 0.0.1
+    LANGUAGES CXX C CUDA)
 endif()
 
 find_package(Torch REQUIRED)
@@ -144,7 +158,11 @@ set_source_files_properties(
 set_source_files_properties(${gen_gpu_source_files}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")
 
-set(gen_source_files ${gen_gpu_source_files} ${gen_cpu_source_files})
+if(NOT FBGEMM_CPU_ONLY)
+  set(gen_source_files ${gen_gpu_source_files} ${gen_cpu_source_files})
+else()
+  set(gen_source_files ${gen_cpu_source_files})
+endif()
 
 #
 # CPP FBGEMM support
@@ -193,48 +211,58 @@ set_source_files_properties(
 set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_split_cpu.cpp
     codegen/embedding_forward_quantized_host_cpu.cpp
-    codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
-    codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
-    codegen/embedding_bounds_check_host.cpp
-    src/cumem_utils_host.cpp
     src/cpu_utils.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
+    src/quantize_ops_cpu.cpp
+    src/sparse_ops_cpu.cpp)
+
+if(NOT FBGEMM_CPU_ONLY)
+  list(APPEND fbgemm_gpu_sources_cpu
+    codegen/embedding_forward_quantized_host.cpp
+    codegen/embedding_backward_dense_host.cpp
+    codegen/embedding_bounds_check_host.cpp
+    src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
     # src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
-    src/quantize_ops_cpu.cpp
     src/quantize_ops_gpu.cpp
-    src/sparse_ops_cpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp)
+endif()
 
 set_source_files_properties(
   ${fbgemm_gpu_sources_cpu} PROPERTIES COMPILE_OPTIONS
                                        "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
 
-set(fbgemm_gpu_sources_gpu
+if(NOT FBGEMM_CPU_ONLY)
+  set(fbgemm_gpu_sources_gpu
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
     src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
     src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu
     src/split_embeddings_utils.cu)
 
-set_source_files_properties(${fbgemm_gpu_sources_gpu}
+  set_source_files_properties(${fbgemm_gpu_sources_gpu}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")
 
-# XXXUPS!!! Replace with real
-set_source_files_properties(
-  ${fbgemm_gpu_sources_gpu}
-  PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
+  # XXXUPS!!! Replace with real
+  set_source_files_properties(
+    ${fbgemm_gpu_sources_gpu}
+    PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
+endif()
 
 set_source_files_properties(
   ${fbgemm_gpu_sources_cpu}
   PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
 
-set(fbgemm_gpu_sources ${fbgemm_gpu_sources_gpu} ${fbgemm_gpu_sources_cpu})
+if(NOT FBGEMM_CPU_ONLY)
+  set(fbgemm_gpu_sources ${fbgemm_gpu_sources_gpu} ${fbgemm_gpu_sources_cpu})
+else()
+  set(fbgemm_gpu_sources ${fbgemm_gpu_sources_cpu})
+endif()
 
 #
 # MODULE
@@ -243,7 +271,9 @@ set(fbgemm_gpu_sources ${fbgemm_gpu_sources_gpu} ${fbgemm_gpu_sources_cpu})
 add_library(fbgemm_gpu_py MODULE ${fbgemm_gpu_sources} ${gen_source_files}
                                  ${cpp_asmjit_files} ${cpp_fbgemm_files})
 
-target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
+if(NOT FBGEMM_CPU_ONLY)
+  target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
+endif()
 
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
