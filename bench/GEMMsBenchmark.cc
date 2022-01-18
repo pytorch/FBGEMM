@@ -64,12 +64,11 @@ void performance_test() {
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
-  for (auto shape : shapes) {
+  for (const auto& shape : shapes) {
     int m = shape[0];
     int n = shape[1];
     int k = shape[2];
 
-    float alpha = 1.f, beta = 0.f;
     aligned_vector<uint8_t> Aint8(m * k);
 
     aligned_vector<int8_t> Bint8(k * n);
@@ -93,6 +92,8 @@ void performance_test() {
     double ttot = 0.0;
     string runType;
 #ifdef USE_MKL
+    const float alpha = 1.f;
+    const float beta = 0.f;
     runType = "MKL_fp32";
     ttot = measureWithWarmup(
         [&]() {
@@ -212,7 +213,9 @@ void performance_test() {
 #endif
       }
     }
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
@@ -294,7 +297,9 @@ void performance_test() {
 #endif
       }
     }
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,

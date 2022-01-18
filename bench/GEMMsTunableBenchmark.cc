@@ -157,7 +157,9 @@ void performance_test(
 #endif
     }
   }
-  ((volatile char*)(llc.data()));
+  if (flush) {
+    ((volatile char*)(llc.data()))[0] += 1;
+  }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << ", " << setw(16) << total_packing_time / (double)NITER / 1e3 << ", "

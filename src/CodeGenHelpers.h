@@ -179,8 +179,8 @@ void genU8I8S32FMA(
     typename simd_info<INST_SET>::vec_reg_t aReg,
     typename simd_info<INST_SET>::vec_reg_t bReg,
     typename simd_info<INST_SET>::vec_reg_t cReg,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
-    typename simd_info<INST_SET>::vec_reg_t tmpReg) {
+    typename simd_info<INST_SET>::vec_reg_t /*oneReg16Bit*/,
+    typename simd_info<INST_SET>::vec_reg_t /*tmpReg*/) {
   a->vpdpbusd(cReg, aReg, bReg);
 }
 
@@ -223,7 +223,7 @@ void genU8Sum4(
     x86::Emitter* a,
     typename simd_info<INST_SET>::vec_reg_t src,
     typename simd_info<INST_SET>::vec_reg_t dest,
-    typename simd_info<INST_SET>::vec_reg_t oneReg16Bit,
+    typename simd_info<INST_SET>::vec_reg_t /*oneReg16Bit*/,
     typename simd_info<INST_SET>::vec_reg_t tmpReg) {
   gen8BitVectorOne(a, tmpReg);
   a->vpdpbusd(dest, src, tmpReg);

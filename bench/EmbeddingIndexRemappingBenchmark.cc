@@ -60,7 +60,6 @@ int run_benchmark(
       weights,
       batch_size,
       num_rows,
-      64, // embedding_dim (not used)
       average_len, // average number of indices in a batch
       EmbeddingSpMDMCornerCase::NONE);
 
