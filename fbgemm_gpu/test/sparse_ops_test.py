@@ -909,7 +909,7 @@ class SparseOpsTest(unittest.TestCase):
     )
     # pyre-ignore [56]
     @given(
-        T=st.integers(min_value=1, max_value=20),
+        T=st.integers(min_value=1, max_value=10),
         B=st.integers(min_value=1, max_value=128),
         D=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=500),
