@@ -32,6 +32,8 @@ if "--cpu_only" in sys.argv:
     cpu_only_build = True
     sys.argv.remove("--cpu_only")
 
+os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
+
 cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
 if cpu_only_build:
     cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
