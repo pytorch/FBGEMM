@@ -1,4 +1,4 @@
-# FBGEMM_GPU [WIP]
+# FBGEMM_GPU
 
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
 high-performance CUDA GPU operator library for GPU training and inference.
@@ -7,21 +7,22 @@ The library provides efficient table batched embedding bag,
 data layout transformation, and quantization supports.
 
 
-Currently tested with pytorch 1.10 and cuda 11.3
-( previously tested with pytorch 1.9 and automated testing planned)
+Currently tested with PyTorch 1.10 and CUDA 11.3
+(previously tested with PyTorch 1.9 and automated CI testing planned)
 
 Only Intel/AMD with AVX2 extensions are currently supported.
 
-
 General build instructions are as follows:
 
-Build dependencies:
-      "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
- and for testing:
-    "hypothesis"
+Build dependencies: "pytorch", "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
+and for testing: "hypothesis".
 
-Additional dependencies:
-   Currently cuDNN is required to be installed.
+```
+conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
+conda install scikit-build jinja2 ninja cmake hypothesis
+```
+
+Additional dependencies: currently cuDNN is required to be installed.
 
 ```
 git clone --recursive https://github.com/pytorch/FBGEMM.git
@@ -30,7 +31,7 @@ cd FBGEMM/fbgemm_gpu
 git submodule sync
 git submodule update --init --recursive
 
-# Specify cuda version to use
+# Specify CUDA version to use
 # (may not be needed with only a single version installed)
 export CUDA_BIN_PATH=/usr/local/cuda-11.3/
 export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
@@ -38,9 +39,9 @@ export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
 # if using CUDA 10 or earliers set the location to the CUB installation directory
 export CUB_DIR=${CUB_DIR}
 # in fbgemm_gpu folder
-# build the table batched embedding bag op for multiple cuda architectures
+# build the table batched embedding bag op for multiple CUDA architectures
 python setup.py install
-# or build it for specific cuda architectures
+# or build it for specific CUDA architectures
 python setup.py install -Dcuda_architectures="70;80"
 
 ```
@@ -69,7 +70,7 @@ The tests (in test folder) and benchmarks (in bench folder) are some great
 examples of using FBGEMM_GPU.
 
 ## Build Notes
-FBGEMM_GPU uses a scikit-build CMAKE-based build flow
+FBGEMM_GPU uses a scikit-build CMAKE-based build flow.
 
 ### Dependencies
 FBGEMM_GPU requires nvcc and a Nvidia GPU with
@@ -77,7 +78,7 @@ compute capability of 3.5+.
 
 + ###### CUB
 
-CUB is now included with cuda 11.1 - the section below will still be needed for lower cuda versions (once they are tested)
+CUB is now included with CUDA 11.1+ - the section below will still be needed for lower CUDA versions (once they are tested).
 
 For the [CUB][1] build time dependency, if you are using conda, you can continue with
 ```
@@ -91,23 +92,14 @@ tar xzf 1.10.0.tar.gz
 export CUB_DIR=$PWD/cub-1.10.0
 ```
 
-+ ###### googletest
-[googletest][2] is required to build and run FBGEMM_GPU's tests. **googletest is not
-required** if you don't want to run FBGEMM_GPU tests. By default, building of tests
-is **on**. Turn it off by setting FBGEMMGPU\_BUILD\_TESTS to off.
-
-
 + ###### PyTorch, Jinja2, scikit-build
-[PyTorch][3], [Jinja2][4] and are scikit-build **required** to build and run the table
+[PyTorch][2], [Jinja2][3] and are scikit-build **required** to build and run the table
 batched embedding bag operator. One thing to note is that the implementation
 of this op relies on the version of PyTorch 1.9 or later.
 
-
-You can download [googletest][2] and set
-GOOGLETEST\_SOURCE\_DIR respectively for
-cmake to find these libraries. If any of these variables is not set, cmake will
-build the git submodules found in the third\_party directory.
-
+```
+conda install scikit-build jinja2 ninja cmake
+```
 
 ## Running  FBGEMM_GPU
 
@@ -141,6 +133,5 @@ FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 
 [0]:https://pytorch.org/tutorials/advanced/torch_script_custom_ops.html
 [1]:https://github.com/NVIDIA/cub
-[2]:https://github.com/google/googletest
-[3]:https://github.com/pytorch/pytorch
-[4]:https://jinja.palletsprojects.com/en/2.11.x/
+[2]:https://github.com/pytorch/pytorch
+[3]:https://jinja.palletsprojects.com/en/2.11.x/
