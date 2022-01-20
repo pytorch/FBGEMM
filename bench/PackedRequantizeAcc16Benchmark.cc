@@ -103,7 +103,6 @@ void performance_test() {
     int n = shape[1];
     int k = shape[2];
 
-    float alpha = 1.0f, beta = 0.0f;
     aligned_vector<uint8_t> Aint8(m * k);
     aligned_vector<int8_t> Bint8(k * n);
 
@@ -129,6 +128,8 @@ void performance_test() {
     string runType;
 
 #ifdef USE_MKL
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
     ttot = 0.0;
     runType = "MKL_fp32";
     cout << setw(5) << m << ", " << setw(5) << n << ", " << setw(5) << k
@@ -163,7 +164,9 @@ void performance_test() {
         });
     ttot *= 1e9; // convert to ns
 
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
          << nops / ttot << endl;
 
@@ -415,7 +418,9 @@ void performance_test() {
         }
       }
 
-      ((volatile char*)(llc.data()));
+      if (flush) {
+        ((volatile char*)(llc.data()))[0] += 1;
+      }
       // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
       // unpacked");
       // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,

@@ -102,6 +102,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
+  (void)kc; // Suppress unused variable warning
   constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
@@ -129,6 +130,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     row_interleave =
         PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::ROW_INTERLEAVE;
   }
+  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);

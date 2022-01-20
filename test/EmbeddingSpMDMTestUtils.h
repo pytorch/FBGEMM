@@ -37,7 +37,6 @@ int GenerateLengthsIndicesWeights(
     std::vector<float>& weights,
     int batch_size,
     int num_rows,
-    int embedding_dim,
     int average_len,
     EmbeddingSpMDMCornerCase corner_case);
 

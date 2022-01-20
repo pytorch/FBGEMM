@@ -108,11 +108,11 @@ int main(int, char**) {
       // "ctData_Ref");
       //
       // Compare results
-      for (auto i = 0; i < ctDataRef.size(); i++) {
+      for (size_t i = 0; i < ctDataRef.size(); i++) {
         if (std::abs(ctDataRef[i] - ctDataIntrin[i]) > 1e-3) {
           fprintf(
               stderr,
-              "Error: Results differ ref %f and test %f at %d\n",
+              "Error: Results differ ref %f and test %f at %ld\n",
               ctDataRef[i],
               ctDataIntrin[i],
               i);

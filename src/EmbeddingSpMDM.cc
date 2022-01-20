@@ -645,7 +645,7 @@ GenEmbeddingSpMDMLookup<
 
           // broadcast the scale
           x86::Mem scale_src, bias_src;
-          constexpr int CACHE_LINE_LEN = 64;
+          constexpr unsigned int CACHE_LINE_LEN = 64;
           if (is8bit) {
             if (scale_bias_last) {
               scale_src = x86::dword_ptr(

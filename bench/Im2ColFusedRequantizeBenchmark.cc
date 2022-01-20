@@ -316,7 +316,9 @@ void performance_test() {
       }
     }
 
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
 
     // packedB.printPackedMatrix("bench B Packed");
     // printMatrix(matrix_op_t::NoTranspose, Cint32_fb.data(), MDim, NDim, NDim,

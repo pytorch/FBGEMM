@@ -1097,8 +1097,7 @@ class FBGEMM_API DoSConvOnInpBuffer {
       const std::uint8_t* A,
       const conv_param_t<>& conv_p,
       std::int32_t A_zero_point,
-      const CompressedSparseColumn& B_csc,
-      int groups = 1)
+      const CompressedSparseColumn& B_csc)
       : nextop_(nextop),
         A_(A),
         conv_p_(conv_p),

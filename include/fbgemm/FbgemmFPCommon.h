@@ -81,6 +81,7 @@ void cblas_gemm_compute(
   assert(cpuinfo_has_x86_fma3());
   assert(cpuinfo_has_x86_f16c());
   assert(transa == matrix_op_t::NoTranspose);
+  (void)transa; // Suppress unused variable warning
 
   const auto iset = fbgemmInstructionSet();
   // private scratchpad storage

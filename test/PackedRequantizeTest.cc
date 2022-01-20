@@ -407,7 +407,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       randFill<uint8_t>(Aint8, 0, 255);
       int32_t Aint8_zero_point = 43;
       float Aint8_scale = 0.11;
-      for (auto i = 0; i < Afp32.size(); ++i) {
+      for (size_t i = 0; i < Afp32.size(); ++i) {
         Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
       }
 

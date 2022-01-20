@@ -23,7 +23,6 @@ int GenerateLengthsIndicesWeights(
     vector<float>& weights,
     int batch_size,
     int num_rows,
-    int embedding_dim,
     int average_len,
     EmbeddingSpMDMCornerCase corner_case) {
   // Generate lengths
@@ -69,7 +68,7 @@ int GenerateLengthsIndicesWeights(
   offsets_32.resize(offsets.size());
   offsets[0] = 0;
   offsets_32[0] = 0;
-  for (int i = 0; i < lengths.size(); ++i) {
+  for (size_t i = 0; i < lengths.size(); ++i) {
     offsets_32[i + 1] = offsets[i + 1] = offsets[i] + lengths[i];
     lengths_32[i] = lengths[i];
   }

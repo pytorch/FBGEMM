@@ -694,7 +694,7 @@ GenEmbeddingSpMDMNBitLookup<
           a->vpbroadcastw(bias_vreg.half(), bias_src);
           a->vcvtph2ps(scale_vreg, scale_vreg.half());
           a->vcvtph2ps(bias_vreg, bias_vreg.half());
-          constexpr int CACHE_LINE_LEN = 64;
+          constexpr unsigned int CACHE_LINE_LEN = 64;
           if (pref_dist && fused_block_size % CACHE_LINE_LEN > 0 &&
               fused_block_size % CACHE_LINE_LEN <= 2 * sizeof(float16)) {
             a->prefetcht0(x86::dword_ptr(

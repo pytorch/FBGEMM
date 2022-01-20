@@ -147,6 +147,7 @@ void SparseDenseInt8MVAvx512(
     bool accum,
     int thread_id,
     int num_threads) {
+  (void)num_threads; // Suppress unused variable warning
   // Calcualtes accum ? C += A * B : C = A * B
   constexpr int VLEN_INT32 = 16;
 

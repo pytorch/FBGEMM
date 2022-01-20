@@ -58,7 +58,7 @@ void run_benchmark(
 
   vector<float> embedding_table(num_rows * embedding_dim);
   normal_distribution<float> embedding_distribution;
-  for (int i = 0; i < embedding_table.size(); ++i) {
+  for (size_t i = 0; i < embedding_table.size(); ++i) {
     embedding_table[i] = embedding_distribution(generator);
   }
   vector<float16> embedding_table_fp16;
@@ -273,7 +273,7 @@ void run_benchmark(
           assert(
               false && "ERROR: refernce impl and JIT imp did not both succeed");
         } else if (success) {
-          for (int i = 0; i < output.size(); ++i) {
+          for (size_t i = 0; i < output.size(); ++i) {
             assert(output[i] == output_ref[i]);
             if (output[i] != output_ref[i]) {
               cout << i << " " << output[i] << " " << output_ref[i] << endl;

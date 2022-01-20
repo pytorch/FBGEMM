@@ -55,13 +55,13 @@ void run_benchmark(
   // normal_distribution<float> h_w_distribution;
 
   // TODO: check appropriate vals for g,h,w
-  for (int i = 0; i < g.size(); ++i) {
+  for (size_t i = 0; i < g.size(); ++i) {
     g[i] = 4 + i; // h_w_distribution(generator);
   }
-  for (int i = 0; i < h.size(); ++i) {
+  for (size_t i = 0; i < h.size(); ++i) {
     h_ref[i] = h[i] = 2 + i; // h_w_distribution(generator);
   }
-  for (int i = 0; i < w.size(); ++i) {
+  for (size_t i = 0; i < w.size(); ++i) {
     w_ref[i] = w[i] = 3 + i; // h_w_distribution(generator);
   }
 
@@ -172,17 +172,17 @@ void run_benchmark(
     }
   }
 
-  for (int i = 0; i < w.size(); ++i) {
+  for (size_t i = 0; i < w.size(); ++i) {
     assert(fabs(w[i] - w_ref[i]) < 1e-5);
     if (fabs(w[i] - w_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%d %f %f\n", i, w[i], w_ref[i]);
+      fprintf(stderr, "%ld %f %f\n", i, w[i], w_ref[i]);
     }
   }
 
-  for (int i = 0; i < h.size(); ++i) {
+  for (size_t i = 0; i < h.size(); ++i) {
     assert(fabs(h[i] - h_ref[i]) < 1e-5);
     if (fabs(h[i] - h_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%d %f %f\n", i, h[i], h_ref[i]);
+      fprintf(stderr, "%ld %f %f\n", i, h[i], h_ref[i]);
     }
   }
 

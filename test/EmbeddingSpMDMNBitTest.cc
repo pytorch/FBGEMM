@@ -166,7 +166,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         weights,
         batch_size,
         num_rows,
-        embedding_dim,
         average_len,
         corner_case);
     const int64_t* offsets_or_lengths =
@@ -182,7 +181,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
     vector<float> output_ref(output_size_wo_sentries + num_sentries);
     vector<float> output(output_ref.size());
     vector<float16> output_ref_fp16(output.size()), output_fp16(output.size());
-    for (int i = output_size_wo_sentries; i < output.size(); ++i) {
+    for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
       output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
@@ -285,7 +284,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       EXPECT_EQ(success, false);
     }
     if (success) {
-      for (int i = 0; i < output.size(); ++i) {
+      for (size_t i = 0; i < output.size(); ++i) {
         float actual =
             is_output_float ? output[i] : cpu_half2float(output_fp16[i]);
         float expected = is_output_float ? output_ref[i]
@@ -387,7 +386,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
         weights,
         batch_size,
         num_rows,
-        embedding_dim,
         average_len,
         corner_case);
     const int64_t* offsets_or_lengths =
@@ -557,7 +555,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
       EXPECT_EQ(success, false);
     }
     if (success) {
-      for (int i = 0; i < output.size(); ++i) {
+      for (size_t i = 0; i < output.size(); ++i) {
         EXPECT_EQ(output[i], output_ref[i])
             << "results differ at (" << i << ") reference: " << output_ref[i]
             << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;

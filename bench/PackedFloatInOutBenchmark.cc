@@ -29,7 +29,7 @@ using namespace fbgemm;
 
 void performance_test() {
   // clang-format off
-  vector<vector<int>> shapes = {
+  const vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
     {1, 128, 512},
@@ -96,7 +96,6 @@ void performance_test() {
     int n = shape[1];
     int k = shape[2];
 
-    float alpha = 1.f, beta = 0.f;
     aligned_vector<float> Afp32(m * k);
     aligned_vector<uint8_t> Aint8(Afp32.size());
 
@@ -113,7 +112,7 @@ void performance_test() {
     randFill<uint8_t>(Aint8, 0, 255);
     float Aint8_scale = 0.11;
     int32_t Aint8_zero_point = 43;
-    for (auto i = 0; i < Afp32.size(); ++i) {
+    for (size_t i = 0; i < Afp32.size(); ++i) {
       Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
     }
 
@@ -122,7 +121,7 @@ void performance_test() {
 
     float Bint8_scale = 0.49;
     int32_t Bint8_zero_point = -30;
-    for (auto i = 0; i < Bfp32.size(); ++i) {
+    for (size_t i = 0; i < Bfp32.size(); ++i) {
       Bfp32[i] = Bint8_scale * (Bint8[i] - Bint8_zero_point);
     }
 
@@ -135,6 +134,8 @@ void performance_test() {
     std::string type;
     double nops = 2.0 * m * n * k;
 #ifdef USE_MKL
+    const float alpha = 1.f;
+    const float beta = 0.f;
     type = "MKL_FP32";
     ttot = measureWithWarmup(
         [&]() {
@@ -163,7 +164,9 @@ void performance_test() {
         });
     ttot *= 1e9; // convert to ns
 
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
 
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k
          << ", ";
@@ -175,10 +178,6 @@ void performance_test() {
     cout << setw(20) << type << ", " << setw(5) << fixed << setprecision(1)
          << nops / ttot << endl;
 #endif
-
-    int32_t C_multiplier = 16544;
-    int32_t C_right_shift = 35;
-    int32_t C_zero_pt = 5;
 
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
@@ -267,7 +266,9 @@ void performance_test() {
 #endif
       }
     }
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
@@ -294,12 +295,12 @@ void performance_test() {
     cout << endl;
     // cout << "total time: " << ttot << " ns" << endl;
 
+#ifdef USE_MKL
+    // correctness check
     float maximum = *max_element(Cfp32_mkl.begin(), Cfp32_mkl.end());
     float minimum = *min_element(Cfp32_mkl.begin(), Cfp32_mkl.end());
     float atol = (maximum - minimum) / 255 / 1.9;
 
-#ifdef USE_MKL
-    // correctness check
     compare_buffers(Cfp32_mkl.data(), Cfp32_fb.data(), m, n, n, 5, atol);
 #endif
   }
