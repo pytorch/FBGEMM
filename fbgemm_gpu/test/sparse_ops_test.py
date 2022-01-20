@@ -909,10 +909,10 @@ class SparseOpsTest(unittest.TestCase):
     )
     # pyre-ignore [56]
     @given(
-        T=st.integers(min_value=1, max_value=10),
-        B=st.integers(min_value=1, max_value=128),
+        T=st.integers(min_value=1, max_value=5),
+        B=st.integers(min_value=1, max_value=64),
         D=st.integers(min_value=1, max_value=128),
-        max_sequence_length=st.integers(min_value=1, max_value=500),
+        max_sequence_length=st.integers(min_value=1, max_value=300),
     )
     def test_stacked_jagged_2d_to_dense(
         self,
