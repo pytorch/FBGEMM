@@ -217,7 +217,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev
-        sudo pip install cmake scikit-build ninja jinja2 --no-input
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         # Install pytorch 1.11 as required by fbgemm_gpu
         sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
 
@@ -234,6 +234,15 @@ jobs:
         cd fbgemm_gpu
         sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc TORCH_CUDA_ARCH_LIST="6.0" python setup.py install
 
+    - name: Test fbgemm_gpu installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python input_combine_test.py
+        python quantize_ops_test.py
+        python sparse_ops_test.py
+
   build_cpu_only:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -248,7 +257,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev
-        sudo pip install cmake scikit-build ninja jinja2 --no-input
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         # Install pytorch 1.11 as required by fbgemm_gpu
         sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
 
@@ -264,3 +273,16 @@ jobs:
       run: |
         cd fbgemm_gpu
         sudo python setup.py install --cpu_only
+
+    - name: Test fbgemm_gpu cpu-only installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python batched_unary_embeddings_test.py
+        python input_combine_test.py
+        python layout_transform_ops_test.py
+        python merge_pooled_embeddings_test.py
+        python permute_pooled_embedding_modules_test.py
+        python quantize_ops_test.py
+        python sparse_ops_test.py

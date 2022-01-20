@@ -14,16 +14,17 @@ import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
 
-# pyre-ignore[21]
-from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
-
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, gpu_available
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, gpu_available
+
+if gpu_available:
+    # pyre-ignore[21]
+    from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
 from hypothesis import Verbosity, given, settings
 
@@ -73,6 +74,7 @@ class UvmTest(unittest.TestCase):
         del uvm_t
         cpu_t.mul_(42)
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_enum(self) -> None:
         # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
