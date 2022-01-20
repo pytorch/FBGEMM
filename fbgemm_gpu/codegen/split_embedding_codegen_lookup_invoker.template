@@ -94,7 +94,6 @@ def invoke(
             {% if "iter" in args.split_function_arg_names %}
             iter=iter,
             {% endif %}
-            output_dtype=common_args.output_dtype,
         )
     else:
         return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function(
