@@ -76,7 +76,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         x86::Gp buffer_A,
         x86::Gp buffer_B,
-        x86::Gp B_pf,
+        x86::Gp /*B_pf*/,
         int rowRegs,
         int colRegs,
         int strideXich) {

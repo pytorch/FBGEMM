@@ -51,8 +51,8 @@ TEST_P(packUnpackTest, sparseUnpackTest) {
   // "unpacked");
 
   // compare results with original dense
-  for (size_t j = 0; j < N; ++j) {
-    for (size_t k = 0; k < K; ++k) {
+  for (int j = 0; j < N; ++j) {
+    for (int k = 0; k < K; ++k) {
       ASSERT_EQ(wData[j * K + k], wUnpackedData[j * K + k])
           << "Original and unpacked data elements are not the same at idx ["
           << j << ", " << k << "]: "

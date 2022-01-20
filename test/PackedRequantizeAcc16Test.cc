@@ -718,7 +718,6 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
       aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
       randFill<uint8_t>(Aint8, 0, 255);
-      int32_t Aint8_zero_point = 43;
 
       randFill<int8_t>(Bint8_ref, -128, 127);
       aligned_vector<int8_t> Bint8(Bint8_ref);

@@ -118,17 +118,28 @@ if(MSVC)
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
 else(MSVC)
+  string(APPEND CMAKE_CXX_FLAGS " -Wall")
+  string(APPEND CMAKE_CXX_FLAGS " -Wextra")
+  string(APPEND CMAKE_CXX_FLAGS " -Werror")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
     "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
     "-mavx512vl")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx2.cc
+  set_source_files_properties(
+    src/FbgemmFP16UKernelsAvx2.cc
+    src/FbgemmFP16UKernelsAvx512.cc
+    src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx512.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx512_256.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
+  set_source_files_properties(
+    src/FbgemmI64.cc
+    src/FbgemmI8Depthwise3DAvx2.cc
+    src/FbgemmI8DepthwiseAvx2.cc
+    src/UtilsAvx2.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
+  set_source_files_properties(src/PackMatrix.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
 endif(MSVC)
 
 if(USE_SANITIZER)

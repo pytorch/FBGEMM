@@ -290,7 +290,7 @@ inst_set_t fbgemmInstructionSet() {
         } else {
           isa = inst_set_t::avx512_vnni;
         }
-      } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
+      } else if (fbgemmHasAvx512Support()) {
         if (isXeonD) {
           isa = inst_set_t::avx512_ymm;
         } else {

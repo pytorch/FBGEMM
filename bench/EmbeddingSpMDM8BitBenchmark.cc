@@ -249,7 +249,7 @@ int run_benchmark(
           assert(
               false && "ERROR: refernce impl and JIT imp did not both succeed");
         } else if (success) {
-          for (int i = 0; i < output.size(); ++i) {
+          for (size_t i = 0; i < output.size(); ++i) {
             assert(fabs(output[i] - output_ref[i]) < 1e-3);
             if (fabs(output[i] - output_ref[i]) >= 1e-3) {
               cout << i << " " << output[i] << " " << output_ref[i] << endl;

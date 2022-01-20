@@ -37,6 +37,7 @@ void avoidOverflow(
           b1_adjusted = std::min(std::max(b1_adjusted, -128), 127);
 
           int new_sum_pair = a0 * b0 + a1 * b1_adjusted;
+          (void)new_sum_pair; // Suppress unused variable warning
           assert(
               new_sum_pair >= numeric_limits<int16_t>::lowest() &&
               new_sum_pair <= numeric_limits<int16_t>::max());
@@ -47,6 +48,7 @@ void avoidOverflow(
           b1_adjusted = std::min(std::max(b1_adjusted, -128), 127);
 
           int new_sum_pair = a0 * b0 + a1 * b1_adjusted;
+          (void)new_sum_pair; // Suppress unused variable warning
           assert(
               new_sum_pair >= numeric_limits<int16_t>::lowest() &&
               new_sum_pair <= numeric_limits<int16_t>::max());

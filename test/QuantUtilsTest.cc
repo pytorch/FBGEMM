@@ -138,7 +138,7 @@ template <typename T>
     const vector<T>& res_ref) {
   bool match = true;
   if (res.size() == res_ref.size()) {
-    for (int i = 0; i < res.size(); ++i) {
+    for (size_t i = 0; i < res.size(); ++i) {
       if (!(res[i] == res_ref[i] || res[i] == res_ref[i] + 1 ||
             res[i] == res_ref[i] - 1)) {
         match = false;
@@ -166,7 +166,7 @@ template <typename T>
     match = false;
   }
   if (match) {
-    for (int i = 0; i < a.size(); i++) {
+    for (size_t i = 0; i < a.size(); i++) {
       const bool consider_absDiff = atol > 0;
       const bool consider_relDiff = rtol > 0 &&
           fabs(a[i]) > std::numeric_limits<float>::epsilon() &&
@@ -382,7 +382,7 @@ void runQuantizeTests(
     vector<T>& dst,
     vector<T>& dst_ref) {
   // reference
-  for (int i = 0; i < src.size(); ++i) {
+  for (size_t i = 0; i < src.size(); ++i) {
     dst_ref[i] = Quantize<T>(src[i], zero_point, scale, CHAR_BIT * sizeof(T));
   }
 
@@ -520,7 +520,7 @@ void runFusedQuantizeDequantizeTests(
   qparams.zero_point = zero_point;
   qparams.precision = CHAR_BIT * sizeof(T);
   // reference
-  for (int i = 0; i < src.size(); ++i) {
+  for (size_t i = 0; i < src.size(); ++i) {
     dst_ref[i] = FusedQuantizeDequantize<T>(src[i], qparams);
   }
   FusedQuantizeDequantize<T>(src.data(), dst.data(), src.size(), qparams);

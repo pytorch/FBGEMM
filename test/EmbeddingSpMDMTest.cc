@@ -168,7 +168,6 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         weights,
         batch_size,
         num_rows,
-        embedding_dim,
         average_len,
         corner_case);
     const int64_t* offsets_or_lengths =
@@ -185,7 +184,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     vector<float> output_ref(output_size_wo_sentries + num_sentries);
     vector<float> output(output_ref.size());
     vector<float16> output_ref_fp16(output.size()), output_fp16(output.size());
-    for (int i = output_size_wo_sentries; i < output.size(); ++i) {
+    for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
       output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
@@ -377,7 +376,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
     vector<float> embedding_table(num_compressed_rows * embedding_dim);
     default_random_engine generator;
     normal_distribution<float> embedding_distribution;
-    for (int i = 0; i < embedding_table.size(); ++i) {
+    for (size_t i = 0; i < embedding_table.size(); ++i) {
       embedding_table[i] = embedding_distribution(generator);
     }
     vector<float16> embedding_table_fp16;
@@ -402,7 +401,6 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
         weights,
         batch_size,
         num_rows,
-        embedding_dim,
         average_len,
         corner_case);
     const int64_t* offsets_or_lengths =
@@ -708,7 +706,7 @@ TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
       EXPECT_EQ(success, false);
     }
     if (success) {
-      for (int i = 0; i < output.size(); ++i) {
+      for (size_t i = 0; i < output.size(); ++i) {
         EXPECT_EQ(output[i], output_ref[i])
             << "results differ at (" << i << ") reference: " << output_ref[i]
             << ", FBGEMM: " << output[i] << " emb dim :" << embedding_dim;
@@ -727,7 +725,7 @@ TEST_P(IndexRemapTest, basicTest) {
   vector<int64_t> lengths, offsets, indices;
   vector<int32_t> lengths_32, offsets_32, indices_32;
   vector<float> weights;
-  int lengths_sum = GenerateLengthsIndicesWeights(
+  GenerateLengthsIndicesWeights(
       lengths,
       lengths_32,
       offsets,
@@ -737,14 +735,12 @@ TEST_P(IndexRemapTest, basicTest) {
       weights,
       batch_size,
       num_rows,
-      64, // embedding_dim (not used)
       avg_len, // average number of indices in a batch
       EmbeddingSpMDMCornerCase::NONE);
 
   // Create mapping table for rowwise sparsity
   vector<int32_t> mapping_table;
-  int num_compressed_rows =
-      CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
+  CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
 
   // outputs
   vector<int32_t> out_indices_32(indices_32.size(), 0);
@@ -869,7 +865,7 @@ TEST_P(IndexRemapTest, basicTest) {
     size_t len = isIndex64b ? out_offsets[offset_numel - 1]
                             : out_offsets_32[offset_numel - 1];
 
-    for (int i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i) {
       EXPECT_EQ(out_weights[i], out_weights_ref[i])
           << "weights don't match at" << i;
     }

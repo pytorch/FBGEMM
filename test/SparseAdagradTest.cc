@@ -185,12 +185,12 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
     EXPECT_EQ(ret_fbgemm, ret_ref)
         << "return vals differ, reference is: " << ret_ref
         << " ,fbgemm is: " << ret_fbgemm;
-    for (int i = 0; i < h.size(); ++i) {
+    for (size_t i = 0; i < h.size(); ++i) {
       EXPECT_EQ(h[i], h_ref[i])
           << "results for h differ at (" << i << ") reference: " << h_ref[i]
           << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
     }
-    for (int i = 0; i < w.size(); ++i) {
+    for (size_t i = 0; i < w.size(); ++i) {
       EXPECT_EQ(w[i], w_ref[i])
           << "results for h differ at (" << i << ") reference: " << w_ref[i]
           << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
@@ -323,12 +323,12 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
     EXPECT_EQ(ret_fbgemm, ret_ref)
         << "return vals differ, reference is: " << ret_ref
         << " ,fbgemm is: " << ret_fbgemm;
-    for (int i = 0; i < h.size(); ++i) {
+    for (size_t i = 0; i < h.size(); ++i) {
       EXPECT_EQ(h[i], h_ref[i])
           << "results for h differ at (" << i << ") reference: " << h_ref[i]
           << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
     }
-    for (int i = 0; i < w.size(); ++i) {
+    for (size_t i = 0; i < w.size(); ++i) {
       EXPECT_EQ(w[i], w_ref[i])
           << "results for w differ at (" << i << ") reference: " << w_ref[i]
           << ", FBGEMM: " << w[i] << " emb dim :" << block_size;

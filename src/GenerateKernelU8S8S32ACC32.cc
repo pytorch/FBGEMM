@@ -107,6 +107,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
+  (void)kc; // Suppress unused variable warning
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -134,6 +135,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     nRegBlockSizeMin = PackingTraits<uint8_t, int32_t, instSet>::NR_MIN;
     row_interleave = PackingTraits<uint8_t, int32_t, instSet>::ROW_INTERLEAVE;
   }
+  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
