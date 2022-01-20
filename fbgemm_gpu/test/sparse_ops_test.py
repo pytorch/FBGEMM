@@ -1229,17 +1229,20 @@ class SparseOpsTest(unittest.TestCase):
             )
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(data_type=st.sampled_from([torch.half, torch.float32]))
+    @given(
+        data_type=st.sampled_from([torch.half, torch.float32]),
+        segment_value_type=st.sampled_from([torch.int, torch.long]),
+    )
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_histogram_binning_calibration_by_feature(
-        self, data_type: torch.dtype
+        self, data_type: torch.dtype, segment_value_type: torch.dtype
     ) -> None:
         num_bins = 5000
         num_segments = 42
 
         logit = torch.tensor([-0.0018, 0.0085, 0.0090, 0.0003, 0.0029]).type(data_type)
 
-        segment_value = torch.tensor([40, 31, 32, 13, 31])
+        segment_value = torch.tensor([40, 31, 32, 13, 31]).type(segment_value_type)
         lengths = torch.tensor([[1], [1], [1], [1], [1]])
 
         num_interval = num_bins * (num_segments + 1)
@@ -1319,17 +1322,20 @@ class SparseOpsTest(unittest.TestCase):
             )
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(data_type=st.sampled_from([torch.half, torch.float32]))
+    @given(
+        data_type=st.sampled_from([torch.half, torch.float32]),
+        segment_value_type=st.sampled_from([torch.int, torch.long]),
+    )
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_generic_histogram_binning_calibration_by_feature(
-        self, data_type: torch.dtype
+        self, data_type: torch.dtype, segment_value_type: torch.dtype
     ) -> None:
         num_bins = 5000
         num_segments = 42
 
         logit = torch.tensor([-0.0018, 0.0085, 0.0090, 0.0003, 0.0029]).type(data_type)
 
-        segment_value = torch.tensor([40, 31, 32, 13, 31])
+        segment_value = torch.tensor([40, 31, 32, 13, 31]).type(segment_value_type)
         lengths = torch.tensor([[1], [1], [1], [1], [1]])
 
         num_interval = num_bins * (num_segments + 1)
