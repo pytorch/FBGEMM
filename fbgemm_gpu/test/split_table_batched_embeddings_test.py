@@ -699,7 +699,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             assert torch.allclose(cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -2541,7 +2541,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adam(  # noqa C901
         self,
         T: int,
@@ -2601,6 +2601,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
+    @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_adagrad(  # noqa C901
         self,
         T: int,
@@ -2659,7 +2660,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_lamb(  # noqa C901
         self,
         T: int,
@@ -2713,7 +2714,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     def test_backward_optimizers_lars(  # noqa C901
         self,
         T: int,
