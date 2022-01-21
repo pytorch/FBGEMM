@@ -23,6 +23,7 @@ try:
         fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
         gpu_available,
+        gpu_unavailable,
     )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
@@ -36,6 +37,7 @@ except Exception:
         fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
         gpu_available,
+        gpu_unavailable,
     )
 
 no_long_tests: bool = True
@@ -220,7 +222,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     # Pyre was not able to infer the type of argument `not torch.cuda.is_available()`
     # to decorator factory `unittest.skipIf`.
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     def test_mixed_dim_8bit_dequantize_op_empty(self) -> None:
         # assert that kernel return empty tensor and not failing with cuda error
         input_refs = torch.empty((0, 0), dtype=torch.uint8).cuda()
@@ -232,7 +234,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         )
         assert mixed_dim_dequant_output.numel() == 0
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
@@ -254,7 +256,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
     ) -> None:
         self.run_mixed_dim_8bit_dequantize_op_test(B, T, output_dtype, min_dim, max_dim)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
@@ -276,7 +278,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
     ) -> None:
         self.run_mixed_dim_8bit_dequantize_op_test(B, T, output_dtype, min_dim, max_dim)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
@@ -531,6 +533,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
 
 
 class TestDenseMLPQuantizationConversion(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),

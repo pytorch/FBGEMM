@@ -84,7 +84,7 @@ set(gen_cpu_source_files
 set(gen_python_files ${CMAKE_BINARY_DIR}/__init__.py)
 
 foreach(optimizer ${OPTIMIZERS})
-  list(APPEND gen_cpu_source_files
+  list(APPEND gen_gpu_host_source_files
        "gen_embedding_backward_split_${optimizer}.cpp")
 
   list(APPEND gen_cpu_source_files
@@ -134,7 +134,8 @@ set(codegen_dependencies
 )
 
 add_custom_command(
-  OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files} ${gen_python_files}
+  OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
+         ${gen_gpu_host_source_files} ${gen_python_files}
   COMMAND
     "${PYTHON_EXECUTABLE}"
     "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
@@ -152,6 +153,13 @@ set_source_files_properties(
 )
 
 set_source_files_properties(
+  ${gen_gpu_host_source_files}
+  PROPERTIES
+    INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
+)
+
+set_source_files_properties(
   ${gen_gpu_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
              "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -159,7 +167,8 @@ set_source_files_properties(${gen_gpu_source_files}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")
 
 if(NOT FBGEMM_CPU_ONLY)
-  set(gen_source_files ${gen_gpu_source_files} ${gen_cpu_source_files})
+  set(gen_source_files ${gen_gpu_source_files}
+      ${gen_gpu_host_source_files} ${gen_cpu_source_files})
 else()
   set(gen_source_files ${gen_cpu_source_files})
 endif()
