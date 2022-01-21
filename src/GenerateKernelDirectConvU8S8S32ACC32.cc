@@ -421,6 +421,372 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
 }
 
 /**
+ * Generate AVX512 instructions for storing the C registers back to the memory
+ * in 32-bit Accumulation kernel.
+ */
+template <>
+template <inst_set_t instSet>
+void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegsTrans(
+    x86::Emitter* a,
+    int rowRegs,
+    int colRegs,
+    x86::Gp C_offset,
+    x86::Gp o1XocReg,
+    x86::Gp ldcReg,
+    bool accum) {
+  using VecT = typename simd_info<instSet>::vec_reg_t;
+  // static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+
+  a->xor_(C_offset.r32(), C_offset.r32());
+  for (int i = 0; i < rowRegs; ++i) {
+    for (int j = 0; j < colRegs; ++j) {
+      if (accum) {
+        a->vpaddd(
+            VecT(i * colRegs + j),
+            VecT(i * colRegs + j),
+            x86::dword_ptr(a->zcx(), C_offset));
+      }
+      a->vmovups(x86::dword_ptr(a->zcx(), C_offset), VecT(i * colRegs + j));
+      a->add(C_offset, ldcReg);
+    }
+    a->add(C_offset, o1XocReg);
+  }
+}
+
+/**
+ * Generate AVX512 instructions for computing block in the rank-k update of
+ * 32-bit Accumulation kernel.
+
+The function generates the register blocking code for transposed
+direct convolution
+          // register blocking for transposed direct convolution:
+          // K[0] x K[1] = 12, the corresponding 12 x 8 output elements will
+          // be kept in the twelve avx2 registers, which is:
+          // out[ih + 0..r][iw + 0..s][8]
+          for (int r = 0; r < K[0]; ++r) {
+            for (int s = 0; s < K[1]; ++s) {
+              int oh = ih * conv_p.stride[0] + r;
+              int ow = iw * conv_p.stride[1] + s;
+
+              int a = input[((ih)*IN_DIM[1] + iw) * IC + icb];
+              int b = weight
+                  [(((((oc / 8) * K[0] + r) * K[1] + s) * (IC / 4) + icb / 4) *
+                        8 +
+                    (oc % 8)) *
+                       4 +
+                   (icb % 4)];
+              out[((oh)*OUT_DIM[1] + ow) * OC + oc] += a * b;
+            }
+          }
+        }
+ *
+ */
+template <>
+template <inst_set_t instSet>
+void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    genComputeBlockDirectConvTrans(
+        x86::Emitter* a,
+        x86::Gp buffer_A,
+        x86::Gp buffer_B,
+        x86::Gp icReg,
+        x86::Gp C_offset,
+        int rowRegs,
+        int colRegs) {
+  // static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+  using VecRegT = typename simd_info<instSet>::vec_reg_t;
+  constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
+
+  // used for matrix A
+  VecRegT AReg(numRegs - 1);
+
+  // used for matrix B
+  VecRegT BReg(numRegs - 2);
+
+  // Contains 16-bit 1s
+  VecRegT oneReg(numRegs - 3);
+
+  // temporary register
+  VecRegT res1(numRegs - 4);
+
+  // load A
+  a->vpbroadcastd(AReg, x86::dword_ptr(buffer_A));
+
+  a->xor_(C_offset.r32(), C_offset.r32());
+  for (int i = 0; i < rowRegs; ++i) {
+    for (int j = 0; j < colRegs; ++j) {
+      // load B, broadcast and fmas
+      emitLoadDWord<instSet, VecRegT>(
+          a, BReg, x86::dword_ptr(buffer_B, C_offset, 3, 0));
+      a->vpmaddubsw(res1, AReg, BReg);
+      a->vpmaddwd(res1, oneReg, res1);
+      a->vpaddd(VecRegT(i * colRegs + j), res1, VecRegT(i * colRegs + j));
+      a->add(C_offset, icReg);
+    }
+    // a->prefetcht0(x86::dword_ptr(B_pf, j * vectorLen * sizeof(int8_t)));
+  }
+}
+
+/**
+ * Get or Create the AVX256 instructions for 32-bit Accumulation macro-kernel.
+ *
+ * This function implements a direct convolution kernel that is specialized
+ * for kernel size (2, 6)
+ *
+ * More specifically the implementation has the following prerequisites:
+ * * Weights has layout {OC/8, KH, KW, IC/4, 8, 4}
+ * * kernel size (2, 6)
+ * * Features are in channel last format
+ * * Stride[0] = 1, Stride[1] = 1 or 2
+ * * Padding = 0
+ *
+ * mRegBlockSize = 12: the number of avx2 registers for output
+ * nRegBlockSize = 8: the # of output elements in one avx2 register
+ * row_interleave = 4: the horizontal reduction size for vpmaddubsw instruction
+ * stride: stride[1], 1 or 2. we stride[0] = 1
+ * ic: input channel
+ * i1: input_width: IN_DIM[1]
+ * ldcReg: leading dimension of output, a.k.a OC
+ * o1Xoc: output width multiply output channel: OUT_DIM[1] x OC
+ *
+ * The kernel implements the following algorithm:
+
+  for (int oc = 0; oc < OC; oc++) {
+    for (int ih = 0; ih < IN_DIM[0]; ++ih) {
+      for (int iw = 0; iw < IN_DIM[1]; iw++) {
+        // L1 blocking
+        for (int icb = 0; icb < IC; icb+=4) {
+          // register blocking:
+          // K[0] x K[1] = 12, the corresponding 12 x 8 output elements will
+          // be kept in the twelve avx2 registers, which is:
+          // out[ih + 0..r][iw + 0..s][8]
+          for (int r = 0; r < K[0]; ++r) {
+            for (int s = 0; s < K[1]; ++s) {
+              for (int _icb = icb ; _icb < icb + 4; _icb ++) {
+              int oh = ih * conv_p.stride[0] + r;
+              int ow = iw * conv_p.stride[1] + s;
+
+              int a = input[((ih)*IN_DIM[1] + iw) * IC + icb];
+              int b = weight
+                  [(((((oc / 8) * K[0] + r) * K[1] + s) * (IC / 4) + icb / 4) *
+                        8 +
+                    (oc % 8)) *
+                       4 +
+                   (icb % 4)];
+              out[((oh)*OUT_DIM[1] + ow) * OC + oc] += a * b;
+
+              // if we get rid of the brackets, and substitude corresponding
+ variables:
+              // out[ih * stride0 * o1Xoc + r * o1Xoc + iw * ldcReg + oc]
+              // input[ih * i1 * ic + iw * ic + icb]
+              }
+            }
+          }
+        }
+      } // for each ic
+    } // for each s
+  } // for each r
+
+ *
+ */
+template <>
+template <inst_set_t instSet>
+DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    jit_micro_kernel_fp_convT
+    DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+        getOrCreateDirectConvTrans(bool accum, int32_t stride) {
+  using VecRegT = typename simd_info<instSet>::vec_reg_t;
+  constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
+  constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+
+  std::tuple<bool, int, int, int> kernelSig;
+  constexpr int mRowRegBlockSize = 2;
+  constexpr int mColRegBlockSize = 6;
+  constexpr int mRegBlockSize = mRowRegBlockSize * mColRegBlockSize;
+  constexpr int nRegBlockSize = 8;
+  constexpr int row_interleave = 4;
+
+  kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
+
+  return codeCacheT_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp_convT {
+    asmjit::CodeHolder code;
+    code.init(runtime().environment());
+    x86::Assembler assembler(&code);
+    x86::Emitter* a = assembler.as<x86::Emitter>();
+#if defined(FBGEMM_LOG_CODE)
+    // generated code logging
+    FILE* codeLogfile = fopen(
+        getCodeLoggingFile<instSet>(
+            accum, stride, 0, 0, 0, mRegBlockSize, nRegBlockSize)
+            .c_str(),
+        "w");
+    asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
+    if (codeLogger) {
+      code.setLogger(codeLogger);
+    }
+#endif
+
+    const int maxMRegs = mRegBlockSize;
+    (void)maxMRegs; // Suppress unused variable warning
+    const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
+    assert(
+        maxMRegs * maxNRegs <= numRegs - 4 &&
+        "MRegs x NRegs is above available registers (MAX_REGS - 4)");
+
+    // arguments to the function created
+    x86::Gp buffer_A = a->zdi();
+    x86::Gp buffer_B = a->zsi();
+    x86::Gp CBase = a->zcx();
+    x86::Gp ic = a->gpz(8);
+    x86::Gp ldcReg = a->gpz(9);
+    x86::Gp o1Xoc = a->gpz(10);
+    x86::Gp i1 = a->gpz(11);
+
+    asmjit::FuncDetail func;
+    func.init(
+        asmjit::FuncSignatureT<
+            void,
+            uint8_t*,
+            int8_t*,
+            int32_t*,
+            int,
+            int,
+            int,
+            int>(asmjit::CallConv::kIdHost),
+        a->environment());
+
+    asmjit::FuncFrame frame;
+    frame.init(func);
+
+    auto dirtyVecRegs = asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
+        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
+    if (numRegs >= 16) {
+      dirtyVecRegs |= asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
+          asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+    }
+
+    frame.setDirtyRegs(x86::Reg::kGroupVec, dirtyVecRegs);
+    frame.setDirtyRegs(
+        x86::Reg::kGroupGp,
+        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+
+    asmjit::FuncArgsAssignment args(&func);
+    args.assignAll(buffer_A, buffer_B, CBase, ic, ldcReg, o1Xoc, i1);
+
+    args.updateFuncFrame(frame);
+    frame.finalize();
+
+    a->emitProlog(frame);
+    a->emitArgsAssignment(frame, args);
+
+    asmjit::Label LoopMBlocks = a->newLabel();
+
+    x86::Gp C_offset = a->gpz(12);
+    x86::Gp buffer_B_saved = a->gpz(13);
+    x86::Gp iIdx = a->gpz(14);
+    x86::Gp kIdx = a->gpz(15);
+
+    VecRegT oneReg(numRegs - 3);
+
+    gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
+    a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
+    // a->xor_(C_Offset.r32(), C_Offset.r32());
+
+    // a->mov(B_pf_saved, B_pf);
+
+    int colRegs = maxNRegs;
+
+    auto issueLoopOverK = [&](int rowRegs) {
+      asmjit::Label LoopKLabel = a->newLabel();
+
+      // Init C (result) vector registers
+      initCRegs(a, rowRegs, colRegs);
+
+      // Loops over K: input channel
+      // corresponds to the "icb" loop in the pseudo code
+      a->xor_(kIdx.r32(), kIdx.r32());
+      a->bind(LoopKLabel);
+
+      // k is incremented by row_interleave
+      a->add(kIdx, 4);
+      genComputeBlockDirectConvTrans<instSet>(
+          a,
+          buffer_A,
+          buffer_B,
+          ic,
+          C_offset,
+          mRowRegBlockSize,
+          mColRegBlockSize);
+
+      // update buffer_A address for next k iteration
+      a->add(
+          buffer_A, static_cast<asmjit::Imm>(row_interleave * sizeof(uint8_t)));
+
+      // update buffer_B address for next k iteration
+      a->add(buffer_B, static_cast<asmjit::Imm>(8 * sizeof(int32_t)));
+
+      a->cmp(kIdx, ic);
+      a->jl(LoopKLabel);
+
+      // store C matrix
+      storeCRegsTrans<instSet>(
+          a,
+          mRowRegBlockSize,
+          mColRegBlockSize,
+          C_offset,
+          o1Xoc,
+          ldcReg,
+          accum);
+    };
+
+    {
+      // move 0 to iteration variables
+      a->xor_(iIdx.r32(), iIdx.r32());
+
+      a->bind(LoopMBlocks);
+      a->inc(iIdx);
+
+      // save B_buffer address
+      a->mov(buffer_B_saved, buffer_B);
+
+      issueLoopOverK(mRegBlockSize);
+
+      // B for next block
+      a->mov(buffer_B, buffer_B_saved);
+      // increment C for next B block
+      // ldcReg already multiplied by 4 (sizeof(int32_t))
+      a->imul(C_offset, ldcReg, static_cast<asmjit::Imm>(stride));
+      a->add(CBase, C_offset);
+
+      // a->add(CBase, static_cast<asmjit::Imm>(12*16*4));
+      // storeCRegs<instSet>(a, 12, 1, C_Offset, ldcReg, accum);
+
+      a->cmp(iIdx, i1);
+      a->jl(LoopMBlocks);
+    }
+
+    a->emitEpilog(frame);
+
+    jit_micro_kernel_fp_convT fn;
+    asmjit::Error err;
+    {
+      std::unique_lock<std::mutex> lock(rtMutex_);
+      err = runtime().add(&fn, &code);
+    }
+    if (err) {
+      std::cout << "Error: in fn add" << std::endl;
+      return nullptr;
+    }
+
+#if defined(FBGEMM_LOG_CODE)
+    fclose(codeLogfile);
+    delete codeLogger;
+#endif
+
+    return fn;
+  });
+}
+
+/**
  * Instantiate the inst_set_t::avx512 instructions for store kernel.
  *
  */
@@ -460,6 +826,48 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         bool accum);
 
 /**
+ * Instantiate the inst_set_t::avx2 instructions for store kernel.
+ *
+ */
+template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    storeCRegsTrans<inst_set_t::avx512>(
+        x86::Emitter* a,
+        int rowRegs,
+        int colRegs,
+        x86::Gp C_offset,
+        x86::Gp o1XocReg,
+        x86::Gp ldcReg,
+        bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx2 instructions for store kernel.
+ *
+ */
+template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    storeCRegsTrans<inst_set_t::avx512_ymm>(
+        x86::Emitter* a,
+        int rowRegs,
+        int colRegs,
+        x86::Gp C_offset,
+        x86::Gp o1XocReg,
+        x86::Gp ldcReg,
+        bool accum);
+
+/**
+ * Instantiate the inst_set_t::avx2 instructions for store kernel.
+ *
+ */
+template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    storeCRegsTrans<inst_set_t::avx2>(
+        x86::Emitter* a,
+        int rowRegs,
+        int colRegs,
+        x86::Gp C_offset,
+        x86::Gp o1XocReg,
+        x86::Gp ldcReg,
+        bool accum);
+
+/**
  * Instantiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
  *
  */
@@ -471,5 +879,16 @@ template DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
             int32_t O1,
             int32_t i1Xich,
             int32_t strideXich);
+
+/**
+ * Instantiate the AVX2 instructions for 32-bit Accumulation macro-kernel.
+ *
+ */
+template DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+    jit_micro_kernel_fp_convT
+    DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
+        getOrCreateDirectConvTrans<inst_set_t::avx2>(
+            bool accum,
+            int32_t stride);
 
 } // namespace fbgemm

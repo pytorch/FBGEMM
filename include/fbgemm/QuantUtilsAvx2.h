@@ -86,7 +86,8 @@ template <
     QuantizationGranularity Q_GRAN,
     bool HAS_BIAS,
     bool FUSE_RELU,
-    typename BIAS_TYPE = std::int32_t>
+    typename BIAS_TYPE = std::int32_t,
+    bool DIRECT = false>
 FBGEMM_API void requantizeOutputProcessingAvx2(
     std::uint8_t* out,
     const std::int32_t* inp,
