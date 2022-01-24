@@ -697,7 +697,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
-            assert torch.allclose(cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output)
+            torch.testing.assert_allclose(
+                cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output
+            )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -797,7 +799,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             (weights, scale_shift) = split_weights[t]
             (ref_weights, ref_scale_shift) = ref_split_weights[t]
-            assert weights.size() == ref_weights.size()
+            self.assertEqual(weights.size(), ref_weights.size())
             element_size = weights_ty_list[t].bit_rate() / 8.0
             rand_tensor = torch.rand(
                 ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
@@ -808,8 +810,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ref_weights.copy_(rand_weights)
             weights.copy_(ref_weights)
             if rand_scale_shift is not None:
-                assert scale_shift is not None
-                assert ref_scale_shift is not None
+                self.assertIsNotNone(scale_shift)
+                self.assertIsNotNone(ref_scale_shift)
                 ref_scale_shift.copy_(rand_scale_shift)
                 scale_shift.copy_(ref_scale_shift)
 
@@ -854,7 +856,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
-            assert torch.allclose(
+            torch.testing.assert_allclose(
                 cat_deq_lowp_pooled_output,
                 cat_dq_fp32_pooled_output,
                 rtol=1e-2,
@@ -2113,9 +2115,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
         )
         for t in range(T):
-            assert (
-                cc.split_embedding_weights()[t].size()
-                == cc_ref.split_embedding_weights()[t].size()
+            self.assertEqual(
+                cc.split_embedding_weights()[t].size(),
+                cc_ref.split_embedding_weights()[t].size(),
             )
             cc.split_embedding_weights()[t].data.copy_(
                 cc_ref.split_embedding_weights()[t]
@@ -2341,7 +2343,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc.flush()
 
         split_optimizer_states = cc.split_optimizer_states()
-        assert len(split_optimizer_states) == T
+        self.assertEqual(len(split_optimizer_states), T)
         split_weights = cc.split_embedding_weights()
 
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
@@ -2885,7 +2887,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             (weights, scale_shift) = cc.split_embedding_weights()[t]
             if scale_shift is not None:
                 (E, R) = scale_shift.shape
-                assert R == 4
+                self.assertEqual(R, 4)
                 if weights_ty_list[t] == SparseType.INT4:
                     scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
                     shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
@@ -3265,7 +3267,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             (weights, scale_shift) = split_weights[t]
             (ref_weights, ref_scale_shift) = ref_split_weights[t]
-            assert weights.size() == ref_weights.size()
+            self.assertEqual(weights.size(), ref_weights.size())
             weights.copy_(ref_weights)
             if ref_scale_shift is not None:
                 scale_shift.copy_(ref_scale_shift)
@@ -3421,8 +3423,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             unique_cache_miss_count,
         ) = cc.get_cache_miss_counter().cpu()
 
-        assert unique_cache_miss_count == expect_out
-        assert cache_miss_forward_count <= unique_cache_miss_count
+        self.assertEqual(unique_cache_miss_count, expect_out)
+        self.assertLessEqual(cache_miss_forward_count, unique_cache_miss_count)
 
     @given(N=st.integers(min_value=1, max_value=8))
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -3478,10 +3480,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     unique_cache_miss_count,
                 ) = cc.get_cache_miss_counter().cpu()
                 tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
-                assert cache_miss_forward_count == t_counter[0]
-                assert unique_cache_miss_count == t_counter[1]
+                self.assertEqual(cache_miss_forward_count, t_counter[0])
+                self.assertEqual(unique_cache_miss_count, t_counter[1])
                 for i in range(len(tablewise_cache_miss)):
-                    assert t_tablewise_cache_miss[i] == tablewise_cache_miss[i]
+                    self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
 
     @given(
         T=st.integers(min_value=1, max_value=64),
@@ -3525,8 +3527,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         offsets = torch.tensor([0] + np.cumsum(Ls.flatten()).tolist()).to(dtype)
         warning = torch.tensor([0]).long()
 
-        assert indices.numel() == np.sum(Ls).item()
-        assert offsets[-1] == np.sum(Ls).item()
+        self.assertEqual(indices.numel(), np.sum(Ls).item())
+        self.assertEqual(offsets[-1], np.sum(Ls).item())
         if not use_cpu:
             indices, offsets, rows_per_table, warning = (
                 indices.cuda(),
