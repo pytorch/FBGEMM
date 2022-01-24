@@ -82,13 +82,6 @@
           NAME,                                                    \
           __VA_ARGS__)                                             \
       PRIVATE_CASE_TYPE_OUTPUT(                                    \
-          at::ScalarType::BFloat16,                                \
-          emb_type,                                                \
-          cache_type,                                              \
-          at::BFloat16,                                            \
-          NAME,                                                    \
-          __VA_ARGS__)                                             \
-      PRIVATE_CASE_TYPE_OUTPUT(                                    \
           at::ScalarType::Float,                                   \
           emb_type,                                                \
           cache_type,                                              \
@@ -144,29 +137,20 @@
     }                                                                      \
   }
 
-#define DISPATCH_EMB_GRAD_CACHE_TYPES(                                         \
-    EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)                                \
-  [&] {                                                                        \
-    const auto& emb_type = EMB_TYPE;                                           \
-    const auto& grad_type = GRAD_TYPE;                                         \
-    const auto& cache_type = CACHE_TYPE;                                       \
-    at::ScalarType _emb_t = ::detail::scalar_type(emb_type);                   \
-    at::ScalarType _grad_t = ::detail::scalar_type(grad_type);                 \
-    at::ScalarType _cache_t = ::detail::scalar_type(cache_type);               \
-    switch (_grad_t) {                                                         \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__)   \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::Half, _cache_t, _emb_t, at::Half, NAME, __VA_ARGS__) \
-      PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
-          at::ScalarType::BFloat16,                                            \
-          _cache_t,                                                            \
-          _emb_t,                                                              \
-          at::BFloat16,                                                        \
-          NAME,                                                                \
-          __VA_ARGS__)                                                         \
-      default:                                                                 \
-        AT_ERROR(                                                              \
-            #NAME, " not implemented for grad_t '", toString(_grad_t), "'");   \
-    }                                                                          \
+#define DISPATCH_EMB_GRAD_CACHE_TYPES(                                       \
+    EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)                              \
+  [&] {                                                                      \
+    const auto& emb_type = EMB_TYPE;                                         \
+    const auto& grad_type = GRAD_TYPE;                                       \
+    const auto& cache_type = CACHE_TYPE;                                     \
+    at::ScalarType _emb_t = ::detail::scalar_type(emb_type);                 \
+    at::ScalarType _grad_t = ::detail::scalar_type(grad_type);               \
+    at::ScalarType _cache_t = ::detail::scalar_type(cache_type);             \
+    switch (_grad_t) {                                                       \
+      PRIVATE_CASE_TYPE_CACHE_EMB(                                           \
+          at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__) \
+      default:                                                               \
+        AT_ERROR(                                                            \
+            #NAME, " not implemented for grad_t '", toString(_grad_t), "'"); \
+    }                                                                        \
   }()
