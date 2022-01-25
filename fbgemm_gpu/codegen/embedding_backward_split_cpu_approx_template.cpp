@@ -191,11 +191,8 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
 
   {% endif %}
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      grad_output.scalar_type(),
-      "split_embedding_backward_cpu", [&]() {
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      grad_output.scalar_type(), "split_embedding_backward_cpu", [&]() {
         using grad_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             host_weights.scalar_type(),

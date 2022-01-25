@@ -194,12 +194,8 @@ Tensor split_embedding_codegen_forward_cpu(
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      output.scalar_type(),
-      "split_embedding_cpu_forward",
-      [&]() {
+  AT_DISPATCH_FLOATING_TYPES(
+      output.scalar_type(), "split_embedding_cpu_forward", [&]() {
         using output_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND2(
             at::ScalarType::Half,
@@ -295,9 +291,7 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
       indices,
       indices.options().dtype(
           at::toAccumulateType(grad_output.scalar_type(), true)));
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       grad_output.scalar_type(),
       "split_embedding_grad_indice_weights_cpu_outer",
       [&]() {

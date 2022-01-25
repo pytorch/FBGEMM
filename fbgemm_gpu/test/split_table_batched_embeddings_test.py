@@ -211,7 +211,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -364,7 +363,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             learning_rate=0.05,
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
-            output_dtype=output_dtype,
         )
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -385,16 +383,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        tolerance = (
-            1.0e-5
-            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
-            else 8.0e-3
-        )
         torch.testing.assert_allclose(
             fc2.float(),
             f.float(),
-            atol=tolerance,
-            rtol=tolerance,
+            atol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
+            rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -419,7 +412,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
-        output_dtype=st.just(SparseType.FP32),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -441,7 +433,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_forward_(
             T,
@@ -456,7 +447,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             pooling_mode,
             use_cpu,
-            output_dtype,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -481,9 +471,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -505,7 +492,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_forward_(
             T,
@@ -520,7 +506,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             pooling_mode,
             use_cpu,
-            output_dtype,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -545,9 +530,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -569,7 +551,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_forward_(
             T,
@@ -584,7 +565,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             pooling_mode,
             use_cpu,
-            output_dtype,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -1102,7 +1082,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.just(SparseType.FP32),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1126,7 +1105,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -1292,7 +1270,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
-            output_dtype=output_dtype,
         )
 
         for t in range(T):
@@ -1345,7 +1322,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -1518,7 +1494,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             pooling_mode=pooling_mode,
-            output_dtype=output_dtype,
         )
 
         if exact:
@@ -1543,18 +1518,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         fc2.backward(goc)
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
-        tolerance = 1.0e-2
-        if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32:
-            tolerance = 1.0e-4
-        elif output_dtype == SparseType.BF16:
-            tolerance = 1.0e-1
         for t in range(T):
             ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
             torch.testing.assert_allclose(
                 split_optimizer_states[t].float().cpu(),
                 ref_optimizer_state.mean(dim=1) if row_wise else ref_optimizer_state,
-                atol=tolerance,
-                rtol=tolerance,
+                atol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
+                rtol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
             )
         for t in range(T):
             # optimizer_state = squares (no row-wise) or sum squares (row-wise)
@@ -1571,8 +1541,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     .view(Es[t], 1 if row_wise else Ds[t])
                     .cpu(),
                 ),
-                atol=tolerance,
-                rtol=tolerance,
+                atol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
+                rtol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
             )
         if use_cpu:
             D_gradcheck = (D_gradcheck + 15) // 16 * 4
@@ -1590,7 +1560,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             stochastic_rounding=stochastic_rounding,
             # NOTE: only SUM pooling can work with per_sample_weights!
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
-            output_dtype=output_dtype,
         )
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
@@ -1662,9 +1631,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1689,7 +1655,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -1708,7 +1673,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @given(
@@ -1729,9 +1693,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1756,7 +1717,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -1775,7 +1735,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.MEAN,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @given(
@@ -1796,9 +1755,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1823,7 +1779,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -1842,7 +1797,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.NONE,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @given(
@@ -1863,9 +1817,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1890,7 +1841,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -1909,7 +1859,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @given(
@@ -1930,9 +1879,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1957,7 +1903,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -1976,7 +1921,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.MEAN,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @given(
@@ -1997,9 +1941,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         exact=st.booleans(),
-        output_dtype=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2024,7 +1965,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
-        output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -2043,7 +1983,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.PoolingMode.NONE,
             use_cpu,
             exact,
-            output_dtype,
         )
 
     @unittest.skipIf(*gpu_unavailable)
