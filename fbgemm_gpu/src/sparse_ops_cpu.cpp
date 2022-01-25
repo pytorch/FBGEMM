@@ -1194,7 +1194,7 @@ void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
 
     const int curr_bin_id =
         std::lower_bound(
-            bin_boundaries, bin_boundaries + num_bins, uncalibrated) -
+            bin_boundaries, bin_boundaries + num_bins - 1, uncalibrated) -
         bin_boundaries;
 
     const int64_t curr_segment_value =
