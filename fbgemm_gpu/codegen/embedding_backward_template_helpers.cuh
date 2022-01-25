@@ -69,8 +69,10 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   return t_out;
 }
 
-template <typename index_t>
-__global__ void linearize_index_kernel(
+template <typename index_t,
+         size_t kMaxThreads>
+__global__ void __launch_bounds__(kMaxThreads)
+linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -91,10 +93,17 @@ __global__ void linearize_index_kernel(
   int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+#ifdef __HIP_PLATFORM_HCC__
+    index_t indices_start_warp = __shfl(indices_start, j);
+    int32_t b_t_warp = __shfl(b_t, j);
+    int32_t L_warp = __shfl(L, j);
+    index_t hash_offset_warp = __shfl(hash_offset, j);
+#else
     index_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
     int32_t b_t_warp = __shfl_sync(0xFFFFFFFF, b_t, j);
     int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
     index_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
+#endif
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
       index_t idx = __ldg(&indices[indices_start_warp + i]);
       infos[indices_start_warp + i] = b_t_warp;
@@ -125,10 +134,17 @@ __global__ void nobag_linearize_index_kernel(
   int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+#ifdef __HIP_PLATFORM_HCC__
+    index_t indices_start_warp = __shfl(indices_start, j);
+    int32_t t_warp = __shfl(t, j);
+    int32_t L_warp = __shfl(L, j);
+    index_t hash_offset_warp = __shfl(hash_offset, j);
+#else
     index_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
     int32_t t_warp = __shfl_sync(0xFFFFFFFF, t, j);
     int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
     index_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
+#endif
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
       index_t idx = __ldg(&indices[indices_start_warp + i]);
       int64_t l_t = (indices_start_warp + i) * T + t_warp;

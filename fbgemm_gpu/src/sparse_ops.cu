@@ -1135,7 +1135,11 @@ __global__ void reorder_batched_ad_indices_kernel(
   const int32_t output_segment_start =
       reordered_cat_ad_offsets[output_segment_offset_start];
 
+#ifdef __HIP_PLATFORM_HCC__
+  for (int32_t i = threadIdx.x; i < input_segment_end - input_segment_start;
+#else
   for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
+#endif
        i += blockDim.x) {
     reordered_cat_ad_indices[output_segment_start + i] =
         cat_ad_indices[input_segment_start + i];

@@ -15,9 +15,11 @@ namespace fbgemm_gpu {
 
 #define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                                \
   struct fbgemm_gpu_enum_tag_##module_name {};                                 \
-  extern template enum_registration<struct fbgemm_gpu_enum_tag_##module_name>* \
+  template <> enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*     \
       enum_registration<                                                       \
-          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;
+          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;        \
+  extern template class enum_registration<                                     \
+      struct fbgemm_gpu_enum_tag_##module_name>;
 
 #define FBGEMM_GPU_ENUM_TAG(module_name) \
   struct fbgemm_gpu_enum_tag_##module_name

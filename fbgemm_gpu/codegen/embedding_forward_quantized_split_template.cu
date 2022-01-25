@@ -172,7 +172,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -291,7 +291,11 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
     }
     // equivalent to fence + wait.
     cp_async_wait<0>();
+#ifdef __HIP_PLATFORM_HCC__
+    __syncthreads();
+#else
     __syncwarp();
+#endif
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -368,7 +372,7 @@ __global__ void fp32_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -488,7 +492,11 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
     }
     // equivalent to fence + wait.
     cp_async_wait<0>();
+#ifdef __HIP_PLATFORM_HCC__
+    __syncthreads();
+#else
     __syncwarp();
+#endif
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -570,7 +578,7 @@ __global__ void fp16_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -690,7 +698,11 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     }
     // equivalent to fence + wait.
     cp_async_wait<0>();
+#ifdef __HIP_PLATFORM_HCC__
+    __syncthreads();
+#else
     __syncwarp();
+#endif
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -773,7 +785,7 @@ __global__ void int_8bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
 }
 
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
-__launch_bounds__(WarpsPerBlock * 32)
+__launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -893,7 +905,11 @@ __global__ void int_4bit_split_embedding_codegen_forward_{{ wdesc }}_kernel_smal
     }
     // equivalent to fence + wait.
     cp_async_wait<0>();
+#ifdef __HIP_PLATFORM_HCC__
+    __syncthreads();
+#else
     __syncwarp();
+#endif
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -1037,9 +1053,17 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
                 found = true;
                 dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
             }
+#ifdef __HIP_PLATFORM_HCC__
+            if (__any(found)) {
+#else
             if (__any_sync(subwarp_mask, found)) {
+#endif
                 break;
+#ifdef __HIP_PLATFORM_HCC__
+            } else if (__any(empty)) {
+#else
             } else if (__any_sync(subwarp_mask, empty)) {
+#endif
                 dense_indices[indices_start + l_start + subwarp_id] = -1;
                 break;
             }

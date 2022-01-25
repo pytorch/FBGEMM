@@ -41,8 +41,13 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
     // Reverse the first comparison stage.
     // For example, merging a list of size 8 has the exchanges:
     // 0 <-> 15, 1 <-> 14, ...
+#ifdef __HIP_PLATFORM_HCC__
+    K otherK = __shfl_xor(k, 2 * L - 1);
+    V otherV = __shfl_xor(v, 2 * L - 1);
+#else
     K otherK = shfl_xor(k, 2 * L - 1);
     V otherV = shfl_xor(v, 2 * L - 1);
+#endif
 
     // Whether we are the lesser thread in the exchange
     bool small = !(laneId & L);
@@ -64,8 +69,13 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
 
 #pragma unroll
   for (int32_t stride = IsBitonic ? L : L / 2; stride > 0; stride /= 2) {
+#ifdef __HIP_PLATFORM_HCC__
+    K otherK = __shfl_xor(k, stride);
+    V otherV = __shfl_xor(v, stride);
+#else
     K otherK = shfl_xor(k, stride);
     V otherV = shfl_xor(v, stride);
+#endif
 
     // Whether we are the lesser thread in the exchange
     bool small = !(laneId & stride);
@@ -86,7 +96,11 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
 template <typename K, typename V, bool Dir, typename Comp>
 struct BitonicSort {
   static inline __device__ void sort(K k[1], V v[1]) {
+#ifdef __HIP_PLATFORM_HCC__
+    static_assert(fbgemm_gpu::kWarpSize == 64, "unexpected warp size");
+#else
     static_assert(fbgemm_gpu::kWarpSize == 32, "unexpected warp size");
+#endif
     warpBitonicMergeLE16<K, V, 1, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 2, Dir, Comp, false>(k[0], v[0]);
     warpBitonicMergeLE16<K, V, 4, Dir, Comp, false>(k[0], v[0]);

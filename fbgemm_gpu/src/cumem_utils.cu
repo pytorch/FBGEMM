@@ -237,6 +237,35 @@ int64_t uvm_get_guard_index(Tensor& t) {
 
 } // namespace
 
+#ifdef __HIP_PLATFORM_HCC__
+void uvm_cuda_mem_advise(Tensor t, int64_t hipMemoryAdvise) {
+  // Call hipMemAdvise on vm tensor
+  // See hipMemAdvise enum (automatically exported to python fbgemm_gpu.uvm
+  // namespace) for valid values and interface stub.
+  at::hip::OptionalHIPGuardMasqueradingAsCUDA device_guard;
+  int64_t cuda_device_index = uvm_get_guard_index(t);
+  int hint_device;
+  if (t.is_cpu()) {
+    hint_device = hipCpuDeviceId;
+  } else {
+    TORCH_CHECK(t.is_cuda());
+    hint_device = static_cast<int>(cuda_device_index);
+  }
+
+  void* ptr = t.data_ptr();
+  size_t size_bytes = at::detail::computeStorageNbytes(
+      t.sizes(), t.strides(), t.dtype().itemsize());
+
+  device_guard.set_index(cuda_device_index);
+
+  AT_CUDA_CHECK(hipMemAdvise(
+      ptr,
+      size_bytes,
+      static_cast<enum hipMemoryAdvise>(hipMemoryAdvise),
+      hint_device));
+  return;
+}
+#else
 void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
   // Call cudaMemAdvise on vm tensor
   // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
@@ -264,6 +293,7 @@ void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
       hint_device));
   return;
 }
+#endif
 
 void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t) {
   // Call cudaMemPrefetchAsync on Tensor
@@ -311,6 +341,16 @@ void uvm_mem_advice_dont_fork(Tensor t) {
 
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
 
+#ifdef __HIP_PLATFORM_HCC__
+FBGEMM_GPU_ENUM_REGISTER_START(uvm, hipMemoryAdvise){
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetReadMostly),
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetReadMostly),
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetPreferredLocation),
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetPreferredLocation),
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetAccessedBy),
+    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetAccessedBy),
+} FBGEMM_GPU_ENUM_REGISTER_END
+#else
 FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetReadMostly),
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetReadMostly),
@@ -319,5 +359,6 @@ FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetAccessedBy),
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetAccessedBy),
 } FBGEMM_GPU_ENUM_REGISTER_END
+#endif
 
 } // namespace fbgemm_gpu

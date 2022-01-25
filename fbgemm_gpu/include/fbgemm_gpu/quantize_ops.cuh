@@ -7,8 +7,10 @@
 #pragma once
 
 #include <cuda.h>
-#include <cuda_fp16.h>
+#ifndef __HIP_PLATFORM_HCC__
 #include <math_constants.h>
+#endif
+#include <cuda_fp16.h>
 #include <cstdint>
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -59,8 +61,14 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
   const int output_columns = ncols_aligned + 2 * sizeof(float);
 
   // starting values for future reductions
+  // TODO: Fix this for HIP
+#ifdef __HIP_PLATFORM_HCC__
+  float minimum_element = 0;
+  float maximum_element = 0;
+#else
   float minimum_element = CUDART_INF_F;
   float maximum_element = -CUDART_INF_F;
+#endif
 
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.

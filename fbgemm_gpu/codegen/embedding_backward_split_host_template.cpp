@@ -186,9 +186,12 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
     {% endfor %}
-
     {% if not nobag %}
+#ifdef __HIP_PLATFORM_HCC__
+    constexpr int32_t BT_block_size = 64;
+#else
     constexpr int32_t BT_block_size = 32;
+#endif
     if (!indice_weights) {
         return {split_embedding_codegen_forward_unweighted_cuda(
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets,
@@ -256,8 +259,13 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
 
     TORCH_CHECK(grad_outputs.size() == 1);
 
+#ifdef __HIP_PLATFORM_HCC__
+    constexpr int32_t BT_block_size = 64;
+    constexpr int32_t max_segment_length_per_warp = 64;
+#else
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;
+#endif
     using torch::autograd::Variable;
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];

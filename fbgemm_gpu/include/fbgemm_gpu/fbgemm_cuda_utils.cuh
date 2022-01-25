@@ -19,7 +19,11 @@ namespace fbgemm_gpu {
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
 // Warp size
+#ifdef __HIP_PLATFORM_HCC__
+static constexpr int32_t kWarpSize = 64;
+#else
 static constexpr int32_t kWarpSize = 32;
+#endif
 // Max thread num in one thread block
 static constexpr int32_t kMaxThreads = 1024;
 static constexpr float kQParamEps = 1e-8f;
@@ -36,7 +40,12 @@ struct Half4 {
   half2 b;
 
   __device__ inline void store(at::Half* p) {
-#if CUDA_VERSION >= 9000
+#ifdef __HIP_PLATFORM_HCC__
+    p[0] = __low2half(a);
+    p[1] = __high2half(a);
+    p[2] = __low2half(b);
+    p[3] = __high2half(b);
+#elif CUDA_VERSION >= 9000
 
 #ifndef __HALF2_TO_UI
 // cuda_fp16.hpp doesn't export this
@@ -79,6 +88,12 @@ struct Vec4T<float> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
+#ifdef __HIP_PLATFORM_HCC__
+    acc.x = __half2float(p[0]);
+    acc.y = __half2float(p[1]);
+    acc.z = __half2float(p[2]);
+    acc.w = __half2float(p[3]);
+#else
     Half4 out;
 #if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
@@ -97,6 +112,7 @@ struct Vec4T<float> {
     acc.y = a.y;
     acc.z = b.x;
     acc.w = b.y;
+#endif
   }
 
   DEVICE_INLINE void store(float* p) {
@@ -173,6 +189,12 @@ struct Vec4T<at::Half> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
+#ifdef __HIP_PLATFORM_HCC__
+    acc.x = __half2float(p[0]);
+    acc.y = __half2float(p[1]);
+    acc.z = __half2float(p[2]);
+    acc.w = __half2float(p[3]);
+#else
     Half4 out;
 #if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
@@ -191,6 +213,7 @@ struct Vec4T<at::Half> {
     acc.y = a.y;
     acc.z = b.x;
     acc.w = b.y;
+#endif
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -235,6 +258,12 @@ struct Vec4T<at::Half> {
   }
 
   DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
+#ifdef __HIP_PLATFORM_HCC__
+    dst[0] = src[0];
+    dst[1] = src[1];
+    dst[2] = src[2];
+    dst[3] = src[3];
+#else
     Half4 out;
 #if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
@@ -251,6 +280,7 @@ struct Vec4T<at::Half> {
         : "l"(dst), "r"(__HALF2_TO_UI(out.a)), "r"(__HALF2_TO_UI(out.b)));
 #else
     asm("st.v2.u32 [%0], {%1, %2};" : : "l"(dst), "r"(out.a.x), "r"(out.b.x));
+#endif
 #endif
   }
 
@@ -305,6 +335,12 @@ struct Vec4T<double> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
+#ifdef __HIP_PLATFORM_HCC__
+    acc.x = __half2float(p[0]);
+    acc.y = __half2float(p[1]);
+    acc.z = __half2float(p[2]);
+    acc.w = __half2float(p[3]);
+#else
     Half4 out;
 #if CUDA_VERSION >= 9000
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
@@ -323,6 +359,7 @@ struct Vec4T<double> {
     acc.y = a.y;
     acc.z = b.x;
     acc.w = b.y;
+#endif
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -406,7 +443,9 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 
 template <typename T>
 DEVICE_INLINE T shfl_xor(const T val, int laneMask, int width = kWarpSize) {
-#if CUDA_VERSION >= 9000
+#ifdef __HIP_PLATFORM_HCC__
+  return __shfl_xor(val, laneMask, width);
+#elif CUDA_VERSION >= 9000
   return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #else
   return __shfl_xor(val, laneMask, width);
@@ -418,7 +457,11 @@ template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(T val) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+#ifdef __HIP_PLATFORM_HCC__
+    val += __shfl_xor(val, mask);
+#else
     val += shfl_xor(val, mask);
+#endif
   }
   return val;
 }
@@ -517,10 +560,17 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
+#ifdef __HIP_PLATFORM_HCC__
+  v.a = __halves2half2(stochastic_rounding_scalar(value.acc.x, random_bits.x),
+                       stochastic_rounding_scalar(value.acc.y, random_bits.y));
+  v.b = __halves2half2(stochastic_rounding_scalar(value.acc.z, random_bits.z),
+                       stochastic_rounding_scalar(value.acc.w, random_bits.w));
+#else
   v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
   v.a.y = stochastic_rounding_scalar(value.acc.y, random_bits.y);
   v.b.x = stochastic_rounding_scalar(value.acc.z, random_bits.z);
   v.b.y = stochastic_rounding_scalar(value.acc.w, random_bits.w);
+#endif
   v.store(output);
 }
 
@@ -532,10 +582,17 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
+#ifdef __HIP_PLATFORM_HCC__
+  v.a = __halves2half2(stochastic_rounding_scalar(value.acc.x, random_bits.x),
+                       stochastic_rounding_scalar(value.acc.y, random_bits.y));
+  v.b = __halves2half2(stochastic_rounding_scalar(value.acc.z, random_bits.z),
+                       stochastic_rounding_scalar(value.acc.w, random_bits.w));
+#else
   v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
   v.a.y = stochastic_rounding_scalar(value.acc.y, random_bits.y);
   v.b.x = stochastic_rounding_scalar(value.acc.z, random_bits.z);
   v.b.y = stochastic_rounding_scalar(value.acc.w, random_bits.w);
+#endif
   v.store(output);
 }
 
@@ -879,8 +936,13 @@ __device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
     qparams.x = (local_max - local_min) / 255.0f;
     qparams.y = local_min;
   }
+#ifdef __HIP_PLATFORM_HCC__
+  qparams.x = __shfl(qparams.x, 0);
+  qparams.y = __shfl(qparams.y, 0);
+#else
   qparams.x = __shfl_sync(0xFFFFFFFF, qparams.x, 0);
   qparams.y = __shfl_sync(0xFFFFFFFF, qparams.y, 0);
+#endif
   return qparams;
 }
 
@@ -940,6 +1002,9 @@ DEVICE_INLINE float8 make_zero_float8() {
 
 __forceinline__ __device__ __half2
 hfma2(const __half2 a, const __half2 b, const __half2 c) {
+#ifdef __HIP_PLATFORM_HCC__
+  return __hfma2(a, b, c);
+#else
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
   return __hfma2(a, b, c);
 #else
@@ -951,13 +1016,18 @@ hfma2(const __half2 a, const __half2 b, const __half2 c) {
   fc.y = fa.y * fb.y + fc.y;
   return __float22half2_rn(fc);
 #endif
+#endif
 }
 
 __forceinline__ __device__ half hmul(half a, half b) {
+#ifdef __HIP_PLATFORM_HCC__
+  return __hmul(a, b);
+#else
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
   return __hmul(a, b);
 #else
   return __float2half(__half2float(a) * __half2float(b));
+#endif
 #endif
 }
 
@@ -1011,28 +1081,31 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   // on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive
   // on the XU. b) doing a 256-entry shared memory LUT on 8-bit pairs is
   // expensive on SMEM throughput. Credit to @jhj.
-  res.vals[0] = hmul_short2(v & 0x000F000F, 32768);
-  res.vals[1] = hmul_short2(v & 0x00F000F0, 32768);
+  res.vals[0] = hmul_short2(v & 0x000F000F, __int2half_rn(32768));
+  res.vals[1] = hmul_short2(v & 0x00F000F0, __int2half_rn(32768));
   v >>= 8;
-  res.vals[2] = hmul_short2(v & 0x000F000F, 32768);
-  res.vals[3] = hmul_short2(v & 0x00F000F0, 32768);
+  res.vals[2] = hmul_short2(v & 0x000F000F, __int2half_rn(32768));
+  res.vals[3] = hmul_short2(v & 0x00F000F0, __int2half_rn(32768));
 
+  // TODO: Enable this for HIP
+#ifndef __HIP_PLATFORM_HCC__
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
   res.vals[2] = hfma2(
       res.vals[2],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
   res.vals[3] = hfma2(
       res.vals[3],
-      __half2(hmul(shift_scale.x, 32), hmul(shift_scale.x, 32)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+#endif
   return res;
 }
 
@@ -1041,17 +1114,17 @@ dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
   half4 res;
   uint32_t v = packedVals;
   // See comment above, this is a minor variation.
-  res.vals[0] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[0] = hmul_short2(v & 0x00FF00FF, __int2half_rn(32768));
   v >>= 8;
-  res.vals[1] = hmul_short2(v & 0x00FF00FF, 32768);
+  res.vals[1] = hmul_short2(v & 0x00FF00FF, __int2half_rn(32768));
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(shift_scale.x, 512), hmul(shift_scale.x, 512)),
-      __half2(shift_scale.y, shift_scale.y));
+      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
+      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
   return res;
 }
 

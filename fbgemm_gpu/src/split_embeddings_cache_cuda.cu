@@ -254,9 +254,15 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
 
   // hash_offset < 0 for non-caching tables
   for (int32_t j = 0; j < kWarpSize; ++j) {
+#ifdef __HIP_PLATFORM_HCC__
+    int64_t indices_start_warp = __shfl(indices_start, j);
+    int32_t L_warp = __shfl(L, j);
+    int64_t hash_offset_warp = __shfl(hash_offset, j);
+#else
     int64_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
     int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
     int64_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
+#endif
     if (hash_offset_warp >= 0) {
       for (int32_t i = lane_id; i < L_warp; i += kWarpSize) {
         auto idx = __ldg(&indices[indices_start_warp + i]);
@@ -441,7 +447,11 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     lru_state[cache_set][slot] = time_stamp;
   }
 
+#ifdef __HIP_PLATFORM_HCC__
+  if (!__any(found)) {
+#else
   if (!__any_sync(0xFFFFFFFF, found)) {
+#endif
     if (threadIdx.x == 0) {
       cache_sets[n] = cache_set;
     }
@@ -571,9 +581,14 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
   int64_t sorted_lru_cost = costs[0];
 
   for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+#ifdef __HIP_PLATFORM_HCC__
+    int32_t insert_slot = __shfl(sorted_slot, l);
+    int64_t insert_current_lru_cost = __shfl(sorted_lru_cost, l);
+#else
     int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
     int64_t insert_current_lru_cost =
         __shfl_sync(0xFFFFFFFF, sorted_lru_cost, l);
+#endif
     if (insert_current_lru_cost == time_stamp) {
       return;
     }
@@ -589,7 +604,11 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     // lxu_cache_state
     int64_t current_idx =
         threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+#ifdef __HIP_PLATFORM_HCC__
+    current_idx = __shfl(current_idx, 0);
+#else
     current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+#endif
 
     // not empty
     if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
@@ -862,9 +881,15 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
   int64_t sorted_lru_cost = costs[0];
 
   for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+#ifdef __HIP_PLATFORM_HCC__
+    int32_t insert_slot = __shfl(sorted_slot, l);
+    int64_t insert_current_lru_cost =
+        __shfl(sorted_lru_cost, l);
+#else
     int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
     int64_t insert_current_lru_cost =
         __shfl_sync(0xFFFFFFFF, sorted_lru_cost, l);
+#endif
     if (insert_current_lru_cost == time_stamp) {
       return;
     }
@@ -885,7 +910,11 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     // lxu_cache_state
     int64_t current_idx =
         threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+#ifdef __HIP_PLATFORM_HCC__
+    current_idx = __shfl(current_idx, 0);
+#else
     current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+#endif
 
     // not empty
     if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
@@ -1112,7 +1141,11 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
          << kLFUCounterBits); // invalid index, used as sentinel
   }
 
+#ifdef __HIP_PLATFORM_HCC__
+  if (!__any(found)) {
+#else
   if (!__any_sync(0xFFFFFFFF, found)) {
+#endif
     if (threadIdx.x == 0) {
       // sort so the highest LFUs come first in the segment.
       // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1
@@ -1249,9 +1282,14 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
   int64_t sorted_lfu_cost = costs[0];
 
   for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+#ifdef __HIP_PLATFORM_HCC__
+    int32_t insert_slot = __shfl(sorted_slot, l);
+    int64_t insert_current_lfu_cost = __shfl(sorted_lfu_cost, l);
+#else
     int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
     int64_t insert_current_lfu_cost =
         __shfl_sync(0xFFFFFFFF, sorted_lfu_cost, l);
+#endif
     int64_t insert_idx = cache_set_sorted_indices[n + l];
     int64_t insert_lfu_cost = lfu_state[insert_idx];
 
@@ -1275,7 +1313,11 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       // lxu_cache_state
       int64_t current_idx =
           threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+#ifdef __HIP_PLATFORM_HCC__
+      current_idx = __shfl(current_idx, 0);
+#else
       current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+#endif
       int32_t t_current = cache_index_table_map[current_idx];
       int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
       int64_t weights_offset_current = weights_offsets[t_current];
@@ -1564,9 +1606,15 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
   int64_t sorted_lfu_cost = costs[0];
 
   for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+#ifdef __HIP_PLATFORM_HCC__
+    int32_t insert_slot = __shfl(sorted_slot, l);
+    int64_t insert_current_lfu_cost =
+        __shfl(sorted_lfu_cost, l);
+#else
     int32_t insert_slot = __shfl_sync(0xFFFFFFFF, sorted_slot, l);
     int64_t insert_current_lfu_cost =
         __shfl_sync(0xFFFFFFFF, sorted_lfu_cost, l);
+#endif
     int64_t insert_idx = cache_set_sorted_indices[n + l];
     int64_t insert_lfu_cost = lfu_state[insert_idx];
 
@@ -1595,7 +1643,11 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
       // lxu_cache_state
       int64_t current_idx =
           threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+#ifdef __HIP_PLATFORM_HCC__
+      current_idx = __shfl(current_idx, 0);
+#else
       current_idx = __shfl_sync(0xFFFFFFFF, current_idx, 0);
+#endif
       int32_t t_current = cache_index_table_map[current_idx];
       SparseType weight_ty_current =
           static_cast<SparseType>(weights_tys[t_current]);
@@ -1752,7 +1804,11 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
   if (found) {
     lxu_cache_locations[n] = cache_set * kWarpSize + slot;
   }
+#ifdef __HIP_PLATFORM_HCC__
+  if (!__any(found)) {
+#else
   if (!__any_sync(0xFFFFFFFF, found)) {
+#endif
     if (threadIdx.x == 0) {
       lxu_cache_locations[n] = kCacheLocationMissing;
     }

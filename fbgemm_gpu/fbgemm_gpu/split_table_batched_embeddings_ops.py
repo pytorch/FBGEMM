@@ -1718,6 +1718,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         def align_to_cacheline(a: int) -> int:
             # align each table to 128b cache line boundary.
+            # TODO: Change cache line boundary for ROCM
             return round_up(a, 128)
 
         weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]

@@ -190,13 +190,26 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% endif %}
             for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
                 {% if not nobag %}
+#ifdef __HIP_PLATFORM_HCC__
+                int32_t b_j = __shfl(b, j);
+                int32_t D_start_j = __shfl(D_start, j);
+#else
                 int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
                 int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
+#endif
                 {% else %}
+#ifdef __HIP_PLATFORM_HCC__
+                int32_t l_j = __shfl(l, j);
+#else
                 int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
+#endif
                 {% endif %}
                 {% if weighted %}
+#ifdef __HIP_PLATFORM_HCC__
+                at::acc_type<cache_t, true> idx_weight_j = __shfl(idx_weight, j);
+#else
                 at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+#endif
                 {% endif %}
 
         #pragma unroll kMaxVecsPerThread
@@ -549,13 +562,26 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
         for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
+#ifdef __HIP_PLATFORM_HCC__
+            int32_t b_j = __shfl(b, j);
+            int32_t D_start_j = __shfl(D_start, j);
+#else
             int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
             int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
+#endif
             {% else %}
+#ifdef __HIP_PLATFORM_HCC__
+            int32_t l_j = __shfl(l, j);
+#else
             int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
+#endif
             {% endif %}
             {% if weighted %}
+#ifdef __HIP_PLATFORM_HCC__
+            at::acc_type<cache_t, true> idx_weight_j = __shfl(idx_weight, j);
+#else
             at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
+#endif
             {% endif %}
 
     #pragma unroll kMaxVecsPerThread
@@ -736,6 +762,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     TORCH_CHECK(D <= {{ max_embedding_dim }});
     {% endif %}
 
+#ifndef __HIP_PLATFORM_HCC__
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
     cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
@@ -746,6 +773,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
     TORCH_CHECK(used_shared_kb > 0);
     int used_shared_bytes = used_shared_kb << 10;
+#endif
 
     {% if not nobag %}
     auto infos = at::empty_like(indices, indices.options().dtype(at::kInt));
@@ -756,7 +784,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     auto linear_indices = at::empty_like(indices);
     auto linear_indices_sorted = at::empty_like(indices);
     {% if not nobag %}
-    linearize_index_kernel<<<
+    linearize_index_kernel<int64_t, kMaxThreads><<<
         div_round_up(B * T, kMaxThreads),
         kMaxThreads,
         0,
@@ -990,10 +1018,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% else %}
             if (D <= {{ 128 * kMaxVecsPerThread }}) {
             {% endif %}
+#ifndef __HIP_PLATFORM_HCC__
             // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB), BT_block_size must be a power of two.
             while (BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= used_shared_bytes) {
                 BT_block_size /= 2;
             }
+#endif
             TORCH_CHECK(BT_block_size >= 1);
             if (std::is_same<{{ "scalar_t" if dense else "emb_t" }}, double>::value) {
                 // Otherwise we see CUDA kernel launch failures despite the above checks.
@@ -1022,6 +1052,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // over 48 KB per block are architecture-specific, as such they
             // must use dynamic shared memory (rather than statically sized
             // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+#ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
@@ -1034,6 +1065,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {{ kMaxVecsPerThread }}>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
@@ -1096,6 +1128,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% endif %}
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+#ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
@@ -1108,6 +1141,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {{ kMaxVecsPerThread }}>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}

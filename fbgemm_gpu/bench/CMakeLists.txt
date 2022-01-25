@@ -15,7 +15,10 @@ macro(add_benchmark BENCHNAME)
           CUDA_SEPARABLE_COMPILATION OFF
           CXX_STANDARD 11
           CXX_EXTENSIONS NO)
-  target_link_libraries(${BENCHNAME} fbgemm_gpu -lcurand)
+  target_link_libraries(${BENCHNAME} fbgemm_gpu -L/opt/rocm/lib -lhiprand -lrocrand)
+  include_directories(${BENCHNAME} BEFORE
+    /opt/rocm/include/hiprand
+    /opt/rocm/include/rocrand)
   add_dependencies(${BENCHNAME} fbgemm_gpu)
 
   if (USE_SANITIZER)
@@ -35,12 +38,12 @@ if(FBGEMMGPU_BUILD_BENCHMARKS)
 
   set(BENCHMARKS "")
 
-  file(GLOB BENCH_LIST "*_benchmark.cu")
+  file(GLOB BENCH_LIST "hip/*_benchmark.cpp")
   foreach(BENCH_FILE ${BENCH_LIST})
     get_filename_component(BENCH_NAME "${BENCH_FILE}" NAME_WE)
     get_filename_component(BENCH_FILE_ONLY "${BENCH_FILE}" NAME)
     add_benchmark("${BENCH_NAME}"
-      "${BENCH_FILE_ONLY}")
+      "hip/${BENCH_FILE_ONLY}")
     list(APPEND BENCHMARKS "${BENCH_NAME}")
   endforeach()
 

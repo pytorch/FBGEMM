@@ -103,9 +103,17 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+#ifdef __HIP_PLATFORM_HCC__
+            int64_t idx_j = __shfl(idx, j);
+#else
             int64_t idx_j = __shfl_sync(0xFFFFFFFF, idx, j);
+#endif
             {% if not dense %}
+#ifdef __HIP_PLATFORM_HCC__
+            int32_t cache_idx_j = __shfl(cache_idx, j);
+#else
             int32_t cache_idx_j = __shfl_sync(0xFFFFFFFF, cache_idx, j);
+#endif
             {% endif %}
             at::acc_type<cache_t, true> grad_indice_weight = 0.0;
 

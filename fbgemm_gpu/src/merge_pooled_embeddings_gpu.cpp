@@ -15,6 +15,8 @@
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
+// TODO: Enable merge_pooled_embeddings for HIP
+#ifndef __HIP_PLATFORM_HCC__
 #include <nvml.h>
 
 #include <algorithm>
@@ -353,3 +355,4 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
           c10::DispatchKey::CUDA,
           TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
 }
+#endif
