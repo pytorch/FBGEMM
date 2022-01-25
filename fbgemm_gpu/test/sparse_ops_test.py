@@ -1444,12 +1444,8 @@ class SparseOpsTest(unittest.TestCase):
 
         logit = torch.randn(num_logits).type(data_type)
 
-        segment_value = torch.randint(
-            0, num_segments, (random.randint(0, num_logits - 1),)
-        )
-        lengths = torch.tensor(
-            [1] * segment_value.numel() + [0] * (num_logits - segment_value.numel())
-        )
+        lengths = torch.randint(0, 2, (num_logits,))
+        segment_value = torch.randint(-3, num_segments + 3, (sum(lengths),))
 
         num_interval = num_bins * (num_segments + 1)
         bin_num_positives = torch.randint(0, 10, (num_interval,)).double()
