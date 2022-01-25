@@ -112,7 +112,7 @@ __global__ void to_dense_segment_value_kernel(
 
   const auto curr_offset = segment_offsets_data[index];
   const auto next_offset = segment_offsets_data[index + 1];
-  if (next_offset > curr_offset) {
+  if (next_offset == curr_offset + 1) {
     // Add 1 to distinguish between 0 inserted by densification vs. original
     // value.
     dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
