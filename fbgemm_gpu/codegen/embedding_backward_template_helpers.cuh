@@ -93,17 +93,10 @@ linearize_index_kernel(
   int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-#ifdef __HIP_PLATFORM_HCC__
-    index_t indices_start_warp = __shfl(indices_start, j);
-    int32_t b_t_warp = __shfl(b_t, j);
-    int32_t L_warp = __shfl(L, j);
-    index_t hash_offset_warp = __shfl(hash_offset, j);
-#else
-    index_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
-    int32_t b_t_warp = __shfl_sync(0xFFFFFFFF, b_t, j);
-    int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
-    index_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
-#endif
+    index_t indices_start_warp = SHFL_SYNC_MACRO(indices_start, j);
+    int32_t b_t_warp = SHFL_SYNC_MACRO(b_t, j);
+    int32_t L_warp = SHFL_SYNC_MACRO(L, j);
+    index_t hash_offset_warp = SHFL_SYNC_MACRO(hash_offset, j);
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
       index_t idx = __ldg(&indices[indices_start_warp + i]);
       infos[indices_start_warp + i] = b_t_warp;
@@ -134,17 +127,10 @@ __global__ void nobag_linearize_index_kernel(
   int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-#ifdef __HIP_PLATFORM_HCC__
-    index_t indices_start_warp = __shfl(indices_start, j);
-    int32_t t_warp = __shfl(t, j);
-    int32_t L_warp = __shfl(L, j);
-    index_t hash_offset_warp = __shfl(hash_offset, j);
-#else
-    index_t indices_start_warp = __shfl_sync(0xFFFFFFFF, indices_start, j);
-    int32_t t_warp = __shfl_sync(0xFFFFFFFF, t, j);
-    int32_t L_warp = __shfl_sync(0xFFFFFFFF, L, j);
-    index_t hash_offset_warp = __shfl_sync(0xFFFFFFFF, hash_offset, j);
-#endif
+    index_t indices_start_warp = SHFL_SYNC_MACRO(indices_start, j);
+    int32_t t_warp = SHFL_SYNC_MACRO(t, j);
+    int32_t L_warp = SHFL_SYNC_MACRO(L, j);
+    index_t hash_offset_warp = SHFL_SYNC_MACRO(hash_offset, j);
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
       index_t idx = __ldg(&indices[indices_start_warp + i]);
       int64_t l_t = (indices_start_warp + i) * T + t_warp;

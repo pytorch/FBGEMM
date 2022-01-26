@@ -190,26 +190,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% endif %}
             for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
                 {% if not nobag %}
-#ifdef __HIP_PLATFORM_HCC__
-                int32_t b_j = __shfl(b, j);
-                int32_t D_start_j = __shfl(D_start, j);
-#else
-                int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
-                int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
-#endif
+                int32_t b_j = SHFL_SYNC_MACRO(b, j);
+                int32_t D_start_j = SHFL_SYNC_MACRO(D_start, j);
                 {% else %}
-#ifdef __HIP_PLATFORM_HCC__
-                int32_t l_j = __shfl(l, j);
-#else
-                int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
-#endif
+                int32_t l_j = SHFL_SYNC_MACRO(l, j);
                 {% endif %}
                 {% if weighted %}
-#ifdef __HIP_PLATFORM_HCC__
-                at::acc_type<cache_t, true> idx_weight_j = __shfl(idx_weight, j);
-#else
-                at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
-#endif
+                at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC_MACRO(idx_weight, j);
                 {% endif %}
 
         #pragma unroll kMaxVecsPerThread
@@ -562,26 +549,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
         for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
-#ifdef __HIP_PLATFORM_HCC__
-            int32_t b_j = __shfl(b, j);
-            int32_t D_start_j = __shfl(D_start, j);
-#else
-            int32_t b_j = __shfl_sync(0xFFFFFFFF, b, j);
-            int32_t D_start_j = __shfl_sync(0xFFFFFFFF, D_start, j);
-#endif
+            int32_t b_j = SHFL_SYNC_MACRO(b, j);
+            int32_t D_start_j = SHFL_SYNC_MACRO(D_start, j);
             {% else %}
-#ifdef __HIP_PLATFORM_HCC__
-            int32_t l_j = __shfl(l, j);
-#else
-            int32_t l_j = __shfl_sync(0xFFFFFFFF, l, j);
-#endif
+            int32_t l_j = SHFL_SYNC_MACRO(l, j);
             {% endif %}
             {% if weighted %}
-#ifdef __HIP_PLATFORM_HCC__
-            at::acc_type<cache_t, true> idx_weight_j = __shfl(idx_weight, j);
-#else
-            at::acc_type<cache_t, true> idx_weight_j = __shfl_sync(0xFFFFFFFF, idx_weight, j);
-#endif
+            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC_MACRO(idx_weight, j);
             {% endif %}
 
     #pragma unroll kMaxVecsPerThread
