@@ -36,3 +36,9 @@ enum class BoundsCheckMode : uint8_t {
 };
 
 } // namespace
+
+#ifdef __HIP_PLATFORM_HCC__
+   #define SHFL_SYNC_MACRO(var, srcLane) __shfl(var, srcLane)
+#else
+   #define SHFL_SYNC_MACRO(var, srcLane) __shfl_sync(0xFFFFFFFF, var, srcLane)
+#endif
