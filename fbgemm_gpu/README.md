@@ -7,7 +7,7 @@ The library provides efficient table batched embedding bag,
 data layout transformation, and quantization supports.
 
 
-Currently tested with PyTorch 1.10 and CUDA 11.3
+Currently tested with PyTorch 1.11 and CUDA 11.3
 (previously tested with PyTorch 1.9 and automated CI testing planned)
 
 Only Intel/AMD with AVX2 extensions are currently supported.
@@ -18,6 +18,7 @@ Build dependencies: "pytorch", "scikit-build","cmake","ninja","jinja2","torch>0.
 and for testing: "hypothesis".
 
 ```
+# requires PyTorch 1.11 or later
 conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
 conda install scikit-build jinja2 ninja cmake hypothesis
 ```
@@ -39,10 +40,10 @@ export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
 # if using CUDA 10 or earliers set the location to the CUB installation directory
 export CUB_DIR=${CUB_DIR}
 # in fbgemm_gpu folder
-# build the table batched embedding bag op for multiple CUDA architectures
+# build for the CUDA architecture supported by current system (or all architectures if no CUDA device present)
 python setup.py install
-# or build it for specific CUDA architectures
-python setup.py install -Dcuda_architectures="70;80"
+# or build it for specific CUDA architectures (see PyTorch documentation for usage of TORCH_CUDA_ARCH_LIST)
+TORCH_CUDA_ARCH_LIST="7.0;8.0" python setup.py install
 
 ```
 
