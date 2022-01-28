@@ -232,7 +232,7 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc TORCH_CUDA_ARCH_LIST="6.0" python setup.py install
+        sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
 
     - name: Test fbgemm_gpu installation
       shell: bash
