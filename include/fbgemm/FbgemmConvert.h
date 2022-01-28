@@ -160,4 +160,28 @@ FBGEMM_API void RoundToFloat16(
     bool clamp = false,
     bool clamp_denorms = false);
 
+/**
+ * @brief AVX2 implementation to do relu truncation of fp32 vectors.
+ *
+ */
+FBGEMM_API void FloatRelu_avx2(const float* src, float* dst, size_t size);
+
+/**
+ * @brief AVX512 implementation to do relu truncation of fp32 vectors.
+ *
+ */
+FBGEMM_API void FloatRelu_avx512(const float* src, float* dst, size_t size);
+
+/**
+ * @brief Reference implementation to do relu truncation of fp32 vectors.
+ *
+ */
+FBGEMM_API void FloatRelu_ref(const float* src, float* dst, size_t size);
+
+/**
+ * @brief SIMD implementation to do relu truncation of fp32 vectors.
+ *
+ */
+FBGEMM_API void FloatRelu_simd(const float* src, float* dst, size_t size);
+
 } // namespace fbgemm
