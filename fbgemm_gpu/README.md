@@ -43,7 +43,7 @@ export CUB_DIR=${CUB_DIR}
 # build for the CUDA architecture supported by current system (or all architectures if no CUDA device present)
 python setup.py install
 # or build it for specific CUDA architectures (see PyTorch documentation for usage of TORCH_CUDA_ARCH_LIST)
-TORCH_CUDA_ARCH_LIST="7.0;8.0" python setup.py install
+python setup.py install -DTORCH_CUDA_ARCH_LIST="7.0;8.0"
 
 ```
 
