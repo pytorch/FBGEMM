@@ -5,14 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
-#include <cub/device/device_radix_sort.cuh>
-#include <cub/device/device_run_length_encode.cuh>
-#include <cub/device/device_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
-// clang-format on
-
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/TensorUtils.h>
@@ -32,43 +24,6 @@
 #include "embedding_common.h"
 #include "fbgemm_cuda_utils.cuh"
 #include "sparse_ops_utils.h"
-
-inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
-  size_t temp_storage_bytes = 0;
-  TORCH_CHECK(t_in.is_contiguous());
-  TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
-  // CUB only handles up to INT_MAX elements.
-  TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
-  TORCH_CHECK(t_in.dim() == 1);
-  auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
-  t_out[0].zero_();
-  AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-            nullptr,
-            temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
-            t_in.numel(),
-            at::cuda::getCurrentCUDAStream()));
-      }));
-  auto temp_storage = at::empty(
-      {static_cast<int64_t>(temp_storage_bytes)},
-      t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
-            temp_storage.data_ptr(),
-            temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
-            t_in.numel(),
-            at::cuda::getCurrentCUDAStream()));
-      }));
-  return t_out;
-}
 
 class FixedDivisor {
  public:

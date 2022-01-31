@@ -797,7 +797,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
     if (lxu_cache_locations.size(0) > 0) {
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(radix_sort_pairs(
             nullptr,
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -812,7 +812,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+        AT_CUDA_CHECK(radix_sort_pairs(
             temp_storage.data_ptr(),
             temp_storage_bytes,
             linear_indices.data_ptr<int64_t>(),
@@ -838,12 +838,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
         "split_embedding_backward_{{ optimizer }}_exact_kernel",
         ([&] {
-
             {% if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
             size_t temp_storage_bytes = 0;
-            AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+            AT_CUDA_CHECK(radix_sort_pairs(
                 nullptr,
                 temp_storage_bytes,
                 linear_indices.data_ptr<int64_t>(),
@@ -863,7 +862,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(at::kByte));
-            AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+            AT_CUDA_CHECK(radix_sort_pairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
                 linear_indices.data_ptr<int64_t>(),
