@@ -42,7 +42,9 @@ __device__ inline T max(const T* from, const T* to) {
 template <typename T>
 __device__ inline __attribute__((always_inline)) T
 quantize_ops_shfl_xor(const T val, int laneMask, int width) {
-#if CUDA_VERSION >= 9000
+#ifdef __HIP_PLATFORM_HCC__
+  return __shfl_xor(val, laneMask, width);
+#elif CUDA_VERSION >= 9000
   return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #else
   return __shfl_xor(val, laneMask, width);

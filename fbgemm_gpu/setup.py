@@ -15,7 +15,8 @@ from codegen.embedding_backward_code_generator import emb_codegen
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 import torch
-from torch.utils.hipify import hipify_python
+sys.path.append("..")
+from third_party.hipify_torch.hipify import hipify_python
 
 cpu_only_build = False
 cur_dir = os.path.dirname(os.path.realpath(__file__))
