@@ -39,6 +39,8 @@ void _to_dense_representation(
       // Add 1 to distinguish between 0 inserted by densification vs. original
       // value.
       dense_segment_value_data[i] = segment_value_data[k] + 1;
+    } else {
+      dense_segment_value_data[i] = 0;
     }
     k += segment_lengths_data[i];
   }
@@ -1114,7 +1116,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
 
   // dense_segment_value is used as a temporary storage.
   Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
+      at::empty({logit.numel()}, segment_value.options());
   AT_DISPATCH_INDEX_TYPES(
       segment_value.scalar_type(),
       "to_dense_representation_cpu_wrapper",
@@ -1237,7 +1239,7 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
 
   // dense_segment_value is used as a temporary storage.
   Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
+      at::empty({logit.numel()}, segment_value.options());
   AT_DISPATCH_INDEX_TYPES(
       segment_value.scalar_type(),
       "to_dense_representation_cpu_wrapper",
