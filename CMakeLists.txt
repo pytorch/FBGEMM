@@ -140,6 +140,14 @@ else(MSVC)
     PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
+    set_source_files_properties(
+      src/GenerateKernelU8S8S32ACC32.cc
+      src/GenerateKernelDirectConvU8S8S32ACC32.cc
+      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
+  endif()
+
 endif(MSVC)
 
 if(USE_SANITIZER)
