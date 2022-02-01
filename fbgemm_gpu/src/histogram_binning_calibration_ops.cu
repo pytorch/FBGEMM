@@ -116,6 +116,8 @@ __global__ void to_dense_segment_value_kernel(
     // Add 1 to distinguish between 0 inserted by densification vs. original
     // value.
     dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
+  } else {
+    dense_segment_value_data[index] = 0;
   }
 }
 
@@ -190,7 +192,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
 
   // dense_segment_value is used as a temporary storage.
   Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
+      at::empty({logit.numel()}, segment_value.options());
 
   const int32_t num_threads = 512;
   const auto segment_value_packed = segment_value.contiguous();
@@ -351,7 +353,7 @@ generic_histogram_binning_calibration_by_feature_cuda(
 
   // dense_segment_value is used as a temporary storage.
   Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
+      at::empty({logit.numel()}, segment_value.options());
 
   const int32_t num_threads = 512;
   const auto segment_value_packed = segment_value.contiguous();
