@@ -69,7 +69,7 @@ class SparseArch(nn.Module):
         num_tables,
         num_rows,
         use_cpu,
-    ):
+    ) -> None:
         super().__init__()
         pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
         Ds = [emb_dim] * num_tables

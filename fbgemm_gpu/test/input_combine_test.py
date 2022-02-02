@@ -20,7 +20,7 @@ except Exception:
 
 
 class TBEInputPrepareReference(torch.nn.Module):
-    def __init__(self, include_last_offsets: List[bool]):
+    def __init__(self, include_last_offsets: List[bool]) -> None:
         super().__init__()
         self.include_last_offsets = include_last_offsets
 
@@ -172,7 +172,7 @@ class InputCombineTest(unittest.TestCase):
             )
         return offsets_complete[1:] - offsets_complete[:-1]
 
-    def _run_test_with_length(self, dtypes):
+    def _run_test_with_length(self, dtypes) -> None:
         (
             indices_list,
             offsets_list,
@@ -201,22 +201,22 @@ class InputCombineTest(unittest.TestCase):
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
         self.assertTrue(ref_lengths.allclose(outputs[1]))
 
-    def test_input_combine_int64(self):
+    def test_input_combine_int64(self) -> None:
         self._run_test((torch.int64, torch.int64))
 
-    def test_input_combine_int32(self):
+    def test_input_combine_int32(self) -> None:
         self._run_test((torch.int64, torch.int64))
 
-    def test_input_combined_mix(self):
+    def test_input_combined_mix(self) -> None:
         self._run_test((torch.int64, torch.int32))
 
-    def test_input_combine_int64_with_length(self):
+    def test_input_combine_int64_with_length(self) -> None:
         self._run_test_with_length((torch.int64, torch.int64))
 
-    def test_input_combine_int32_with_length(self):
+    def test_input_combine_int32_with_length(self) -> None:
         self._run_test_with_length((torch.int64, torch.int64))
 
-    def test_input_combined_mix_with_length(self):
+    def test_input_combined_mix_with_length(self) -> None:
         self._run_test_with_length((torch.int64, torch.int32))
 
 

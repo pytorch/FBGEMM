@@ -82,7 +82,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offsets.append(offset)
         return (lengths, offsets, indices)
 
-    def _test_main(self, gpu_infer: bool):
+    def _test_main(self, gpu_infer: bool) -> None:
         if gpu_infer:
             device = torch.device("cuda:0")
             torch.cuda.set_device(device)
@@ -149,10 +149,10 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(d_weight_ref, d_weight)
 
     @unittest.skipIf(*gpu_unavailable)
-    def test_gpu(self):
+    def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
 
-    def test_cpu(self):
+    def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
 
 
