@@ -201,12 +201,11 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
     at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
-  int total_D = input.size(1);
-  int batch_size = input.size(0);
+  const int batch_size = input.size(0);
 
-  int thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
-  int num_tables = D_offsets.size(0) - 1;
-  int qparam_size = 8;
+  const int thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
+  const int num_tables = D_offsets.size(0) - 1;
+  const int qparam_size = 8;
 
   if (batch_size == 0 || num_tables == 0) {
     return;
@@ -214,21 +213,23 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
 
   // num_table * batch_size = total warps
   // warp_id = num_tables * batch_idx + table_idx
-  int table_idx = thread_idx % num_tables;
-  int batch_idx = thread_idx / num_tables;
+  const int table_idx = thread_idx % num_tables;
+  const int batch_idx = thread_idx / num_tables;
   if (table_idx >= num_tables || batch_idx >= batch_size) {
     return;
   }
-  int table_qparam_offset = D_offsets[table_idx + 1] - qparam_size;
-  int table_D = D_offsets[table_idx + 1] - D_offsets[table_idx] - qparam_size;
+  const int table_qparam_offset = D_offsets[table_idx + 1] - qparam_size;
+  const int table_D =
+      D_offsets[table_idx + 1] - D_offsets[table_idx] - qparam_size;
 
+  // int total_D = input.size(1);
   // CUDA_KERNEL_ASSERT(table_qparam_offset <= total_D && "table_idx <
   // total_D");
 
   const float2 qparams =
       *reinterpret_cast<const float2*>(&input[batch_idx][table_qparam_offset]);
-  int64_t input_offset = D_offsets[table_idx];
-  int64_t output_offset = input_offset - table_idx * qparam_size;
+  const int64_t input_offset = D_offsets[table_idx];
+  const int64_t output_offset = input_offset - table_idx * qparam_size;
   for (int i = threadIdx.x; i < table_D; i += kWarpSize) {
     output[batch_idx][i + output_offset] =
         input[batch_idx][i + input_offset] * qparams.x + qparams.y;
