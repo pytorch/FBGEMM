@@ -385,6 +385,7 @@ std::vector<Tensor> all_to_one_device(
   output_tensors.reserve(input_tensors.size());
 
   for (const auto& tensor : input_tensors) {
+    TORCH_CHECK(tensor.is_cuda());
     output_tensors.push_back(
         tensor.device() != target_device
             ? at::empty(tensor.sizes(), tensor.options().device(target_device))
