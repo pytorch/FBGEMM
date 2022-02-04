@@ -75,7 +75,7 @@ std::vector<int64_t> defaultStrides(IntArrayRef sizes) {
 // Allocate the ATen Tensor with unified managed memory (UVM)
 Tensor new_managed_tensor_internal(
     Tensor self,
-    std::vector<std::int64_t>& sizes) {
+    const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
 
