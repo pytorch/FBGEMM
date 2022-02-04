@@ -115,8 +115,11 @@ if cpu_only_build:
     cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
 
 setup(
+    # Metadata
     name="fbgemm_gpu",
     version="0.0.1",
+    author="FBGEMM Team",
+    author_email="packages@pytorch.org",
     long_description=long_description,
     packages=["fbgemm_gpu"],
     cmake_args=cmake_args,
