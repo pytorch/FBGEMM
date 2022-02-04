@@ -95,6 +95,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool use_output_input_stride = bool_dist(generator);
   bool is_output_float = bool_dist(generator);
+  bool test_thread_local = bool_dist(generator);
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
@@ -105,7 +106,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
     if (isFp16 || normalize_by_lengths || use_output_input_stride ||
-        !is_output_float) {
+        !is_output_float || test_thread_local) {
       return;
     }
   }
@@ -189,7 +190,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     InType,                                                    \
     IndexType,                                                 \
     OffsetType,                                                \
-    OutType)                                                   \
+    OutType,                                                   \
+    THREAD_LOCAL)                                              \
   success_ref = EmbeddingSpMDM_ref(                            \
       embedding_dim,                                           \
       batch_size,                                              \
@@ -210,7 +212,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       InType,                                                  \
       IndexType,                                               \
       OffsetType,                                              \
-      OutType>(                                                \
+      OutType,                                                 \
+      THREAD_LOCAL>(                                           \
       embedding_dim,                                           \
       use_weight,                                              \
       normalize_by_lengths,                                    \
@@ -229,10 +232,46 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       use_weight ? weights.data() : nullptr,                   \
       output.data());
 
+#define TEST_THREAD_LOCAL(  \
+    table,                  \
+    indices,                \
+    offsets_or_lengths,     \
+    output_ref,             \
+    output,                 \
+    InType,                 \
+    IndexType,              \
+    OffsetType,             \
+    OutType)                \
+  if (test_thread_local) {  \
+    TEST_BASE(              \
+        table,              \
+        indices,            \
+        offsets_or_lengths, \
+        output_ref,         \
+        output,             \
+        InType,             \
+        IndexType,          \
+        OffsetType,         \
+        OutType,            \
+        true);              \
+  } else {                  \
+    TEST_BASE(              \
+        table,              \
+        indices,            \
+        offsets_or_lengths, \
+        output_ref,         \
+        output,             \
+        InType,             \
+        IndexType,          \
+        OffsetType,         \
+        OutType,            \
+        false);             \
+  }
+
 #define TEST_OUT_TYPE(                                                 \
     table, indices, offsets_or_lengths, InType, IndexType, OffsetType) \
   if (is_output_float) {                                               \
-    TEST_BASE(                                                         \
+    TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
         indices,                                                       \
         offsets_or_lengths,                                            \
@@ -243,7 +282,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         OffsetType,                                                    \
         float);                                                        \
   } else {                                                             \
-    TEST_BASE(                                                         \
+    TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
         indices,                                                       \
         offsets_or_lengths,                                            \
@@ -280,6 +319,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 #undef TEST_INDEX_TYPE
 #undef TEST_OFFSET_TYPE
 #undef TEST_OUT_TYPE
+#undef TEST_THREAD_LOCAL
 #undef TEST_BASE
 
     // Check correctness
