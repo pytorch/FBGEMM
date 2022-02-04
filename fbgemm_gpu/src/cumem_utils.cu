@@ -138,7 +138,7 @@ std::tuple<void*, size_t> adjust_to_page_boundaries(void* ptr, size_t size) {
 // Allocate a cuda Tensor with unified managed memory (UVM)
 // Then set the preferred data location to CPU (host memory)
 // And establish mappings on the cuda device to the host memory
-Tensor new_managed_tensor(Tensor self, std::vector<std::int64_t> sizes) {
+Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
 
@@ -169,7 +169,7 @@ Tensor new_managed_tensor(Tensor self, std::vector<std::int64_t> sizes) {
 // additional steps taked by new_managed_tensor above
 Tensor new_vanilla_managed_tensor(
     Tensor self,
-    std::vector<std::int64_t> sizes) {
+    const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
 
