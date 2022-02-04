@@ -118,6 +118,7 @@ setup(
     name="fbgemm_gpu",
     version="0.0.1",
     long_description=long_description,
+    long_description_content_type="text/markdown",
     packages=["fbgemm_gpu"],
     cmake_args=cmake_args,
 )
