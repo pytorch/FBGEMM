@@ -272,7 +272,7 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        sudo python setup.py install --cpu_only
+        sudo python setup.py install --cpu_only=True
 
     - name: Test fbgemm_gpu cpu-only installation
       shell: bash

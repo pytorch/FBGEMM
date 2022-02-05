@@ -4,13 +4,49 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import argparse
 import os
+import random
+import re
 import subprocess
 import sys
-from typing import Optional
+from datetime import date
+from typing import Optional, List
 
 import torch
 from skbuild import setup
+
+
+def get_version():
+    # get version string from version.py
+    # TODO: ideally the version.py should be generated when setup is run
+    version_file = os.path.join(os.path.dirname(__file__), "version.py")
+    version_regex = r"__version__ = ['\"]([^'\"]*)['\"]"
+    with open(version_file, "r") as f:
+        version = re.search(version_regex, f.read(), re.M).group(1)
+        return version
+
+
+def get_nightly_version():
+    today = date.today()
+    return f"{today.year}.{today.month}.{today.day}"
+
+
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
+    parser.add_argument(
+        "--cpu_only",
+        type=bool,
+        default=False,
+        help="build for cpu-only (no GPU support)",
+    )
+    parser.add_argument(
+        "--package_name",
+        type=str,
+        default="fbgemm_gpu",
+        help="the name of this output wheel",
+    )
+    return parser.parse_known_args(argv)
 
 
 def nvcc_ok(cuda_home: str, major: int, minor: int) -> bool:
@@ -76,48 +112,79 @@ def find_cuda(major: int, minor: int) -> Optional[str]:
     return None
 
 
-cpu_only_build = False
+def main(argv: List[str]) -> None:
+    # Handle command line args before passing to main setup() method.
+    args, unknown = parse_args(argv)
+    print("args: ", args)
+    print("unknown: ", unknown)
+
+    if not args.cpu_only:
+        cub_include_path = os.getenv("CUB_DIR", None)
+        if cub_include_path is None:
+            print(
+                "CUDA CUB directory environment variable not set.  Using default CUB location."
+            )
+
+            cuda_version = torch.version.cuda.split(".")
+
+            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+
+            if cuda_home:
+                print(f"Using CUDA = {cuda_home}")
+                os.environ["CUDA_BIN_PATH"] = cuda_home
+                os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
+
+    # Get the long description from the relevant file
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+
+    with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
+        long_description = f.read()
+
+    torch_root = os.path.dirname(torch.__file__)
+
+    os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
+
+    cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
+    if args.cpu_only:
+        cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
+
+    name = args.package_name
+    print("name: ", name)
+    is_nightly = "nightly" in name
+    is_test = "test" in name
+
+    version = get_nightly_version() if is_nightly else get_version()
+    if is_test:
+        version = (f"0.0.{random.randint(0, 1000)}",)
+    print(f"-- {name} building version: {version}")
+
+    # Repair command line args for setup.
+    sys.argv = [sys.argv[0]] + unknown
+
+    setup(
+        # Metadata
+        name=name,
+        version=version,
+        author="FBGEMM Team",
+        author_email="packages@pytorch.org",
+        long_description=long_description,
+        url="https://github.com/pytorch/fbgemm",
+        license="BSD-3",
+        packages=["fbgemm_gpu"],
+        cmake_args=cmake_args,
+        # PyPI package information.
+        classifiers=[
+            "Development Status :: 4 - Beta",
+            "Intended Audience :: Developers",
+            "Intended Audience :: Science/Research",
+            "License :: OSI Approved :: BSD License",
+            "Programming Language :: Python :: 3",
+            "Programming Language :: Python :: 3.7",
+            "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        ],
+    )
 
 
-# Handle command line args before passing to main setup() method.
-if "--cpu_only" in sys.argv:
-    cpu_only_build = True
-    sys.argv.remove("--cpu_only")
-
-if not cpu_only_build:
-    cub_include_path = os.getenv("CUB_DIR", None)
-    if cub_include_path is None:
-        print(
-            "CUDA CUB directory environment variable not set.  Using default CUB location."
-        )
-
-        cuda_version = torch.version.cuda.split(".")
-
-        cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
-
-        if cuda_home:
-            print(f"Using CUDA = {cuda_home}")
-            os.environ["CUDA_BIN_PATH"] = cuda_home
-            os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
-
-# Get the long description from the relevant file
-cur_dir = os.path.dirname(os.path.realpath(__file__))
-
-with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
-    long_description = f.read()
-
-torch_root = os.path.dirname(torch.__file__)
-
-os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
-
-cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
-if cpu_only_build:
-    cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
-
-setup(
-    name="fbgemm_gpu",
-    version="0.0.1",
-    long_description=long_description,
-    packages=["fbgemm_gpu"],
-    cmake_args=cmake_args,
-)
+if __name__ == "__main__":
+    print(sys.argv)
+    main(sys.argv[1:])
