@@ -208,7 +208,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
                 bool success = true;
                 if (weight_ty == SparseType::FP32) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t>(
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
                         {{ "true" if weighted else "false" }},
                         static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
@@ -232,7 +232,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         {% endif %}
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::FP16) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float16, index_t, index_t, fbgemm_out_t>(
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float16, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
                         {{ "true" if weighted else "false" }},
                         static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
@@ -256,7 +256,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         {% endif %}
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT8) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<uint8_t, index_t, index_t, fbgemm_out_t>(
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<uint8_t, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
                         {{ "true" if weighted else "false" }},
                         static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
@@ -280,7 +280,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         {% endif %}
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT4) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t>(
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         /*bit_rate=*/4,
                         D,
                         {{ "true" if weighted else "false" }},
