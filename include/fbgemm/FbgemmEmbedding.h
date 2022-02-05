@@ -86,7 +86,8 @@ template <
     typename InType,
     typename IndexType,
     typename OffsetType = std::int32_t,
-    typename OutType = float>
+    typename OutType = float,
+    bool THREAD_LOCAL = false>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     InType,
     IndexType,
@@ -134,7 +135,8 @@ GenerateEmbeddingSpMDMNBit(
 template <
     typename IndexType,
     typename OffsetType = std::int32_t,
-    typename OutType = float>
+    typename OutType = float,
+    bool THREAD_LOCAL = false>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     std::uint8_t,
     IndexType,

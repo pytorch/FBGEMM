@@ -86,6 +86,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool is_output_float = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
+  bool test_thread_local = bool_dist(generator);
   int bit_rate, prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
@@ -95,7 +96,8 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
   if (corner_case != NONE || weight_choice == POSITIONAL_WEIGHTED) {
     // Check corner case only for subset of tests.
-    if (normalize_by_lengths || !is_output_float || !scale_bias_last) {
+    if (normalize_by_lengths || !is_output_float || !scale_bias_last ||
+        test_thread_local) {
       return;
     }
   }
@@ -176,57 +178,91 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
     bool success, success_ref;
 
-#define TEST_BASE(                                                           \
-    indices,                                                                 \
-    offsets_or_lengths,                                                      \
-    output_ref,                                                              \
-    output,                                                                  \
-    IndexType,                                                               \
-    OffsetType,                                                              \
-    OutType)                                                                 \
-  success_ref = EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>(      \
-      bit_rate,                                                              \
-      embedding_dim,                                                         \
-      batch_size,                                                            \
-      lengths_sum,                                                           \
-      num_rows,                                                              \
-      fused_embedding_table.data(),                                          \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(),               \
-      offsets_or_lengths,                                                    \
-      use_weight ? weights.data() : nullptr,                                 \
-      normalize_by_lengths,                                                  \
-      output_ref.data(),                                                     \
-      is_wt_positional,                                                      \
-      use_offsets,                                                           \
-      /*output_stride=*/-1,                                                  \
-      /*input_stride=*/-1,                                                   \
-      scale_bias_last);                                                      \
-                                                                             \
-  auto kernel =                                                              \
-      GenerateEmbeddingSpMDMNBitWithStrides<IndexType, OffsetType, OutType>( \
-          bit_rate,                                                          \
-          embedding_dim,                                                     \
-          use_weight,                                                        \
-          normalize_by_lengths,                                              \
-          prefetch,                                                          \
-          is_wt_positional,                                                  \
-          use_offsets,                                                       \
-          /*output_stride=*/-1,                                              \
-          /*input_stride=*/-1,                                               \
-          scale_bias_last);                                                  \
-  success = kernel(                                                          \
-      batch_size,                                                            \
-      lengths_sum,                                                           \
-      num_rows,                                                              \
-      fused_embedding_table.data(),                                          \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(),               \
-      offsets_or_lengths,                                                    \
-      use_weight ? weights.data() : nullptr,                                 \
+#define TEST_BASE(                                                      \
+    indices,                                                            \
+    offsets_or_lengths,                                                 \
+    output_ref,                                                         \
+    output,                                                             \
+    IndexType,                                                          \
+    OffsetType,                                                         \
+    OutType,                                                            \
+    THREAD_LOCAL)                                                       \
+  success_ref = EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>( \
+      bit_rate,                                                         \
+      embedding_dim,                                                    \
+      batch_size,                                                       \
+      lengths_sum,                                                      \
+      num_rows,                                                         \
+      fused_embedding_table.data(),                                     \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),          \
+      offsets_or_lengths,                                               \
+      use_weight ? weights.data() : nullptr,                            \
+      normalize_by_lengths,                                             \
+      output_ref.data(),                                                \
+      is_wt_positional,                                                 \
+      use_offsets,                                                      \
+      /*output_stride=*/-1,                                             \
+      /*input_stride=*/-1,                                              \
+      scale_bias_last);                                                 \
+                                                                        \
+  auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<                  \
+      IndexType,                                                        \
+      OffsetType,                                                       \
+      OutType,                                                          \
+      THREAD_LOCAL>(                                                    \
+      bit_rate,                                                         \
+      embedding_dim,                                                    \
+      use_weight,                                                       \
+      normalize_by_lengths,                                             \
+      prefetch,                                                         \
+      is_wt_positional,                                                 \
+      use_offsets,                                                      \
+      /*output_stride=*/-1,                                             \
+      /*input_stride=*/-1,                                              \
+      scale_bias_last);                                                 \
+  success = kernel(                                                     \
+      batch_size,                                                       \
+      lengths_sum,                                                      \
+      num_rows,                                                         \
+      fused_embedding_table.data(),                                     \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),          \
+      offsets_or_lengths,                                               \
+      use_weight ? weights.data() : nullptr,                            \
       output.data());
+
+#define TEST_THREAD_LOCAL(  \
+    indices,                \
+    offsets_or_lengths,     \
+    output_ref,             \
+    output,                 \
+    IndexType,              \
+    OffsetType,             \
+    OutType)                \
+  if (test_thread_local) {  \
+    TEST_BASE(              \
+        indices,            \
+        offsets_or_lengths, \
+        output_ref,         \
+        output,             \
+        IndexType,          \
+        OffsetType,         \
+        OutType,            \
+        true);              \
+  } else {                  \
+    TEST_BASE(              \
+        indices,            \
+        offsets_or_lengths, \
+        output_ref,         \
+        output,             \
+        IndexType,          \
+        OffsetType,         \
+        OutType,            \
+        false);             \
+  }
 
 #define TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, OffsetType) \
   if (is_output_float) {                                                  \
-    TEST_BASE(                                                            \
+    TEST_THREAD_LOCAL(                                                    \
         indices,                                                          \
         offsets_or_lengths,                                               \
         output_ref,                                                       \
@@ -235,7 +271,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
         OffsetType,                                                       \
         float);                                                           \
   } else {                                                                \
-    TEST_BASE(                                                            \
+    TEST_THREAD_LOCAL(                                                    \
         indices,                                                          \
         offsets_or_lengths,                                               \
         output_ref_fp16,                                                  \
@@ -260,6 +296,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
 #undef TEST_OFFSET_TYPE
 #undef TEST_OUT_TYPE
+#undef TEST_THREAD_LOCAL
 #undef TEST_BASE
 
     // Check correctness
