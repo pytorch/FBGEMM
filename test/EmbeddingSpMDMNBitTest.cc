@@ -53,15 +53,9 @@ namespace {
 
 class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 int,
-                                                bool,
-                                                bool,
                                                 int,
                                                 EmbeddingSpMDMWeightChoice,
-                                                bool,
-                                                bool,
-                                                EmbeddingSpMDMCornerCase,
-                                                bool,
-                                                bool>> {};
+                                                EmbeddingSpMDMCornerCase>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -69,42 +63,35 @@ INSTANTIATE_TEST_CASE_P(
     FusedNBitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
         ::testing::Values(2, 4), // bit_rate
-        ::testing::Bool(), // isIndex64b
-        ::testing::Bool(), // isOffset64b
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Values(
             UNWEIGHTED,
             WEIGHTED,
             POSITIONAL_WEIGHTED), // use_weight
-        ::testing::Bool(), // normalize_by_lengths
-        ::testing::Bool(), // use_offsets
         ::testing::Values(
             NONE,
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
-            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
-        ::testing::Bool(), // output float or float16
-        ::testing::Bool())); // scale_bias_last
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
 
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
-      normalize_by_lengths, use_offsets, is_output_float, scale_bias_last;
+
+  default_random_engine generator;
+  uniform_int_distribution<> bool_dist(0, 1);
+
+  bool isIndex64b = bool_dist(generator);
+  bool isOffset64b = bool_dist(generator);
+  bool normalize_by_lengths = bool_dist(generator);
+  bool use_offsets = bool_dist(generator);
+  bool is_output_float = bool_dist(generator);
+  bool scale_bias_last = bool_dist(generator);
   int bit_rate, prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(bit_rate,
-      isIndex64b,
-      isOffset64b,
-      prefetch,
-      weight_choice,
-      normalize_by_lengths,
-      use_offsets,
-      corner_case,
-      is_output_float,
-      scale_bias_last) = GetParam();
-  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
-  use_weight = weight_choice != UNWEIGHTED;
+  tie(bit_rate, prefetch, weight_choice, corner_case) = GetParam();
+  bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  bool use_weight = weight_choice != UNWEIGHTED;
 
   if (corner_case != NONE || weight_choice == POSITIONAL_WEIGHTED) {
     // Check corner case only for subset of tests.
@@ -126,7 +113,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
     int average_len = input[3];
 
     // Create embedding table
-    default_random_engine generator;
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
@@ -311,23 +297,23 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
 TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, isOffset64b, is_wt_positional, use_weight,
-      normalize_by_lengths, use_offsets, is_output_float, scale_bias_last;
+
+  default_random_engine generator;
+  uniform_int_distribution<> bool_dist(0, 1);
+
+  bool isIndex64b = bool_dist(generator);
+  bool isOffset64b = bool_dist(generator);
+  bool normalize_by_lengths = bool_dist(generator);
+  bool use_offsets = bool_dist(generator);
+  bool is_output_float = bool_dist(generator);
+  bool scale_bias_last = bool_dist(generator);
+
   int bit_rate, prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(bit_rate,
-      isIndex64b,
-      isOffset64b,
-      prefetch,
-      weight_choice,
-      normalize_by_lengths,
-      use_offsets,
-      corner_case,
-      is_output_float,
-      scale_bias_last) = GetParam();
-  is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
-  use_weight = weight_choice != UNWEIGHTED;
+  tie(bit_rate, prefetch, weight_choice, corner_case) = GetParam();
+  bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
+  bool use_weight = weight_choice != UNWEIGHTED;
 
   if (!is_output_float || !scale_bias_last) {
     return;
@@ -348,7 +334,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
         CreateMappingTableForRowWiseSparsity(mapping_table, num_rows, sparsity);
 
     // Create embedding table
-    default_random_engine generator;
     normal_distribution<float> embedding_distribution;
     uniform_int_distribution<int> entries(0, 16);
 
