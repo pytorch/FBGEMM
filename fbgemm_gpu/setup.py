@@ -11,6 +11,7 @@ from typing import Optional
 
 import torch
 from skbuild import setup
+from skbuild.constants import CMAKE_INSTALL_DIR, skbuild_plat_name
 
 
 def nvcc_ok(cuda_home: str, major: int, minor: int) -> bool:
@@ -77,6 +78,11 @@ def find_cuda(major: int, minor: int) -> Optional[str]:
 
 
 cpu_only_build = False
+
+plat_name = skbuild_plat_name()
+print("plat_name:", plat_name)
+print("CMAKE_INSTALL_DIR:", CMAKE_INSTALL_DIR())
+
 
 
 # Handle command line args before passing to main setup() method.

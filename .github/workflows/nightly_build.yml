@@ -97,7 +97,7 @@ jobs:
         source build_binary_3.8/bin/activate
         cd fbgemm_gpu/
         rm -r dist || true
-        python setup.py bdist_wheel -DTORCH_CUDA_ARCH_LIST="7.0;8.0"
+        python setup.py bdist_wheel -DTORCH_CUDA_ARCH_LIST="7.0;8.0" --plat-name=manylinux1_x86_64
     - name: Upload wheel as GHA artifact
       uses: actions/upload-artifact@v2
       with:
