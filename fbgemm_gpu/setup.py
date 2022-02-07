@@ -171,6 +171,13 @@ def main(argv: List[str]) -> None:
         long_description_content_type="text/markdown",
         url="https://github.com/pytorch/fbgemm",
         license="BSD-3",
+        keywords=[
+            "PyTorch",
+            "Recommendation Models",
+            "High Performance Computing",
+            "GPU",
+            "CUDA",
+        ],
         packages=["fbgemm_gpu"],
         cmake_args=cmake_args,
         # PyPI package information.

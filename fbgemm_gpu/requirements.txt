@@ -1,6 +1,6 @@
-cmake==3.22.1
-hypothesis==6.36.0
-Jinja2==3.0.3
-ninja==1.10.2.3
-numpy==1.22.1
-scikit-build==0.12.0
+cmake
+hypothesis
+Jinja2
+ninja
+numpy
+scikit-build

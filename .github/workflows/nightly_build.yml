@@ -4,15 +4,14 @@
 name: Push Binary Nightly
 
 on:
-  [push, pull_request]
-  # # run every day at 22:15
-  # schedule:
-  #   - cron:  '05 22 * * *'
-  # # or manually trigger it
-  # workflow_dispatch:
+  # [push, pull_request]
+  # run every day at 22:15
+  schedule:
+    - cron:  '15 22 * * *'
+  # or manually trigger it
+  workflow_dispatch:
 
 jobs:
-
   # build on cpu hosts and upload to GHA
   build_on_cpu:
     runs-on: ${{ matrix.os }}
@@ -20,8 +19,14 @@ jobs:
       matrix:
         include:
          - os: linux.2xlarge
+           python-version: 3.7
+           python-tag: "py37"
+         - os: linux.2xlarge
            python-version: 3.8
            python-tag: "py38"
+         - os: linux.2xlarge
+           python-version: 3.9
+           python-tag: "py39"
     steps:
     # Checkout the repository to the GitHub Actions runner
     - name: Check ldd --version
@@ -109,7 +114,7 @@ jobs:
     strategy:
       matrix:
         os: [linux.4xlarge.nvidia.gpu]
-        python-version: [3.8]
+        python-version: [3.7, 3.8, 3.9]
     needs: build_on_cpu
     steps:
     - name: Check ldd --version
@@ -226,12 +231,11 @@ jobs:
     # Push to Pypi
     - name: Push FBGEMM_GPU Binary to Test PYPI
       env:
-          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: |
         conda run -n build_binary python -m pip install twine
         conda run -n build_binary \
           python -m twine upload \
-            --repository-url https://test.pypi.org/legacy/ \
             --username __token__ \
-            --password "$TEST_PYPI_TOKEN" \
+            --password "$PYPI_TOKEN" \
             fbgemm_gpu_nightly-*.whl
