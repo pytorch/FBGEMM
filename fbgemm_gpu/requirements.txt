@@ -1,0 +1,6 @@
+cmake
+hypothesis
+Jinja2
+ninja
+numpy
+scikit-build
