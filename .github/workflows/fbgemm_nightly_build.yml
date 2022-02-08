@@ -4,11 +4,12 @@
 name: Push Binary Nightly
 
 on:
-  # run every day at 10:45 AM
-  schedule:
-    - cron:  '45 10 * * *'
-  # or manually trigger it
-  workflow_dispatch:
+  [push, pull_request]
+  # # run every day at 10:45 AM
+  # schedule:
+  #   - cron:  '45 10 * * *'
+  # # or manually trigger it
+  # workflow_dispatch:
 
 jobs:
   # build on cpu hosts and upload to GHA
@@ -217,6 +218,20 @@ jobs:
         name: fbgemm_gpu_nightly_${{ matrix.python-version }}.whl
     - name: Display structure of downloaded files
       run: ls -R
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        cd fbgemm_gpu/
+        conda run -n build_binary python -m pip install -r requirements.txt
+    - name: Test Installation of dependencies
+      run: |
+        cd fbgemm_gpu/
+        conda run -n build_binary python -c "import torch.distributed"
+        echo "torch.distributed succeeded"
+        conda run -n build_binary python -c "import skbuild"
+        echo "skbuild succeeded"
+        conda run -n build_binary python -c "import numpy"
+        echo "numpy succeeded"
     - name: Install FBGEMM_GPU Nightly
       run: |
         rm -r dist || true
@@ -233,8 +248,9 @@ jobs:
       run: |
         conda run -n build_binary \
           python -m pip install pytest
-        cd fbgemm_gpu/
-        conda run -n build_binary \
+        # The tests with single CPU core on a less powerful testing GPU in GHA
+        # can take 5 hours.
+        timeout 600s conda run -n build_binary \
           python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
     # Push to Pypi
     - name: Push FBGEMM_GPU Binary to PYPI
