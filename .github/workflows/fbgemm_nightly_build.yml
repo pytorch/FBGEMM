@@ -99,14 +99,16 @@ jobs:
       run: |
         cd fbgemm_gpu/
         rm -r dist || true
-        # buld cuda6.0;7.0;8.0 for p100/v100/a100 arch
+        # buld cuda7.0;8.0 for v100/a100 arch:
+        # Couldn't build more cuda arch due to 100 MB binary size limit from
+        # pypi website.
         # manylinux1_x86_64 is specified for pypi upload:
         # distribute python extensions as wheels on Linux
         conda run -n build_binary \
           python setup.py bdist_wheel \
           --package_name=fbgemm_gpu_nightly \
           --python-tag=${{ matrix.python-tag }} \
-          -DTORCH_CUDA_ARCH_LIST="'6.0;7.0;8.0'" \
+          -DTORCH_CUDA_ARCH_LIST="'7.0;8.0'" \
           --plat-name=manylinux1_x86_64
     - name: Upload wheel as GHA artifact
       uses: actions/upload-artifact@v2
