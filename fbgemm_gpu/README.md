@@ -15,7 +15,7 @@ Currently tested with PyTorch 1.11 and CUDA 11.3
 
 Only Intel/AMD with AVX2 extensions are currently supported.
 
-General build instructions are as follows:
+General build and install instructions are as follows:
 
 Build dependencies: "pytorch", "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
 and for testing: "hypothesis".
@@ -25,6 +25,14 @@ and for testing: "hypothesis".
 conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
 conda install scikit-build jinja2 ninja cmake hypothesis
 ```
+
+## PIP install
+
+```
+pip install fbgemm-gpu-nightly
+```
+
+## Build from source
 
 Additional dependencies: currently cuDNN is required to be installed.
 
@@ -47,16 +55,15 @@ export CUB_DIR=${CUB_DIR}
 python setup.py install
 # or build it for specific CUDA architectures (see PyTorch documentation for usage of TORCH_CUDA_ARCH_LIST)
 python setup.py install -DTORCH_CUDA_ARCH_LIST="7.0;8.0"
-
 ```
 
 
-# Usage Example:
+## Usage Example:
 ```bash
 cd bench
 python split_table_batched_embeddings_benchmark.py uvm
 ```
-# Issues
+## Issues
 
 Building is CMAKE based and keeps state across install runs.
 Specifying the CUDA architectures in the command line once is enough.
