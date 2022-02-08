@@ -1,5 +1,8 @@
 # FBGEMM_GPU
 
+[![FBGEMMCI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml)
+[![Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml)
+
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
 high-performance CUDA GPU operator library for GPU training and inference.
 
