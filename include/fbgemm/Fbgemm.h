@@ -18,6 +18,7 @@
 #include "./FbgemmBuild.h"
 #include "./FbgemmEmbedding.h"
 #include "./FbgemmI8DepthwiseAvx2.h"
+#include "./FbgemmI8DirectconvAvx2.h"
 #include "./FbgemmI8Spmdm.h"
 #include "./QuantUtilsAvx2.h"
 #include "./Types.h"
@@ -601,6 +602,10 @@ class FBGEMM_API PackWeightsForConv {
     return W_dw_packed_;
   }
 
+  std::shared_ptr<PackedDirectConvMatrix> getPackedWForDirectconv() {
+    return W_dc_packed_;
+  }
+
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
   getPackedWForGroupwise() {
     return W_gconv_packed_;
@@ -649,6 +654,8 @@ class FBGEMM_API PackWeightsForConv {
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
   // Packed weights if we use depthwise convolution implementation
   std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
+  // Packed weights if we use direct convolution implementation
+  std::shared_ptr<PackedDirectConvMatrix> W_dc_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
@@ -1381,6 +1388,22 @@ FBGEMM_API void fbgemmGroupwiseConv(
     outType* out,
     std::int32_t* outBuffer,
     const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
+    int thread_id,
+    int num_threads);
+
+template <
+    int SPATIAL_DIM,
+    QuantizationGranularity Q_GRAN,
+    bool FUSE_RELU,
+    typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void fbgemmDirectConv(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
+    const uint8_t* Aint8,
+    PackedDirectConvMatrix& Bint8_tr,
+    uint8_t* C,
+    int32_t* C_buffer,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
+    const BIAS_TYPE* bias,
     int thread_id,
     int num_threads);
 

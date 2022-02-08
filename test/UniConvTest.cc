@@ -135,6 +135,13 @@ GetShapes_() {
     conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 5}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, true),
     conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, true),
     conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}, {0, 0}, true),
+    // directconv
+    conv_param_t<>(1, 256, 176, {2, 4}, 1,   {2, 6}, {1, 2}, {0, 0, 0, 0},
+    {1, 1}, {0, 0}, true),
+    conv_param_t<>(1, 128, 128, {4, 12}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
+    {1, 1}, {0, 0}, true),
+    conv_param_t<>(1, 512, 64, {4, 50}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
+    {1, 1}, {0, 0}, true),
   };
   return shapes;
 }
@@ -205,6 +212,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+      ASSERT_EQ(packedB_1D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::groupwise: {
@@ -216,6 +225,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix is null";
+      ASSERT_EQ(packedB_1D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::pointwise: {
@@ -227,6 +238,21 @@ TEST_P(uniConvTest, packingTest) {
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix is null";
+      ASSERT_EQ(packedB_1D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
+      break;
+    }
+    case optimized_conv_t::directconv: {
+      ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
+          << "groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_1D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix is null";
+      ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
       break;
     }
     case optimized_conv_t::fastpath1d: {
@@ -239,6 +265,8 @@ TEST_P(uniConvTest, packingTest) {
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+      ASSERT_EQ(packedB_1D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix is null";
       break;
@@ -270,6 +298,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+      ASSERT_EQ(packedB_2D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::groupwise: {
@@ -281,6 +311,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix is null";
+      ASSERT_EQ(packedB_2D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::pointwise: {
@@ -292,6 +324,21 @@ TEST_P(uniConvTest, packingTest) {
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix is null";
+      ASSERT_EQ(packedB_2D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
+      break;
+    }
+    case optimized_conv_t::directconv: {
+      ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
+          << "groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_2D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix is null";
+      ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
       break;
     }
     case optimized_conv_t::fastpath1d: {
@@ -306,6 +353,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix is null";
+      ASSERT_EQ(packedB_2D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
   }
@@ -335,6 +384,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+      ASSERT_EQ(packedB_3D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::groupwise: {
@@ -346,6 +397,8 @@ TEST_P(uniConvTest, packingTest) {
           << "im2col packed matrix should be null";
       ASSERT_NE(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix is null";
+      ASSERT_EQ(packedB_3D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::pointwise: {
@@ -357,6 +410,21 @@ TEST_P(uniConvTest, packingTest) {
           << "im2col packed matrix should be null";
       ASSERT_NE(packedB_3D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix is null";
+      ASSERT_EQ(packedB_3D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
+      break;
+    }
+    case optimized_conv_t::directconv: {
+      ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
+          << "depthwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
+          << "groupwise packed matrix should be null";
+      ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
+          << "pointwise packed matrix should be null";
+      ASSERT_NE(packedB_3D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix is null";
+      ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
+          << "im2col packed matrix should be null";
       break;
     }
     case optimized_conv_t::fastpath1d: {
@@ -371,6 +439,8 @@ TEST_P(uniConvTest, packingTest) {
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_3D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix is null";
+      ASSERT_EQ(packedB_3D.getPackedWForDirectconv(), nullptr)
+          << "directconv packed matrix should be null";
       break;
     }
   }
@@ -533,6 +603,33 @@ TEST(uniConvTest, cornerCases) {
       1);
 }
 
+template <int SPATIAL_DIM, typename ACC_T>
+bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  // Note: Direct convolutions (2D) are optimized for
+  // filter size: 2 x 1 to 2 x 6,  transposed conv,
+  // in_channel % 8 == 0, out_channel % 8 == 0
+  // stride = 1 or 2
+  // padding = 0 ( non-zero padding will be supported soon)
+  bool ret = std::is_same<ACC_T, std::int32_t>::value && conv_p.transposed &&
+      conv_p.G == 1 && conv_p.IC % 8 == 0 && conv_p.OC % 8 == 0 &&
+      std::all_of(
+                 conv_p.stride.begin(),
+                 conv_p.stride.end(),
+                 [](int i) { return i == 1 || i == 2; }) &&
+      SPATIAL_DIM == 2 && conv_p.K[SPATIAL_DIM - 2] == 2 &&
+      conv_p.K[SPATIAL_DIM - 1] <= 6 &&
+      std::all_of(conv_p.dilation.begin(), conv_p.dilation.end(), [](int i) {
+               return i == 1;
+             });
+  // Check pads: zero padding
+  for (int i = 0; i < SPATIAL_DIM; ++i) {
+    if (conv_p.pad[i] != 0) {
+      ret = false;
+    }
+  }
+  return ret;
+}
+
 /**
  * @brief Unit test for uint8 activations, int8 weights, and 32-bit
  * accumulation. Output processing: requantization -> nothing
@@ -692,6 +789,17 @@ void runRequantizeTest(
     }
 
     PackWeightsForConv<SPATIAL_DIM> packedWeights(conv_p, Bint8.data());
+
+    // DirectConv col_offsets is handled differently
+    if (takeDirectConvPath<SPATIAL_DIM, std::int32_t>(conv_p)) {
+      packedWeights.getPackedWForDirectconv()
+          .get()
+          ->col_offsets_with_zero_pt_s8acc32_DirectConvT(
+              conv_p,
+              Bint8_zero_point.data(),
+              col_offsets,
+              ncols_per_quant_group);
+    }
 
     // TODO: Uncomment once we support multiple threads in fbgemmGroupwiseConv
     // #ifdef _OPENMP

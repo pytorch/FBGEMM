@@ -30,14 +30,6 @@ namespace x86 = asmjit::x86;
  */
 void initCRegs(x86::Emitter* a, int rowRegs, int colRegs);
 
-static asmjit::JitRuntime& runtime() {
-  static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
-                                // depents on other static
-                                // variables.  Required to prevent
-                                // initialization order fiasco
-  return rt;
-}
-
 template <typename TA, typename TB, typename TC, typename accT>
 class DirectConvCodeGenBase {
  public:
@@ -164,9 +156,8 @@ class DirectConvCodeGenBase {
    * store that into the code cache.
    */
   template <inst_set_t instSet>
-  jit_micro_kernel_fp_convT getOrCreateDirectConvTrans(
-      bool accum,
-      int32_t stride);
+  jit_micro_kernel_fp_convT
+  getOrCreateDirectConvTrans(bool accum, int32_t stride, int32_t numColRegs);
 
   /**
    * @brief Generate instructions for computing block in the rank-k update.
@@ -205,6 +196,15 @@ class DirectConvCodeGenBase {
       x86::Gp C_offset,
       int rowRegs,
       int colRegs);
+
+ private:
+  static asmjit::JitRuntime& runtime() {
+    static asmjit::JitRuntime rt; //< JIT Runtime for asmjit,
+                                  // depents on other static
+                                  // variables.  Required to prevent
+                                  // initialization order fiasco
+    return rt;
+  }
 };
 
 template <typename TA, typename TB, typename TC, typename accT>
