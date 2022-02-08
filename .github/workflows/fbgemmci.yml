@@ -82,7 +82,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [windows-2019]
 
     steps:
     - uses: actions/checkout@v2
