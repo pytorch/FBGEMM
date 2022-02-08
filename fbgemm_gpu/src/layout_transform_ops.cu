@@ -31,7 +31,7 @@ namespace fbgemm_gpu {
 
 Tensor recat_embedding_grad_output_cuda(
     Tensor grad_output, // [B_local][T_global][D]
-    std::vector<int64_t> num_features_per_rank) {
+    const std::vector<int64_t>& num_features_per_rank) {
   TENSOR_ON_CUDA_GPU(grad_output);
 
   at::cuda::OptionalCUDAGuard device_guard;
