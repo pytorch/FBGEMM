@@ -272,6 +272,7 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
+        # to avoid "Permission denied" error in '/usr/local/lib/python3.8/dist-packages/' folder
         sudo python setup.py install --cpu_only
 
     - name: Test fbgemm_gpu cpu-only installation
