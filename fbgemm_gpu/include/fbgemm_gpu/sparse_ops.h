@@ -154,7 +154,7 @@ at::Tensor reorder_batched_ad_indices_cpu(
 
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
-    std::vector<int64_t> num_features_per_rank);
+    const std::vector<int64_t>& num_features_per_rank);
 
 at::Tensor recat_embedding_grad_output_mixed_D_cuda(
     const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
