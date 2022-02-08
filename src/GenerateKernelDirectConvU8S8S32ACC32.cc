@@ -12,7 +12,7 @@ namespace fbgemm {
 
 namespace x86 = asmjit::x86;
 /**
- * Generate AVX512 instructions for computing block in the rank-k update of
+ * Generate AVX256 instructions for computing block in the rank-k update of
  * 32-bit Accumulation kernel.
  *
  * this compute block implements the following register blocking
@@ -33,7 +33,7 @@ namespace x86 = asmjit::x86;
  */
 
 /**
- * Generate AVX512 instructions for storing the C registers back to the memory
+ * Generate AVX256 instructions for storing the C registers back to the memory
  * in 32-bit Accumulation kernel.
  */
 template <>
@@ -421,7 +421,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
 }
 
 /**
- * Generate AVX512 instructions for storing the C registers back to the memory
+ * Generate AVX256 instructions for storing the C registers back to the memory
  * in 32-bit Accumulation kernel.
  */
 template <>
@@ -454,7 +454,7 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegsTrans(
 }
 
 /**
- * Generate AVX512 instructions for computing block in the rank-k update of
+ * Generate AVX256 instructions for computing block in the rank-k update of
  * 32-bit Accumulation kernel.
 
 The function generates the register blocking code for transposed
@@ -588,22 +588,32 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
  *
  */
+
+/**
+ * Get or Create the AVX256 instructions for 32-bit Accumulation macro-kernel.
+ *
+ */
 template <>
 template <inst_set_t instSet>
 DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     jit_micro_kernel_fp_convT
     DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-        getOrCreateDirectConvTrans(bool accum, int32_t stride) {
+        getOrCreateDirectConvTrans(
+            bool accum,
+            int32_t stride,
+            int32_t numColRegs) {
   using VecRegT = typename simd_info<instSet>::vec_reg_t;
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
-  constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
+  static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int> kernelSig;
-  constexpr int mRowRegBlockSize = 2;
-  constexpr int mColRegBlockSize = 6;
-  constexpr int mRegBlockSize = mRowRegBlockSize * mColRegBlockSize;
-  constexpr int nRegBlockSize = 8;
-  constexpr int row_interleave = 4;
+  // int ichSize = 32;
+  int mRowRegBlockSize = 2;
+  int mColRegBlockSize = numColRegs;
+  int mRegBlockSize = mRowRegBlockSize * mColRegBlockSize;
+  int nRegBlockSize = 8;
+  // int nRegBlockSizeMin;
+  int row_interleave = 4;
 
   kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
 
@@ -615,8 +625,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 #if defined(FBGEMM_LOG_CODE)
     // generated code logging
     FILE* codeLogfile = fopen(
-        getCodeLoggingFile<instSet>(
-            accum, stride, 0, 0, 0, mRegBlockSize, nRegBlockSize)
+        getCodeLoggingFile<instSet>(accum, stride, mRegBlockSize, nRegBlockSize)
             .c_str(),
         "w");
     asmjit::FileLogger* codeLogger = new asmjit::FileLogger(codeLogfile);
@@ -689,9 +698,6 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
     gen16BitVectorOne<instSet, VecRegT>(a, oneReg);
     a->imul(ldcReg, ldcReg, static_cast<asmjit::Imm>(sizeof(int32_t)));
-    // a->xor_(C_Offset.r32(), C_Offset.r32());
-
-    // a->mov(B_pf_saved, B_pf);
 
     int colRegs = maxNRegs;
 
@@ -702,7 +708,6 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       initCRegs(a, rowRegs, colRegs);
 
       // Loops over K: input channel
-      // corresponds to the "icb" loop in the pseudo code
       a->xor_(kIdx.r32(), kIdx.r32());
       a->bind(LoopKLabel);
 
@@ -753,12 +758,11 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       // B for next block
       a->mov(buffer_B, buffer_B_saved);
       // increment C for next B block
-      // ldcReg already multiplied by 4 (sizeof(int32_t))
-      a->imul(C_offset, ldcReg, static_cast<asmjit::Imm>(stride));
+      a->imul(
+          C_offset,
+          ldcReg,
+          static_cast<asmjit::Imm>(stride)); // ldcReg already multiplied by 4
       a->add(CBase, C_offset);
-
-      // a->add(CBase, static_cast<asmjit::Imm>(12*16*4));
-      // storeCRegs<instSet>(a, 12, 1, C_Offset, ldcReg, accum);
 
       a->cmp(iIdx, i1);
       a->jl(LoopMBlocks);
@@ -889,6 +893,7 @@ template DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         getOrCreateDirectConvTrans<inst_set_t::avx2>(
             bool accum,
-            int32_t stride);
+            int32_t stride,
+            int32_t numColRegs);
 
 } // namespace fbgemm

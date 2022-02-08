@@ -52,6 +52,14 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
           blocking_params);
       break;
     }
+    case optimized_conv_t::directconv: {
+      const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
+      const int K = kernel_h * kernel_w;
+      W_dc_packed_ = std::make_shared<PackedDirectConvMatrix>(
+          conv_p.IC, conv_p.OC, K, sdata);
+      break;
+    }
     case optimized_conv_t::fastpath1d: {
       break;
     }

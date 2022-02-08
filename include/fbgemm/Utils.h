@@ -58,7 +58,8 @@ enum class optimized_conv_t {
   groupwise,
   pointwise,
   fastpath1d,
-  im2col
+  im2col,
+  directconv
 };
 
 /**
