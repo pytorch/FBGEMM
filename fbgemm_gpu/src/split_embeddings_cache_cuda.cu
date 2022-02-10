@@ -246,37 +246,35 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        table_offsets,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
-  int32_t T = cache_hash_size_cumsum.size(0) - 1;
-  int64_t total_cache_hash_size = cache_hash_size_cumsum[T];
-  int32_t B = (offsets.size(0) - 1) / T;
-  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  bool valid = t < T;
+  const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= indices.size(0)) {
+    return;
+  }
 
-  int64_t hash_offset = valid ? cache_hash_size_cumsum[t] : -1;
-  auto indices_start = valid ? offsets[t * B + b] : -1;
-  int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
-  int32_t lane_id = threadIdx.x % kWarpSize;
-
-  // hash_offset < 0 for non-caching tables
-  for (int32_t j = 0; j < kWarpSize; ++j) {
-    auto indices_start_warp = shfl_sync(indices_start, j);
-    int32_t L_warp = shfl_sync(L, j);
-    int64_t hash_offset_warp = shfl_sync(hash_offset, j);
-    if (hash_offset_warp >= 0) {
-      for (int32_t i = lane_id; i < L_warp; i += kWarpSize) {
-        auto idx = __ldg(&indices[indices_start_warp + i]);
-        linear_cache_indices[indices_start_warp + i] = hash_offset_warp + idx;
-      }
+  // Perform binary search.
+  int left = 0;
+  int right = table_offsets.size(0);
+  while (left != right) {
+    const int middle = (left + right) >> 1;
+    if (table_offsets[middle] <= index) {
+      left = middle + 1;
     } else {
-      for (int32_t i = lane_id; i < L_warp; i += kWarpSize) {
-        linear_cache_indices[indices_start_warp + i] = total_cache_hash_size;
-      }
+      right = middle;
     }
+  }
+  const int table_index = left;
+
+  const auto max_offset =
+      __ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+  const auto curr_offset = __ldg(&cache_hash_size_cumsum[table_index]);
+  if (curr_offset >= 0) {
+    linear_cache_indices[index] = indices[index] + curr_offset;
+  } else {
+    linear_cache_indices[index] = max_offset;
   }
 }
 
@@ -291,27 +289,31 @@ Tensor linearize_cache_indices_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cache_hash_size_cumsum.get_device());
 
-  auto T = cache_hash_size_cumsum.size(0) - 1;
+  const auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
   // offsets = [B x T  + 1]
-  auto B = (offsets.size(0) - 1) / T;
+  const auto B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B >= 0);
 
   auto linear_cache_indices = at::empty_like(indices);
-  if (B == 0) {
+  const auto num_indices = indices.numel();
+  if (B == 0 || num_indices == 0) {
     return linear_cache_indices;
   }
+
+  auto table_offsets = offsets.slice(0, B, B * T, B);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "linearize_cache_indices_kernel", [&]() {
         linearize_cache_indices_kernel<<<
-            div_round_up(B * T, kMaxThreads),
+            div_round_up(num_indices, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             cache_hash_size_cumsum
                 .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            table_offsets
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
             linear_cache_indices
                 .packed_accessor32<index_t, 1, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
