@@ -130,6 +130,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor indice_weights,
     {% endif %}
     int64_t output_dtype,
+    Tensor D_padded_row_size_in_bytes,
     int64_t unused
 ) {
     int32_t T = D_offsets.numel() - 1;
@@ -179,6 +180,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
             const auto* offsets_acc = offsets.data_ptr<index_t>();
             const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
             const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
+            const auto* D_padded_row_size_in_bytes_acc = D_padded_row_size_in_bytes.data_ptr<int32_t>();
+            bool pass_D_padded = (D_padded_row_size_in_bytes.numel() == T);
 
             int32_t num_indices_m_1 = indices.numel() - 1;
 
@@ -191,9 +194,13 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
-                const int32_t D_vecs = div_round_up(D, 8);
-                const int32_t D_tail_elements = D % 8;
-                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+
+                int32_t D_bytes;
+                if (pass_D_padded) {
+                    D_bytes = D_padded_row_size_in_bytes_acc[t];
+                } else {
+                    D_bytes = padded_row_size_in_bytes(D, weight_ty);
+                }
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);

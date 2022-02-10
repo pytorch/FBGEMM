@@ -199,7 +199,8 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
   const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_padded_row_size_in_bytes
   ) {
   int32_t T = weights_offsets.size(0);
   {% if not nobag %}
@@ -228,7 +229,12 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
       return;
   }
 
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+  int32_t D_bytes;
+  if (D_padded_row_size_in_bytes.size(0) == T) {
+    D_bytes = D_padded_row_size_in_bytes[t];
+  } else {
+    D_bytes = padded_row_size_in_bytes(D, weight_ty);
+  }
 
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
     return;
@@ -596,6 +602,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
+    Tensor D_padded_row_size_in_bytes,
     int64_t unused
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
@@ -690,7 +697,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        D_padded_row_size_in_bytes.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -735,7 +743,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        D_padded_row_size_in_bytes.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -783,7 +792,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        D_padded_row_size_in_bytes.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -831,7 +841,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        D_padded_row_size_in_bytes.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
