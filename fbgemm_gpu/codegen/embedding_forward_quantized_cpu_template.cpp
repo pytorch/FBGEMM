@@ -169,10 +169,6 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
         {% if weighted %}
         const float* indice_weights_acc = indice_weights.data_ptr<float>();
         {% endif %}
-        // Empty array filled with zeros (thus accumulating to zero).
-        // max-D = 1024, max-sizeof(T) = sizeof(float) = 4.
-        alignas(32) static constexpr std::array<uint8_t, 1024 * 4> zero_row = {0};
-        std::vector<__m256> acc; //, {{ kMaxVecsPerThread }} > acc;
 
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
             const auto* indices_acc = indices.data_ptr<index_t>();
@@ -207,11 +203,19 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                     float>::type;
 
                 bool success = true;
+                bool has_weight = {{ "true" if weighted else "false" }};
+                bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+
+                index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                const float* indice_weights_ptr = nullptr;
+                {% if weighted %}
+                indice_weights_ptr = indice_weights_acc + *offsets_begin_ptr;
+                {% endif %}
                 if (weight_ty == SparseType::FP32) {
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
-                        {{ "true" if weighted else "false" }},
-                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        has_weight,
+                        normalize_by_lengths,
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
@@ -220,22 +224,18 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*scale_bias_last=*/false);
                     success = kernel(
                         B,
-                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        index_size,
                         num_rows,
                         reinterpret_cast<const float*>(weights),
                         indices_acc + *offsets_begin_ptr,
                         offsets_begin_ptr,
-                        {% if weighted %}
-                        indice_weights_acc + *offsets_begin_ptr,
-                        {% else %}
-                        nullptr,
-                        {% endif %}
+                        indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::FP16) {
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float16, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
-                        {{ "true" if weighted else "false" }},
-                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        has_weight,
+                        normalize_by_lengths,
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
@@ -244,22 +244,18 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*scale_bias_last=*/false);
                     success = kernel(
                         B,
-                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        index_size,
                         num_rows,
                         reinterpret_cast<const float16*>(weights),
                         indices_acc + *offsets_begin_ptr,
                         offsets_begin_ptr,
-                        {% if weighted %}
-                        indice_weights_acc + *offsets_begin_ptr,
-                        {% else %}
-                        nullptr,
-                        {% endif %}
+                        indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT8) {
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<uint8_t, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
-                        {{ "true" if weighted else "false" }},
-                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        has_weight,
+                        normalize_by_lengths,
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
@@ -268,23 +264,19 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*scale_bias_last=*/false);
                     success = kernel(
                         B,
-                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        index_size,
                         num_rows,
-                        reinterpret_cast<const uint8_t*>(weights),
+                        weights,
                         indices_acc + *offsets_begin_ptr,
                         offsets_begin_ptr,
-                        {% if weighted %}
-                        indice_weights_acc + *offsets_begin_ptr,
-                        {% else %}
-                        nullptr,
-                        {% endif %}
+                        indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else if (weight_ty == SparseType::INT4) {
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         /*bit_rate=*/4,
                         D,
-                        {{ "true" if weighted else "false" }},
-                        static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                        has_weight,
+                        normalize_by_lengths,
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
@@ -293,16 +285,12 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*scale_bias_last=*/false);
                     success = kernel(
                         B,
-                        offsets_acc[(t + 1) * B] - *offsets_begin_ptr,
+                        index_size,
                         num_rows,
-                        reinterpret_cast<const uint8_t*>(weights),
+                        weights,
                         indices_acc + *offsets_begin_ptr,
                         offsets_begin_ptr,
-                        {% if weighted %}
-                        indice_weights_acc + *offsets_begin_ptr,
-                        {% else %}
-                        nullptr,
-                        {% endif %}
+                        indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else {
                     throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
