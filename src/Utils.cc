@@ -348,22 +348,37 @@ bool fbgemmHasAvx512VnniSupport() {
   return (cpuinfo_has_x86_avx512vnni());
 }
 
+template <typename T>
 void fbgemmPartition1D(
     int thread_id,
     int num_threads,
-    int total_work,
-    int& start,
-    int& end) {
+    T total_work,
+    T& start,
+    T& end) {
   // if num_threads == 0,
   // this threads should not perform any work
   if (num_threads == 0) {
     start = end = 0;
     return;
   }
-  int work_per_thread = (total_work + num_threads - 1) / num_threads;
+  auto work_per_thread = (total_work + num_threads - 1) / num_threads;
   start = std::min(thread_id * work_per_thread, total_work);
   end = std::min((thread_id + 1) * work_per_thread, total_work);
 }
+
+template void fbgemmPartition1D<int>(
+    int thread_id,
+    int num_threads,
+    int total_work,
+    int& start,
+    int& end);
+
+template void fbgemmPartition1D<int64_t>(
+    int thread_id,
+    int num_threads,
+    int64_t total_work,
+    int64_t& start,
+    int64_t& end);
 
 void fbgemmPartition1DBlocked(
     int thread_id,

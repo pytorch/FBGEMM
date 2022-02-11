@@ -189,20 +189,20 @@ void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
-#define FBGEMM_SPECIALIZED_QUANTIZE(T, LEGACY)                      \
-  template <>                                                       \
-  FBGEMM_API void Quantize<T, LEGACY>(                              \
-      const float* src,                                             \
-      T* dst,                                                       \
-      const int len,                                                \
-      const TensorQuantizationParams& qparams,                      \
-      int thread_id,                                                \
-      int num_threads) {                                            \
-    int i_begin, i_end;                                             \
-    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
-    for (int i = i_begin; i < i_end; ++i) {                         \
-      dst[i] = Quantize<T, LEGACY>(src[i], qparams);                \
-    }                                                               \
+#define FBGEMM_SPECIALIZED_QUANTIZE(T, LEGACY)                               \
+  template <>                                                                \
+  FBGEMM_API void Quantize<T, LEGACY>(                                       \
+      const float* src,                                                      \
+      T* dst,                                                                \
+      const int64_t len,                                                     \
+      const TensorQuantizationParams& qparams,                               \
+      int thread_id,                                                         \
+      int num_threads) {                                                     \
+    int64_t i_begin, i_end;                                                  \
+    fbgemmPartition1D<int64_t>(thread_id, num_threads, len, i_begin, i_end); \
+    for (auto i = i_begin; i < i_end; ++i) {                                 \
+      dst[i] = Quantize<T, LEGACY>(src[i], qparams);                         \
+    }                                                                        \
   }
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t, true)
@@ -212,28 +212,28 @@ FBGEMM_SPECIALIZED_QUANTIZE(int16_t, false)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 
-#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T, LEGACY)                     \
-  template <>                                                           \
-  FBGEMM_API void Quantize<T, LEGACY>(                                  \
-      const float* src,                                                 \
-      T* dst,                                                           \
-      int len,                                                          \
-      const TensorQuantizationParams& qparams,                          \
-      int thread_id,                                                    \
-      int num_threads) {                                                \
-    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support(); \
-    bool fma_support = cpuinfo_has_x86_fma3();                          \
-    int i_begin, i_end;                                                 \
-    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);     \
-    if (avx2_support && fma_support && qparams.precision == 8) {        \
-      /* fast path  */                                                  \
-      QuantizeAvx2<T, LEGACY>(                                          \
-          &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);      \
-    } else {                                                            \
-      for (int i = i_begin; i < i_end; ++i) {                           \
-        dst[i] = Quantize<T, LEGACY>(src[i], qparams);                  \
-      }                                                                 \
-    }                                                                   \
+#define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T, LEGACY)                          \
+  template <>                                                                \
+  FBGEMM_API void Quantize<T, LEGACY>(                                       \
+      const float* src,                                                      \
+      T* dst,                                                                \
+      int64_t len,                                                           \
+      const TensorQuantizationParams& qparams,                               \
+      int thread_id,                                                         \
+      int num_threads) {                                                     \
+    bool avx2_support = cpuinfo_initialize() && fbgemmHasAvx2Support();      \
+    bool fma_support = cpuinfo_has_x86_fma3();                               \
+    int64_t i_begin, i_end;                                                  \
+    fbgemmPartition1D<int64_t>(thread_id, num_threads, len, i_begin, i_end); \
+    if (avx2_support && fma_support && qparams.precision == 8) {             \
+      /* fast path  */                                                       \
+      QuantizeAvx2<T, LEGACY>(                                               \
+          &src[i_begin], &dst[i_begin], i_end - i_begin, qparams);           \
+    } else {                                                                 \
+      for (auto i = i_begin; i < i_end; ++i) {                               \
+        dst[i] = Quantize<T, LEGACY>(src[i], qparams);                       \
+      }                                                                      \
+    }                                                                        \
   }
 
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, true)

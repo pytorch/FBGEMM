@@ -346,12 +346,13 @@ bool isValidBlockingFactor(BlockingFactors* param) {
  *
  * i.e., the loop should be equivalent to for(int i = start; i < end; ++i)
  */
+template <typename T>
 FBGEMM_API void fbgemmPartition1D(
     int thread_id,
     int num_threads,
-    int total_work,
-    int& start,
-    int& end);
+    T total_work,
+    T& start,
+    T& end);
 
 /**
  * @brief Partition work across given number of threads in blocks

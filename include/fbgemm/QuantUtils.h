@@ -96,7 +96,7 @@ template <typename T, bool LEGACY = true>
 FBGEMM_API void Quantize(
     const float* src,
     T* dst,
-    int len,
+    int64_t len,
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
     int num_threads = 1);
