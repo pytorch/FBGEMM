@@ -946,36 +946,6 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     const int32_t D_insert_bytes =
         padded_row_size_in_bytes(D_insert, weight_ty_insert);
 
-    // ensure that threadIdx.x is the only thread reading/writing to
-    // lxu_cache_state
-    int64_t current_idx =
-        threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-    current_idx = shfl_sync(current_idx, 0);
-
-    // not empty
-    if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
-      // evict from slot to backing storage
-      int32_t t_current = cache_index_table_map[current_idx];
-      SparseType weight_ty_current =
-          static_cast<SparseType>(weights_tys[t_current]);
-      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
-      int64_t weights_offset_current = weights_offsets[t_current];
-      int32_t D_start_current = D_offsets[t_current];
-      int32_t D_end_current = D_offsets[t_current + 1];
-      int32_t D_current = D_end_current - D_start_current;
-
-      const int32_t D_current_bytes =
-          padded_row_size_in_bytes(D_current, weight_ty_current);
-
-      auto row =
-          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      // Evict the cache
-      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
-        row[d] = cache_row[d]; // uint8_t access
-      }
-    }
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
     auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
@@ -1737,34 +1707,6 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     const int32_t D_insert_bytes =
         padded_row_size_in_bytes(D_insert, weight_ty_insert);
 
-    // not empty
-    if (insert_current_lfu_cost != -1) {
-      // ensure that threadIdx.x is the only thread reading/writing to
-      // lxu_cache_state
-      int64_t current_idx =
-          threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-      current_idx = shfl_sync(current_idx, 0);
-      int32_t t_current = cache_index_table_map[current_idx];
-      SparseType weight_ty_current =
-          static_cast<SparseType>(weights_tys[t_current]);
-      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
-      int64_t weights_offset_current = weights_offsets[t_current];
-      int32_t D_start_current = D_offsets[t_current];
-      int32_t D_end_current = D_offsets[t_current + 1];
-      int32_t D_current = D_end_current - D_start_current;
-
-      const int32_t D_current_bytes =
-          padded_row_size_in_bytes(D_current, weight_ty_current);
-
-      auto row =
-          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      // Evict the cache
-      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
-        row[d] = cache_row[d]; // uint8_t access
-      }
-    }
     // insert into cache
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
