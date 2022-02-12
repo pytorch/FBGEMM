@@ -4,7 +4,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
 import random
+from typing import Tuple
 
 import click
 import numpy as np
@@ -20,6 +22,9 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
     )
+
+
+ASSOC: int = 32
 
 
 # pyre-ignore
@@ -40,26 +45,36 @@ def benchmark_torch_function(iters: int, f, *args) -> float:
     return start_event.elapsed_time(end_event) / iters
 
 
-@click.command()
-@click.option("--iters", default=100)
-@click.option("--num-tables", default=50)
-@click.option("--batch", default=100)
-@click.option("--avg-pooling-factor", default=400)
-def main(
-    iters: int,
-    num_tables: int,
-    batch: int,
-    avg_pooling_factor: int,
-) -> None:
-    num_embeddings: int = 1000000
-    cache_hash_size_cumsum: Tensor = torch.tensor(
-        np.arange(0, num_embeddings * num_tables, num_embeddings)
-    ).cuda()
+def create_table_offsets(
+    num_tables: int, cached_tables_ratio: float, num_embeddings: int
+) -> Tensor:
+    """
+    Returns "table size cumsum", which is information of UVM caching for tables.
+    """
+    num_cached_tables = round(num_tables * cached_tables_ratio)
+    np_list = np.arange(0, num_embeddings * num_cached_tables, num_embeddings)
+    num_uncached_tables = num_tables - num_cached_tables
+    while num_uncached_tables > 0:
+        added = random.randint(1, num_uncached_tables)
+        pos = random.randint(0, len(np_list) - 1)
+        np_list = np.insert(np_list, pos, [np_list[pos]] * added)
+        num_uncached_tables -= added
+    cache_hash_size_cumsum: Tensor = torch.tensor(np_list).cuda()
+    return cache_hash_size_cumsum
+
+
+def create_request(
+    num_tables: int, num_embeddings: int, batch: int, avg_pooling_factor: int
+) -> Tuple[Tensor, Tensor]:
+    """
+    Returns [indices, offsets], which are inputs of embedding bags.
+    """
     indices: Tensor = torch.randint(
         0, num_embeddings, (num_tables * batch * avg_pooling_factor,), dtype=torch.int32
     ).cuda()
 
-    # Pooling factors are intentionally diversified between provided [1, avg_pooling_factor, avg_pooling_factor * 2].
+    # Pooling factors are intentionally diversified between [1, pf / 2, pf, pf* 2, pf * 4, pf * 8].
+    # where pf == avg_pooling_factor.
     pooling_factors = []
     for _ in range(num_tables - 1):
         half_avg_pooling_factor = avg_pooling_factor // 2
@@ -71,8 +86,10 @@ def main(
                         half_avg_pooling_factor,
                         avg_pooling_factor,
                         2 * avg_pooling_factor,
+                        4 * avg_pooling_factor,
+                        8 * avg_pooling_factor,
                     ],
-                    weights=[2, 10, 20, 1],
+                    weights=[5, 10, 15, 1, 1, 3],
                 )[0]
             )
         else:
@@ -101,6 +118,34 @@ def main(
                 offsets_list.append(last_offset + selected)
             offsets_list.append(finish_offset)
     offsets: Tensor = torch.tensor(offsets_list, dtype=torch.int32).cuda()
+    return (indices, offsets)
+
+
+@click.group()
+def cli() -> None:
+    pass
+
+
+@cli.command()
+@click.option("--iters", default=100)
+@click.option("--num-tables", default=50)
+@click.option("--cached-tables-ratio", default=1.0)
+@click.option("--batch", default=100)
+@click.option("--avg-pooling-factor", default=100)
+def linearize_cache_indices(
+    iters: int,
+    num_tables: int,
+    cached_tables_ratio: float,
+    batch: int,
+    avg_pooling_factor: int,
+) -> None:
+    num_embeddings: int = 1000000
+    cache_hash_size_cumsum = create_table_offsets(
+        num_tables, cached_tables_ratio, num_embeddings
+    )
+    indices, offsets = create_request(
+        num_tables, num_embeddings, batch, avg_pooling_factor
+    )
 
     t_ms = benchmark_torch_function(
         iters,
@@ -115,5 +160,52 @@ def main(
     )
 
 
+@cli.command()
+@click.option("--iters", default=100)
+@click.option("--num-tables", default=50)
+@click.option("--cached-tables-ratio", default=1.0)
+@click.option("--batch", default=100)
+@click.option("--avg-pooling-factor", default=100)
+@click.option("--cache-load-factor", default=0.2)
+def lxu_cache_lookup(
+    iters: int,
+    num_tables: int,
+    cached_tables_ratio: float,
+    batch: int,
+    avg_pooling_factor: int,
+    cache_load_factor: float,
+) -> None:
+    num_embeddings: int = 1000000
+    cache_hash_size_cumsum = create_table_offsets(
+        num_tables, cached_tables_ratio, num_embeddings
+    )
+    indices, offsets = create_request(
+        num_tables, num_embeddings, batch, avg_pooling_factor
+    )
+
+    linearized_indices = torch.ops.fbgemm.linearize_cache_indices(
+        cache_hash_size_cumsum, indices, offsets
+    )
+
+    lxu_cache_state: Tensor = torch.empty(
+        math.ceil(cache_hash_size_cumsum[-1] * cache_load_factor / ASSOC),
+        ASSOC,
+        device="cuda",
+        dtype=torch.int64,
+    ).fill_(-1)
+
+    t_ms = benchmark_torch_function(
+        iters,
+        lambda linearized_indices, lxu_cache_state: torch.ops.fbgemm.lxu_cache_lookup(
+            linearized_indices, lxu_cache_state
+        ),
+        linearized_indices,
+        lxu_cache_state,
+    )
+    logging.info(
+        f"Across {iters} runs, T: {num_tables} BS: {batch}, {t_ms * 1.0e3:.0f}us"
+    )
+
+
 if __name__ == "__main__":
-    main()
+    cli()
