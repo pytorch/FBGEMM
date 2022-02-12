@@ -9,6 +9,7 @@
 
 import copy
 import pickle
+import random
 import unittest
 from typing import Callable, List, Optional, Tuple, TypeVar
 
@@ -34,6 +35,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
 from hypothesis import HealthCheck, Verbosity, assume, given, settings
+from hypothesis.strategies import composite
 from torch import Tensor
 
 
@@ -43,6 +45,23 @@ MAX_EXAMPLES = 40
 MAX_EXAMPLES_LONG_RUNNING = 15
 
 Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
+
+
+@composite
+# pyre-ignore
+def get_nbit_weights_ty(draw) -> Optional[SparseType]:
+    """
+    Returns None if mixed weights ty should be used, otherwise, returns specific SparseType.
+    """
+    mixed_weights_ty = draw(st.booleans())
+    if mixed_weights_ty:
+        return None
+    # TODO: Implement support for SparseType.INT2.
+    return draw(
+        st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.INT8, SparseType.INT4]
+        )
+    )
 
 
 def round_up(a: int, b: int) -> int:
@@ -216,23 +235,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
+        # NOTE: CPU does not support FP16.
         assume(not (use_cpu and weights_precision == SparseType.FP16))
 
+        # NOTE: weighted operation can be done only for SUM.
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # No bag ops only work on GPUs, no mixed, no weighted
+        # NOTE: No bag ops only work on GPUs, no mixed
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
         )
         assume(
             not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
         )
 
@@ -390,50 +407,215 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
 
+    def test_forward_cpu_int8(
+        self,
+    ) -> None:
+        weights_precision = SparseType.INT8
+        use_cpu = True
+        T = random.randint(1, 10)
+        B = random.randint(1, min(128, int(2048 / T)))
+        L = random.randint(0, min(20, int(2048 / T / B)))
+        D = random.randint(
+            2, min(256, max(2, int(2048 / (T * B * (L if L > 0 else 1)))))
+        )
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            ]
+        )
+        mixed = False
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
+    def test_forward_cpu_fp32(
+        self,
+    ) -> None:
+        weights_precision = SparseType.FP32
+        use_cpu = True
+        T = random.randint(1, 10)
+        B = random.randint(1, min(128, int(2048 / T)))
+        L = random.randint(0, min(20, int(2048 / T / B)))
+        D = random.randint(
+            2, min(256, max(2, int(2048 / (T * B * (L if L > 0 else 1)))))
+        )
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            ]
+        )
+        mixed = False
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
     @unittest.skipIf(*gpu_unavailable)
-    @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=256),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.just(SparseType.INT8),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        pooling_mode=st.sampled_from(
+    def test_forward_gpu_no_cache_int8(
+        self,
+    ) -> None:
+        weights_precision = SparseType.INT8
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
-        ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
-    )
-    def test_forward_int8(
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_forward_gpu_no_cache_fp16(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weights_precision: SparseType,
-        weighted: bool,
-        mixed: bool,
-        use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        use_cpu: bool,
     ) -> None:
+        weights_precision = SparseType.FP16
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_forward_gpu_no_cache_fp32(
+        self,
+    ) -> None:
+        weights_precision = SparseType.FP32
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
         self.execute_forward_(
             T,
             D,
@@ -451,26 +633,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=256),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.just(SparseType.FP16),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -478,21 +643,35 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_forward_fp16(
+    def test_forward_gpu_uvm_cache_int8(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weights_precision: SparseType,
-        weighted: bool,
-        mixed: bool,
-        use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        use_cpu: bool,
     ) -> None:
+        weights_precision = SparseType.INT8
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = True
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
         self.execute_forward_(
             T,
             D,
@@ -510,26 +689,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=256),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.just(SparseType.FP32),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -537,21 +699,91 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_forward_fp32(
+    def test_forward_gpu_uvm_cache_fp16(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weights_precision: SparseType,
-        weighted: bool,
-        mixed: bool,
-        use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        use_cpu: bool,
     ) -> None:
+        weights_precision = SparseType.FP16
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = True
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_uvm_cache_fp32(
+        self,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+    ) -> None:
+        weights_precision = SparseType.FP32
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = True
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
         self.execute_forward_(
             T,
             D,
@@ -2702,21 +2934,18 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed_weights_ty: bool,
         output_dtype: SparseType,
     ) -> None:
+        # NOTE: weighted operation can be done only for SUM.
         assume(
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # No bag ops only work on GPUs, no mixed, no weighted
+        # NOTE: No bag ops only work on GPUs, no mixed
         assume(
             not use_cpu
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
         )
         assume(
             not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
         )
 
@@ -2964,140 +3193,50 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @given(
-        T=st.integers(min_value=1, max_value=50),
-        D=st.integers(min_value=2, max_value=1024 - 8),
-        B=st.integers(min_value=0, max_value=128),
-        log_E=st.integers(min_value=2, max_value=4),
-        L=st.integers(min_value=0, max_value=32),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        weights_ty=st.sampled_from(
-            [
-                SparseType.INT8,
-                SparseType.INT4,
-                # TODO: implement for SparseType.INT2,
-            ]
-        ),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
-        mixed_weights_ty=st.booleans(),
-        output_dtype=st.sampled_from(
-            [
-                SparseType.FP32,
-                SparseType.FP16,
-            ]
-        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
         deadline=None,
     )
-    def test_nbit_forward_int(
+    def test_nbit_forward_cpu(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weighted: bool,
-        mixed: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        weights_ty: SparseType,
-        use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        use_cpu: bool,
+        nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
-        mixed_weights_ty: bool,
-        output_dtype: SparseType,
     ) -> None:
-        self.execute_nbit_forward_(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            weighted,
-            mixed,
-            pooling_mode,
-            weights_ty,
-            use_cache,
-            cache_algorithm,
-            use_cpu,
-            use_array_for_index_remapping,
-            mixed_weights_ty,
-            output_dtype,
-        )
+        use_cpu = True
+        T = random.randint(1, 50)
+        B = random.randint(0, 128)
+        L = random.randint(0, 32)
+        D = random.randint(2, 1024)
+        log_E = random.randint(2, 4)
 
-    @given(
-        T=st.integers(min_value=1, max_value=50),
-        D=st.integers(min_value=2, max_value=1024 - 8),
-        B=st.integers(min_value=0, max_value=128),
-        log_E=st.integers(min_value=2, max_value=4),
-        L=st.integers(min_value=0, max_value=32),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        pooling_mode=st.sampled_from(
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
-        ),
-        weights_ty=st.sampled_from(
-            [
-                SparseType.FP16,
-                SparseType.FP32,
-            ]
-        ),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
-        use_array_for_index_remapping=st.booleans(),
-        mixed_weights_ty=st.booleans(),
-        output_dtype=st.sampled_from(
-            [
-                SparseType.FP32,
-                SparseType.FP16,
-            ]
-        ),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
-        deadline=None,
-    )
-    def test_nbit_forward_fp(
-        self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weighted: bool,
-        mixed: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
-        weights_ty: SparseType,
-        use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        use_cpu: bool,
-        use_array_for_index_remapping: bool,
-        mixed_weights_ty: bool,
-        output_dtype: SparseType,
-    ) -> None:
+        )
+        mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+
+        if nbit_weights_ty is None:
+            # don't care when mixed type is used.
+            weights_ty: SparseType = SparseType.INT8
+            mixed_weights_ty = True
+        else:
+            weights_ty: SparseType = nbit_weights_ty
+            mixed_weights_ty = False
+        output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
         self.execute_nbit_forward_(
             T,
             D,
@@ -3118,11 +3257,74 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=256),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=1, max_value=20),
+        nbit_weights_ty=get_nbit_weights_ty(),
+        use_array_for_index_remapping=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_gpu_no_cache(
+        self,
+        nbit_weights_ty: Optional[SparseType],
+        use_array_for_index_remapping: bool,
+    ) -> None:
+        use_cpu = False
+        T = random.randint(1, 50)
+        B = random.randint(0, 128)
+        L = random.randint(0, 32)
+        D = random.randint(2, 1024)
+        log_E = random.randint(2, 4)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+
+        if nbit_weights_ty is None:
+            # don't care when mixed type is used.
+            weights_ty: SparseType = SparseType.INT8
+            mixed_weights_ty = True
+        else:
+            weights_ty: SparseType = nbit_weights_ty
+            mixed_weights_ty = False
+        output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            use_array_for_index_remapping,
+            mixed_weights_ty,
+            output_dtype,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
         weights_ty=st.sampled_from(
             [
                 SparseType.FP32,
@@ -3132,23 +3334,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # TODO: implement for SparseType.INT2,
             ]
         ),
-        mixed=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_nbit_cache_pipeline(
+    def test_nbit_forward_uvm_cache(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        mixed: bool,
         weights_ty: SparseType,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
     ) -> None:
+        T = random.randint(1, 5)
+        B = random.randint(1, 128)
+        L = random.randint(1, 20)
+        D = random.randint(2, 256)
+        log_E = random.randint(3, 5)
+        mixed = random.choice([True, False])
+
         iters = 3
         E = int(10 ** log_E)
 
@@ -3335,7 +3537,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.tensor(lxu_cache_locations_cpu, dtype=torch.int32), use_cpu=False
         )
 
-        # Create an abstrat splittable
+        # Create an abstract split table
         D = 8
         T = 2
         E = 10 ** 3
@@ -3368,8 +3570,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(N=st.integers(min_value=1, max_value=8))
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_miss_counter(self, N: int) -> None:
-
-        # Create an abstrat splittable
+        # Create an abstract split table
         D = 8
         T = 2
         E = 10 ** 3
