@@ -1464,10 +1464,13 @@ def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
 
-def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType, use_cpu: bool) -> int:
     r = unpadded_row_size_in_bytes(dim, weight_ty)
-    # align each row to 16-byte boundaries.
-    return round_up(r, 16)
+    if use_cpu:
+        return r
+    else:
+        # align each row to 16-byte boundaries.
+        return round_up(r, 16)
 
 
 def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
@@ -1489,6 +1492,7 @@ def align_to_cacheline(a: int) -> int:
 def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
+    use_cpu: bool,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1496,8 +1500,8 @@ def nbit_construct_split_state(
     host_size = 0
     uvm_size = 0
     for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
-        embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty)
-        state_size = align_to_cacheline(num_embeddings * embedding_dim)
+        embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty, use_cpu)
+        state_size = num_embeddings * embedding_dim
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
             offsets.append(host_size)
@@ -1672,7 +1676,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.max_D: int = max(dims)
         cached_dims = [
-            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3])
+            rounded_row_size_in_bytes(
+                embedding_spec[2], embedding_spec[3], self.use_cpu
+            )
             for embedding_spec in self.embedding_specs
             if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
         ]
@@ -1681,6 +1687,26 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weight_split: SplitState = nbit_construct_split_state(
             self.embedding_specs,
             cacheable=True,
+            use_cpu=self.use_cpu,
+        )
+        D_padded_row_size_in_bytes: List[int] = []
+        for (
+            _,
+            _,
+            embedding_dim,
+            weight_ty,
+            _,
+        ) in self.embedding_specs:
+            D_padded_row_size_in_bytes.append(
+                rounded_row_size_in_bytes(embedding_dim, weight_ty, self.use_cpu)
+            )
+        self.register_buffer(
+            "D_padded_row_size_in_bytes",
+            torch.tensor(
+                D_padded_row_size_in_bytes,
+                device=self.current_device,
+                dtype=torch.int32,
+            ),
         )
 
         self.weights_physical_placements: List[int] = [
@@ -1862,6 +1888,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
+            D_padded_row_size_in_bytes=self.D_padded_row_size_in_bytes,
         )
 
     def _apply_split(
@@ -2085,7 +2112,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def split_embedding_weights(
-        self, split_scale_shifts: bool = True
+        self,
+        split_scale_shifts: bool = True,
     ) -> List[Tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
@@ -2102,8 +2130,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_uvm
             offset = self.weights_physical_offsets[t]
             weights_shifts = weights.detach()[
-                offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
-            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
+                offset : offset
+                + rows * rounded_row_size_in_bytes(dim, weight_ty, self.use_cpu)
+            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.use_cpu))
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
