@@ -110,7 +110,6 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_indice_weights_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_template_helpers.cuh
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host_cpu.cpp
@@ -122,6 +121,14 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/__init__.template
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cpu_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_postfix.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/dispatch_macros.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
 )
 
 add_custom_command(
@@ -222,8 +229,10 @@ set_source_files_properties(
 
 set(fbgemm_gpu_sources_gpu
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
+    src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
-    src/sparse_ops.cu src/split_embeddings_cache_cuda.cu)
+    src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu
+    src/split_embeddings_utils.cu)
 
 set_source_files_properties(${fbgemm_gpu_sources_gpu}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")

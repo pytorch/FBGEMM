@@ -6,7 +6,8 @@
  */
 // clang-format off
 {% set wdesc = "weighted" if weighted else "unweighted" %}
-#include "codegen/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
@@ -107,8 +108,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_cumulative_run_lengths,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
@@ -190,13 +189,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% endif %}
             for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
                 {% if not nobag %}
-                int32_t b_j = SHFL_SYNC_MACRO(b, j);
-                int32_t D_start_j = SHFL_SYNC_MACRO(D_start, j);
+                int32_t b_j = shfl_sync(b, j);
+                int32_t D_start_j = shfl_sync(D_start, j);
                 {% else %}
-                int32_t l_j = SHFL_SYNC_MACRO(l, j);
+                int32_t l_j = shfl_sync(l, j);
                 {% endif %}
+
                 {% if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC_MACRO(idx_weight, j);
+                at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
                 {% endif %}
 
         #pragma unroll kMaxVecsPerThread
@@ -458,8 +458,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         sorted_linear_indices_run,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run_lengths,
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {% else %}
@@ -549,26 +547,26 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
         for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
-            int32_t b_j = SHFL_SYNC_MACRO(b, j);
-            int32_t D_start_j = SHFL_SYNC_MACRO(D_start, j);
+            int32_t b_j = shfl_sync(b, j);
+            int32_t D_start_j = shfl_sync(D_start, j);
             {% else %}
-            int32_t l_j = SHFL_SYNC_MACRO(l, j);
+            int32_t l_j = shfl_sync(l, j);
             {% endif %}
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC_MACRO(idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
             {% endif %}
 
-    #pragma unroll kMaxVecsPerThread
-        for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-            ++i) {
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-            {% if not nobag %}
-            Vec4T<at::acc_type<cache_t, true>> grad_out_vec(
-                &grad_output[b_j][0] + D_start_j + d);
-            {% else %}
-            Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[l_j][d]);
-            {% endif %}
+            #pragma unroll kMaxVecsPerThread
+            for (int32_t i = 0;
+                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                    ++i) {
+                int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+                {% if not nobag %}
+                Vec4T<at::acc_type<cache_t, true>> grad_out_vec(
+                    &grad_output[b_j][0] + D_start_j + d);
+                {% else %}
+                Vec4T<at::acc_type<cache_t, true>> grad_out_vec(&grad_output[l_j][d]);
+                {% endif %}
                 {% if weighted %}
                 grad_sum[i].fma_(grad_out_vec, idx_weight_j);
                 {% else %}
@@ -706,6 +704,28 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     bool stochastic_rounding,
     {% endif %}
     {{ args.split_function_args | join(", ") }}) {
+
+    TENSOR_ON_CUDA_GPU(grad_output);
+    TENSOR_ON_CUDA_GPU(dev_weights);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(uvm_weights);
+    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_ON_CUDA_GPU(weights_placements);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(weights_offsets);
+    {% if not nobag %}
+    TENSOR_ON_CUDA_GPU(D_offsets);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(hash_size_cumsum);
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    {% if weighted %}
+    TENSOR_ON_CUDA_GPU(indice_weights);
+    {% endif %}
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+    {% endif %}
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
@@ -736,10 +756,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     TORCH_CHECK(D <= {{ max_embedding_dim }});
     {% endif %}
 
-#ifndef __HIP_PLATFORM_HCC__
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
+#ifndef __HIP_PLATFORM_HCC__
     cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
+#else
+    // MI100 has 64 KB local memory (shared memory) per workgroup
+    max_shared_bytes = 64 << 10;
+#endif
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     int shared_kb = max_shared_bytes >> 10;
     // V100: 64 KB; A100: 96 KB.
@@ -747,80 +771,27 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
     TORCH_CHECK(used_shared_kb > 0);
     int used_shared_bytes = used_shared_kb << 10;
-#endif
 
-    {% if not nobag %}
-    auto infos = at::empty_like(indices, indices.options().dtype(at::kInt));
-    {% else %}
-    auto infos = at::empty_like(indices, indices.options().dtype(at::kLong));
-    {% endif %}
-    auto infos_sorted = at::empty_like(infos);
-    auto linear_indices = at::empty_like(indices);
-    auto linear_indices_sorted = at::empty_like(indices);
-    {% if not nobag %}
-    linearize_index_kernel<int64_t, kMaxThreads><<<
-        div_round_up(B * T, kMaxThreads),
-        kMaxThreads,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        infos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        linear_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-    {% else %}
-    nobag_linearize_index_kernel<<<
-        div_round_up(B * T, kMaxThreads),
-        kMaxThreads,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        infos.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        linear_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
-    {% endif %}
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-    {
-        size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
-            nullptr,
-            temp_storage_bytes,
-            linear_indices.data_ptr<int64_t>(),
-            linear_indices_sorted.data_ptr<int64_t>(),
-            {% if not nobag %}
-            infos.data_ptr<int32_t>(),
-            infos_sorted.data_ptr<int32_t>(),
-            {% else %}
-            infos.data_ptr<int64_t>(),
-            infos_sorted.data_ptr<int64_t>(),
-            {% endif %}
-            linear_indices.numel(),
-            0,
+    Tensor linear_indices, linear_indices_sorted;
+    Tensor infos_sorted;
+    Tensor sorted_linear_indices_run, sorted_linear_indices_run_lengths,
+        sorted_linear_indices_num_runs,
+        sorted_linear_indices_cumulative_run_lengths;
+    std::tie(
+        linear_indices,
+        linear_indices_sorted,
+        infos_sorted,
+        sorted_linear_indices_run,
+        sorted_linear_indices_run_lengths,
+        sorted_linear_indices_num_runs,
+        sorted_linear_indices_cumulative_run_lengths) =
+        transpose_embedding_input(
+            hash_size_cumsum,
             total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
-        auto temp_storage = at::empty(
-            {static_cast<int64_t>(temp_storage_bytes)},
-            indices.options().dtype(at::kByte));
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
-            temp_storage.data_ptr(),
-            temp_storage_bytes,
-            linear_indices.data_ptr<int64_t>(),
-            linear_indices_sorted.data_ptr<int64_t>(),
-            {% if not nobag %}
-            infos.data_ptr<int32_t>(),
-            infos_sorted.data_ptr<int32_t>(),
-            {% else %}
-            infos.data_ptr<int64_t>(),
-            infos_sorted.data_ptr<int64_t>(),
-            {% endif %}
-            linear_indices.numel(),
-            0,
-            total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
-    }
+            indices,
+            offsets,
+            {{"true" if nobag else "false"}});
+
     {% if not dense %}
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
     if (lxu_cache_locations.size(0) > 0) {
@@ -854,41 +825,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             false));
     }
     {% endif %}
-    auto sorted_linear_indices_run = at::empty_like(indices);
-    auto sorted_linear_indices_run_lengths =
-        at::zeros_like(indices, indices.options().dtype(at::kInt));
-    auto sorted_linear_indices_num_runs =
-        at::zeros({1}, indices.options().dtype(at::kInt));
-
-    {
-        size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
-            nullptr,
-            temp_storage_bytes,
-            linear_indices_sorted.data_ptr<int64_t>(),
-            sorted_linear_indices_run.data_ptr<int64_t>(),
-            sorted_linear_indices_run_lengths.data_ptr<int32_t>(),
-            sorted_linear_indices_num_runs.data_ptr<int32_t>(),
-            linear_indices_sorted.numel(),
-            at::cuda::getCurrentCUDAStream()));
-        // Allocate temporary storage
-        auto temp_storage = at::empty(
-            {static_cast<int64_t>(temp_storage_bytes)},
-            indices.options().dtype(at::kByte));
-        // Run encoding
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
-            temp_storage.data_ptr(),
-            temp_storage_bytes,
-            linear_indices_sorted.data_ptr<int64_t>(),
-            sorted_linear_indices_run.data_ptr<int64_t>(),
-            sorted_linear_indices_run_lengths.data_ptr<int32_t>(),
-            sorted_linear_indices_num_runs.data_ptr<int32_t>(),
-            linear_indices_sorted.numel(),
-            at::cuda::getCurrentCUDAStream()));
-    }
-
-    auto sorted_linear_indices_cumulative_run_lengths =
-        asynchronous_complete_cumsum(sorted_linear_indices_run_lengths);
 
     {% if not dense %}
     DISPATCH_EMB_CACHE_TYPES(
@@ -945,6 +881,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 false));
             }
             {% endif %}
+
+            // early memory release
+            linear_indices.reset();
+            linear_indices_sorted.reset();
 
             auto grad_output_accessor = grad_output.packed_accessor32<
                 at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>,
@@ -1041,6 +981,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
                 emb_t,
@@ -1050,7 +991,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
-                <<<div_round_up(linear_indices.numel(), 32 * kWarpSize),
+                <<<div_round_up(long_run_ids.numel(), kMaxThreads),
                     dim3(kWarpSize, BT_block_size),
                     BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
                         {{ kMaxVecsPerThread }},
@@ -1075,8 +1016,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     sorted_linear_indices_run
                         .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                     sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run_lengths
                         .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     num_long_run_ids.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -1126,7 +1065,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}>
-                <<<div_round_up(linear_indices.numel(), kBackwardMaxThreads / kWarpSize),
+                <<<div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kWarpSize),
                     dim3(kWarpSize, kBackwardMaxThreads / kWarpSize),
                     BT_block_size * sizeof(
                     at::acc_type<
@@ -1158,8 +1097,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     sorted_linear_indices_run
                         .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                     sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run_lengths
                         .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% if not nobag %}
                     infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),

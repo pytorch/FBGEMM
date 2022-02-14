@@ -35,6 +35,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
     IntNBitTableBatchedEmbeddingBagsCodegen,
+    PoolingMode,
 )
 from numpy.random import default_rng
 from torch import Tensor
@@ -68,6 +69,34 @@ def get_table_batched_offsets_from_dense(
     )
 
 
+def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    (B, L) = indices.size()
+    return (
+        indices.contiguous().view(-1),
+        torch.tensor(
+            np.cumsum(np.asarray([0] + [L for _ in range(B)])[:-1]).astype(np.int64)
+        ),
+    )
+
+
+def b_indices(
+    b: Callable[..., torch.Tensor],
+    x: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor] = None,
+    use_cpu: bool = False,
+    do_pooling: bool = True,
+) -> torch.Tensor:
+    (indices, offsets) = get_offsets_from_dense(x)
+    if do_pooling:
+        return b(
+            indices.cuda(),
+            offsets.cuda(),
+            per_sample_weights=per_sample_weights,
+        )
+    else:
+        return b(indices.cuda())
+
+
 def generate_requests(
     iters: int,
     B: int,
@@ -88,14 +117,15 @@ def generate_requests(
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
 
-        logging.warning("Ignoring L parameter as requests data file has been provided")
-
+        average_L = 0
         if tables is not None:
             emb_tables = tuple(int(x) for x in tables.split(","))
             indices = torch.zeros(0, dtype=indices_tensor.dtype)
             offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
+            total_L = 0
             for t in emb_tables:
                 t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
+                total_L += t_offsets[-1] - t_offsets[0]
                 indices = torch.cat(
                     (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
                 )
@@ -107,6 +137,7 @@ def generate_requests(
                 )
             indices_tensor = indices
             offsets_tensor = offsets
+            average_L = int(total_L / B)
 
             assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
                 f"Requested tables: {emb_tables} "
@@ -117,12 +148,16 @@ def generate_requests(
                 f"on tables: {emb_tables}"
             )
         else:
+            average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
             assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
                 f"Data file (indices = {indices_tensor.size()}, "
                 f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
                 f"does not conform to inputs (T, B) = ({T}, {B})."
             )
 
+        assert (
+            L == average_L
+        ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
         assert E > max(indices_tensor), (
             f"Number of embeddings is not enough to support maximum index "
             f"provided by data file {E} vs. {max(indices_tensor)}"
@@ -219,6 +254,90 @@ def benchmark_requests(
                 torch.cuda.synchronize()
             start_event.record()
         func(indices, offsets, weights)
+        if torch.cuda.is_available():
+            end_event.record()
+            torch.cuda.synchronize()
+            it_time = start_event.elapsed_time(end_event) * 1.0e-3
+            times.append(it_time)
+        else:
+            it_time = time.time() - start_time
+            times.append(it_time)
+    avg_time = sum(times) / len(requests)
+    median_time = statistics.median(times)
+    return median_time if check_median else avg_time
+
+
+def benchmark_requests_refer(
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
+    T: int,
+    B: int,
+    L: int,
+    E: int,
+    D: int,
+    pooling_mode: str,
+    weighted: bool,
+    flush_gpu_cache_size_mb: int = 0,
+    check_median: bool = False,
+) -> float:
+    do_pooling = pooling_mode in ["sum", "mean"]
+    if do_pooling:
+        nn_embedding_list = [
+            torch.nn.EmbeddingBag(E, D, mode=pooling_mode, sparse=True).cuda()
+        ] * T
+    else:
+        nn_embedding_list = [torch.nn.Embedding(E, D, sparse=True).cuda()] * T
+
+    times = []
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+    for (indices, _, weights) in requests:
+        indices_list = indices.view(T, B, L).split(1)
+
+        if weighted:
+            assert weights is not None
+            weights_list = weights.view(T, B, L).split(1)
+
+        start_time = time.time()
+        if torch.cuda.is_available():
+            if flush_gpu_cache_size_mb:
+                _ = torch.rand(
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                )
+                torch.cuda.synchronize()
+            start_event.record()
+
+        nn_embedding_output = (
+            [
+                b_indices(nn_embedding, x, use_cpu=False, do_pooling=do_pooling)
+                for (nn_embedding, x) in zip(nn_embedding_list, indices_list)
+            ]
+            if not weighted
+            else [
+                b_indices(
+                    nn_embedding,
+                    x,
+                    per_sample_weights=xw.view(-1),
+                    use_cpu=False,
+                    do_pooling=do_pooling,
+                )
+                for (nn_embedding, x, xw) in zip(
+                    nn_embedding_list,
+                    indices_list,
+                    # pyre-fixme[61]: `weights_list` is undefined, or not always
+                    #  defined.
+                    weights_list,
+                )
+            ]
+        )
+        if do_pooling:
+            final_output = torch.cat(
+                [f.view(B, -1) for f in nn_embedding_output], dim=1
+            )
+        else:
+            final_output = torch.cat(nn_embedding_output, dim=0).view(-1, D)
+
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
@@ -1043,6 +1162,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--reuse", default=0.0)
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
+@click.option("--pooling", type=str, default="sum")
 @click.option("--weighted-num-requires-grad", type=int, default=None)
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
 @click.option("--pruning-ratio", type=float, default=None)
@@ -1054,6 +1174,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--warmup-runs", default=2)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
+@click.option("--run-reference", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 def nbit_device(  # noqa C901
@@ -1070,6 +1191,7 @@ def nbit_device(  # noqa C901
     reuse: float,
     row_wise: bool,
     weighted: bool,
+    pooling: str,
     weighted_num_requires_grad: Optional[int],
     bounds_check_mode: int,
     pruning_ratio: Optional[float],
@@ -1081,6 +1203,7 @@ def nbit_device(  # noqa C901
     warmup_runs: int,
     output_dtype: SparseType,
     report_aibench: bool,
+    run_reference: bool,
     requests_data_file: Optional[str],
     tables: Optional[str],
 ) -> None:
@@ -1124,6 +1247,17 @@ def nbit_device(  # noqa C901
     else:
         managed_option = EmbeddingLocation.MANAGED
 
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
@@ -1131,15 +1265,22 @@ def nbit_device(  # noqa C901
         load_factor=load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
+        pooling_mode=pooling_mode,
     ).cuda()
     emb.fill_random_weights()
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes = (
-        output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
-    )
+    if do_pooling:
+        read_write_bytes = (
+            output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
+        )
+    else:
+        read_write_bytes = (
+            output_size_multiplier * B * T * L * D
+            + param_size_multiplier * B * T * L * D
+        )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -1220,6 +1361,62 @@ def nbit_device(  # noqa C901
                 unit="scalar",
                 value=str(time_per_iter * 1.0e6),
             )
+        )
+
+    if run_reference:
+        times = []
+        for i in range(runs_of_iters):
+            requests = generate_requests(
+                iters,
+                B,
+                T,
+                L,
+                E,
+                reuse=reuse,
+                alpha=alpha,
+                weights_precision=weights_precision,
+                weighted=weighted,
+                requests_data_file=requests_data_file,
+                tables=tables,
+            )
+            requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+
+            # forward
+            time_per_iter_refer = benchmark_requests_refer(
+                requests,
+                T,
+                B,
+                L,
+                E,
+                D,
+                pooling,
+                weighted,
+                check_median=check_median,
+            )
+
+            # free up GPU memory
+            del requests
+
+            logging.info(
+                f"Reference (nn.Embedding(Bag)) Iteration {i}: "
+                f"Forward, B: {B}, "
+                f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                f"BW: {read_write_bytes / time_per_iter_refer / 1.0e9: .2f} GB/s, "  # noqa: B950
+                f"Time: {time_per_iter_refer * 1.0e6:.0f}us "
+            )
+
+            if i >= warmup_runs:
+                times.append(time_per_iter_refer)
+
+        time_per_iter_refer = statistics.mean(times)
+        bandwidth = read_write_bytes / time_per_iter_refer / 1.0e9
+
+        logging.info(
+            f"Average of all iterations: "
+            f"Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"Effective BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {time_per_iter_refer * 1.0e6:.0f}us "
         )
 
 
@@ -1869,7 +2066,7 @@ def bounds_check_indices(  # noqa C901
     # forward
     time_per_iter = benchmark_requests(
         requests,
-        lambda indices, offsets, _: torch.ops.fb.bounds_check_indices(
+        lambda indices, offsets, _: torch.ops.fbgemm.bounds_check_indices(
             rows_per_table,
             indices,
             offsets,

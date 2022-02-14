@@ -39,13 +39,13 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_is_uvm_tensor(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -55,19 +55,19 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
 
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        cpu_t = torch.ops.fb.uvm_to_cpu(uvm_t)
-        assert not torch.ops.fb.is_uvm_tensor(cpu_t)
-        assert torch.ops.fb.uvm_storage(cpu_t)
+        cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
+        assert not torch.ops.fbgemm.is_uvm_tensor(cpu_t)
+        assert torch.ops.fbgemm.uvm_storage(cpu_t)
 
         uvm_t.copy_(cpu_t)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Test use of cpu tensor after freeing the uvm tensor
         del uvm_t
@@ -87,13 +87,13 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cudaMemAdvise(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # pyre-ignore[16]
         cudaMemAdvise(uvm_t, cudaMemoryAdvise.cudaMemAdviseSetAccessedBy)
@@ -108,13 +108,13 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cudaMemPrefetchAsync(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         cudaMemPrefetchAsync(uvm_t)
 
@@ -130,20 +130,20 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_device(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Reference uvm tensor from second cuda device
         device_prototype = torch.empty(0, device="cuda:1")
-        second_t = torch.ops.fb.uvm_to_device(uvm_t, device_prototype)
+        second_t = torch.ops.fbgemm.uvm_to_device(uvm_t, device_prototype)
 
-        assert torch.ops.fb.is_uvm_tensor(second_t)
-        assert torch.ops.fb.uvm_storage(second_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(second_t)
+        assert torch.ops.fbgemm.uvm_storage(second_t)
         assert second_t.device == device_prototype.device
 
     @unittest.skipIf(*gpu_unavailable)
@@ -156,19 +156,19 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_slice(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Reference uvm tensor from second cuda device
         second_t = uvm_t[0]
 
-        assert torch.ops.fb.is_uvm_tensor(second_t)
-        assert torch.ops.fb.uvm_storage(second_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(second_t)
+        assert torch.ops.fbgemm.uvm_storage(second_t)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -180,6 +180,28 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_memadviceDontFork(self, sizes: List[int], vanilla: bool) -> None:
         op = (
+            torch.ops.fbgemm.new_managed_tensor
+            if not vanilla
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
+        )
+        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
+
+        cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
+
+        torch.ops.fbgemm.uvm_mem_advice_dont_fork(cpu_t)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        sizes=st.lists(
+            st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
+        ),
+        vanilla=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_uvm_to_cpu_clone(self, sizes: List[int], vanilla: bool) -> None:
+        op = (
             torch.ops.fb.new_managed_tensor
             if not vanilla
             else torch.ops.fb.new_vanilla_managed_tensor
@@ -188,9 +210,10 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fb.is_uvm_tensor(uvm_t)
         assert torch.ops.fb.uvm_storage(uvm_t)
 
-        cpu_t = torch.ops.fb.uvm_to_cpu(uvm_t)
+        cpu_clone = torch.ops.fb.uvm_to_cpu_clone(uvm_t)
 
-        torch.ops.fb.uvm_mem_advice_dont_fork(cpu_t)
+        assert not torch.ops.fb.is_uvm_tensor(cpu_clone)
+        assert not torch.ops.fb.uvm_storage(cpu_clone)
 
 
 if __name__ == "__main__":

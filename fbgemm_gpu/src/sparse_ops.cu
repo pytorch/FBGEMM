@@ -4,8 +4,6 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "fbgemm_gpu/batched_unary_embedding_ops.cuh"
-#include "fbgemm_gpu/quantize_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -18,15 +16,15 @@
 
 #include <torch/library.h>
 
-#include "ATen/Parallel.h"
-
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include "cub/device/device_scan.cuh"
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
 
@@ -127,6 +125,8 @@ Tensor segment_sum_csr_cuda(
 }
 
 Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -162,6 +162,8 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -197,6 +199,8 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
+  TENSOR_ON_CUDA_GPU(t_in);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
@@ -766,263 +770,6 @@ block_bucketize_sparse_features_cuda(
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
-Tensor _float_to_fused8bitrowwise_gpu(const Tensor& input) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
-
-  const auto input_sizes = input.sizes();
-  const auto last_dim = input_sizes.size() - 1;
-  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
-  const int ncols = input_sizes[last_dim];
-  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const int output_columns = ncols_aligned + 2 * sizeof(float);
-
-  // Global memory instructions support reading or writing words of size equal
-  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
-  // data residing in global memory compiles to a single global memory
-  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
-  // bytes and the data is naturally aligned (i.e., its address is a multiple of
-  // that size).
-  auto output_dims = input_sizes.vec();
-  output_dims[last_dim] = output_columns;
-  auto output = at::empty(
-      output_dims, // 4 = sizeof(float)
-      input.options().dtype(at::kByte));
-
-  if (nrows == 0 || ncols == 0) {
-    return output;
-  }
-
-  constexpr int threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
-  // think unsigned as we use 0, 255
-
-  if (nrows <= 20) {
-    _float_to_fused8bitrowwise_cuda_kernel<<<
-        num_blocks,
-        threads_per_block,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        input.data_ptr<float>(), nrows, ncols, output.data_ptr<std::uint8_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-  } else {
-    // range_tensor is used to store the range for each embedding row.
-    // We save range/255.0f as row scale, and use 255.0f / (range + kEpsilon) to
-    // quantize. This will guarantee the numerical match but bring some perf
-    // regression.
-    auto range_tensor = at::empty({nrows}, input.options().dtype(at::kFloat));
-
-    {
-      // we need a blockDim.x that is a power of 2 no larger than the warp size
-      // of 32
-
-      int blockDim_x = 1;
-      if (ncols > 16) {
-        // max warp size
-        blockDim_x = 32;
-      } else {
-        while (blockDim_x < ncols) {
-          blockDim_x <<= 1;
-        }
-      }
-
-      const int rows_per_block = threads_per_block / blockDim_x;
-      const auto num_blocks_warp =
-          cuda_calc_xblock_count(nrows, rows_per_block);
-
-      _get_8bit_qparam_cuda_kernel<<<
-          num_blocks_warp,
-          dim3(blockDim_x, rows_per_block),
-          0,
-          at::cuda::getCurrentCUDAStream()>>>(
-          input.data_ptr<float>(),
-          nrows,
-          ncols,
-          output.data_ptr<std::uint8_t>(),
-          range_tensor.data_ptr<float>());
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-    }
-
-    {
-      const int blockDim_x = std::min(ncols, threads_per_block);
-      dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-      const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-      dim3 gridDim(gridDim_x, gridDim_y);
-
-      _compute_8bit_quantize_cuda_kernel<<<
-          gridDim,
-          blockDim,
-          0,
-          at::cuda::getCurrentCUDAStream()>>>(
-          input.data_ptr<float>(),
-          range_tensor.data_ptr<float>(),
-          nrows,
-          ncols,
-          output.data_ptr<std::uint8_t>());
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-    }
-  }
-
-  return output;
-}
-
-Tensor _fused8bitrowwise_to_float_gpu(const Tensor& input) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
-
-  const auto input_sizes = input.sizes();
-  const auto last_dim = input_sizes.size() - 1;
-  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
-  const int ncols = input_sizes[last_dim];
-  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const int output_columns = ncols_aligned - 2 * sizeof(float);
-
-  // Global memory instructions support reading or writing words of size equal
-  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
-  // data residing in global memory compiles to a single global memory
-  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
-  // bytes and the data is naturally aligned (i.e., its address is a multiple of
-  // that size).
-  auto output_dims = input_sizes.vec();
-  output_dims[last_dim] = output_columns;
-  auto output = at::empty(
-      output_dims, // 4 = sizeof(float)
-      input.options().dtype(at::kFloat));
-
-  if (nrows == 0 || output_columns == 0) {
-    return output;
-  }
-
-  constexpr int threads_per_block = 256;
-
-  const int blockDim_x = std::min(threads_per_block, output_columns);
-  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-
-  const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-  dim3 gridDim(gridDim_x, gridDim_y);
-
-  _fused8bitrowwise_to_float_cuda_kernel<<<
-      gridDim,
-      blockDim,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      input.data_ptr<std::uint8_t>(), nrows, ncols, output.data_ptr<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  return output;
-}
-
-Tensor _float_to_fusednbitrowwise_gpu(
-    const Tensor& input,
-    const int64_t bit_rate) {
-  TENSOR_ON_CUDA_GPU(input);
-  TENSOR_NDIM_EQUALS(input, 2);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
-
-  const int nrows = input.size(0);
-  const int ncols = input.size(1);
-  const int num_elem_per_byte = 8 / bit_rate;
-  TORCH_CHECK(
-      ncols % (2 * num_elem_per_byte) == 0,
-      "ncols needs to be multiple of 2 Bytes (half type size) to make the address aligned");
-  const int output_columns =
-      (ncols + num_elem_per_byte - 1) / num_elem_per_byte +
-      2 * sizeof(at::Half);
-
-  // Global memory instructions support reading or writing words of size equal
-  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
-  // data residing in global memory compiles to a single global memory
-  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
-  // bytes and the data is naturally aligned (i.e., its address is a multiple of
-  // that size).
-  auto output = at::empty(
-      {nrows, output_columns},
-      input.options().dtype(at::kByte)); // at::kBytes for uint8_t
-
-  if (nrows == 0 || ncols == 0) {
-    return output;
-  }
-
-  constexpr auto threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
-  // think unsigned as we use 0, 255
-
-  _float_to_fusednbitrowwise_cuda_kernel<<<
-      num_blocks,
-      threads_per_block,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      bit_rate,
-      input.data_ptr<float>(),
-      nrows,
-      ncols,
-      output.data_ptr<std::uint8_t>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  return output;
-}
-
-Tensor _fusednbitrowwise_to_float_gpu(
-    const Tensor& input,
-    const int64_t bit_rate) {
-  TENSOR_ON_CUDA_GPU(input);
-  TENSOR_NDIM_EQUALS(input, 2);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
-
-  const int nrows = input.size(0);
-  const int ncols = input.size(1);
-  const int num_elem_per_byte = 8 / bit_rate;
-  const int output_columns = (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
-
-  // Global memory instructions support reading or writing words of size equal
-  // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
-  // data residing in global memory compiles to a single global memory
-  // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
-  // bytes and the data is naturally aligned (i.e., its address is a multiple of
-  // that size).
-  auto output = at::empty(
-      {nrows, output_columns}, // 4 = sizeof(float)
-      input.options().dtype(at::kFloat)); // at::kBytes for uint8_t
-
-  if (nrows == 0 || output_columns == 0) {
-    return output;
-  }
-
-  constexpr int threads_per_block = 256;
-
-  const int blockDim_x = std::min(output_columns, threads_per_block);
-  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-  const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-  dim3 gridDim(gridDim_x, gridDim_y);
-
-  _fusednbitrowwise_to_float_cuda_kernel<<<
-      gridDim,
-      blockDim,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      bit_rate,
-      input.data_ptr<uint8_t>(),
-      nrows,
-      ncols,
-      output.data_ptr<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  return output;
-}
-
 template <typename Dtype>
 __global__ void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
@@ -1135,11 +882,7 @@ __global__ void reorder_batched_ad_indices_kernel(
   const int32_t output_segment_start =
       reordered_cat_ad_offsets[output_segment_offset_start];
 
-#ifdef __HIP_PLATFORM_HCC__
   for (int32_t i = threadIdx.x; i < input_segment_end - input_segment_start;
-#else
-  for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
-#endif
        i += blockDim.x) {
     reordered_cat_ad_indices[output_segment_start + i] =
         cat_ad_indices[input_segment_start + i];
@@ -1190,6 +933,38 @@ Tensor reorder_batched_ad_indices_gpu(
   return reordered_cat_ad_indices;
 }
 
+// Forward kernel for batched unary embedding op
+template <typename scalar_t, typename index_t>
+__global__ void batched_unary_embeddings_forward_kernel(
+    const int32_t N,
+    const int32_t B,
+    const int32_t T,
+    const scalar_t* __restrict__ weight, // N * sum(E) * 1 (embedding dimension
+                                         // is 1)
+    const index_t* __restrict__ table_offsets,
+    const index_t* __restrict__ offsets,
+    const index_t* __restrict__ indices,
+    scalar_t* __restrict__ output // N * B * T
+) {
+  index_t sum_E = table_offsets[T];
+  int32_t b = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b >= B) {
+    return;
+  }
+  int32_t t = blockIdx.y;
+  int32_t n = blockIdx.z;
+  index_t table_offset = table_offsets[t];
+  index_t indices_start = offsets[t * B + b];
+  index_t indices_end = offsets[t * B + b + 1];
+  int32_t L = indices_end - indices_start;
+  at::acc_type<scalar_t, true> sum = 0.0;
+  for (int32_t l = 0; l < L; ++l) {
+    auto idx = __ldg(&indices[indices_start + l]);
+    sum += weight[n * sum_E + table_offset + idx + 0];
+  }
+  output[(n * B + b) * T + t] = sum;
+}
+
 Tensor batched_unary_embeddings_forward_cuda(
     const Tensor& weight,
     const Tensor& table_offsets,
@@ -1234,6 +1009,74 @@ Tensor batched_unary_embeddings_forward_cuda(
   return output;
 }
 
+// Backward kernel for batched unary embedding op
+// We sort input indices so we don't have race conditions, an approach similar
+// to the usual split table batched embedding backward.
+// We can think of the following alternatives but each with challenges:
+// 1) Assign output elements to different threads. Each thread scan all indices
+//    corresponding to the table it owns but only accumulate gradients when an
+//    index value matches with the output element it owns.
+//    A challenge is each thread need to binary search to map from [0 .. sum_E]
+//    to table id.
+// 2) Densify indices and offsets to create [B, sum_E] matrix. Then, do batched
+//    GEMM where ith GEMM multiplies [N, B] submatrix of grad_output with
+//    [B, E_i] submatrix where E_i is the num of embeddings of ith table.
+//    Concatenating the GEMM outputs will result in [N, B, T]
+//    A challenge is there's no available batched GEMM routine with varying K
+//    dimension.
+template <typename scalar_t, typename index_t>
+__global__ void batched_unary_embeddings_backward_kernel(
+    const int32_t N,
+    const int32_t B,
+    const int32_t T,
+    const scalar_t* __restrict__ grad_output, // [N * B * T]
+    const index_t* __restrict__ table_offsets,
+    scalar_t* __restrict__ grad_weight, // [N * sum_E * 1] (embedding
+                                        // dimension is 1)
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_run,
+    const int32_t* __restrict__ sorted_linear_indices_cumulative_run_lengths,
+    const int32_t* __restrict__ sorted_infos,
+    const int32_t* __restrict__ sorted_linear_indices_num_runs,
+    FixedDivisor fd) {
+  int32_t run_id = blockIdx.x * blockDim.x + threadIdx.x;
+  int32_t n = blockIdx.y;
+  if (n >= N) {
+    return;
+  }
+  if (run_id >= sorted_linear_indices_run.size(0)) {
+    return;
+  }
+  if (run_id >= sorted_linear_indices_num_runs[0]) {
+    return;
+  }
+  int64_t linear_index = sorted_linear_indices_run[run_id];
+  int32_t segment_start = sorted_linear_indices_cumulative_run_lengths[run_id];
+  int32_t segment_end =
+      sorted_linear_indices_cumulative_run_lengths[run_id + 1];
+  int32_t SL = segment_end - segment_start;
+
+  if (SL == 0) {
+    return;
+  }
+
+  // now, each segment corresponds to exactly one table `t` and row in
+  // that table (`idx`). Thus, we can hoist out some of the book-keeping.
+  auto info = sorted_infos[segment_start];
+  int t = fd.Div(info);
+
+  at::acc_type<scalar_t, true> grad_sum = 0.0;
+  for (int32_t sl = 0; sl < SL; ++sl) {
+    int32_t b = fd.Mod(sorted_infos[segment_start + sl]);
+    grad_sum += grad_output[(n * B + b) * T + t];
+  }
+
+  index_t table_offset = table_offsets[t];
+  index_t sum_E = table_offsets[T];
+  int64_t idx = linear_index - table_offset;
+  grad_weight[n * sum_E + table_offset + idx] = grad_sum;
+}
+
 Tensor batched_unary_embeddings_backward_cuda(
     const Tensor& grad_output,
     const Tensor& weight,
@@ -1256,8 +1099,30 @@ Tensor batched_unary_embeddings_backward_cuda(
   TORCH_CHECK(N > 0);
   TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
-  int threads = std::min<int32_t>(N * T, 512);
-  dim3 blocks(cuda_calc_xblock_count(N * T, threads));
+
+  // weight: [N, sum_E]
+  // total_hash_size_bits = log2(sum_E)
+  int64_t total_hash_size_bits = log2(weight.numel() / N) + 1;
+
+  Tensor linear_indices, linear_indices_sorted;
+  Tensor infos_sorted;
+  Tensor sorted_linear_indices_run, sorted_linear_indices_run_lengths,
+      sorted_linear_indices_num_runs,
+      sorted_linear_indices_cumulative_run_lengths;
+  std::tie(
+      linear_indices,
+      linear_indices_sorted,
+      infos_sorted,
+      sorted_linear_indices_run,
+      sorted_linear_indices_run_lengths,
+      sorted_linear_indices_num_runs,
+      sorted_linear_indices_cumulative_run_lengths) =
+      transpose_embedding_input(
+          table_offsets, total_hash_size_bits, indices, offsets);
+
+  int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
+  dim3 blocks(
+      cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads), N);
   auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
       indices.type(), "batched_unary_embeddings_backward_kernel", ([&] {
@@ -1272,453 +1137,20 @@ Tensor batched_unary_embeddings_backward_cuda(
                       T,
                       grad_output.data_ptr<scalar_t>(),
                       table_offsets.data_ptr<index_t>(),
-                      offsets.data_ptr<index_t>(),
-                      indices.data_ptr<index_t>(),
-                      grad_weight.data_ptr<scalar_t>());
+                      grad_weight.data_ptr<scalar_t>(),
+                      sorted_linear_indices_run.packed_accessor32<
+                          index_t,
+                          1,
+                          at::RestrictPtrTraits>(),
+                      sorted_linear_indices_cumulative_run_lengths
+                          .data_ptr<int32_t>(),
+                      infos_sorted.data_ptr<int32_t>(),
+                      sorted_linear_indices_num_runs.data_ptr<int32_t>(),
+                      FixedDivisor(B));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             }));
       }));
   return grad_weight;
-}
-
-template <typename index_t, typename scalar_t>
-__global__ void jagged_2d_to_dense_forward_kernel(
-    int32_t B,
-    int32_t max_L,
-    int32_t D,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 2> embeddings,
-    at::PackedTensorAccessor64<scalar_t, 3> padded_embeddings) {
-  int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t l = b_l / B;
-  int32_t b = b_l % B;
-  if (b_l >= B * max_L) {
-    return;
-  }
-  int32_t row_start = offsets[b];
-  int32_t row_end = offsets[b + 1];
-  int32_t length = row_end - row_start;
-  if (l < length) {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        padded_embeddings[b][l][d + threadIdx.x] =
-            embeddings[row_start + l][d + threadIdx.x];
-      }
-    }
-  } else {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        padded_embeddings[b][l][d + threadIdx.x] = 0.0;
-      }
-    }
-  }
-}
-
-Tensor jagged_2d_to_dense_forward_cuda(
-    Tensor embeddings,
-    Tensor offsets,
-    int32_t max_L) {
-  TORCH_CHECK(embeddings.dim() == 2);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(embeddings.get_device());
-
-  int32_t D = embeddings.size(1);
-  int32_t B = offsets.numel() - 1;
-  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
-  const auto embeddings_contig = embeddings.contiguous();
-  const auto offsets_contig = offsets.contiguous();
-
-  AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", ([&]() {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            embeddings.scalar_type(),
-            "jagged_2d_to_dense_forward_kernel_2",
-            ([&]() {
-              jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         (B * max_L),
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     dim3(
-                         fbgemm_gpu::kWarpSize,
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      B,
-                      max_L,
-                      D,
-                      offsets_contig.packed_accessor32<index_t, 1>(),
-                      embeddings_contig.packed_accessor64<scalar_t, 2>(),
-                      padded_embeddings.packed_accessor64<scalar_t, 3>());
-            }));
-      }));
-
-  return padded_embeddings;
-}
-
-template <typename index_t, typename scalar_t>
-__global__ void jagged_2d_to_dense_backward_kernel(
-    int32_t B,
-    int32_t max_L,
-    int32_t D,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<scalar_t, 3> grad_padded_embeddings,
-    at::PackedTensorAccessor64<scalar_t, 2> grad_embeddings) {
-  int32_t b_l = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t l = b_l / B;
-  int32_t b = b_l % B;
-  if (b_l >= B * max_L) {
-    return;
-  }
-  int32_t row_start = offsets[b];
-  int32_t row_end = offsets[b + 1];
-  int32_t length = row_end - row_start;
-  if (l < length) {
-    for (int32_t d = 0; d < D; d += fbgemm_gpu::kWarpSize) {
-      if (d + threadIdx.x < D) {
-        grad_embeddings[row_start + l][d + threadIdx.x] =
-            grad_padded_embeddings[b][l][d + threadIdx.x];
-      }
-    }
-  }
-}
-
-Tensor jagged_2d_to_dense_backward_cuda(
-    Tensor grad_padded_embeddings,
-    Tensor offsets,
-    int32_t total_L) {
-  TORCH_CHECK(grad_padded_embeddings.dim() == 3);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(total_L >= 0);
-  TORCH_CHECK(offsets.numel() == grad_padded_embeddings.size(0) + 1);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_padded_embeddings.get_device());
-
-  int32_t B = grad_padded_embeddings.size(0);
-  int32_t max_L = grad_padded_embeddings.size(1);
-  int32_t D = grad_padded_embeddings.size(2);
-  auto grad_embeddings =
-      at::zeros({total_L, D}, grad_padded_embeddings.options());
-  const auto grad_padded_embeddings_config =
-      grad_padded_embeddings.contiguous();
-  const auto offsets_contig = offsets.contiguous();
-
-  AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_2d_to_dense_backward_kernel_1", ([&]() {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            grad_padded_embeddings.scalar_type(),
-            "jagged_2d_to_dense_backward_kernel_2",
-            ([&]() {
-              jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
-                  <<<fbgemm_gpu::div_round_up(
-                         (B * max_L),
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     dim3(
-                         fbgemm_gpu::kWarpSize,
-                         fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize),
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      B,
-                      max_L,
-                      D,
-                      offsets_contig.packed_accessor32<index_t, 1>(),
-                      grad_padded_embeddings_config
-                          .packed_accessor64<scalar_t, 3>(),
-                      grad_embeddings.packed_accessor64<scalar_t, 2>());
-            }));
-      }));
-
-  return grad_embeddings;
-}
-
-template <typename index_t, typename data_t>
-__global__ void jagged_1d_to_dense_kernel(
-    int32_t B,
-    int32_t max_L,
-    data_t padding_value,
-    at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor64<data_t, 1> values,
-    at::PackedTensorAccessor64<data_t, 2> padded_values) {
-  const int32_t b_l = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b_l >= B * max_L) {
-    return;
-  }
-  int32_t b = b_l / max_L;
-  int32_t l = b_l % max_L;
-  int32_t row_start = offsets[b];
-  int32_t row_end = offsets[b + 1];
-  int32_t length = row_end - row_start;
-  if (l < length) {
-    padded_values[b][l] = values[row_start + l];
-  } else {
-    padded_values[b][l] = padding_value;
-  }
-}
-
-Tensor jagged_1d_to_dense_gpu(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_L,
-    int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(values.get_device());
-
-  int32_t B = offsets.numel() - 1;
-  auto padded_values = at::empty({B, max_L}, values.options());
-  const auto values_contig = values.contiguous();
-  const auto offsets_contig = offsets.contiguous();
-  const int32_t num_threads = 512; // 256~1024 per xingl
-  AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", ([&]() {
-        AT_DISPATCH_ALL_TYPES(
-            values.scalar_type(), "jagged_1d_to_dense_kernel_2", ([&]() {
-              jagged_1d_to_dense_kernel<index_t, scalar_t>
-                  <<<div_round_up(B * max_L, num_threads),
-                     num_threads,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      B,
-                      max_L,
-                      padding_value,
-                      offsets_contig.packed_accessor32<index_t, 1>(),
-                      values_contig.packed_accessor64<scalar_t, 1>(),
-                      padded_values.packed_accessor64<scalar_t, 2>());
-            }));
-      }));
-
-  return padded_values;
-}
-
-template <typename T>
-__global__ void histogram_binning_calibration_kernel(
-    const int64_t num_logits,
-    const int64_t num_bins,
-    const double recalibrate_value,
-    const double step,
-    const int64_t bin_ctr_in_use_after,
-    const double bin_ctr_weight_value,
-    const T* const logit_data,
-    const double* const bin_num_examples_data,
-    const double* const bin_num_positives_data,
-    T* const calibrated_prediction_data,
-    int64_t* const bin_ids_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index >= num_logits) {
-    return;
-  }
-
-  const T pre_sigmoid = logit_data[index] + recalibrate_value;
-  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
-
-  bin_ids_data[index] = ceil(uncalibrated / step) - 1;
-
-  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
-  if (curr_bin_num_examples > bin_ctr_in_use_after) {
-    const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
-    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
-  } else {
-    calibrated_prediction_data[index] = uncalibrated;
-  }
-}
-
-std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
-    const Tensor& logit,
-    const Tensor& bin_num_examples,
-    const Tensor& bin_num_positives,
-    double positive_weight,
-    double lower_bound,
-    double upper_bound,
-    int64_t bin_ctr_in_use_after,
-    double bin_ctr_weight_value) {
-  TENSOR_ON_CUDA_GPU(logit);
-  TENSOR_ON_CUDA_GPU(bin_num_examples);
-  TENSOR_ON_CUDA_GPU(bin_num_positives);
-  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(logit.get_device());
-
-  Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
-  const double recalibrate_value = std::log(positive_weight);
-  const double step = (upper_bound - lower_bound) /
-      static_cast<double>(bin_num_examples.numel());
-
-  const int32_t num_threads = 512;
-  const auto logit_packed = logit.contiguous();
-  const auto bin_num_examples_packed = bin_num_examples.contiguous();
-  const auto bin_num_positives_packed = bin_num_positives.contiguous();
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cuda", [&]() {
-        histogram_binning_calibration_kernel<scalar_t>
-            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-               num_threads,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                logit.numel(),
-                bin_num_examples.numel(),
-                recalibrate_value,
-                step,
-                bin_ctr_in_use_after,
-                bin_ctr_weight_value,
-                logit_packed.data_ptr<scalar_t>(),
-                bin_num_examples_packed.data_ptr<double>(),
-                bin_num_positives_packed.data_ptr<double>(),
-                calibrated_prediction.data_ptr<scalar_t>(),
-                bin_ids.data_ptr<int64_t>());
-      });
-
-  return std::make_tuple(calibrated_prediction, bin_ids);
-}
-
-template <typename T>
-__global__ void to_dense_segment_value_kernel(
-    const int64_t num_lengths,
-    const int64_t* const segment_value_data,
-    const T* const segment_offsets_data,
-    int64_t* const dense_segment_value_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index >= num_lengths - 1) {
-    return;
-  }
-
-  const auto curr_offset = segment_offsets_data[index];
-  const auto next_offset = segment_offsets_data[index + 1];
-  if (next_offset > curr_offset) {
-    // Add 1 to distinguish between 0 inserted by densification vs. original
-    // value.
-    dense_segment_value_data[index] = segment_value_data[curr_offset] + 1;
-  }
-}
-
-template <typename T>
-__global__ void histogram_binning_calibration_by_feature_kernel(
-    const int64_t num_logits,
-    const int64_t num_bins,
-    const int64_t num_segments,
-    const double recalibrate_value,
-    const double step,
-    const int64_t bin_ctr_in_use_after,
-    const double bin_ctr_weight_value,
-    const T* const logit_data,
-    const int64_t* const dense_segment_value_data,
-    const double* const bin_num_examples_data,
-    const double* const bin_num_positives_data,
-    T* const calibrated_prediction_data,
-    int64_t* const bin_ids_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index >= num_logits) {
-    return;
-  }
-
-  const T pre_sigmoid = logit_data[index] + recalibrate_value;
-  const double uncalibrated = 1.0 / (1.0 + exp(-pre_sigmoid));
-
-  const int64_t curr_segment_value =
-      dense_segment_value_data[index] > num_segments
-      ? 0
-      : std::max(0L, dense_segment_value_data[index] * num_bins);
-
-  bin_ids_data[index] = ceil(uncalibrated / step) - 1 + curr_segment_value;
-
-  const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[index]];
-  if (curr_bin_num_examples > bin_ctr_in_use_after) {
-    const auto curr_bin_ctr =
-        bin_num_positives_data[bin_ids_data[index]] / curr_bin_num_examples;
-    calibrated_prediction_data[index] = curr_bin_ctr * bin_ctr_weight_value +
-        uncalibrated * (1.0 - bin_ctr_weight_value);
-  } else {
-    calibrated_prediction_data[index] = uncalibrated;
-  }
-}
-
-std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
-    const Tensor& logit,
-    const Tensor& segment_value,
-    const Tensor& segment_lengths,
-    int64_t num_segments,
-    const Tensor& bin_num_examples,
-    const Tensor& bin_num_positives,
-    int64_t num_bins,
-    double positive_weight,
-    double lower_bound,
-    double upper_bound,
-    int64_t bin_ctr_in_use_after,
-    double bin_ctr_weight_value) {
-  TENSOR_ON_CUDA_GPU(logit);
-  TENSOR_ON_CUDA_GPU(segment_value);
-  TENSOR_ON_CUDA_GPU(segment_lengths);
-  TENSOR_ON_CUDA_GPU(bin_num_examples);
-  TENSOR_ON_CUDA_GPU(bin_num_positives);
-  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(logit.get_device());
-
-  // Convert lengths to offsets for better handling on GPUs.
-  const auto segment_lengths_packed = segment_lengths.contiguous();
-  auto segment_offsets =
-      asynchronous_complete_cumsum_gpu(segment_lengths_packed.view(-1));
-
-  // dense_segment_value is used as a temporary storage.
-  Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
-
-  const int32_t num_threads = 512;
-  const auto segment_value_packed = segment_value.contiguous();
-  const auto segment_offsets_packed = segment_offsets.contiguous();
-  auto dense_segment_value_packed = dense_segment_value.contiguous();
-  AT_DISPATCH_INDEX_TYPES(
-      segment_offsets.scalar_type(), "to_dense_segment_value_cuda", [&]() {
-        to_dense_segment_value_kernel<index_t>
-            <<<fbgemm_gpu::div_round_up(segment_offsets.numel(), num_threads),
-               num_threads,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                segment_offsets.numel(),
-                segment_value_packed.data_ptr<int64_t>(),
-                segment_offsets_packed.data_ptr<index_t>(),
-                dense_segment_value_packed.data_ptr<int64_t>());
-      });
-
-  Tensor calibrated_prediction = at::empty_like(logit);
-  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
-  const double recalibrate_value = std::log(positive_weight);
-  const double step =
-      (upper_bound - lower_bound) / static_cast<double>(num_bins);
-
-  const auto logit_packed = logit.contiguous();
-  const auto bin_num_examples_packed = bin_num_examples.contiguous();
-  const auto bin_num_positives_packed = bin_num_positives.contiguous();
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_by_feature_cuda", [&]() {
-        histogram_binning_calibration_by_feature_kernel<scalar_t>
-            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-               num_threads,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                logit.numel(),
-                num_bins,
-                num_segments,
-                recalibrate_value,
-                step,
-                bin_ctr_in_use_after,
-                bin_ctr_weight_value,
-                logit_packed.data_ptr<scalar_t>(),
-                dense_segment_value_packed.data_ptr<int64_t>(),
-                bin_num_examples_packed.data_ptr<double>(),
-                bin_num_positives_packed.data_ptr<double>(),
-                calibrated_prediction.data_ptr<scalar_t>(),
-                bin_ids.data_ptr<int64_t>());
-      });
-
-  return std::make_tuple(calibrated_prediction, bin_ids);
 }
 
 } // namespace fbgemm_gpu

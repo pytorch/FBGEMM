@@ -1043,7 +1043,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
         )
 
-        # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
@@ -1562,7 +1561,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
-            # pyre-fixme[29]: `Union[Tensor, torch.nn.Module]` is not a function.
             cc = cc.double()
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
@@ -2705,12 +2703,29 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
+        # No bag ops only work on GPUs, no mixed, no weighted
+        assume(
+            not use_cpu
+            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
+        )
+        assume(
+            not mixed
+            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
+        )
+        assume(
+            not weighted
+            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
+        )
 
         mode = "sum"
+        do_pooling = True
         if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
             mode = "sum"
         elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
             mode = "mean"
+        else:
+            mode = "sum"
+            do_pooling = False
         E = int(10 ** log_E)
 
         if not mixed_weights_ty:
@@ -2725,7 +2740,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         if not mixed:
             Ds = [D] * T
-            Es = [int(1e4)] * T
+            Es = [E] * T
         else:
             Ds = [
                 round_up(
@@ -2739,10 +2754,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
 
-        bs = [
-            to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
-            for (E, D) in zip(Es, Ds)
-        ]
+        if do_pooling:
+            bs = [
+                to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
+                for (E, D) in zip(Es, Ds)
+            ]
+        else:
+            bs = [
+                to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
+                for (E, D) in zip(Es, Ds)
+            ]
 
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
@@ -2907,19 +2928,31 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
             )
 
-        if B == 0:
+        if do_pooling and B == 0:
             self.assertEqual(fc2.size(), (0, cc.total_D))
             return
 
         fs = (
-            [b_indices(b, x, use_cpu=use_cpu) for (b, x) in zip(bs, xs)]
+            [
+                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                for (b, x) in zip(bs, xs)
+            ]
             if not weighted
             else [
-                b_indices(b, x, per_sample_weights=xw.view(-1), use_cpu=use_cpu)
+                b_indices(
+                    b,
+                    x,
+                    per_sample_weights=xw.view(-1),
+                    use_cpu=use_cpu,
+                    do_pooling=do_pooling,
+                )
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
-        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        if do_pooling:
+            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        else:
+            f = torch.cat(fs, dim=0).view(-1, D)
         torch.testing.assert_allclose(
             fc2.float().cpu(),
             f.float().cpu(),
@@ -2940,6 +2973,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
         weights_ty=st.sampled_from(
@@ -3017,6 +3051,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
         weights_ty=st.sampled_from(
@@ -3440,14 +3475,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 warning.cuda(),
             )
         indices_copy = indices.clone()
-        torch.ops.fb.bounds_check_indices(
+        torch.ops.fbgemm.bounds_check_indices(
             rows_per_table, indices, offsets, bounds_check_mode, warning
         )
         # we don't modify when we are in-bounds.
         torch.testing.assert_allclose(indices_copy, indices)
         indices[:] = torch.iinfo(dtype).max
         if bounds_check_mode != BoundsCheckMode.FATAL:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table, indices, offsets, bounds_check_mode, warning
             )
             torch.testing.assert_allclose(indices, torch.zeros_like(indices))
@@ -3456,7 +3491,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):
-                    torch.ops.fb.bounds_check_indices(
+                    torch.ops.fbgemm.bounds_check_indices(
                         rows_per_table, indices, offsets, bounds_check_mode, warning
                     )
             # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
@@ -3470,7 +3505,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if offsets.numel() > 1:
             offsets[-1] += 100
         if bounds_check_mode != BoundsCheckMode.FATAL:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table, indices, offsets, bounds_check_mode, warning
             )
             if offsets.numel() > 0:
@@ -3480,11 +3515,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if bounds_check_mode == BoundsCheckMode.WARNING:
                 # -1 because when we have 2 elements in offsets, we have only 1
                 # warning for the pair.
-                self.assertEqual(warning.item(), min(2, offsets.numel() - 1))
+                self.assertGreaterEqual(warning.item(), min(2, offsets.numel() - 1))
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):
-                    torch.ops.fb.bounds_check_indices(
+                    torch.ops.fbgemm.bounds_check_indices(
                         rows_per_table, indices, offsets, bounds_check_mode, warning
                     )
 

@@ -5,7 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
@@ -838,8 +840,8 @@ void jagged_2d_to_dense_forward_kernel(
     int32_t max_L,
     int32_t D,
     const index_t* offsets,
-    const scalar_t* embeddings_data,
-    scalar_t* padded_embeddings_data) {
+    const scalar_t* values_data,
+    scalar_t* padded_values_data) {
   const auto block_size = max_L * D;
   const auto embedding_byte_size = D * sizeof(scalar_t);
   for (auto b = 0; b < B; ++b) {
@@ -851,53 +853,51 @@ void jagged_2d_to_dense_forward_kernel(
     }
     auto padding_length = max_L - length;
     memcpy(
-        &padded_embeddings_data[b * block_size],
-        &embeddings_data[start_idx * D],
+        &padded_values_data[b * block_size],
+        &values_data[start_idx * D],
         length * embedding_byte_size);
     memset(
-        &padded_embeddings_data[b * block_size + length * D],
+        &padded_values_data[b * block_size + length * D],
         0,
         padding_length * embedding_byte_size);
   }
 }
 
-Tensor jagged_2d_to_dense_forward_cpu(
-    Tensor embeddings,
-    Tensor offsets,
-    int64_t max_L) {
-  TORCH_CHECK(embeddings.dim() == 2);
+Tensor
+jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
+  TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
 
   const auto B = offsets.numel() - 1;
-  const auto D = embeddings.size(1);
-  const auto embeddings_contig = embeddings.expect_contiguous();
+  const auto D = values.size(1);
+  const auto values_contig = values.expect_contiguous();
   const auto offsets_contig = offsets.expect_contiguous();
 
-  if (embeddings.size(0) == 0) {
-    return at::zeros({B, max_L, D}, embeddings.options());
+  if (values.size(0) == 0) {
+    return at::zeros({B, max_L, D}, values.options());
   }
 
-  auto padded_embeddings = at::empty({B, max_L, D}, embeddings.options());
+  auto padded_values = at::empty({B, max_L, D}, values.options());
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig->scalar_type(),
       "jagged_2d_to_dense_forward_by_offsets",
       ([&]() {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            embeddings_contig->scalar_type(),
-            "jagged_2d_to_dense_forward_by_embeddings",
+            values_contig->scalar_type(),
+            "jagged_2d_to_dense_forward_by_values",
             ([&]() {
               jagged_2d_to_dense_forward_kernel(
                   B,
                   max_L,
                   D,
                   offsets_contig->data_ptr<index_t>(),
-                  embeddings_contig->data_ptr<scalar_t>(),
-                  padded_embeddings.data_ptr<scalar_t>());
+                  values_contig->data_ptr<scalar_t>(),
+                  padded_values.data_ptr<scalar_t>());
             }));
       }));
 
-  return padded_embeddings;
+  return padded_values;
 }
 
 template <typename index_t, typename scalar_t>
@@ -1136,6 +1136,116 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   return std::make_tuple(calibrated_prediction, bin_ids);
 }
 
+template <typename T>
+void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
+    const int64_t num_logits,
+    const int64_t num_bins,
+    const int64_t num_segments,
+    const int64_t num_lengths,
+    const double recalibrate_value,
+    const int64_t bin_ctr_in_use_after,
+    const double bin_ctr_weight_value,
+    const T* const logit_data,
+    const int64_t* const segment_value_data,
+    const int64_t* const segment_lengths_data,
+    const double* const bin_num_examples_data,
+    const double* const bin_num_positives_data,
+    const double* const bin_boundaries,
+    int64_t* const dense_segment_value_data,
+    T* const calibrated_prediction_data,
+    int64_t* const bin_ids_data) {
+  int k = 0;
+  for (const auto i : c10::irange(num_lengths)) {
+    if (segment_lengths_data[i] > 0) {
+      // Add 1 to distinguish between 0 inserted by densification vs. original
+      // value.
+      dense_segment_value_data[i] = segment_value_data[k] + 1;
+      ++k;
+    }
+  }
+
+  for (const auto i : c10::irange(num_logits)) {
+    const T pre_sigmoid = logit_data[i] + recalibrate_value;
+    const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
+
+    const int curr_bin_id =
+        std::lower_bound(
+            bin_boundaries, bin_boundaries + num_bins, uncalibrated) -
+        bin_boundaries;
+
+    const int64_t curr_segment_value =
+        dense_segment_value_data[i] > num_segments
+        ? 0
+        : std::max(0L, dense_segment_value_data[i] * num_bins);
+
+    bin_ids_data[i] = curr_bin_id + curr_segment_value;
+
+    const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[i]];
+    if (curr_bin_num_examples > bin_ctr_in_use_after) {
+      const auto curr_bin_ctr =
+          bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
+      calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
+          uncalibrated * (1.0 - bin_ctr_weight_value);
+    } else {
+      calibrated_prediction_data[i] = uncalibrated;
+    }
+  }
+}
+
+std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
+    const Tensor& logit,
+    const Tensor& segment_value,
+    const Tensor& segment_lengths,
+    int64_t num_segments,
+    const Tensor& bin_num_examples,
+    const Tensor& bin_num_positives,
+    const Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after,
+    double bin_ctr_weight_value) {
+  TENSOR_ON_CPU(logit);
+  TENSOR_ON_CPU(segment_value);
+  TENSOR_ON_CPU(segment_lengths);
+  TENSOR_ON_CPU(bin_num_examples);
+  TENSOR_ON_CPU(bin_num_positives);
+  TENSOR_ON_CPU(bin_boundaries);
+  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+  TORCH_CHECK(
+      bin_num_examples.numel() ==
+      (num_segments + 1) * (bin_boundaries.numel() + 1));
+
+  // dense_segment_value is used as a temporary storage.
+  Tensor dense_segment_value =
+      at::zeros({logit.numel()}, segment_value.options());
+  Tensor calibrated_prediction = at::empty_like(logit);
+  Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
+  const double recalibrate_value = std::log(positive_weight);
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      logit.type(),
+      "generic_histogram_binning_calibration_by_feature_cpu",
+      [&]() {
+        _generic_histogram_binning_calibration_by_feature_cpu_kernel<scalar_t>(
+            logit.numel(),
+            bin_boundaries.numel() + 1,
+            num_segments,
+            segment_lengths.numel(),
+            recalibrate_value,
+            bin_ctr_in_use_after,
+            bin_ctr_weight_value,
+            logit.data_ptr<scalar_t>(),
+            segment_value.data_ptr<int64_t>(),
+            segment_lengths.data_ptr<int64_t>(),
+            bin_num_examples.data_ptr<double>(),
+            bin_num_positives.data_ptr<double>(),
+            bin_boundaries.data_ptr<double>(),
+            dense_segment_value.data_ptr<int64_t>(),
+            calibrated_prediction.data_ptr<scalar_t>(),
+            bin_ids.data_ptr<int64_t>());
+      });
+
+  return std::make_tuple(calibrated_prediction, bin_ids);
+}
+
 template <typename scalar_t>
 void _segment_sum_csr_cpu_kernel(
     const int num_segments,
@@ -1172,6 +1282,125 @@ Tensor segment_sum_csr_cpu(
                         }));
   return output;
 }
+
+bool should_prune(
+    const Tensor& weights,
+    const int64_t num_rows_kept,
+    double min_save_ratio) {
+  TENSOR_ON_CPU(weights);
+  const auto weight_sizes = weights.sizes();
+
+  const int64_t data_byte_size = sizeof(float);
+  const int64_t num_cols = weight_sizes[1];
+
+  // Size of the pruned weights tensor.
+  const int64_t lut_after_prune_size =
+      num_rows_kept * num_cols * data_byte_size;
+
+  constexpr auto index_byte_size = sizeof(int);
+  const auto lut_num_row = weight_sizes[0];
+  const int64_t compressed_idx_overhead_size = lut_num_row * index_byte_size;
+
+  const int64_t original_size = data_byte_size * weights.numel();
+  return (compressed_idx_overhead_size + lut_after_prune_size) <
+      min_save_ratio * original_size;
+}
+
+// This operator introduces sparsity to a weight matrix by applying
+// magnitude based pruning at a row level. The importance level of a row is
+// specified using an 'indicator' vector which contains a single value per
+// row of the weight matrix.
+//
+// A row is considered important and not pruned if the indicator value for that
+// particular row is greater than the pruning 'threshold' value.
+//
+// This operator doesn't zero out the pruned rows in-place. Instead, it returns
+// a tuple that contains a pruned weights tensor as well as a map that can be
+// used to refer the original row in the pruned weights tensor. We refer this
+// map as 'compressed indices map' going forward.
+
+// The compressed indices map is an 1D tensor that contains one entry per
+// original row in 'weights'. The array index is the index for the original
+// non-pruned weight tensor and the value would be the re-mapped index in the
+// pruned weights tensor. If the value for a index is -1, it means the
+// corresponding row has been pruned from the original weight tensor.
+
+// Arguments:
+// 'weights' - the weight tensor that needs to be pruned rowwise.
+// 'indicator' - the magnitude for every row of the 'weights' matrix.
+// 'threshold' - the pruning threshold that will be used for comparison
+//     against the indicator row value.
+// 'compressed_indices_dtype' - dtype for the compressed map indices.
+//     This should be either int32 or int64.
+// 'abs' - whether we should perform abs() on the indicator value or not.
+// 'min_non_pruned_rows' - a minimum threshold on the number of rows
+//     that should be present after pruning.
+// 'min_save_ratio' - a parameter to tradeoff between lookup table CPU overhead
+//     with the reduction in memory bandwidth due to pruned rows.
+//     Pruning will be skipped for the entire matrix if the physical size of
+//     pruned weights and indices mapping is greater than
+//     min_save_ratio * weights size.
+//     'compressed indices map' will contain a single element [0] in this case.
+//
+// Returns: a tuple,
+// - The first value is the pruned weight tensor whose dtype is float.
+// - The second value is a 1D tensor whose dtype is 'compressed_indices_dtype'.
+std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
+    const Tensor& weights,
+    const Tensor& indicator,
+    const double threshold,
+    at::ScalarType compressed_indices_dtype,
+    const bool abs,
+    const int64_t min_non_pruned_rows,
+    const c10::optional<double>& min_save_ratio) {
+  TENSOR_ON_CPU(weights);
+  TENSOR_ON_CPU(indicator);
+  TENSOR_NDIM_EQUALS(weights, 2);
+  TORCH_CHECK(
+      indicator.numel() == weights.sizes()[0],
+      "Number of elements in 'indicator' should be equivalent to "
+      "number of rows in 'weights'.")
+  TORCH_CHECK(
+      threshold >= 0.0, "Threshold should be greater than or equal to zero.");
+  TORCH_CHECK(
+      compressed_indices_dtype == at::ScalarType::Int ||
+          compressed_indices_dtype == at::ScalarType::Long,
+      "'compressed_indices_dtype' should be Int/Long.");
+
+  const auto indicator_contig = indicator.expect_contiguous();
+  const auto indicator_data = indicator_contig->data_ptr<float>();
+  auto rowwise_prune_mask = at::empty({indicator.numel()}, at::kBool);
+  int num_kept = 0;
+  for (const auto i : c10::irange(indicator.numel())) {
+    const float val = abs ? std::abs(indicator_data[i]) : indicator_data[i];
+    bool should_keep_row = val > threshold;
+
+    // The total number of rows post-pruning should be greater than or equal
+    // to 'min_non_pruned_rows'.
+    // Skip pruning the current row to satisfy the above criteria.
+    if (num_kept < min_non_pruned_rows &&
+        num_kept + (indicator.numel() - i) <= min_non_pruned_rows) {
+      should_keep_row = true;
+    }
+    if (!should_keep_row) {
+      rowwise_prune_mask[i] = false;
+      continue;
+    }
+    rowwise_prune_mask[i] = true;
+    num_kept++;
+  }
+
+  if (min_save_ratio.has_value() &&
+      !should_prune(weights, min_non_pruned_rows, min_save_ratio.value())) {
+    auto compressed_indices_mapping = at::empty({1}, compressed_indices_dtype);
+    compressed_indices_mapping[0] = 0;
+    return std::tuple<Tensor, Tensor>(weights, compressed_indices_mapping);
+  }
+
+  return at::native::_rowwise_prune(
+      weights, rowwise_prune_mask, compressed_indices_dtype);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1190,7 +1419,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
   m.def(
-      "jagged_2d_to_dense(Tensor embeddings, Tensor offsets, int max_sequence_length) -> Tensor");
+      "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
   m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
   m.def(
@@ -1198,7 +1427,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, int num_bins, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
+      "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, float positive_weight, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
+  m.def(
       "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+  m.def(
+      "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, int min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1231,5 +1464,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl(
       "histogram_binning_calibration_by_feature",
       fbgemm_gpu::histogram_binning_calibration_by_feature_cpu);
+  m.impl(
+      "generic_histogram_binning_calibration_by_feature",
+      fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cpu);
   m.impl("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
+  m.impl(
+      "embedding_bag_rowwise_prune", fbgemm_gpu::embedding_bag_rowwise_prune);
 }

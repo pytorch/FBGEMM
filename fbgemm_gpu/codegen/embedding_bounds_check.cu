@@ -4,7 +4,7 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "codegen/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -69,11 +69,8 @@ __global__ void bounds_check_indices_kernel(
   }
 
   auto L = indices_end - indices_start;
-#ifdef __HIP_PLATFORM_HCC__
-  for (index_t i = (index_t) threadIdx.x; i < L; i += (index_t) fbgemm_gpu::kWarpSize) {
-#else
-  for (auto i = threadIdx.x; i < L; i += fbgemm_gpu::kWarpSize) {
-#endif
+  for (index_t i = (index_t)threadIdx.x; i < L;
+       i += (index_t)fbgemm_gpu::kWarpSize) {
     auto idx = indices[indices_start + i];
     if (idx == -1) {
       // -1 indicates pruned rows.
@@ -114,6 +111,11 @@ void bounds_check_indices_cuda(
     Tensor offsets,
     int64_t bounds_check_mode_,
     Tensor warning) {
+  TENSOR_ON_CUDA_GPU(rows_per_table);
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(offsets);
+  TENSOR_ON_CUDA_GPU(warning);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
 

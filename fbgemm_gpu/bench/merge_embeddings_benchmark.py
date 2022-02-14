@@ -23,13 +23,16 @@ except Exception:
 
 
 @click.command()
+@click.option("--all-to-one-only", is_flag=True, default=False)
 @click.option("--num-ads", default=1024, type=int)
 @click.option("--embedding-dimension", default=300, type=int)
 @click.option("--ads-tables", default=400, type=int)
 @click.option("--iters", default=10, type=int)
 @click.option("--p2p_bw", is_flag=True, default=False)
 @click.option("--dst-device", default=0, type=int)
-def main(num_ads, embedding_dimension, ads_tables, iters, p2p_bw, dst_device) -> None:
+def main(
+    all_to_one_only, num_ads, embedding_dimension, ads_tables, iters, p2p_bw, dst_device
+) -> None:
     torch.cuda.set_device(dst_device)
     num_gpus = torch.cuda.device_count()
     ad_ds = [embedding_dimension * ads_tables for _ in range(num_gpus)]
@@ -81,15 +84,25 @@ def main(num_ads, embedding_dimension, ads_tables, iters, p2p_bw, dst_device) ->
         for stream in streams:
             stack.enter_context(torch.cuda.stream(stream))
 
-        t = benchmark_torch_function(
-            iters,
-            lambda: torch.ops.fbgemm.merge_pooled_embeddings(
-                pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
-            ),
-        )
         merged = torch.ops.fbgemm.merge_pooled_embeddings(
             pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
         )
+
+        if all_to_one_only:
+            t = benchmark_torch_function(
+                iters,
+                lambda: torch.ops.fbgemm.all_to_one_device(
+                    pooled_ad_embeddings, batch_indices.device
+                ),
+            )
+        else:
+            t = benchmark_torch_function(
+                iters,
+                lambda: torch.ops.fbgemm.merge_pooled_embeddings(
+                    pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
+                ),
+            )
+
     print(
         f"Merge, B: {num_ads}, D: {embedding_dimension}, T: {ads_tables}, Num GPUs: {num_gpus}, Destination GPU: {dst_device} Output Size: {merged.numel() * 2 / 1.0e6:.2f}MB, BW: {merged.numel() * 2 / t / 1.0e9:.2f}GB/s, t: {t * 1.0e3:.2f}ms"
     )

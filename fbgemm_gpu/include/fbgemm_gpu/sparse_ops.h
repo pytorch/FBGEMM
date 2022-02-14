@@ -154,12 +154,12 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& indices);
 
 at::Tensor jagged_2d_to_dense_forward_cuda(
-    at::Tensor embeddings,
+    at::Tensor values,
     at::Tensor offsets,
     int32_t max_L);
 
 at::Tensor jagged_2d_to_dense_backward_cuda(
-    at::Tensor grad_padded_embeddings,
+    at::Tensor grad_padded_values,
     at::Tensor offsets,
     int32_t total_L);
 
@@ -297,5 +297,44 @@ histogram_binning_calibration_by_feature_cuda(
     double upper_bound = 1.0,
     int64_t bin_ctr_in_use_after = 0,
     double bin_ctr_weight_value = 1.0);
+
+// Same as above, but accepts generic "bin_boundaries", which is assumed to be
+// sorted.
+//
+// Returns calibrated_prediction.
+std::tuple<at::Tensor, at::Tensor>
+generic_histogram_binning_calibration_by_feature_cpu(
+    const at::Tensor& logit,
+    const at::Tensor& segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    const at::Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
+std::tuple<at::Tensor, at::Tensor>
+generic_histogram_binning_calibration_by_feature_cuda(
+    const at::Tensor& logit,
+    const at::Tensor& segment_value,
+    const at::Tensor& segment_lengths,
+    int64_t num_segments,
+    const at::Tensor& bin_num_examples,
+    const at::Tensor& bin_num_positives,
+    const at::Tensor& bin_boundaries,
+    double positive_weight,
+    int64_t bin_ctr_in_use_after = 0,
+    double bin_ctr_weight_value = 1.0);
+
+std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
+    const at::Tensor& weights,
+    const at::Tensor& indicator,
+    const double threshold,
+    at::ScalarType compressed_indices_dtype,
+    const bool abs,
+    const int64_t min_non_pruned_rows,
+    const c10::optional<double>& min_save_ratio);
 
 } // namespace fbgemm_gpu

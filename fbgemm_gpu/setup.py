@@ -264,6 +264,7 @@ setup(
                 os.path.join(cur_dir, "src/cumem_utils_host.cpp"),
                 os.path.join(cur_dir, "src/quantize_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/quantize_ops_gpu.cpp"),
+                os.path.join(cur_dir, "src/quantize_ops.cu"),
                 os.path.join(cur_dir, "src/cpu_utils.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/sparse_ops_gpu.cpp"),
@@ -274,6 +275,9 @@ setup(
                 os.path.join(cur_dir, "src/layout_transform_ops_cpu.cpp"),
                 os.path.join(cur_dir, "src/layout_transform_ops_gpu.cpp"),
                 os.path.join(cur_dir, "src/layout_transform_ops.cu"),
+                os.path.join(cur_dir, "src/jagged_tensor_ops.cu"),
+                os.path.join(cur_dir, "src/histogram_binning_calibration_ops.cu"),
+                os.path.join(cur_dir, "src/split_embeddings_utils.cu"),
             ],
             include_dirs=[
                 cur_dir,

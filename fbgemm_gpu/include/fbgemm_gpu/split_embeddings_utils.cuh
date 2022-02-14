@@ -41,13 +41,8 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
     // Reverse the first comparison stage.
     // For example, merging a list of size 8 has the exchanges:
     // 0 <-> 15, 1 <-> 14, ...
-#ifdef __HIP_PLATFORM_HCC__
-    K otherK = __shfl_xor(k, 2 * L - 1);
-    V otherV = __shfl_xor(v, 2 * L - 1);
-#else
-    K otherK = shfl_xor(k, 2 * L - 1);
-    V otherV = shfl_xor(v, 2 * L - 1);
-#endif
+    K otherK = fbgemm_gpu::shfl_xor(k, 2 * L - 1);
+    V otherV = fbgemm_gpu::shfl_xor(v, 2 * L - 1);
 
     // Whether we are the lesser thread in the exchange
     bool small = !(laneId & L);
@@ -69,13 +64,8 @@ inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
 
 #pragma unroll
   for (int32_t stride = IsBitonic ? L : L / 2; stride > 0; stride /= 2) {
-#ifdef __HIP_PLATFORM_HCC__
-    K otherK = __shfl_xor(k, stride);
-    V otherV = __shfl_xor(v, stride);
-#else
-    K otherK = shfl_xor(k, stride);
-    V otherV = shfl_xor(v, stride);
-#endif
+    K otherK = fbgemm_gpu::shfl_xor(k, stride);
+    V otherV = fbgemm_gpu::shfl_xor(v, stride);
 
     // Whether we are the lesser thread in the exchange
     bool small = !(laneId & stride);
@@ -122,3 +112,23 @@ std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
     at::Tensor lxu_cache_state,
     int64_t time_stamp,
     at::Tensor lru_state);
+
+/**
+ * "Transpose" embedding inputs by sorting indices by their values.
+ * Logically this transpose compressed sparse row (CSR) representation
+ * stored in indices and offsets to compressed sparse column (CSC).
+ */
+std::tuple<
+    at::Tensor /*linear_indices*/,
+    at::Tensor /*linear_indices_sorted*/,
+    at::Tensor /*infos_sorted*/,
+    at::Tensor /*sorted_linear_indices_run*/,
+    at::Tensor /*sorted_linear_indices_run_lengths*/,
+    at::Tensor /*sorted_linear_indices_num_runs*/,
+    at::Tensor /*sorted_linear_indices_cumulative_run_lengths*/>
+transpose_embedding_input(
+    at::Tensor hash_size_cumsum,
+    int64_t total_hash_size_bits,
+    at::Tensor indices,
+    at::Tensor offsets,
+    bool nobag = false);

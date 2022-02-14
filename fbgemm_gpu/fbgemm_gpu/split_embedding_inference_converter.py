@@ -17,13 +17,6 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
-# TODO: move torch.ops.fb.embedding_bag_rowwise_prune to OSS
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-except Exception:
-    torch.ops.load_library("//caffe2/torch/fb/sparsenn:sparsenn_operators")
-
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
@@ -75,7 +68,7 @@ class SplitEmbInferenceConverter:
 
         (indicators, threshold) = self._prune_by_weights_l2_norm(new_num_rows, weights)
 
-        return torch.ops.fb.embedding_bag_rowwise_prune(
+        return torch.ops.fbgemm.embedding_bag_rowwise_prune(
             weights, indicators, threshold, torch.int32
         )
 

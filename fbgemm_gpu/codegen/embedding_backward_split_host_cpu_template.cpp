@@ -10,8 +10,7 @@
 #include <torch/script.h>
 
 #include "codegen/embedding_forward_split_cpu.h"
-
-#include "codegen/embedding_common.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
 
@@ -186,7 +185,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }}) {
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype) {
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,
@@ -208,7 +208,12 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
 }
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu", torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_cpu)));
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
     m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu", torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_cpu)));
 }
 

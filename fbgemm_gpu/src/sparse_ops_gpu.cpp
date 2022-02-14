@@ -62,15 +62,15 @@ class Jagged2DToDenseGPUOp
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      Tensor embeddings,
+      Tensor values,
       Tensor offsets,
       int32_t max_sequence_length) {
-    int32_t total_L = embeddings.size(0);
+    int32_t total_L = values.size(0);
     ctx->save_for_backward({offsets});
     ctx->saved_data["total_L"] = total_L;
 
-    return {jagged_2d_to_dense_forward_cuda(
-        embeddings, offsets, max_sequence_length)};
+    return {
+        jagged_2d_to_dense_forward_cuda(values, offsets, max_sequence_length)};
   }
 
   static torch::autograd::variable_list backward(
@@ -82,11 +82,11 @@ class Jagged2DToDenseGPUOp
     int32_t total_L = ctx->saved_data["total_L"].toInt();
 
     using torch::autograd::Variable;
-    auto grad_padded_embeddings = grad_outputs[0];
-    auto grad_embeddings = jagged_2d_to_dense_backward_cuda(
-        grad_padded_embeddings, offsets, total_L);
+    auto grad_padded_values = grad_outputs[0];
+    auto grad_values =
+        jagged_2d_to_dense_backward_cuda(grad_padded_values, offsets, total_L);
     return {
-        grad_embeddings,
+        grad_values,
         Variable(), // offsets
         Variable() // max_sequence_length
     };
@@ -94,11 +94,11 @@ class Jagged2DToDenseGPUOp
 };
 
 Tensor jagged_2d_to_dense_gpu(
-    Tensor embeddings,
+    Tensor values,
     Tensor offsets,
     int64_t max_sequence_length) {
   return Jagged2DToDenseGPUOp::apply(
-      embeddings, offsets, static_cast<int32_t>(max_sequence_length))[0];
+      values, offsets, static_cast<int32_t>(max_sequence_length))[0];
 }
 
 } // namespace fbgemm_gpu
@@ -133,5 +133,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "histogram_binning_calibration_by_feature",
       fbgemm_gpu::histogram_binning_calibration_by_feature_cuda);
+  DISPATCH_TO_CUDA(
+      "generic_histogram_binning_calibration_by_feature",
+      fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
   DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
 }

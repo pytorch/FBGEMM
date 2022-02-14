@@ -5,11 +5,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "codegen/embedding_forward_split_cpu.h"
-#include "codegen/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
-#include "include/fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/embedding_common.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #include "folly/container/F14Map.h"

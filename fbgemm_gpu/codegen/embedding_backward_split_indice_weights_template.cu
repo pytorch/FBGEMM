@@ -103,9 +103,9 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = SHFL_SYNC_MACRO(idx, 0);
+            int64_t idx_j = shfl_sync(idx, j);
             {% if not dense %}
-            int32_t cache_idx_j = SHFL_SYNC_MACRO(cache_idx, 0);
+            int32_t cache_idx_j = shfl_sync(cache_idx, j);
             {% endif %}
             at::acc_type<cache_t, true> grad_indice_weight = 0.0;
 
@@ -187,6 +187,24 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     Tensor lxu_cache_locations,
     {% endif %}
     Tensor feature_requires_grad) {
+    TENSOR_ON_CUDA_GPU(grad_output);
+    TENSOR_ON_CUDA_GPU(dev_weights);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(uvm_weights);
+    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
+    TENSOR_ON_CUDA_GPU(weights_placements);
+    {% endif %}
+    TENSOR_ON_CUDA_GPU(weights_offsets);
+    TENSOR_ON_CUDA_GPU(D_offsets);
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSOR_ON_CUDA_GPU(offsets);
+    {% if not dense %}
+    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+    {% endif %}
+    if (feature_requires_grad.defined()) {
+        TENSOR_ON_CUDA_GPU(feature_requires_grad);
+    }
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
     const auto T = D_offsets.size(0) - 1;

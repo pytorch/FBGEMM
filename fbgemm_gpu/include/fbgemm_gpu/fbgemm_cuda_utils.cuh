@@ -443,12 +443,19 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 
 template <typename T>
 DEVICE_INLINE T shfl_xor(const T val, int laneMask, int width = kWarpSize) {
-#ifdef __HIP_PLATFORM_HCC__
+#if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl_xor(val, laneMask, width);
-#elif CUDA_VERSION >= 9000
-  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #else
-  return __shfl_xor(val, laneMask, width);
+  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
+#endif
+}
+
+template <typename T>
+DEVICE_INLINE T shfl_sync(const T val, int srcLane = 0, int width = kWarpSize) {
+#if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
+  return __shfl(val, srcLane, width);
+#else
+  return __shfl_sync(0xffffffff, val, srcLane, width);
 #endif
 }
 
@@ -489,7 +496,7 @@ stochastic_rounding_scalar_uint8(float x, uint32_t random_bits) {
   // noise.F in [1, 2]
   noise.F = noise.F - 1.5;
   // noise.F in [-0.5, 0.5]
-  return std::lrintf(x + noise.F);
+  return lrintf(x + noise.F);
 }
 
 // This is a simple xorshift* RNG with 64 bits of state (vs 384 bits of state
@@ -560,17 +567,12 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
-#ifdef __HIP_PLATFORM_HCC__
-  v.a = __halves2half2(stochastic_rounding_scalar(value.acc.x, random_bits.x),
-                       stochastic_rounding_scalar(value.acc.y, random_bits.y));
-  v.b = __halves2half2(stochastic_rounding_scalar(value.acc.z, random_bits.z),
-                       stochastic_rounding_scalar(value.acc.w, random_bits.w));
-#else
-  v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
-  v.a.y = stochastic_rounding_scalar(value.acc.y, random_bits.y);
-  v.b.x = stochastic_rounding_scalar(value.acc.z, random_bits.z);
-  v.b.y = stochastic_rounding_scalar(value.acc.w, random_bits.w);
-#endif
+  v.a = __halves2half2(
+      stochastic_rounding_scalar(value.acc.x, random_bits.x),
+      stochastic_rounding_scalar(value.acc.y, random_bits.y));
+  v.b = __halves2half2(
+      stochastic_rounding_scalar(value.acc.z, random_bits.z),
+      stochastic_rounding_scalar(value.acc.w, random_bits.w));
   v.store(output);
 }
 
@@ -582,17 +584,12 @@ DEVICE_INLINE void stochastic_rounding_vector(
     float2 /* not used */) {
   uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
-#ifdef __HIP_PLATFORM_HCC__
-  v.a = __halves2half2(stochastic_rounding_scalar(value.acc.x, random_bits.x),
-                       stochastic_rounding_scalar(value.acc.y, random_bits.y));
-  v.b = __halves2half2(stochastic_rounding_scalar(value.acc.z, random_bits.z),
-                       stochastic_rounding_scalar(value.acc.w, random_bits.w));
-#else
-  v.a.x = stochastic_rounding_scalar(value.acc.x, random_bits.x);
-  v.a.y = stochastic_rounding_scalar(value.acc.y, random_bits.y);
-  v.b.x = stochastic_rounding_scalar(value.acc.z, random_bits.z);
-  v.b.y = stochastic_rounding_scalar(value.acc.w, random_bits.w);
-#endif
+  v.a = __halves2half2(
+      stochastic_rounding_scalar(value.acc.x, random_bits.x),
+      stochastic_rounding_scalar(value.acc.y, random_bits.y));
+  v.b = __halves2half2(
+      stochastic_rounding_scalar(value.acc.z, random_bits.z),
+      stochastic_rounding_scalar(value.acc.w, random_bits.w));
   v.store(output);
 }
 
@@ -645,10 +642,10 @@ template <>
 DEVICE_INLINE void
 nearest_rounding_vector(uint8_t* output, Vec4T<float> value, float2 qparams) {
   float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-  output[0] = std::lrintf((value.acc.x - qparams.y) * inv_scale);
-  output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
-  output[2] = std::lrintf((value.acc.z - qparams.y) * inv_scale);
-  output[3] = std::lrintf((value.acc.w - qparams.y) * inv_scale);
+  output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
+  output[2] = lrintf((value.acc.z - qparams.y) * inv_scale);
+  output[3] = lrintf((value.acc.w - qparams.y) * inv_scale);
 }
 
 template <>
@@ -657,10 +654,10 @@ DEVICE_INLINE void nearest_rounding_vector(
     Vec4T<at::Half> value,
     float2 qparams) {
   float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-  output[0] = std::lrintf((value.acc.x - qparams.y) * inv_scale);
-  output[1] = std::lrintf((value.acc.y - qparams.y) * inv_scale);
-  output[2] = std::lrintf((value.acc.z - qparams.y) * inv_scale);
-  output[3] = std::lrintf((value.acc.w - qparams.y) * inv_scale);
+  output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
+  output[2] = lrintf((value.acc.z - qparams.y) * inv_scale);
+  output[3] = lrintf((value.acc.w - qparams.y) * inv_scale);
 }
 
 template <>
@@ -848,7 +845,7 @@ struct SharedMemory<Vec4T<at::acc_type<double, true>>> {
 // Return if the address is aligned to the type (mainly for Vec4T).
 template <class T>
 DEVICE_INLINE bool is_aligned(const void* ptr) {
-  auto iptr = reinterpret_cast<std::uintptr_t>(ptr);
+  auto iptr = reinterpret_cast<uintptr_t>(ptr);
   return !(iptr % alignof(T));
 }
 
@@ -936,13 +933,8 @@ __device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
     qparams.x = (local_max - local_min) / 255.0f;
     qparams.y = local_min;
   }
-#ifdef __HIP_PLATFORM_HCC__
-  qparams.x = __shfl(qparams.x, 0);
-  qparams.y = __shfl(qparams.y, 0);
-#else
-  qparams.x = __shfl_sync(0xFFFFFFFF, qparams.x, 0);
-  qparams.y = __shfl_sync(0xFFFFFFFF, qparams.y, 0);
-#endif
+  qparams.x = shfl_sync(qparams.x, 0);
+  qparams.y = shfl_sync(qparams.y, 0);
   return qparams;
 }
 
@@ -1081,30 +1073,45 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   // on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive
   // on the XU. b) doing a 256-entry shared memory LUT on 8-bit pairs is
   // expensive on SMEM throughput. Credit to @jhj.
-  res.vals[0] = hmul_short2(v & 0x000F000F, __int2half_rn(32768));
-  res.vals[1] = hmul_short2(v & 0x00F000F0, __int2half_rn(32768));
+  res.vals[0] = hmul_short2(v & 0x000F000F, __float2half(32768));
+  res.vals[1] = hmul_short2(v & 0x00F000F0, __float2half(32768));
   v >>= 8;
-  res.vals[2] = hmul_short2(v & 0x000F000F, __int2half_rn(32768));
-  res.vals[3] = hmul_short2(v & 0x00F000F0, __int2half_rn(32768));
+  res.vals[2] = hmul_short2(v & 0x000F000F, __float2half(32768));
+  res.vals[3] = hmul_short2(v & 0x00F000F0, __float2half(32768));
+
+  // ~5% perf gain is observed with the explicit type conversions using
+  // __float2half on Nvidia A100 GPUs (https://fburl.com/diff/ss8372zw) using
+  // NVCC 11.0. Additionally, HIP compiler requires these explicit type
+  // conversions.
+  half shift_scale_x = __low2half(shift_scale);
+  half shift_scale_y = __high2half(shift_scale);
 
   // TODO: Enable this for HIP
 #ifndef __HIP_PLATFORM_HCC__
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[2] = hfma2(
       res.vals[2],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[3] = hfma2(
       res.vals[3],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(32))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
 #endif
   return res;
 }
@@ -1114,17 +1121,25 @@ dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
   half4 res;
   uint32_t v = packedVals;
   // See comment above, this is a minor variation.
-  res.vals[0] = hmul_short2(v & 0x00FF00FF, __int2half_rn(32768));
+  res.vals[0] = hmul_short2(v & 0x00FF00FF, __float2half(32768));
   v >>= 8;
-  res.vals[1] = hmul_short2(v & 0x00FF00FF, __int2half_rn(32768));
+  res.vals[1] = hmul_short2(v & 0x00FF00FF, __float2half(32768));
+
+  half shift_scale_x = __low2half(shift_scale);
+  half shift_scale_y = __high2half(shift_scale);
+
   res.vals[0] = hfma2(
       res.vals[0],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   res.vals[1] = hfma2(
       res.vals[1],
-      __half2(hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512)), hmul(__ushort2half_rn(shift_scale.x), __int2half_rn(512))),
-      __half2(__ushort2half_rn(shift_scale.y), __ushort2half_rn(shift_scale.y)));
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
   return res;
 }
 
@@ -1239,9 +1254,15 @@ struct VecNT {};
 template <>
 struct VecNT<1> {
   float acc;
+
   DEVICE_INLINE VecNT() {
     acc = 0;
   }
+
+  DEVICE_INLINE VecNT(float a) {
+    acc = a;
+  }
+
   DEVICE_INLINE void store(float* output_ptr) {
     *output_ptr = acc;
   }
@@ -1257,7 +1278,7 @@ struct VecNT<1> {
 
   DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
     float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = std::lrintf((acc - qparams.y) * inv_scale);
+    output_ptr[0] = lrintf((acc - qparams.y) * inv_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
@@ -1287,8 +1308,13 @@ struct VecNT<1> {
 template <>
 struct VecNT<2> {
   float2 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float2();
+  }
+
+  DEVICE_INLINE VecNT(half2 a) {
+    acc = __half22float2(a);
   }
 
   DEVICE_INLINE void store(float* output_ptr) {
@@ -1306,8 +1332,8 @@ struct VecNT<2> {
 
   DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
     float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = std::lrintf((acc.x - qparams.y) * inv_scale);
-    output_ptr[1] = std::lrintf((acc.y - qparams.y) * inv_scale);
+    output_ptr[0] = lrintf((acc.x - qparams.y) * inv_scale);
+    output_ptr[1] = lrintf((acc.y - qparams.y) * inv_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
@@ -1338,9 +1364,16 @@ struct VecNT<2> {
 template <>
 struct VecNT<4> {
   float4 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float4();
   }
+
+  DEVICE_INLINE VecNT(uint32_t v, half2 shift_scale) {
+    acc = make_zero_float4();
+    acc = accumulate_packed_int8(acc, v, shift_scale);
+  }
+
   DEVICE_INLINE void store(float* output_ptr) {
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
@@ -1371,10 +1404,10 @@ struct VecNT<4> {
       *reinterpret_cast<int*>(output_ptr + 0) = v.x;
       *reinterpret_cast<int*>(output_ptr + 2) = v.y;
     } else {
-      *(output_ptr + 0) = val.vals[0].x;
-      *(output_ptr + 1) = val.vals[0].y;
-      *(output_ptr + 2) = val.vals[1].x;
-      *(output_ptr + 3) = val.vals[1].y;
+      *(output_ptr + 0) = __low2half(val.vals[0]);
+      *(output_ptr + 1) = __high2half(val.vals[0]);
+      *(output_ptr + 2) = __low2half(val.vals[1]);
+      *(output_ptr + 3) = __high2half(val.vals[1]);
     }
   }
 
@@ -1384,10 +1417,10 @@ struct VecNT<4> {
 
   DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
     float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = std::lrintf((acc.x - qparams.y) * inv_scale);
-    output_ptr[1] = std::lrintf((acc.y - qparams.y) * inv_scale);
-    output_ptr[2] = std::lrintf((acc.z - qparams.y) * inv_scale);
-    output_ptr[3] = std::lrintf((acc.w - qparams.y) * inv_scale);
+    output_ptr[0] = lrintf((acc.x - qparams.y) * inv_scale);
+    output_ptr[1] = lrintf((acc.y - qparams.y) * inv_scale);
+    output_ptr[2] = lrintf((acc.z - qparams.y) * inv_scale);
+    output_ptr[3] = lrintf((acc.w - qparams.y) * inv_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
@@ -1420,8 +1453,14 @@ struct VecNT<4> {
 template <>
 struct VecNT<8> {
   float8 acc;
+
   DEVICE_INLINE VecNT() {
     acc = make_zero_float8();
+  }
+
+  DEVICE_INLINE VecNT(uint32_t v, half2 shift_scale) {
+    acc = make_zero_float8();
+    acc = accumulate_packed_int4(acc, v, shift_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr) {
@@ -1470,14 +1509,14 @@ struct VecNT<8> {
       *reinterpret_cast<int*>(output_ptr + 4) = v.z;
       *reinterpret_cast<int*>(output_ptr + 6) = v.w;
     } else {
-      *(output_ptr + 0) = val.vals[0].x;
-      *(output_ptr + 1) = val.vals[0].y;
-      *(output_ptr + 2) = val.vals[1].x;
-      *(output_ptr + 3) = val.vals[1].y;
-      *(output_ptr + 4) = val.vals[2].x;
-      *(output_ptr + 5) = val.vals[2].y;
-      *(output_ptr + 6) = val.vals[3].x;
-      *(output_ptr + 7) = val.vals[3].y;
+      *(output_ptr + 0) = __low2half(val.vals[0]);
+      *(output_ptr + 1) = __high2half(val.vals[0]);
+      *(output_ptr + 2) = __low2half(val.vals[1]);
+      *(output_ptr + 3) = __high2half(val.vals[1]);
+      *(output_ptr + 4) = __low2half(val.vals[2]);
+      *(output_ptr + 5) = __high2half(val.vals[2]);
+      *(output_ptr + 6) = __low2half(val.vals[3]);
+      *(output_ptr + 7) = __high2half(val.vals[3]);
     }
   }
 
@@ -1487,14 +1526,14 @@ struct VecNT<8> {
 
   DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
     float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = std::lrintf((acc.vals[0].x - qparams.y) * inv_scale);
-    output_ptr[1] = std::lrintf((acc.vals[0].y - qparams.y) * inv_scale);
-    output_ptr[2] = std::lrintf((acc.vals[0].z - qparams.y) * inv_scale);
-    output_ptr[3] = std::lrintf((acc.vals[0].w - qparams.y) * inv_scale);
-    output_ptr[4] = std::lrintf((acc.vals[1].x - qparams.y) * inv_scale);
-    output_ptr[5] = std::lrintf((acc.vals[1].y - qparams.y) * inv_scale);
-    output_ptr[6] = std::lrintf((acc.vals[1].z - qparams.y) * inv_scale);
-    output_ptr[7] = std::lrintf((acc.vals[1].w - qparams.y) * inv_scale);
+    output_ptr[0] = lrintf((acc.vals[0].x - qparams.y) * inv_scale);
+    output_ptr[1] = lrintf((acc.vals[0].y - qparams.y) * inv_scale);
+    output_ptr[2] = lrintf((acc.vals[0].z - qparams.y) * inv_scale);
+    output_ptr[3] = lrintf((acc.vals[0].w - qparams.y) * inv_scale);
+    output_ptr[4] = lrintf((acc.vals[1].x - qparams.y) * inv_scale);
+    output_ptr[5] = lrintf((acc.vals[1].y - qparams.y) * inv_scale);
+    output_ptr[6] = lrintf((acc.vals[1].z - qparams.y) * inv_scale);
+    output_ptr[7] = lrintf((acc.vals[1].w - qparams.y) * inv_scale);
   }
 
   DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
@@ -1530,6 +1569,26 @@ struct VecNT<8> {
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
+
+DEVICE_INLINE float float1_max(float val) {
+  return val;
+}
+
+DEVICE_INLINE float float1_min(float val) {
+  return val;
+}
+
+DEVICE_INLINE float float2_max(float2 val) {
+  float max_val = val.x;
+  max_val = max(max_val, val.y);
+  return max_val;
+}
+
+DEVICE_INLINE float float2_min(float2 val) {
+  float min_val = val.x;
+  min_val = min(min_val, val.y);
+  return min_val;
+}
 
 DEVICE_INLINE float float4_max(float4 val) {
   float max_val = val.x;

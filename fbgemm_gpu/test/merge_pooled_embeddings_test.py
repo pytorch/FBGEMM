@@ -89,6 +89,32 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_allclose(output_ref, output.cpu())
         torch.testing.assert_allclose(output_ref, output_cpu)
 
+    @given(
+        num_inputs=st.integers(min_value=1, max_value=10),
+        num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
+        non_default_stream=st.booleans(),
+        r=st.randoms(use_true_random=False),
+    )
+    # Can instantiate 8 contexts which takes a long time.
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_all_to_one_device(
+        self,
+        num_inputs,
+        num_gpus,
+        non_default_stream,
+        r,
+    ) -> None:
+        dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
+        with torch.cuda.device(dst_device):
+            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            cuda_inputs = [
+                input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
+            ]
+            cuda_outputs = torch.ops.fbgemm.all_to_one_device(cuda_inputs, dst_device)
+            for i, o in zip(inputs, cuda_outputs):
+                self.assertEqual(o.device, dst_device)
+                torch.testing.assert_allclose(o.cpu(), i)
+
 
 if __name__ == "__main__":
     unittest.main()

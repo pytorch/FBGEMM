@@ -15,11 +15,15 @@
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
-// TODO: Enable merge_pooled_embeddings for HIP
+// FIXME: Enable merge_pooled_embeddings for HIP.
+// AMD GPUs don't seem to have nvml equivalent library support.
 #ifndef __HIP_PLATFORM_HCC__
 #include <nvml.h>
 
 #include <algorithm>
+
+#include "fbgemm_gpu/merge_pooled_embeddings.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -33,6 +37,7 @@ using Node = int64_t;
 using Links = int64_t;
 template <typename T>
 using AdjacencyMatrix = std::function<T(Node, Node)>;
+namespace {
 
 AdjacencyMatrix<Links> get_nvlink_matrix() {
   auto world_size = at::cuda::getNumGPUs();
@@ -184,7 +189,120 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
     return [](Node, Node) { return -1; };
   }
 }
-namespace {
+
+// Tensors in `output_tensors` should all be on target_device. We copy the
+// tensor in the same index from `input_tensors` to `output_tensors`. If the
+// tensor in `input_tensors` is already in the `target_device`, we will skip
+// copy it if `skip_if_same_device` is true.
+void all_to_one(
+    std::vector<Tensor>& input_tensors,
+    std::vector<Tensor>& output_tensors,
+    at::Device target_device,
+    bool skip_if_same_device) {
+  auto num_gpus = at::cuda::getNumGPUs();
+  std::vector<at::cuda::CUDAEvent> copy_begin_events(num_gpus);
+  std::vector<at::cuda::CUDAEvent> copy_completion_events(num_gpus);
+
+  static auto intermediate_nodes = get_intermediate_node(get_nvlink_matrix());
+  for (auto& ten : input_tensors) {
+    Node src_device_id = ten.get_device();
+    auto intermediate_node =
+        intermediate_nodes(src_device_id, target_device.index());
+    if (intermediate_node != -1) {
+      ten = ten.to(at::Device(at::kCUDA, intermediate_node));
+    }
+  }
+
+  // For each source device, we sync its current stream and launch all the
+  // copies that are from that device.
+  for (const auto device_id : c10::irange(num_gpus)) {
+    auto src_device = at::Device(at::kCUDA, device_id);
+    if (src_device == target_device) {
+      continue;
+    }
+
+    // synchronize source streams and launch copies on source stream.
+    at::cuda::CUDAGuard device_guard(src_device);
+    // We always perform the copy on the source device, using the current
+    // stream on the source device, and we fully synchronize on both src and
+    // dst's current streams for completion of the copy. We have to explicitly
+    // do this for non-contig copies. This mimics the behavior of cross-device
+    // cudaMemcpyAsync on the default stream.
+
+    at::cuda::CUDAStream copy_stream =
+        at::cuda::getCurrentCUDAStream(device_id);
+    // This is a cross-device copy on the src current stream and dst current
+    // stream. We perform a two-way barrier between both devices' streams
+    // before the copy. This ensures that any write-after-write and
+    // write-after-read dependencies on the destination side are handled, so
+    // that no one is operating on the dst memory when we perform the copy.
+    // src waits on dst barrier (src already waits on src)
+    auto& dst_ready = copy_begin_events[device_id];
+    device_guard.set_device(target_device);
+    dst_ready.record(at::cuda::getCurrentCUDAStream(target_device.index()));
+    device_guard.set_device(src_device);
+    dst_ready.block(copy_stream);
+    for (const auto i : c10::irange(input_tensors.size())) {
+      auto& src = input_tensors[i];
+      if (src.device() != src_device) {
+        continue;
+      }
+
+      auto& dst = output_tensors[i];
+      // on source device, launch memcpy.
+      AT_CUDA_CHECK(cudaMemcpy2DAsync(
+          dst.data_ptr(),
+          dst.stride(0) * dst.element_size(),
+          src.data_ptr(),
+          src.stride(0) * src.element_size(),
+          src.size(1) * src.element_size(),
+          src.size(0),
+          cudaMemcpyDeviceToDevice,
+          copy_stream));
+    }
+  }
+
+  // Do the same-GPU cases.
+  if (!skip_if_same_device) {
+    for (const auto i : c10::irange(input_tensors.size())) {
+      auto& src = input_tensors[i];
+      if (src.device() == target_device) {
+        auto& dst = output_tensors[i];
+        // single device memcpy, not that src_device == dst_device.
+        at::cuda::CUDAStream copy_stream =
+            at::cuda::getCurrentCUDAStream(target_device.index());
+        AT_CUDA_CHECK(cudaMemcpy2DAsync(
+            dst.data_ptr(),
+            dst.stride(0) * dst.element_size(),
+            src.data_ptr(),
+            src.stride(0) * src.element_size(),
+            src.size(1) * src.element_size(),
+            src.size(0),
+            cudaMemcpyDeviceToDevice,
+            copy_stream));
+      }
+    }
+  }
+
+  // wait for cross-device copies to complete.
+  for (const auto device_id : c10::irange(num_gpus)) {
+    if (device_id != target_device.index()) {
+      auto src_device = at::Device(at::kCUDA, device_id);
+      // Still on src_device, record stream event
+      at::cuda::CUDAGuard device_guard(src_device);
+      at::cuda::CUDAStream copy_stream =
+          at::cuda::getCurrentCUDAStream(device_id);
+
+      auto& src_ready = copy_completion_events[device_id];
+      src_ready.record(copy_stream);
+
+      device_guard.set_device(target_device);
+      src_ready.block(at::cuda::getCurrentCUDAStream(target_device.index()));
+    }
+  }
+  AT_CUDA_CHECK(cudaGetLastError());
+}
+
 Tensor cat_dim_1(
     std::vector<Tensor> tensors,
     int batch_size,
@@ -209,114 +327,20 @@ Tensor cat_dim_1(
   TORCH_CHECK(
       output.stride(0) * output.element_size() <=
       static_cast<int64_t>(prop->memPitch));
+  std::vector<Tensor> output_tensors;
+  output_tensors.reserve(tensors.size());
 
-  std::vector<at::cuda::CUDAEvent> copy_begin_events(tensors.size());
-  std::vector<at::cuda::CUDAEvent> copy_completion_events(tensors.size());
-
-  Node dst_device_id = output_device.index();
-  static auto intermediate_nodes = get_intermediate_node(get_nvlink_matrix());
-  // Do the intermediate copies, if required by our multi-hop config.
-  for (auto& ten : tensors) {
-    Node src_device_id = ten.device().index();
-    auto intermediate_node = intermediate_nodes(src_device_id, dst_device_id);
-    if (intermediate_node != -1) {
-      ten = ten.to(at::Device(at::kCUDA, intermediate_node));
-    }
-  }
-
-  // synchronize source streams and launch copies on source stream.
   for (const auto i : c10::irange(tensors.size())) {
-    auto src = tensors[i];
-    if (src.device() != output.device()) {
-      auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
-
-      at::Device dst_device = dst.device();
-      at::Device src_device = src.device();
-      at::cuda::CUDAGuard device_guard(src_device);
-      // We always perform the copy on the source device, using the current
-      // stream on the source device, and we fully synchronize on both src and
-      // dst's current streams for completion of the copy. We have to explicitly
-      // do this for non-contig copies. This mimics the behavior of cross-device
-      // cudaMemcpyAsync on the default stream.
-
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(src_device.index());
-      // This is a cross-device copy on the src current stream and dst current
-      // stream. We perform a two-way barrier between both devices' streams
-      // before the copy. This ensures that any write-after-write and
-      // write-after-read dependencies on the destination side are handled, so
-      // that no one is operating on the dst memory when we perform the copy.
-      // src waits on dst barrier (src already waits on src)
-      auto& dst_ready = copy_begin_events[i];
-      device_guard.set_device(dst_device);
-      dst_ready.record(at::cuda::getCurrentCUDAStream(dst_device.index()));
-      device_guard.set_device(src_device);
-      dst_ready.block(copy_stream);
-      // on source device, launch memcpy.
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
-          src.stride(0) * dst.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
-    }
+    output_tensors.push_back(
+        output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]));
   }
-
-  // Do the same-GPU cases.
-  for (const auto i : c10::irange(tensors.size())) {
-    auto src = tensors[i];
-    if (src.device() == output.device()) {
-      auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
-      at::Device src_device = src.device();
-      // single device memcpy, not that src_device == dst_device.
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(src_device.index());
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
-          src.stride(0) * src.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
-    }
-  }
-  // wait for cross-device copies to complete.
-  for (const auto i : c10::irange(tensors.size())) {
-    auto src = tensors[i];
-    if (src.device() != output.device()) {
-      auto dst = output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]);
-      at::Device dst_device = dst.device();
-      at::Device src_device = src.device();
-      // Still on src_device, record stream event
-      at::cuda::CUDAGuard device_guard(src_device);
-      at::cuda::CUDAStream copy_stream =
-          at::cuda::getCurrentCUDAStream(src_device.index());
-
-      auto& src_ready = copy_completion_events[i];
-      src_ready.record(copy_stream);
-
-      device_guard.set_device(dst_device);
-      src_ready.block(at::cuda::getCurrentCUDAStream(dst_device.index()));
-    }
-  }
-  AT_CUDA_CHECK(cudaGetLastError());
+  all_to_one(
+      tensors, output_tensors, output_device, /* skip_if_same_device */ false);
 
   return output;
 }
-} // namespace
 
-namespace fbgemm_gpu {
-
-// TODO: Add device arg.
-Tensor merge_pooled_embeddings(
-    std::vector<Tensor> pooled_embeddings,
-    int64_t batch_size,
-    at::Device target_device) {
+void init_p2p_access() {
   static std::once_flag flag;
   std::call_once(flag, []() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
@@ -334,11 +358,44 @@ Tensor merge_pooled_embeddings(
       }
     }
   });
+}
 
+} // namespace
+
+namespace fbgemm_gpu {
+
+Tensor merge_pooled_embeddings(
+    std::vector<Tensor> pooled_embeddings,
+    int64_t batch_size,
+    at::Device target_device) {
+  init_p2p_access();
   at::cuda::CUDAGuard g(target_device);
 
   TORCH_CHECK(!pooled_embeddings.empty());
   return cat_dim_1(pooled_embeddings, batch_size, target_device);
+}
+
+std::vector<Tensor> all_to_one_device(
+    std::vector<Tensor> input_tensors,
+    at::Device target_device) {
+  init_p2p_access();
+  at::cuda::CUDAGuard g(target_device);
+
+  std::vector<Tensor> output_tensors;
+  output_tensors.reserve(input_tensors.size());
+
+  for (const auto& tensor : input_tensors) {
+    output_tensors.push_back(
+        tensor.device() != target_device
+            ? at::empty(tensor.sizes(), tensor.options().device(target_device))
+            : tensor);
+  }
+  all_to_one(
+      input_tensors,
+      output_tensors,
+      target_device,
+      /* skip_if_same_device */ true);
+  return output_tensors;
 }
 
 } // namespace fbgemm_gpu
@@ -346,13 +403,10 @@ Tensor merge_pooled_embeddings(
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "merge_pooled_embeddings(Tensor[] pooled_embeddings, int batch_size, Device target_device) -> Tensor");
-}
-
-TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl(
-      "merge_pooled_embeddings",
-      torch::dispatch(
-          c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm_gpu::merge_pooled_embeddings)));
+  DISPATCH_TO_CUDA(
+      "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
+  m.def(
+      "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
+  DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
 }
 #endif

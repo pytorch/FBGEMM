@@ -8,7 +8,7 @@
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
-#include "codegen/embedding_common.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
 
@@ -105,6 +105,13 @@ void bounds_check_indices_cpu(
 } // namespace
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
+  m.impl(
+      "bounds_check_indices",
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(bounds_check_indices_cpu)));
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "bounds_check_indices",
       torch::dispatch(
