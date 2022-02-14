@@ -77,11 +77,11 @@ def benchmark(
     num_ads,
     embedding_dimension,
     ads_tables,
-    iters=10,
-    p2p_bw=False,
-    dst_device=0,
-    data_type="FP16",
-    include_quantization=False,
+    iters: int = 10,
+    p2p_bw: bool = False,
+    dst_device: int = 0,
+    data_type: str = "FP16",
+    include_quantization: bool = False,
 ) -> str:
     torch.cuda.set_device(dst_device)
     num_gpus = torch.cuda.device_count()
