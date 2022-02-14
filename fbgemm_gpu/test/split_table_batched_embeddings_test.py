@@ -3625,6 +3625,111 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        L=st.integers(min_value=0, max_value=16),
+        H=st.integers(min_value=512, max_value=1024),
+        S=st.integers(min_value=0, max_value=128),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_nbit_cache_update_function(self, L: int, H: int, S: int) -> None:
+        # Generate synthetic data
+        linear_cache_indices_cpu = torch.randint(L, H, (S,))
+        lxu_cache_locations_cpu = torch.clone(linear_cache_indices_cpu)
+
+        indices = [True if np.random.rand() < 0.5 else False for _ in range(S)]
+        lxu_cache_locations_cpu[indices] = -1
+
+        cache_miss_ids = torch.clone(linear_cache_indices_cpu)
+        cache_miss_ids[lxu_cache_locations_cpu != -1] = -2
+
+        # Calculate the correct output
+        unique_cache_miss_ids = torch.unique(cache_miss_ids)
+        expect_out = sum(unique_cache_miss_ids >= 0)
+        linear_cache_indices = linear_cache_indices_cpu.to(torch.int32).cuda()
+        lxu_cache_locations = lxu_cache_locations_cpu.to(torch.int32).cuda()
+
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10 ** 3
+        Ds = [D] * T
+        Es = [E] * T
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            record_cache_metrics=RecordCacheMetrics(True, False),
+        )
+        cc.fill_random_weights()
+
+        cc._update_cache_miss_counter(lxu_cache_locations, linear_cache_indices)
+        (
+            cache_miss_forward_count,
+            unique_cache_miss_count,
+        ) = cc.get_cache_miss_counter().cpu()
+
+        self.assertEqual(unique_cache_miss_count, expect_out)
+        self.assertLessEqual(cache_miss_forward_count, unique_cache_miss_count)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(N=st.integers(min_value=1, max_value=8))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_nbit_cache_miss_counter(self, N: int) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10 ** 3
+        Ds = [D] * T
+        Es = [E] * T
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            record_cache_metrics=RecordCacheMetrics(True, True),
+        )
+        cc.fill_random_weights()
+
+        # Create fake input data and the target output
+        x1 = torch.Tensor([[[1], [1]], [[3], [4]]]).cuda()
+        x2 = torch.Tensor([[[2], [1]], [[3], [4]]]).cuda()
+        x3 = torch.Tensor([[[5], [6]], [[7], [8]]]).cuda()
+
+        xs = [x1, x2, x3]
+        target_counter_list = [[1, 3], [2, 4], [3, 8]]
+        target_tablewise_cache_miss_list = [[1, 2], [2, 2], [4, 4]]
+        for x, t_counter, t_tablewise_cache_miss in zip(
+            xs, target_counter_list, target_tablewise_cache_miss_list
+        ):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                cc(indices.int(), offsets.int())
+                (
+                    cache_miss_forward_count,
+                    unique_cache_miss_count,
+                ) = cc.get_cache_miss_counter().cpu()
+                tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
+                self.assertEqual(cache_miss_forward_count, t_counter[0])
+                self.assertEqual(unique_cache_miss_count, t_counter[1])
+                for i in range(len(tablewise_cache_miss)):
+                    self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
+
     @given(
         T=st.integers(min_value=1, max_value=64),
         B=st.integers(min_value=1, max_value=64),
