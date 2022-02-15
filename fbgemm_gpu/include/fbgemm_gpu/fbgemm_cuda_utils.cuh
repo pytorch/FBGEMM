@@ -1100,6 +1100,11 @@ struct __align__(32) float8 {
   float4 vals[2];
 };
 
+struct __align__(64) float16 {
+  __host__ __device__ float16() {}
+  float8 vals[2];
+};
+
 struct __align__(8) half4 {
   __host__ __device__ half4() {}
   half2 vals[2];
@@ -1110,13 +1115,17 @@ struct __align__(16) half8 {
   half2 vals[4];
 };
 
-DEVICE_INLINE half8 to_half8(float8 v) {
-  half8 t;
-  t.vals[0] = __float22half2_rn(make_float2(v.vals[0].x, v.vals[0].y));
-  t.vals[1] = __float22half2_rn(make_float2(v.vals[0].z, v.vals[0].w));
-  t.vals[2] = __float22half2_rn(make_float2(v.vals[1].x, v.vals[1].y));
-  t.vals[3] = __float22half2_rn(make_float2(v.vals[1].z, v.vals[1].w));
-  return t;
+struct __align__(32) half16 {
+  __host__ __device__ half16() {}
+  half2 vals[8];
+};
+
+DEVICE_INLINE __half to_half(float v) {
+  return __float2half_rn(v);
+}
+
+DEVICE_INLINE __half2 to_half2(float2 v) {
+  return __float22half2_rn(v);
 }
 
 DEVICE_INLINE half4 to_half4(float4 v) {
@@ -1126,12 +1135,35 @@ DEVICE_INLINE half4 to_half4(float4 v) {
   return t;
 }
 
-DEVICE_INLINE __half2 to_half2(float2 v) {
-  return __float22half2_rn(v);
+DEVICE_INLINE half8 to_half8(float8 v) {
+  half8 t;
+  t.vals[0] = __float22half2_rn(make_float2(v.vals[0].x, v.vals[0].y));
+  t.vals[1] = __float22half2_rn(make_float2(v.vals[0].z, v.vals[0].w));
+  t.vals[2] = __float22half2_rn(make_float2(v.vals[1].x, v.vals[1].y));
+  t.vals[3] = __float22half2_rn(make_float2(v.vals[1].z, v.vals[1].w));
+  return t;
 }
 
-DEVICE_INLINE __half to_half(float v) {
-  return __float2half_rn(v);
+DEVICE_INLINE half16 to_half16(float16 v) {
+  half16 t;
+  t.vals[0] =
+      __float22half2_rn(make_float2(v.vals[0].vals[0].x, v.vals[0].vals[0].y));
+  t.vals[1] =
+      __float22half2_rn(make_float2(v.vals[0].vals[0].z, v.vals[0].vals[0].w));
+  t.vals[2] =
+      __float22half2_rn(make_float2(v.vals[0].vals[1].x, v.vals[0].vals[1].y));
+  t.vals[3] =
+      __float22half2_rn(make_float2(v.vals[0].vals[1].z, v.vals[0].vals[1].w));
+
+  t.vals[4] =
+      __float22half2_rn(make_float2(v.vals[1].vals[0].x, v.vals[1].vals[0].y));
+  t.vals[5] =
+      __float22half2_rn(make_float2(v.vals[1].vals[0].z, v.vals[1].vals[0].w));
+  t.vals[6] =
+      __float22half2_rn(make_float2(v.vals[1].vals[1].x, v.vals[1].vals[1].y));
+  t.vals[7] =
+      __float22half2_rn(make_float2(v.vals[1].vals[1].z, v.vals[1].vals[1].w));
+  return t;
 }
 
 DEVICE_INLINE float2 make_zero_float2() {
@@ -1146,6 +1178,13 @@ DEVICE_INLINE float8 make_zero_float8() {
   float8 t;
   t.vals[0] = make_float4(0, 0, 0, 0);
   t.vals[1] = make_float4(0, 0, 0, 0);
+  return t;
+}
+
+DEVICE_INLINE float16 make_zero_float16() {
+  float16 t;
+  t.vals[0] = make_zero_float8();
+  t.vals[1] = make_zero_float8();
   return t;
 }
 
@@ -1204,6 +1243,80 @@ __device__ __forceinline__ __half2 hmul_short2(uint32_t lhs, __half rhs) {
   fr.y = fx.y * fy.y;
   return __float22half2_rn(fr);
 #endif
+}
+
+__forceinline__ __device__ half16
+dequantize_permuted_int2(uint32_t packedVals, __half2 shift_scale) {
+  half16 res;
+  uint32_t v = packedVals;
+  // See comment below, this is a minor variation. Check N1600402.
+  res.vals[0] = hmul_short2(v & 0x00030003, __float2half(32768));
+  res.vals[1] = hmul_short2(v & 0x000C000C, __float2half(32768));
+  res.vals[2] = hmul_short2(v & 0x00300030, __float2half(32768));
+  res.vals[3] = hmul_short2(v & 0x00C000C0, __float2half(32768));
+  v >>= 8;
+  res.vals[4] = hmul_short2(v & 0x00030003, __float2half(32768));
+  res.vals[5] = hmul_short2(v & 0x000C000C, __float2half(32768));
+  res.vals[6] = hmul_short2(v & 0x00300030, __float2half(32768));
+  res.vals[7] = hmul_short2(v & 0x00C000C0, __float2half(32768));
+
+  // ~5% perf gain is observed with the explicit type conversions using
+  // __float2half on Nvidia A100 GPUs (https://fburl.com/diff/ss8372zw) using
+  // NVCC 11.0. Additionally, HIP compiler requires these explicit type
+  // conversions.
+  half shift_scale_x = __low2half(shift_scale);
+  half shift_scale_y = __high2half(shift_scale);
+
+  res.vals[0] = hfma2(
+      res.vals[0],
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[1] = hfma2(
+      res.vals[1],
+      __half2(
+          hmul(shift_scale_x, __float2half(128)),
+          hmul(shift_scale_x, __float2half(128))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[2] = hfma2(
+      res.vals[2],
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[3] = hfma2(
+      res.vals[3],
+      __half2(
+          hmul(shift_scale_x, __float2half(8)),
+          hmul(shift_scale_x, __float2half(8))),
+      __half2(shift_scale_y, shift_scale_y));
+
+  res.vals[4] = hfma2(
+      res.vals[4],
+      __half2(
+          hmul(shift_scale_x, __float2half(512)),
+          hmul(shift_scale_x, __float2half(512))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[5] = hfma2(
+      res.vals[5],
+      __half2(
+          hmul(shift_scale_x, __float2half(128)),
+          hmul(shift_scale_x, __float2half(128))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[6] = hfma2(
+      res.vals[6],
+      __half2(
+          hmul(shift_scale_x, __float2half(32)),
+          hmul(shift_scale_x, __float2half(32))),
+      __half2(shift_scale_y, shift_scale_y));
+  res.vals[7] = hfma2(
+      res.vals[7],
+      __half2(
+          hmul(shift_scale_x, __float2half(8)),
+          hmul(shift_scale_x, __float2half(8))),
+      __half2(shift_scale_y, shift_scale_y));
+  return res;
 }
 
 __forceinline__ __device__ half8
@@ -1389,6 +1502,83 @@ __forceinline__ __device__ float8 accumulate_weighted_packed_int4(
   acc.vals[1].y = fmaf(v1.y, weight, acc.vals[1].y);
   acc.vals[1].z = fmaf(v2.y, weight, acc.vals[1].z);
   acc.vals[1].w = fmaf(v3.y, weight, acc.vals[1].w);
+  return acc;
+}
+
+__forceinline__ __device__ float16
+accumulate_packed_int2(float16 acc, uint32_t packedVals, __half2 shift_scale) {
+  half16 res = dequantize_permuted_int2(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
+  float2 v4 = __half22float2(res.vals[4]);
+  float2 v5 = __half22float2(res.vals[5]);
+  float2 v6 = __half22float2(res.vals[6]);
+  float2 v7 = __half22float2(res.vals[7]);
+
+  // Twiddle after permutations.
+  acc.vals[0].vals[0].x += v0.x;
+  acc.vals[0].vals[0].y += v1.x;
+  acc.vals[0].vals[0].z += v2.x;
+  acc.vals[0].vals[0].w += v3.x;
+
+  acc.vals[0].vals[1].x += v4.x;
+  acc.vals[0].vals[1].y += v5.x;
+  acc.vals[0].vals[1].z += v6.x;
+  acc.vals[0].vals[1].w += v7.x;
+
+  acc.vals[1].vals[0].x += v0.y;
+  acc.vals[1].vals[0].y += v1.y;
+  acc.vals[1].vals[0].z += v2.y;
+  acc.vals[1].vals[0].w += v3.y;
+
+  acc.vals[1].vals[1].x += v4.y;
+  acc.vals[1].vals[1].y += v5.y;
+  acc.vals[1].vals[1].z += v6.y;
+  acc.vals[1].vals[1].w += v7.y;
+
+  return acc;
+}
+
+__forceinline__ __device__ float16 accumulate_weighted_packed_int2(
+    float16 acc,
+    uint32_t packedVals,
+    __half2 shift_scale,
+    float weight) {
+  half16 res = dequantize_permuted_int2(packedVals, shift_scale);
+  // Accumulate in float32.
+  float2 v0 = __half22float2(res.vals[0]);
+  float2 v1 = __half22float2(res.vals[1]);
+  float2 v2 = __half22float2(res.vals[2]);
+  float2 v3 = __half22float2(res.vals[3]);
+  float2 v4 = __half22float2(res.vals[4]);
+  float2 v5 = __half22float2(res.vals[5]);
+  float2 v6 = __half22float2(res.vals[6]);
+  float2 v7 = __half22float2(res.vals[7]);
+
+  // Twiddle after permutations.
+  acc.vals[0].vals[0].x = fmaf(v0.x, weight, acc.vals[0].vals[0].x);
+  acc.vals[0].vals[0].y = fmaf(v1.x, weight, acc.vals[0].vals[0].y);
+  acc.vals[0].vals[0].z = fmaf(v2.x, weight, acc.vals[0].vals[0].z);
+  acc.vals[0].vals[0].w = fmaf(v3.x, weight, acc.vals[0].vals[0].w);
+
+  acc.vals[0].vals[1].x = fmaf(v4.x, weight, acc.vals[0].vals[1].x);
+  acc.vals[0].vals[1].y = fmaf(v5.x, weight, acc.vals[0].vals[1].y);
+  acc.vals[0].vals[1].z = fmaf(v6.x, weight, acc.vals[0].vals[1].z);
+  acc.vals[0].vals[1].w = fmaf(v7.x, weight, acc.vals[0].vals[1].w);
+
+  acc.vals[1].vals[0].x = fmaf(v0.y, weight, acc.vals[1].vals[0].x);
+  acc.vals[1].vals[0].y = fmaf(v1.y, weight, acc.vals[1].vals[0].y);
+  acc.vals[1].vals[0].z = fmaf(v2.y, weight, acc.vals[1].vals[0].z);
+  acc.vals[1].vals[0].w = fmaf(v3.y, weight, acc.vals[1].vals[0].w);
+
+  acc.vals[1].vals[1].x = fmaf(v4.y, weight, acc.vals[1].vals[1].x);
+  acc.vals[1].vals[1].y = fmaf(v5.y, weight, acc.vals[1].vals[1].y);
+  acc.vals[1].vals[1].z = fmaf(v6.y, weight, acc.vals[1].vals[1].z);
+  acc.vals[1].vals[1].w = fmaf(v7.y, weight, acc.vals[1].vals[1].w);
+
   return acc;
 }
 
@@ -1713,6 +1903,181 @@ struct VecNT<8> {
   }
 };
 
+template <>
+struct VecNT<16> {
+  float16 acc;
+
+  DEVICE_INLINE VecNT() {
+    acc = make_zero_float16();
+  }
+
+  DEVICE_INLINE VecNT(uint32_t v, half2 shift_scale) {
+    acc = make_zero_float16();
+    acc = accumulate_packed_int2(acc, v, shift_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr) {
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    if (aligned_16b) { // 128 bit cache line
+      *reinterpret_cast<int4*>(output_ptr) =
+          *reinterpret_cast<const int4*>(&(acc.vals[0].vals[0]));
+      *reinterpret_cast<int4*>(output_ptr + 4) =
+          *reinterpret_cast<const int4*>(&(acc.vals[0].vals[1]));
+      *reinterpret_cast<int4*>(output_ptr + 8) =
+          *reinterpret_cast<const int4*>(&(acc.vals[1].vals[0]));
+      *reinterpret_cast<int4*>(output_ptr + 12) =
+          *reinterpret_cast<const int4*>(&(acc.vals[1].vals[1]));
+    } else if (aligned_8b) {
+      auto v0 = *reinterpret_cast<const int4*>(&(acc.vals[0].vals[0]));
+      auto v1 = *reinterpret_cast<const int4*>(&(acc.vals[0].vals[1]));
+      auto v2 = *reinterpret_cast<const int4*>(&(acc.vals[1].vals[0]));
+      auto v3 = *reinterpret_cast<const int4*>(&(acc.vals[1].vals[1]));
+      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v0.x, v0.y);
+      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v0.z, v0.w);
+      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v1.x, v1.y);
+      *reinterpret_cast<int2*>(output_ptr + 6) = make_int2(v1.z, v1.w);
+      *reinterpret_cast<int2*>(output_ptr + 8) = make_int2(v2.x, v2.y);
+      *reinterpret_cast<int2*>(output_ptr + 10) = make_int2(v2.z, v2.w);
+      *reinterpret_cast<int2*>(output_ptr + 12) = make_int2(v3.x, v3.y);
+      *reinterpret_cast<int2*>(output_ptr + 14) = make_int2(v3.z, v3.w);
+    } else {
+      *(output_ptr + 0) = acc.vals[0].vals[0].x;
+      *(output_ptr + 1) = acc.vals[0].vals[0].y;
+      *(output_ptr + 2) = acc.vals[0].vals[0].z;
+      *(output_ptr + 3) = acc.vals[0].vals[0].w;
+      *(output_ptr + 4) = acc.vals[0].vals[1].x;
+      *(output_ptr + 5) = acc.vals[0].vals[1].y;
+      *(output_ptr + 6) = acc.vals[0].vals[1].z;
+      *(output_ptr + 7) = acc.vals[0].vals[1].w;
+
+      *(output_ptr + 8) = acc.vals[1].vals[0].x;
+      *(output_ptr + 9) = acc.vals[1].vals[0].y;
+      *(output_ptr + 10) = acc.vals[1].vals[0].z;
+      *(output_ptr + 11) = acc.vals[1].vals[0].w;
+      *(output_ptr + 12) = acc.vals[1].vals[1].x;
+      *(output_ptr + 13) = acc.vals[1].vals[1].y;
+      *(output_ptr + 14) = acc.vals[1].vals[1].z;
+      *(output_ptr + 15) = acc.vals[1].vals[1].w;
+    }
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr) {
+    half16 val = to_half16(acc);
+    // bool aligned_32b = intptr_t(output_ptr) % 32 == 0;
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    if (aligned_16b) {
+      *reinterpret_cast<int4*>(output_ptr) =
+          *reinterpret_cast<const int4*>(&val);
+      *reinterpret_cast<int4*>(output_ptr + 8) =
+          *reinterpret_cast<const int4*>(&val.vals[4]);
+    } else if (aligned_8b) {
+      auto v0 = *reinterpret_cast<const int4*>(&val);
+      auto v1 = *reinterpret_cast<const int4*>(&val.vals[4]);
+      *reinterpret_cast<int2*>(output_ptr) = make_int2(v0.x, v0.y);
+      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v0.z, v0.w);
+      *reinterpret_cast<int2*>(output_ptr + 8) = make_int2(v1.x, v1.y);
+      *reinterpret_cast<int2*>(output_ptr + 12) = make_int2(v1.z, v1.w);
+    } else if (aligned_4b) {
+      auto v0 = *reinterpret_cast<const int4*>(&val);
+      auto v1 = *reinterpret_cast<const int4*>(&val.vals[4]);
+      *reinterpret_cast<int*>(output_ptr + 0) = v0.x;
+      *reinterpret_cast<int*>(output_ptr + 2) = v0.y;
+      *reinterpret_cast<int*>(output_ptr + 4) = v0.z;
+      *reinterpret_cast<int*>(output_ptr + 6) = v0.w;
+
+      *reinterpret_cast<int*>(output_ptr + 8) = v1.x;
+      *reinterpret_cast<int*>(output_ptr + 10) = v1.y;
+      *reinterpret_cast<int*>(output_ptr + 12) = v1.z;
+      *reinterpret_cast<int*>(output_ptr + 14) = v1.w;
+    } else {
+      *(output_ptr + 0) = __low2half(val.vals[0]);
+      *(output_ptr + 1) = __high2half(val.vals[0]);
+      *(output_ptr + 2) = __low2half(val.vals[1]);
+      *(output_ptr + 3) = __high2half(val.vals[1]);
+      *(output_ptr + 4) = __low2half(val.vals[2]);
+      *(output_ptr + 5) = __high2half(val.vals[2]);
+      *(output_ptr + 6) = __low2half(val.vals[3]);
+      *(output_ptr + 7) = __high2half(val.vals[3]);
+
+      *(output_ptr + 8) = __low2half(val.vals[4]);
+      *(output_ptr + 9) = __high2half(val.vals[4]);
+      *(output_ptr + 10) = __low2half(val.vals[5]);
+      *(output_ptr + 11) = __high2half(val.vals[5]);
+      *(output_ptr + 12) = __low2half(val.vals[6]);
+      *(output_ptr + 13) = __high2half(val.vals[6]);
+      *(output_ptr + 14) = __low2half(val.vals[7]);
+      *(output_ptr + 15) = __high2half(val.vals[7]);
+    }
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
+    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    output_ptr[0] = lrintf((acc.vals[0].vals[0].x - qparams.y) * inv_scale);
+    output_ptr[1] = lrintf((acc.vals[0].vals[0].y - qparams.y) * inv_scale);
+    output_ptr[2] = lrintf((acc.vals[0].vals[0].z - qparams.y) * inv_scale);
+    output_ptr[3] = lrintf((acc.vals[0].vals[0].w - qparams.y) * inv_scale);
+    output_ptr[4] = lrintf((acc.vals[0].vals[1].x - qparams.y) * inv_scale);
+    output_ptr[5] = lrintf((acc.vals[0].vals[1].y - qparams.y) * inv_scale);
+    output_ptr[6] = lrintf((acc.vals[0].vals[1].z - qparams.y) * inv_scale);
+    output_ptr[7] = lrintf((acc.vals[0].vals[1].w - qparams.y) * inv_scale);
+
+    output_ptr[8] = lrintf((acc.vals[1].vals[0].x - qparams.y) * inv_scale);
+    output_ptr[9] = lrintf((acc.vals[1].vals[0].y - qparams.y) * inv_scale);
+    output_ptr[10] = lrintf((acc.vals[1].vals[0].z - qparams.y) * inv_scale);
+    output_ptr[11] = lrintf((acc.vals[1].vals[0].w - qparams.y) * inv_scale);
+    output_ptr[12] = lrintf((acc.vals[1].vals[1].x - qparams.y) * inv_scale);
+    output_ptr[13] = lrintf((acc.vals[1].vals[1].y - qparams.y) * inv_scale);
+    output_ptr[14] = lrintf((acc.vals[1].vals[1].z - qparams.y) * inv_scale);
+    output_ptr[15] = lrintf((acc.vals[1].vals[1].w - qparams.y) * inv_scale);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(uint32_t v, half2 shift_scale, float b) {
+    acc = accumulate_weighted_packed_int2(acc, v, shift_scale, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(uint32_t v, half2 shift_scale) {
+    acc = accumulate_packed_int2(acc, v, shift_scale);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc.vals[0].vals[0].x *= a;
+    acc.vals[0].vals[0].y *= a;
+    acc.vals[0].vals[0].z *= a;
+    acc.vals[0].vals[0].w *= a;
+    acc.vals[0].vals[1].x *= a;
+    acc.vals[0].vals[1].y *= a;
+    acc.vals[0].vals[1].z *= a;
+    acc.vals[0].vals[1].w *= a;
+
+    acc.vals[1].vals[0].x *= a;
+    acc.vals[1].vals[0].y *= a;
+    acc.vals[1].vals[0].z *= a;
+    acc.vals[1].vals[0].w *= a;
+    acc.vals[1].vals[1].x *= a;
+    acc.vals[1].vals[1].y *= a;
+    acc.vals[1].vals[1].z *= a;
+    acc.vals[1].vals[1].w *= a;
+  }
+};
+
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
@@ -1761,6 +2126,18 @@ DEVICE_INLINE float float8_max(float8 val) {
 DEVICE_INLINE float float8_min(float8 val) {
   float min_val0 = float4_min(val.vals[0]);
   float min_val1 = float4_min(val.vals[1]);
+  return min(min_val0, min_val1);
+}
+
+DEVICE_INLINE float float16_max(float16 val) {
+  float max_val0 = float8_max(val.vals[0]);
+  float max_val1 = float8_max(val.vals[1]);
+  return max(max_val0, max_val1);
+}
+
+DEVICE_INLINE float float16_min(float16 val) {
+  float min_val0 = float8_min(val.vals[0]);
+  float min_val1 = float8_min(val.vals[1]);
   return min(min_val0, min_val1);
 }
 

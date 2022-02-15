@@ -292,6 +292,27 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         offsets_begin_ptr,
                         indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                } else if (weight_ty == SparseType::INT2) {
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
+                        /*bit_rate=*/2,
+                        D,
+                        has_weight,
+                        normalize_by_lengths,
+                        /*prefetch=*/16,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        /*scale_bias_last=*/false);
+                    success = kernel(
+                        B,
+                        index_size,
+                        num_rows,
+                        weights,
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        indice_weights_ptr,
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 } else {
                     throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                 }

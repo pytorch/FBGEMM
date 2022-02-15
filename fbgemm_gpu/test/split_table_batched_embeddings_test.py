@@ -56,10 +56,15 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
     mixed_weights_ty = draw(st.booleans())
     if mixed_weights_ty:
         return None
-    # TODO: Implement support for SparseType.INT2.
     return draw(
         st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.INT8, SparseType.INT4]
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
         )
     )
 
@@ -2960,7 +2965,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_ty_list = [weights_ty] * T
         else:
             weights_ty_list = [
-                SparseType.from_int(np.random.randint(low=0, high=4)) for _ in range(T)
+                SparseType.from_int(np.random.randint(low=0, high=5)) for _ in range(T)
             ]
 
         D_alignment = max(weights_ty_list[t].align_size() for t in range(T))
@@ -3052,6 +3057,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if scale_shift is not None:
                 (E, R) = scale_shift.shape
                 self.assertEqual(R, 4)
+                if weights_ty_list[t] == SparseType.INT2:
+                    scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)
+                    shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
                 if weights_ty_list[t] == SparseType.INT4:
                     scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
                     shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
