@@ -3903,6 +3903,74 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_lxu_cache_lookup(self) -> None:
+        ASSOC: int = split_table_batched_embeddings_ops.ASSOC
+        # Use single cache set to avoid dealing with cache set hash algorithm.
+        lxu_cache_state_gpu = torch.arange(ASSOC, dtype=torch.int64).unsqueeze(0).cuda()
+
+        # Testing all miss.
+        linear_cache_indices_0 = torch.tensor(
+            [32, 33, 34, 35, 36, 100, 1000, 1725]
+        ).cuda()
+        lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices_0, lxu_cache_state_gpu
+        )
+        self.assertTrue(
+            torch.equal(
+                lxu_locations.cpu(),
+                torch.tensor(
+                    [-1, -1, -1, -1, -1, -1, -1, -1],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+        # Testing all hits.
+        cache_indices_1 = torch.randint(0, ASSOC, (ASSOC,))
+        linear_cache_indices_1 = cache_indices_1.cuda()
+        lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices_1, lxu_cache_state_gpu
+        )
+        self.assertTrue(
+            torch.equal(
+                lxu_locations.cpu(),
+                cache_indices_1.int(),
+            )
+        )
+
+        # Testing mixture.
+        miss_cache_indices_0 = torch.randint(32, 2000, (10,))
+        hit_cache_indices_0 = torch.randint(0, ASSOC, (8,))
+        miss_cache_indices_1 = torch.randint(32, 2000, (16,))
+        hit_cache_indices_1 = torch.randint(0, ASSOC, (8,))
+        linear_cache_indices_2 = torch.cat(
+            [
+                miss_cache_indices_0,
+                hit_cache_indices_0,
+                miss_cache_indices_1,
+                hit_cache_indices_1,
+            ]
+        ).cuda()
+        lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices_2, lxu_cache_state_gpu
+        )
+
+        expected_result = torch.cat(
+            [
+                torch.full_like(miss_cache_indices_0, -1),
+                hit_cache_indices_0,
+                torch.full_like(miss_cache_indices_1, -1),
+                hit_cache_indices_1,
+            ]
+        ).int()
+        self.assertTrue(
+            torch.equal(
+                lxu_locations.cpu(),
+                expected_result,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
