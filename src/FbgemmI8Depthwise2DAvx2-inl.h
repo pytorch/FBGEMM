@@ -144,8 +144,8 @@ static ALWAYS_INLINE void depthwise_2d_(
     int num_threads) {
   assert(IC % 8 == 0);
   constexpr int R = S;
-  constexpr int PAD_T = (R - 1) / 2, PAD_B = PAD_T, PAD_L = (S - 1) / 2,
-                PAD_R = PAD_L;
+  constexpr int64_t PAD_T = (R - 1) / 2, PAD_B = PAD_T, PAD_L = (S - 1) / 2,
+                    PAD_R = PAD_L;
   int H_OUT = (H + PAD_T + PAD_B - R) / stride_h + 1;
   int W_OUT = (W + PAD_L + PAD_R - S) / stride_w + 1;
   const std::int8_t* Bp = B.PackedMat();
@@ -153,7 +153,7 @@ static ALWAYS_INLINE void depthwise_2d_(
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (IC + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int n_begin, n_end, h_begin, h_end, w_begin, w_end;
+  int64_t n_begin, n_end, h_begin, h_end, w_begin, w_end;
   // Reuse the 3-dim partition scheme for parallelization in matrix
   // multiplication.
   thread_type_t th_info =

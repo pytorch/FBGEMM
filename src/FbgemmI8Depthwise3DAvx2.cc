@@ -160,15 +160,15 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   int K_T = F[0], K_H = F[1], K_W = F[2];
   int PAD_P = (F[0] - 1) / 2, PAD_N = PAD_P, PAD_T = (F[1] - 1) / 2,
       PAD_B = PAD_T, PAD_L = (F[2] - 1) / 2, PAD_R = PAD_L;
-  int T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
-  int H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
+  int64_t T_OUT = (T + PAD_P + PAD_N - K_T) / stride_t + 1;
+  int64_t H_OUT = (H + PAD_T + PAD_B - K_H) / stride_h + 1;
   int W_OUT = (W + PAD_L + PAD_R - K_W) / stride_w + 1;
   const int8_t* Bp = B.PackedMat();
 
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (IC + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int n_begin, n_end, t_begin, t_end, h_begin, h_end;
+  int64_t n_begin, n_end, t_begin, t_end, h_begin, h_end;
   // Reuse the 3-dim partition scheme for parallelization in matrix
   // multiplication.
   thread_type_t th_info =
