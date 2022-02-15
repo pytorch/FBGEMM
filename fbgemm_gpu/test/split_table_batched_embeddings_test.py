@@ -413,11 +413,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision = SparseType.INT8
         use_cpu = True
         T = random.randint(1, 10)
-        B = random.randint(1, min(128, int(2048 / T)))
-        L = random.randint(0, min(20, int(2048 / T / B)))
-        D = random.randint(
-            2, min(256, max(2, int(2048 / (T * B * (L if L > 0 else 1)))))
-        )
+        D = random.randint(2, min(256, int(2048 / T)))
+        B = random.randint(1, min(128, int(2048 / T / D)))
+        L = random.randint(0, min(20, int(2048 / T / D / B)))
         log_E = random.randint(3, 5)
 
         use_cache = False
@@ -456,11 +454,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision = SparseType.FP32
         use_cpu = True
         T = random.randint(1, 10)
-        B = random.randint(1, min(128, int(2048 / T)))
-        L = random.randint(0, min(20, int(2048 / T / B)))
-        D = random.randint(
-            2, min(256, max(2, int(2048 / (T * B * (L if L > 0 else 1)))))
-        )
+        D = random.randint(2, min(256, int(2048 / T)))
+        B = random.randint(1, min(128, int(2048 / T / D)))
+        L = random.randint(0, min(20, int(2048 / T / D / B)))
         log_E = random.randint(3, 5)
 
         use_cache = False
