@@ -96,7 +96,7 @@ template <typename T, bool LEGACY = true>
 FBGEMM_API void Quantize(
     const float* src,
     T* dst,
-    int len,
+    std::int64_t len,
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
     int num_threads = 1);
@@ -144,13 +144,13 @@ template <typename T>
 void Dequantize(
     const T* src,
     float* dst,
-    int len,
+    std::int64_t len,
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
     int num_threads = 1) {
-  int i_begin, i_end;
+  int64_t i_begin, i_end;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
-  for (auto i = i_begin; i < i_end; i++) {
+  for (int64_t i = i_begin; i < i_end; i++) {
     dst[i] = Dequantize(src[i], qparams);
   }
 }
@@ -173,7 +173,7 @@ template <typename T>
 FBGEMM_API void FusedQuantizeDequantize(
     const float* src,
     float* dst,
-    int len,
+    std::int64_t len,
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
     int num_threads = 1,
@@ -215,7 +215,7 @@ template <typename T>
 FBGEMM_API void RequantizeFixedPoint(
     const std::int32_t* src,
     T* dst,
-    int len,
+    std::int64_t len,
     const RequantizationParams& params,
     int thread_id = 0,
     int num_threads = 1);
@@ -249,7 +249,7 @@ template <typename T>
 FBGEMM_API void Requantize(
     const std::int32_t* src,
     T* dst,
-    int len,
+    std::int64_t len,
     const RequantizationParams& params,
     int thread_id = 0,
     int num_threads = 1);

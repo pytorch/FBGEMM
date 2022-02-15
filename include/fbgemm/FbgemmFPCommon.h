@@ -157,7 +157,7 @@ void cblas_gemm_compute(
           gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
 
           if ((n % Bp.blockColSize()) == 0) {
-            int jb_begin, jb_end;
+            int64_t jb_begin, jb_end;
             fbgemmPartition1D(
                 thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
             gp.B += gp.k * Bp.blockColSize() * jb_begin;
@@ -173,7 +173,7 @@ void cblas_gemm_compute(
           } else {
             int last_blk_col = nbcol * Bp.blockColSize();
             if (nbcol) {
-              int jb_begin, jb_end;
+              int64_t jb_begin, jb_end;
               fbgemmPartition1D(
                   thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
               gp.B += gp.k * Bp.blockColSize() * jb_begin;

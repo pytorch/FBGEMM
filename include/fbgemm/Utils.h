@@ -349,9 +349,9 @@ bool isValidBlockingFactor(BlockingFactors* param) {
 FBGEMM_API void fbgemmPartition1D(
     int thread_id,
     int num_threads,
-    int total_work,
-    int& start,
-    int& end);
+    std::int64_t total_work,
+    std::int64_t& start,
+    std::int64_t& end);
 
 /**
  * @brief Partition work across given number of threads in blocks
@@ -392,8 +392,8 @@ FBGEMM_API void fbgemmPartition1D(
 FBGEMM_API void fbgemmPartition1DBlocked(
     int thread_id,
     int num_threads,
-    int total_work,
+    std::int64_t total_work,
     int block_size,
-    int& start,
-    int& end);
+    std::int64_t& start,
+    std::int64_t& end);
 } // namespace fbgemm
