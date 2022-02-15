@@ -1530,6 +1530,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
+    record_cache_metrics: RecordCacheMetrics
 
     def __init__(
         self,
@@ -1551,6 +1552,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_reserved_memory: float = 0.0,
         cache_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
+        record_cache_metrics: Optional[RecordCacheMetrics] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1577,6 +1579,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        if record_cache_metrics is not None:
+            self.record_cache_metrics = record_cache_metrics
+        else:
+            self.record_cache_metrics = RecordCacheMetrics(False, False)
 
         # mixed D is not supported by no bag kernels
         mixed_D = not all(d == dims[0] for d in dims)
@@ -1731,8 +1738,29 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Currently only support cache_precision == embedding_precision.
         # Both are represented as uint8_t
-
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
+
+        if self.record_cache_metrics.record_tablewise_cache_miss:
+            num_tables = len(cache_state.cache_hash_size_cumsum) - 1
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    num_tables,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+        # NOTE: make TorchScript work!
+        else:
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    0,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
@@ -1740,6 +1768,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets,
             cache_reserved_memory,
         )
+
+    @torch.jit.export
+    def get_cache_miss_counter(self) -> Tensor:
+        # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
+        # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
+
+        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
+        # nn.Module]`.
+        return self.cache_miss_counter
+
+    @torch.jit.export
+    def get_table_wise_cache_miss(self) -> Tensor:
+        # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
+
+        return self.table_wise_cache_miss
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
@@ -1756,6 +1799,23 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices,
             offsets,
         )
+
+        if (
+            self.record_cache_metrics.record_cache_miss_counter
+            or self.record_cache_metrics.record_tablewise_cache_miss
+        ):
+            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+            )
+            if self.record_cache_metrics.record_cache_miss_counter:
+                self._update_cache_miss_counter(
+                    lxu_cache_locations, linear_cache_indices
+                )
+            if self.record_cache_metrics.record_tablewise_cache_miss:
+                self._update_tablewise_cache_miss(
+                    lxu_cache_locations, linear_cache_indices, offsets
+                )
 
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.lru_cache_populate_byte(
@@ -1796,6 +1856,64 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.lxu_cache_state,
             )
         )
+
+    def _update_cache_miss_counter(
+        self,
+        lxu_cache_locations: Tensor,
+        linear_cache_indices: Tensor,
+    ) -> None:
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+
+        cache_missed_locations = torch.where(
+            lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
+        )
+        unique_ids_list = torch.unique(cache_missed_locations)
+        unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+        miss_count = torch.sum(unique_ids_count_list)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[1] += miss_count
+
+    def _update_tablewise_cache_miss(
+        self,
+        lxu_cache_locations: Tensor,
+        linear_cache_indices: Tensor,
+        offsets: Tensor,
+    ) -> None:
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+
+        # pyre-ignore[6]:
+        # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
+        # positional only parameter to call `len` but got `typing.Union[Tensor, nn.Module]`.
+        num_tables = len(self.cache_hash_size_cumsum) - 1
+        num_offsets_per_table = (len(offsets) - 1) // num_tables
+        cache_missed_locations = torch.where(
+            lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
+        )
+
+        for i in range(num_tables):
+            start = offsets[i * num_offsets_per_table]
+            end = offsets[(i + 1) * num_offsets_per_table]
+
+            current_cache_missed_locations = cache_missed_locations[start:end]
+            unique_ids_list = torch.unique(current_cache_missed_locations)
+            unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+            miss_count = torch.sum(unique_ids_count_list)
+
+            self.table_wise_cache_miss[i] += miss_count
 
     def forward(
         self,
