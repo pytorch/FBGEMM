@@ -1022,10 +1022,10 @@ void fbgemmGroupwiseConv(
   }
   if (SPATIAL_DIM == 2) {
     // Parallelization:
-    int batch_start = 0;
-    int batch_end = MB;
-    int oh_start = 0;
-    int oh_end = OH;
+    int64_t batch_start = 0;
+    int64_t batch_end = MB;
+    int64_t oh_start = 0;
+    int64_t oh_end = OH;
     if (MB >= num_threads) {
       fbgemmPartition1D(thread_id, num_threads, MB, batch_start, batch_end);
     } else {
@@ -1100,8 +1100,8 @@ void fbgemmGroupwiseConv(
 
         const int32_t* inp = out_start_group;
         block_type_t block{
-            i * OT_OH_OW + oh_start * OW,
-            (oh_end - oh_start) * OW,
+            static_cast<int>(i * OT_OH_OW + oh_start * OW),
+            static_cast<int>((oh_end - oh_start) * OW),
             g * K_per_G,
             G_together * K_per_G};
         int ld_out = G * K_per_G;
@@ -1139,10 +1139,10 @@ void fbgemmGroupwiseConv(
          conv_param.pad[5]});
 
     // Parallelization:
-    int batch_start = 0;
-    int batch_end = MB;
-    int oh_start = 0;
-    int oh_end = OH;
+    int64_t batch_start = 0;
+    int64_t batch_end = MB;
+    int64_t oh_start = 0;
+    int64_t oh_end = OH;
     if (MB >= num_threads) {
       fbgemmPartition1D(thread_id, num_threads, MB, batch_start, batch_end);
     } else {
@@ -1243,8 +1243,8 @@ void fbgemmGroupwiseConv(
 
           const int32_t* inp = out_start_t;
           block_type_t block{
-              i * OT_OH_OW + oh_start * OW,
-              (oh_end - oh_start) * OW,
+              static_cast<int>(i * OT_OH_OW + oh_start * OW),
+              static_cast<int>((oh_end - oh_start) * OW),
               g * K_per_G,
               G_together * K_per_G};
           int ld_out = G * K_per_G;
