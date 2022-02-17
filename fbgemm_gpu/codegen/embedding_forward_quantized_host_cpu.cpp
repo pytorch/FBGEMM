@@ -396,7 +396,7 @@ struct TensorQueue : torch::CustomClassHolder {
     init_tensor_ = dict.at(std::string("init_tensor"));
     const std::string key = "queue";
     Tensor size_tensor;
-    size_tensor = dict.at(std::string(key + "/size"));
+    size_tensor = dict.at(std::string(key + "/size")).cpu();
     const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
     int64_t queue_size = size_tensor_acc[0];
 
