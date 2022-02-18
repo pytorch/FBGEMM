@@ -208,7 +208,9 @@ def generate_tbe(
     return emb, requests, tbe_offset
 
 
-def print_p2p_bandwidth(num_gpus, iters, pooled_ad_embeddings, bytes_per_element):
+def print_p2p_bandwidth(
+    num_gpus, iters, pooled_ad_embeddings, bytes_per_element
+) -> None:
     print("Pairwise GPU Copy Bandwidth (GB/s)")
     p2p_copy_bw = np.zeros((num_gpus, num_gpus))
     for i in range(num_gpus):
@@ -234,9 +236,9 @@ def print_p2p_bandwidth(num_gpus, iters, pooled_ad_embeddings, bytes_per_element
 
 def benchmark(
     all_to_one_only,
-    num_ads,
-    embedding_dimension,
-    ads_tables,
+    num_ads: int,
+    embedding_dimension: int,
+    ads_tables: int,
     iters: int = 10,
     p2p_bw: bool = False,
     dst_device: int = 0,
@@ -432,13 +434,13 @@ def main(
     num_ads,
     embedding_dimension,
     ads_tables,
-    iters,
-    p2p_bw,
-    dst_device,
-    data_type,
-    mode,
-    num_of_embeddings,
-    pooling_factor,
+    iters: int,
+    p2p_bw: bool,
+    dst_device: int,
+    data_type: str,
+    mode: bool,
+    num_of_embeddings: str,
+    pooling_factor: int,
     sweep,
 ) -> None:
     csv_header = (
