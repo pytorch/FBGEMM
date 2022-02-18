@@ -304,7 +304,7 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -314,14 +314,16 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
   TENSOR_ON_CPU(weights);
+  TORCH_CHECK(lengths.dim() == 2);
 
   const auto permute_contig = permute.expect_contiguous();
   const auto lengths_contig = lengths.expect_contiguous();
   const auto indices_contig = indices.expect_contiguous();
+
   // the data to permute over can be less or more with or without
   // repetitions
   const auto T = permute.numel();
-  const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
+  const auto B = lengths.size(1);
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
@@ -1452,7 +1454,7 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
@@ -1490,7 +1492,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_sparse_data", fbgemm_gpu::permute_sparse_data_cpu);
+  m.impl("permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);

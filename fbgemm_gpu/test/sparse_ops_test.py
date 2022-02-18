@@ -142,7 +142,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, indices, weights)
         (
             permuted_lengths_ref,
             permuted_indices_ref,
@@ -160,7 +160,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
-            ) = torch.ops.fbgemm.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
@@ -214,7 +214,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, indices, weights)
         (
             permuted_lengths_ref,
             permuted_indices_ref,
@@ -232,75 +232,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_indices_gpu,
                 permuted_weights_gpu,
-            ) = torch.ops.fbgemm.permute_sparse_data(
-                permute.cuda(),
-                lengths.cuda(),
-                indices.cuda(),
-                weights.cuda() if has_weight else None,
-            )
-            torch.testing.assert_allclose(
-                permuted_indices_gpu.cpu(), permuted_indices_cpu
-            )
-            torch.testing.assert_allclose(
-                permuted_lengths_gpu.cpu(), permuted_lengths_cpu
-            )
-            if has_weight:
-                torch.testing.assert_allclose(
-                    permuted_weights_gpu.cpu(), permuted_weights_cpu
-                )
-            else:
-                assert permuted_weights_cpu is None
-
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(
-        D=st.integers(min_value=5, max_value=20),
-        B=st.integers(min_value=1, max_value=20),
-        T=st.integers(min_value=1, max_value=20),
-        L=st.integers(min_value=2, max_value=20),
-        long_index=st.booleans(),
-        has_weight=st.booleans(),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_permute_indices_multi_dimension(
-        self, D: int, B: int, T: int, L: int, long_index: bool, has_weight: bool
-    ) -> None:
-        index_dtype = torch.int64 if long_index else torch.int32
-        lengths = torch.randint(low=1, high=L, size=(T, B, D)).type(index_dtype)
-        weights = torch.rand(lengths.sum().item()).float() if has_weight else None
-        indices = torch.randint(
-            low=1,
-            high=int(1e5),
-            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
-            #  param but got `Tuple[typing.Union[float, int]]`.
-            size=(lengths.sum().item(),),
-        ).type(index_dtype)
-        permute_list = list(range(T))
-        random.shuffle(permute_list)
-        permute = torch.IntTensor(permute_list)
-
-        (
-            permuted_lengths_cpu,
-            permuted_indices_cpu,
-            permuted_weights_cpu,
-        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, indices, weights)
-        (
-            permuted_lengths_ref,
-            permuted_indices_ref,
-            permuted_weights_ref,
-        ) = self.permute_indices_ref_(lengths, indices, weights, permute.long())
-        torch.testing.assert_allclose(permuted_indices_cpu, permuted_indices_ref)
-        torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
-        if has_weight:
-            torch.testing.assert_allclose(permuted_weights_cpu, permuted_weights_ref)
-        else:
-            assert permuted_weights_cpu is None and permuted_weights_ref is None
-
-        if gpu_available:
-            (
-                permuted_lengths_gpu,
-                permuted_indices_gpu,
-                permuted_weights_gpu,
-            ) = torch.ops.fbgemm.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
@@ -339,7 +271,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_embeddings_cpu,
             _,
-        ) = torch.ops.fbgemm.permute_sparse_data(permute, lengths, embeddings, None)
+        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, embeddings, None)
         (
             permuted_lengths_ref,
             permuted_embeddings_ref,
@@ -353,7 +285,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_lengths_gpu,
                 permuted_embeddings_gpu,
                 _,
-            ) = torch.ops.fbgemm.permute_sparse_data(
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
                 permute.cuda(),
                 lengths.cuda(),
                 embeddings.cuda(),

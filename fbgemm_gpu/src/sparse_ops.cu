@@ -237,7 +237,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -247,6 +247,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(indices);
   TENSOR_ON_CUDA_GPU(weights);
+  TORCH_CHECK(lengths.dim() == 2);
 
   TENSORS_ON_SAME_DEVICE(permute, lengths);
   TENSORS_ON_SAME_DEVICE(permute, indices);
@@ -261,8 +262,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   // the data to permute over can be less or more with or without
   // repetitions
   const auto T = permute.numel();
-  const auto T_ = lengths.size(0);
-  const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
+  const auto B = lengths.size(1);
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
