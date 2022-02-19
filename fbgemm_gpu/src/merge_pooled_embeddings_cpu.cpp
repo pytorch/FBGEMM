@@ -15,8 +15,9 @@ namespace fbgemm_gpu {
 
 Tensor merge_pooled_embeddings_cpu(
     std::vector<Tensor> pooled_embeddings,
-    int64_t batch_size,
-    at::Device target_device) {
+    int64_t /*uncat_dim_size*/,
+    at::Device target_device,
+    int64_t cat_dim = 1) {
   auto cat_host_0 = [&](const std::vector<Tensor>& ts) {
     int64_t n = 0;
     for (auto& t : ts) {
@@ -29,7 +30,7 @@ Tensor merge_pooled_embeddings_cpu(
       r = at::empty({n}, ts[0].options());
     }
     r.resize_(0);
-    return at::cat_out(r, ts, 1); // concat the tensor list in dim = 1
+    return at::cat_out(r, ts, cat_dim); // concat the tensor list in dim = 1
   };
   return cat_host_0(pooled_embeddings);
 }
