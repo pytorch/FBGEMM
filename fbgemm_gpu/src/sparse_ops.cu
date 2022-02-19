@@ -93,6 +93,37 @@ Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   return range;
 }
 
+// Kernel for calculating the segmented sum for sparse matrix with CSR format.
+// See https://moderngpu.github.io/segreduce.html
+template <typename scalar_t>
+__global__ void _segment_sum_csr_cuda_kernel(
+    int num_segments,
+    int batch_size,
+    const int* csr_seg_data,
+    const scalar_t* values_data,
+    scalar_t* output_data) {
+  typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<scalar_t, 256> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp_storage;
+  int seg_start = csr_seg_data[blockIdx.x] * batch_size;
+  int seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
+  scalar_t sum = 0;
+  for (int i = seg_start; i < seg_end; i += blockDim.x) {
+    scalar_t thread_data;
+    if (threadIdx.x < seg_end - i) {
+      thread_data = values_data[i + threadIdx.x];
+    }
+    scalar_t aggregate =
+        BlockReduce(temp_storage).Sum(thread_data, seg_end - i);
+    __syncthreads();
+    if (threadIdx.x == 0) {
+      sum += aggregate;
+    }
+  }
+  if (threadIdx.x == 0) {
+    output_data[blockIdx.x] = sum;
+  }
+}
+
 Tensor segment_sum_csr_cuda(
     const int64_t batch_size,
     const Tensor& csr_seg,
@@ -237,6 +268,46 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
+// Kernel for permuting the indices and weights. Used for permutation of sparse
+// data
+template <
+    bool has_weight,
+    typename offsets_t,
+    typename indices_t,
+    typename weights_t>
+__global__ void permute_data_kernel(
+    int32_t len,
+    int32_t T,
+    int32_t B,
+    const indices_t* __restrict__ indices,
+    const weights_t* __restrict__ weights,
+    const int32_t* __restrict__ permute,
+    const offsets_t* __restrict__ input_offsets,
+    const offsets_t* __restrict__ output_offsets,
+    indices_t* __restrict__ permuted_indices,
+    weights_t* __restrict__ permuted_weights) {
+  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const int stride = gridDim.x * blockDim.y;
+  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+    int32_t b = b_t % B;
+    int32_t t = b_t / B;
+    offsets_t output_start = output_offsets[b_t];
+    offsets_t segment_length;
+    if (b_t == B * T - 1) {
+      segment_length = len - output_offsets[b_t];
+    } else {
+      segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
+    }
+    offsets_t input_start = input_offsets[permute[t] * B + b];
+    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+      permuted_indices[output_start + i] = indices[input_start + i];
+      if (has_weight) {
+        permuted_weights[output_start + i] = weights[input_start + i];
+      }
+    }
+  }
+}
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
@@ -358,6 +429,102 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
             })); // for each indices_t
       })); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
+}
+
+// Kernel for bucketize lengths, with the Block distribution (vs. cyclic,
+// block-cyclic distribution). Used for bucketize sparse feature, especially for
+// checkpointing with row-wise partition (sparse_feature is partitioned
+// continuously along the sparse dimension into my_size blocks)
+template <typename offset_t, typename index_t>
+__global__ void _block_bucketize_sparse_features_cuda_kernel1(
+    int32_t lengths_size,
+    int32_t B,
+    const index_t* __restrict__ block_sizes_data,
+    int my_size,
+    const offset_t* __restrict__ offsets_data,
+    const index_t* __restrict__ indices_data,
+    offset_t* __restrict__ new_lengths_data) {
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  using uindex_t = std::make_unsigned_t<index_t>;
+  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+    int32_t t = b_t / B;
+    index_t blk_size = block_sizes_data[t];
+    offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    offset_t rowend = offsets_data[b_t];
+    for (index_t i = rowstart; i < rowend; ++i) {
+      // We have use cases using none-hashed raw indices that can be either
+      // negative or larger than embedding table hash_size (blk_size *
+      // my_size). In cases of none-hashed indices we need to ensure
+      // bucketization can distribute them into different ranks and within
+      // range of blk_size, we expect the later embedding module to take care
+      // of hashing indices calculation.
+      uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+      new_lengths_data[p * lengths_size + b_t]++;
+    }
+  }
+}
+
+// Kernel for bucketize offsets, indices, and positional weights, with the Block
+// distribution (vs. cyclic, block-cyclic distribution). Used for bucketize
+// sparse feature, especially for checkpointing with row-wise partition
+// (sparse_feature is partitioned continuously along the sparse dimension into
+// my_size blocks)
+template <
+    bool sequence,
+    bool has_weight,
+    bool bucketize_pos,
+    typename offset_t,
+    typename index_t,
+    typename scalar_t>
+__global__ void _block_bucketize_sparse_features_cuda_kernel2(
+    int lengths_size,
+    int32_t B,
+    const index_t* __restrict__ block_sizes_data,
+    int my_size,
+    const offset_t* __restrict__ offsets_data,
+    const index_t* __restrict__ indices_data,
+    const scalar_t* __restrict__ weights_data,
+    offset_t* __restrict__ new_offsets_data,
+    index_t* __restrict__ new_indices_data,
+    scalar_t* __restrict__ new_weights_data,
+    index_t* __restrict__ new_pos_data,
+    index_t* __restrict__ unbucketize_permute_data) {
+  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
+  const int stride = gridDim.x * blockDim.x;
+  using uindex_t = std::make_unsigned_t<index_t>;
+  using uoffset_t = std::make_unsigned_t<offset_t>;
+  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+    int32_t t = b_t / B;
+    index_t blk_size = block_sizes_data[t];
+    offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
+    offset_t rowend = offsets_data[b_t];
+    for (index_t i = rowstart; i < rowend; ++i) {
+      // We have use cases using none-hashed raw indices that can be either
+      // negative or larger than embedding table hash_size (blk_size *
+      // my_size). In cases of none-hashed indices we need to ensure
+      // bucketization can distribute them into different ranks and within
+      // range of blk_size, we expect the later embedding module to take care
+      // of hashing indices calculation.
+      uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+      uindex_t new_idx =
+          idx < blk_size * my_size ? idx % blk_size : idx / my_size;
+      uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
+      new_indices_data[pos] = new_idx;
+      new_offsets_data[p * lengths_size + b_t]++;
+      if (sequence) {
+        unbucketize_permute_data[i] = pos;
+      }
+      if (has_weight) {
+        new_weights_data[pos] = weights_data[i];
+      }
+      if (bucketize_pos) {
+        new_pos_data[pos] = i - rowstart;
+      }
+    }
+  }
 }
 
 // This function partitions sparse features
