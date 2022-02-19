@@ -10,6 +10,8 @@
 #define HIPCUB_ARCH 1
 #endif
 
+#include <ATen/ATen.h>
+#include <ATen/cuda/detail/KernelUtils.h>
 #include <cuda.h>
 
 // clang-format off
@@ -57,9 +59,7 @@ __global__ void permute_lengths_kernel(
     const index_t* __restrict__ lengths,
     const int32_t* __restrict__ permute,
     index_t* __restrict__ permuted_lengths) {
-  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  const int stride = gridDim.x * blockDim.x;
-  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+  CUDA_KERNEL_LOOP(b_t, B * T) {
     int32_t b = b_t % B;
     int32_t t = b_t / B;
     permuted_lengths[b_t] = lengths[permute[t] * B + b];
