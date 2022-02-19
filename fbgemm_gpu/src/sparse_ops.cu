@@ -444,10 +444,8 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel1(
     const offset_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
     offset_t* __restrict__ new_lengths_data) {
-  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  const int stride = gridDim.x * blockDim.x;
   using uindex_t = std::make_unsigned_t<index_t>;
-  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+  CUDA_KERNEL_LOOP(b_t, lengths_size) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
@@ -491,11 +489,9 @@ __global__ void _block_bucketize_sparse_features_cuda_kernel2(
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data,
     index_t* __restrict__ unbucketize_permute_data) {
-  int32_t b_t_start = (int32_t)blockIdx.x * blockDim.x + threadIdx.x;
-  const int stride = gridDim.x * blockDim.x;
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
-  for (int b_t = b_t_start; b_t < lengths_size; b_t += stride) {
+  CUDA_KERNEL_LOOP(b_t, lengths_size) {
     int32_t t = b_t / B;
     index_t blk_size = block_sizes_data[t];
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
