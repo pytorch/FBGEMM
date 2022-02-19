@@ -271,9 +271,20 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         offsets_begin_ptr,
                         indice_weights_ptr,
                         reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
-                } else if (weight_ty == SparseType::INT4) {
+                } else if (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2) {
+                    int bit_rate;
+                    switch (weight_ty) {
+                        case SparseType::INT4 :
+                          bit_rate = 4;
+                          break;
+                        case SparseType::INT2 :
+                          bit_rate = 2;
+                          break;
+                        default:
+                          throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
+                    }
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
-                        /*bit_rate=*/4,
+                        /*bit_rate=*/bit_rate,
                         D,
                         has_weight,
                         normalize_by_lengths,

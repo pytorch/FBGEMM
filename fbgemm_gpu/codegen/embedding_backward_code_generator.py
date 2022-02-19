@@ -894,6 +894,7 @@ def forward_quantized() -> None:
         16: elem_type("FP16", "__half2"),
         8: elem_type("INT8", "uint32_t"),
         4: elem_type("INT4", "uint32_t"),
+        2: elem_type("INT2", "uint32_t"),
     }
 
     template = env.get_template("embedding_forward_quantized_split_template.cu")
