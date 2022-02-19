@@ -303,27 +303,37 @@ void all_to_one(
   AT_CUDA_CHECK(cudaGetLastError());
 }
 
-Tensor cat_dim_1(
-    std::vector<Tensor> tensors,
-    int batch_size,
-    at::Device output_device) {
+Tensor cat_dim_2d(
+    std::vector<Tensor>& tensors,
+    int64_t uncat_dim_size,
+    at::Device output_device,
+    int64_t cat_dim = 1) {
+  // only support 2d tensor concatenation.
+  TORCH_CHECK(cat_dim >= 0 && cat_dim <= 1);
   if (tensors.size() == 0) {
     return at::empty({0}, at::TensorOptions().device(output_device));
   }
-  int64_t total_dim_1 = 0;
+  int64_t total_cat_dim = 0;
   std::vector<int64_t> cumulative_dims;
   cumulative_dims.push_back(0);
   for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);
-    TORCH_CHECK(t.size(0) == batch_size);
-    total_dim_1 += t.size(-1);
-    cumulative_dims.push_back(total_dim_1);
+    // only support two-dimension tensors.
+    TORCH_CHECK(t.size(1 - cat_dim) == uncat_dim_size);
+    total_cat_dim += t.size(cat_dim);
+    cumulative_dims.push_back(total_cat_dim);
   }
 
   auto* prop = at::cuda::getCurrentDeviceProperties();
-  auto output = at::empty(
-      {batch_size, total_dim_1},
-      tensors.front().options().device(output_device));
+  // default shape for concatenating on dim 1
+  std::vector<int64_t> output_shape;
+  if (cat_dim == 0) {
+    output_shape = {total_cat_dim, uncat_dim_size};
+  } else {
+    output_shape = {uncat_dim_size, total_cat_dim};
+  }
+  auto output =
+      at::empty(output_shape, tensors.front().options().device(output_device));
   TORCH_CHECK(
       output.stride(0) * output.element_size() <=
       static_cast<int64_t>(prop->memPitch));
@@ -332,7 +342,7 @@ Tensor cat_dim_1(
 
   for (const auto i : c10::irange(tensors.size())) {
     output_tensors.push_back(
-        output.slice(1, cumulative_dims[i], cumulative_dims[i + 1]));
+        output.slice(cat_dim, cumulative_dims[i], cumulative_dims[i + 1]));
   }
   all_to_one(
       tensors, output_tensors, output_device, /* skip_if_same_device */ false);
@@ -366,13 +376,14 @@ namespace fbgemm_gpu {
 
 Tensor merge_pooled_embeddings(
     std::vector<Tensor> pooled_embeddings,
-    int64_t batch_size,
-    at::Device target_device) {
+    int64_t uncat_dim_size,
+    at::Device target_device,
+    int64_t cat_dim = 1) {
   init_p2p_access();
   at::cuda::CUDAGuard g(target_device);
 
   TORCH_CHECK(!pooled_embeddings.empty());
-  return cat_dim_1(pooled_embeddings, batch_size, target_device);
+  return cat_dim_2d(pooled_embeddings, uncat_dim_size, target_device, cat_dim);
 }
 
 std::vector<Tensor> all_to_one_device(
@@ -403,7 +414,7 @@ std::vector<Tensor> all_to_one_device(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int batch_size, Device target_device) -> Tensor");
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int uncat_dim_size, Device target_device, int cat_dim=1) -> Tensor");
   DISPATCH_TO_CUDA(
       "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
   m.def(

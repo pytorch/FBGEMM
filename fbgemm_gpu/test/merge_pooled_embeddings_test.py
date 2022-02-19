@@ -40,6 +40,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         non_default_stream=st.booleans(),
         r=st.randoms(use_true_random=False),
+        dim=st.integers(min_value=0, max_value=1),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -51,6 +52,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus,
         non_default_stream,
         r,
+        dim,
     ) -> None:
         dst_device = r.randint(0, num_gpus - 1)
         torch.cuda.set_device(dst_device)
@@ -67,23 +69,25 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         streams = [torch.cuda.Stream(device=i) for i in range(num_gpus)]
         import contextlib
 
+        uncat_size = batch_indices.size(0) if dim == 1 else ad_ds[0]
+
         with contextlib.ExitStack() as stack:
             if non_default_stream:
                 for stream in streams:
                     stack.enter_context(torch.cuda.stream(stream))
             output = torch.ops.fbgemm.merge_pooled_embeddings(
-                pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
+                pooled_ad_embeddings, uncat_size, batch_indices.device, dim
             )
 
         def ref(pooled_ad_embeddings, batch_indices):
-            return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=1)
+            return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=dim)
 
         output_ref = ref(pooled_ad_embeddings, batch_indices)
-
         output_cpu = torch.ops.fbgemm.merge_pooled_embeddings(
             [pe.cpu() for pe in pooled_ad_embeddings],
-            batch_indices.size(0),
+            uncat_size,
             batch_indices.cpu().device,
+            dim,
         )
         self.assertEqual(output.device, torch.device(f"cuda:{dst_device}"))
         torch.testing.assert_allclose(output_ref, output.cpu())
