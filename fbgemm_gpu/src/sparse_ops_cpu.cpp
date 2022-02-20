@@ -14,6 +14,7 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace {
@@ -110,6 +111,43 @@ void _permute_2D_indices_weights_kernel_cpu(
           } // for each b
         } // for each t
       }); // parallel_for T * B
+}
+
+// specialization for variable B and T,
+// the permute here maps to all items in length.
+template <
+    bool has_weight,
+    typename offsets_t,
+    typename indices_t,
+    typename weights_t>
+void _permute_1D_indices_weights_kernel_cpu(
+    const offsets_t* const __restrict__ input_offsets,
+    const indices_t* const __restrict__ indices,
+    const weights_t* const __restrict__ weights,
+    const int64_t permuted_lengths_size,
+    const int32_t* const __restrict__ permute,
+    const offsets_t* const __restrict__ permuted_lengths,
+    const offsets_t* const __restrict__ output_offsets,
+    indices_t* const __restrict__ permuted_indices,
+    weights_t* const __restrict__ permuted_weights) {
+  at::parallel_for(
+      0,
+      permuted_lengths_size,
+      FALSE_SHARING_PAD,
+      [&](int64_t tb_begin, int64_t tb_end) {
+        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
+             ++tb) {
+          offsets_t permuted_length = permuted_lengths[tb];
+          const offsets_t input_start = input_offsets[permute[tb]];
+          const offsets_t output_start = output_offsets[tb];
+          for (const auto i : c10::irange(permuted_length)) {
+            permuted_indices[output_start + i] = indices[input_start + i];
+            if (has_weight) {
+              permuted_weights[output_start + i] = weights[input_start + i];
+            }
+          }
+        }
+      }); // parallel_for T x B, different B across T
 }
 
 template <typename index_t>
@@ -410,6 +448,133 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
                   })); // for each weights_t
             })); // for each indices_t
       })); // for each offsets_t
+  return {permuted_lengths, permuted_indices, permuted_weights};
+}
+
+// specialization for variable B and T,
+// the permute here maps to all items in length.
+template <typename index_t>
+void _permute_1D_lengths_cpu_kernel(
+    const index_t* const __restrict__ lengths,
+    int64_t permuted_lengths_size,
+    const int32_t* const __restrict__ permute,
+    index_t* const __restrict__ permuted_lengths) {
+  at::parallel_for(
+      0,
+      permuted_lengths_size,
+      FALSE_SHARING_PAD,
+      [&](int64_t tb_begin, int64_t tb_end) {
+        // Have a separate loop for summing up lengths
+        index_t current_output_offset = 0;
+        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
+             ++tb) {
+          auto permuted_length = lengths[permute[tb]];
+          permuted_lengths[tb] = permuted_length;
+          current_output_offset += permuted_length;
+        }
+      });
+}
+
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum) {
+  TENSOR_ON_CPU(permute);
+  TENSOR_ON_CPU(lengths);
+  TENSOR_ON_CPU(indices);
+  TENSOR_ON_CPU(weights);
+
+  const auto permute_contig = permute.expect_contiguous();
+  const auto lengths_contig = lengths.expect_contiguous();
+  const auto indices_contig = indices.expect_contiguous();
+  // the data to permute over can be less or more with or without
+  // repetitions
+  Tensor permuted_lengths;
+  Tensor permuted_indices;
+  Tensor permuted_weights;
+
+  const auto permuted_lengths_size = permute.numel();
+  permuted_lengths = at::empty({permuted_lengths_size}, lengths.options());
+
+  int num_threads = at::get_num_threads();
+  std::vector<int64_t> output_offsets_per_thread_cumsum(
+      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "permute_1D_lengths_cpu_kernel", ([&] {
+        _permute_1D_lengths_cpu_kernel(
+            lengths_contig->data_ptr<index_t>(),
+            permuted_lengths_size,
+            permute.data_ptr<int32_t>(),
+            permuted_lengths.data_ptr<index_t>());
+      })); // for each scalar_t
+
+  const auto input_offsets = asynchronous_exclusive_cumsum_cpu(lengths);
+  const auto output_offsets =
+      asynchronous_complete_cumsum_cpu(permuted_lengths);
+
+  int64_t permuted_indices_size = 0;
+  if (permuted_lengths_sum.has_value()) {
+    permuted_indices_size = permuted_lengths_sum.value();
+  } else {
+    permuted_indices_size =
+        output_offsets[permuted_lengths_size].item<int64_t>();
+  }
+
+  permuted_indices = at::empty(permuted_indices_size, indices.options());
+  AT_DISPATCH_INDEX_TYPES(
+      input_offsets.scalar_type(), "permute_1D_indices_weights_kernel_1", ([&] {
+        using offsets_t = index_t;
+        AT_DISPATCH_ALL_TYPES(
+            indices.scalar_type(), "permute_1D_indices_weights_kernel_2", ([&] {
+              using indices_t = scalar_t;
+              AT_DISPATCH_FLOATING_TYPES(
+                  weights.has_value() ? weights.value().scalar_type()
+                                      : at::ScalarType::Float,
+                  "permute_1D_indices_weights_kernel_3",
+                  ([&] {
+                    using weights_t = scalar_t;
+                    if (weights.has_value()) {
+                      const auto weights_value_contig =
+                          weights.value().expect_contiguous();
+                      permuted_weights = at::empty(
+                          permuted_indices_size, weights.value().options());
+                      _permute_1D_indices_weights_kernel_cpu<
+                          true,
+                          index_t,
+                          indices_t,
+                          weights_t>(
+                          input_offsets.data_ptr<offsets_t>(),
+                          indices_contig->data_ptr<indices_t>(),
+                          weights_value_contig->data_ptr<weights_t>(),
+                          permuted_lengths_size,
+                          permute_contig->data_ptr<int32_t>(),
+                          permuted_lengths.data_ptr<offsets_t>(),
+                          output_offsets.data_ptr<offsets_t>(),
+                          permuted_indices.data_ptr<indices_t>(),
+                          permuted_weights.data_ptr<weights_t>());
+                    } else {
+                      _permute_1D_indices_weights_kernel_cpu<
+                          false,
+                          index_t,
+                          indices_t,
+                          weights_t>(
+                          input_offsets.data_ptr<offsets_t>(),
+                          indices_contig->data_ptr<indices_t>(),
+                          nullptr,
+                          permuted_lengths_size,
+                          permute_contig->data_ptr<int32_t>(),
+                          permuted_lengths.data_ptr<offsets_t>(),
+                          output_offsets.data_ptr<offsets_t>(),
+                          permuted_indices.data_ptr<indices_t>(),
+                          nullptr);
+                    }
+                  })); // for each weights_t
+            })); // for each indices_t
+      })); // for each offsets_t
+
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
@@ -1455,6 +1620,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
+      "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+  m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
@@ -1492,6 +1659,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
+  m.impl("permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);
