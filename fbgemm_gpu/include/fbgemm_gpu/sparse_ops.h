@@ -46,6 +46,14 @@ permute_2D_sparse_data_cuda(
     const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
 
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_1D_sparse_data_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
+
 std::tuple<
     at::Tensor,
     at::Tensor,
@@ -78,6 +86,14 @@ block_bucketize_sparse_features_cpu(
 
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
 permute_2D_sparse_data_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_1D_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,

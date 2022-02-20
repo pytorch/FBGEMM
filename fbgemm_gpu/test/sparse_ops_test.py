@@ -8,7 +8,7 @@
 import random
 import unittest
 from itertools import accumulate
-from typing import Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -85,30 +85,51 @@ class SparseOpsTest(unittest.TestCase):
         indices: torch.Tensor,
         weights: Optional[torch.Tensor],
         permute: torch.LongTensor,
+        is_1D: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         T = lengths.size(0)
-        permuted_lengths = torch.index_select(lengths.view(T, -1), 0, permute)
+        if is_1D:
+            permuted_lengths = torch.index_select(lengths.view(-1), 0, permute).view(-1)
+            original_segment_lengths = lengths.view(-1)
+            original_segment_start = [0] + list(accumulate(lengths.view(-1)))
 
-        original_segment_lengths = lengths.view(T, -1).sum(dim=1, dtype=torch.int32)
-        original_segment_start = [0] + list(
-            accumulate(original_segment_lengths.view(-1))
-        )
+            permuted_indices = []
+            permuted_weights = []
+            for i in range(permute.numel()):
+                start = original_segment_start[permute[i]]
+                end = start + original_segment_lengths[permute[i]]
+                permuted_indices.append(indices[start:end])
+                if weights is not None:
+                    permuted_weights.append(weights[start:end])
 
-        permuted_indices = []
-        permuted_weights = []
-        for i in range(permute.size(0)):
-            start = original_segment_start[permute[i]]
-            end = start + original_segment_lengths[permute[i]]
-            permuted_indices.append(indices[start:end])
-            if weights is not None:
-                permuted_weights.append(weights[start:end])
+            permuted_indices = torch.cat(permuted_indices, dim=0).flatten()
 
-        permuted_indices = torch.cat(permuted_indices, dim=0).flatten()
-
-        if weights is None:
-            permuted_weights = None
+            if weights is None:
+                permuted_weights = None
+            else:
+                permuted_weights = torch.cat(permuted_weights, dim=0).flatten()
         else:
-            permuted_weights = torch.cat(permuted_weights, dim=0).flatten()
+            permuted_lengths = torch.index_select(lengths.view(T, -1), 0, permute)
+            original_segment_lengths = lengths.view(T, -1).sum(dim=1, dtype=torch.int32)
+            original_segment_start = [0] + list(
+                accumulate(original_segment_lengths.view(-1))
+            )
+
+            permuted_indices = []
+            permuted_weights = []
+            for i in range(permute.size(0)):
+                start = original_segment_start[permute[i]]
+                end = start + original_segment_lengths[permute[i]]
+                permuted_indices.append(indices[start:end])
+                if weights is not None:
+                    permuted_weights.append(weights[start:end])
+
+            permuted_indices = torch.cat(permuted_indices, dim=0).flatten()
+
+            if weights is None:
+                permuted_weights = None
+            else:
+                permuted_weights = torch.cat(permuted_weights, dim=0).flatten()
 
         return permuted_lengths, permuted_indices, permuted_weights
 
@@ -119,13 +140,32 @@ class SparseOpsTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
         has_weight=st.booleans(),
+        is_1D=st.booleans(),
+        W=st.integers(min_value=4, max_value=8),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_permute_indices(
-        self, B: int, T: int, L: int, long_index: bool, has_weight: bool
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+        has_weight: bool,
+        is_1D: bool,
+        W: int,
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
-        lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+        length_splits: Optional[List[torch.Tensor]] = None
+        if is_1D:
+            batch_sizes = [random.randint(a=1, b=B) for i in range(W)]
+            length_splits = [
+                torch.randint(low=1, high=L, size=(T, batch_sizes[i])).type(index_dtype)
+                for i in range(W)
+            ]
+            lengths = torch.cat(length_splits, dim=1)
+        else:
+            lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+
         weights = torch.rand(lengths.sum().item()).float() if has_weight else None
         indices = torch.randint(
             low=1,
@@ -134,20 +174,43 @@ class SparseOpsTest(unittest.TestCase):
             #  param but got `Tuple[typing.Union[float, int]]`.
             size=(lengths.sum().item(),),
         ).type(index_dtype)
-        permute_list = list(range(T))
-        random.shuffle(permute_list)
+        if is_1D:
+            permute_list = []
+            offset_w = [0] + list(
+                # pyre-fixme[16]
+                accumulate([length_split.numel() for length_split in length_splits])
+            )
+            for t in range(T):
+                for w in range(W):
+                    for b in range(batch_sizes[w]):
+                        permute_list.append(offset_w[w] + t * batch_sizes[w] + b)
+        else:
+            permute_list = list(range(T))
+            random.shuffle(permute_list)
+
         permute = torch.IntTensor(permute_list)
 
-        (
-            permuted_lengths_cpu,
-            permuted_indices_cpu,
-            permuted_weights_cpu,
-        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, indices, weights)
+        if is_1D:
+            (
+                permuted_lengths_cpu,
+                permuted_indices_cpu,
+                permuted_weights_cpu,
+            ) = torch.ops.fbgemm.permute_1D_sparse_data(
+                permute, lengths, indices, weights, None
+            )
+        else:
+            (
+                permuted_lengths_cpu,
+                permuted_indices_cpu,
+                permuted_weights_cpu,
+            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                permute, lengths, indices, weights, None
+            )
         (
             permuted_lengths_ref,
             permuted_indices_ref,
             permuted_weights_ref,
-        ) = self.permute_indices_ref_(lengths, indices, weights, permute.long())
+        ) = self.permute_indices_ref_(lengths, indices, weights, permute.long(), is_1D)
         torch.testing.assert_allclose(permuted_indices_cpu, permuted_indices_ref)
         torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
         if has_weight:
@@ -156,16 +219,30 @@ class SparseOpsTest(unittest.TestCase):
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
         if gpu_available:
-            (
-                permuted_lengths_gpu,
-                permuted_indices_gpu,
-                permuted_weights_gpu,
-            ) = torch.ops.fbgemm.permute_2D_sparse_data(
-                permute.cuda(),
-                lengths.cuda(),
-                indices.cuda(),
-                weights.cuda() if has_weight else None,
-            )
+            if is_1D:
+                (
+                    permuted_lengths_gpu,
+                    permuted_indices_gpu,
+                    permuted_weights_gpu,
+                ) = torch.ops.fbgemm.permute_1D_sparse_data(
+                    permute.cuda(),
+                    lengths.cuda(),
+                    indices.cuda(),
+                    weights.cuda() if has_weight else None,
+                    None,
+                )
+            else:
+                (
+                    permuted_lengths_gpu,
+                    permuted_indices_gpu,
+                    permuted_weights_gpu,
+                ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                    permute.cuda(),
+                    lengths.cuda(),
+                    indices.cuda(),
+                    weights.cuda() if has_weight else None,
+                    None,
+                )
             torch.testing.assert_allclose(
                 permuted_indices_gpu.cpu(), permuted_indices_cpu
             )
