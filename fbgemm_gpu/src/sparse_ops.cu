@@ -275,7 +275,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t>
-__global__ void permute_data_kernel(
+__global__ void permute_2D_data_kernel(
     int32_t len,
     int32_t T,
     int32_t B,
@@ -308,7 +308,7 @@ __global__ void permute_data_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -318,6 +318,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(indices);
   TENSOR_ON_CUDA_GPU(weights);
+  TORCH_CHECK(lengths.dim() == 2);
 
   TENSORS_ON_SAME_DEVICE(permute, lengths);
   TENSORS_ON_SAME_DEVICE(permute, indices);
@@ -332,8 +333,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   // the data to permute over can be less or more with or without
   // repetitions
   const auto T = permute.numel();
-  const auto T_ = lengths.size(0);
-  const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
+  const auto B = lengths.size(1);
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
@@ -344,8 +344,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   constexpr int32_t threads_1 = 256;
   const auto blocks_1 = cuda_calc_xblock_count(B * T, threads_1);
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_lengths_kernel", ([&] {
-        permute_lengths_kernel<index_t>
+      lengths.scalar_type(), "permute_2D_lengths_kernel", ([&] {
+        permute_2D_lengths_kernel<index_t>
             <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
                 T,
                 B,
@@ -372,12 +372,12 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_2D_data_kernel_1", ([&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES_AND(
             at::ScalarType::Half,
             indices.scalar_type(),
-            "permute_data_kernel_2",
+            "permute_2D_data_kernel_2",
             ([&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
@@ -388,10 +388,14 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                 AT_DISPATCH_ALL_TYPES_AND(
                     at::ScalarType::Half,
                     weights_value.scalar_type(),
-                    "permute_data_kernel_3",
+                    "permute_2D_data_kernel_3",
                     ([&] {
                       using weights_t = scalar_t;
-                      permute_data_kernel<true, offsets_t, indices_t, weights_t>
+                      permute_2D_data_kernel<
+                          true,
+                          offsets_t,
+                          indices_t,
+                          weights_t>
                           <<<blocks_2,
                              threads_2,
                              0,
@@ -409,7 +413,11 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cuda(
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
                     })); // for each weights_t
               } else {
-                permute_data_kernel<false, offsets_t, indices_t, std::nullptr_t>
+                permute_2D_data_kernel<
+                    false,
+                    offsets_t,
+                    indices_t,
+                    std::nullptr_t>
                     <<<blocks_2,
                        threads_2,
                        0,

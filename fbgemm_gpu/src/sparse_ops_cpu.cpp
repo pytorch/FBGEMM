@@ -77,7 +77,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t>
-void _permute_indices_weights_kernel_cpu(
+void _permute_2D_indices_weights_kernel_cpu(
     const int32_t T,
     const int32_t B,
     const indices_t* const __restrict__ indices,
@@ -113,7 +113,7 @@ void _permute_indices_weights_kernel_cpu(
 }
 
 template <typename index_t>
-void _permute_lengths_cpu_kernel(
+void _permute_2D_lengths_cpu_kernel(
     const int32_t T,
     const int32_t B,
     const index_t* const __restrict__ lengths,
@@ -304,7 +304,7 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -314,6 +314,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
   TENSOR_ON_CPU(weights);
+  TORCH_CHECK(lengths.dim() == 2);
 
   const auto permute_contig = permute.expect_contiguous();
   const auto lengths_contig = lengths.expect_contiguous();
@@ -321,7 +322,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   // the data to permute over can be less or more with or without
   // repetitions
   const auto T = permute.numel();
-  const auto B = lengths.view({lengths.sizes()[0], -1}).sizes()[1];
+  const auto B = lengths.size(1);
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
@@ -337,8 +338,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_lengths_cpu_kernel", ([&] {
-        _permute_lengths_cpu_kernel(
+      lengths.scalar_type(), "permute_2D_lengths_cpu_kernel", ([&] {
+        _permute_2D_lengths_cpu_kernel(
             T,
             B,
             lengths_contig->data_ptr<index_t>(),
@@ -358,15 +359,15 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
   }
   permuted_indices = at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_indices_weights_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_2D_indices_weights_kernel_1", ([&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES(
-            indices.scalar_type(), "permute_indices_weights_kernel_2", ([&] {
+            indices.scalar_type(), "permute_2D_indices_weights_kernel_2", ([&] {
               using indices_t = scalar_t;
               AT_DISPATCH_FLOATING_TYPES(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
-                  "permute_indices_weights_kernel_3",
+                  "permute_2D_indices_weights_kernel_3",
                   ([&] {
                     using weights_t = scalar_t;
                     if (weights.has_value()) {
@@ -374,7 +375,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
                           weights.value().expect_contiguous();
                       permuted_weights = at::empty(
                           permuted_indices_size, weights.value().options());
-                      _permute_indices_weights_kernel_cpu<
+                      _permute_2D_indices_weights_kernel_cpu<
                           true,
                           index_t,
                           indices_t,
@@ -390,7 +391,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_data_cpu(
                           permuted_weights.data_ptr<weights_t>(),
                           permuted_lengths.data_ptr<offsets_t>());
                     } else {
-                      _permute_indices_weights_kernel_cpu<
+                      _permute_2D_indices_weights_kernel_cpu<
                           false,
                           index_t,
                           indices_t,
@@ -1452,7 +1453,7 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
@@ -1490,7 +1491,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_sparse_data", fbgemm_gpu::permute_sparse_data_cpu);
+  m.impl("permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   m.impl(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);

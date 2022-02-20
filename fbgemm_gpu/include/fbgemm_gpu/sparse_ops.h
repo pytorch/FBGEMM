@@ -39,7 +39,7 @@ at::Tensor segment_sum_csr_cpu(
     const at::Tensor& values);
 
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
-permute_sparse_data_cuda(
+permute_2D_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
@@ -77,7 +77,7 @@ block_bucketize_sparse_features_cpu(
     c10::optional<at::Tensor> weights);
 
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
-permute_sparse_data_cpu(
+permute_2D_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
