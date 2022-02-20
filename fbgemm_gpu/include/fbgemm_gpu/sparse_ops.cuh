@@ -53,7 +53,7 @@ __global__ void _offsets_range_cuda_kernel(
 
 // Kernel for permuting the lengths. Used for permutation of sparse features.
 template <typename index_t>
-__global__ void permute_lengths_kernel(
+__global__ void permute_2D_lengths_kernel(
     int32_t T,
     int32_t B,
     const index_t* __restrict__ lengths,
