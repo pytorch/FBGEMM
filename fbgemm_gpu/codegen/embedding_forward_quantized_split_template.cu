@@ -199,7 +199,8 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
   const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+  int64_t epilogue_type
   ) {
   int32_t T = weights_offsets.size(0);
   {% if not nobag %}
@@ -377,6 +378,9 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             if (output_d >= 0 && output_d < D) {
               VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
+              if (static_cast<EpilogueType>(epilogue_type) == EpilogueType::TANH) {
+                acc.tanh();
+              }
               acc.store(&output[output_j][output_d], qparams);
             }
           }
@@ -404,6 +408,10 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           accumulators[i][j].mul(inv_L);
         }
 
+        if (static_cast<EpilogueType>(epilogue_type) == EpilogueType::TANH) {
+          accumulators[i][j].tanh();
+        }
+
         if (output_d >= 0 && output_d < D) {
           accumulators[i][j].store(&output[b][D_start + output_d]);
         }
@@ -420,6 +428,9 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
+        }
+        if (static_cast<EpilogueType>(epilogue_type) == EpilogueType::TANH) {
+          accumulators[i][j].tanh();
         }
         if (output_d >= 0 && output_d < D) {
           thread_local_max = max(thread_local_max, float{{ (32 // bit_width) }}_max(accumulators[i][j].acc));
@@ -596,6 +607,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
+    int64_t epilogue_type,
     int64_t unused
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
@@ -689,7 +701,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        epilogue_type \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -732,7 +745,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        epilogue_type \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -778,7 +792,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        epilogue_type \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -827,7 +842,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        epilogue_type \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -876,7 +892,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        epilogue_type \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 

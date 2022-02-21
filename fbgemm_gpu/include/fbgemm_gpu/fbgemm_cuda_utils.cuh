@@ -1640,6 +1640,11 @@ struct VecNT<1> {
   DEVICE_INLINE void mul(float a) {
     acc = acc * a;
   }
+
+  // acc <- tanh(acc)
+  DEVICE_INLINE void tanh() {
+    acc = tanhf(acc);
+  }
 };
 
 template <>
@@ -1695,6 +1700,12 @@ struct VecNT<2> {
   DEVICE_INLINE void mul(float a) {
     acc.x *= a;
     acc.y *= a;
+  }
+
+  // acc <- tanh(acc)
+  DEVICE_INLINE void tanh() {
+    acc.x = tanhf(acc.x);
+    acc.y = tanhf(acc.y);
   }
 };
 
@@ -1784,6 +1795,14 @@ struct VecNT<4> {
     acc.y *= a;
     acc.z *= a;
     acc.w *= a;
+  }
+
+  // acc <- tanh(acc)
+  DEVICE_INLINE void tanh() {
+    acc.x = tanhf(acc.x);
+    acc.y = tanhf(acc.y);
+    acc.z = tanhf(acc.z);
+    acc.w = tanhf(acc.w);
   }
 };
 
@@ -1901,6 +1920,18 @@ struct VecNT<8> {
     acc.vals[1].y *= a;
     acc.vals[1].z *= a;
     acc.vals[1].w *= a;
+  }
+
+  // acc <- tanh(acc)
+  DEVICE_INLINE void tanh() {
+    acc.vals[0].x = tanhf(acc.vals[0].x);
+    acc.vals[0].y = tanhf(acc.vals[0].y);
+    acc.vals[0].z = tanhf(acc.vals[0].z);
+    acc.vals[0].w = tanhf(acc.vals[0].w);
+    acc.vals[1].x = tanhf(acc.vals[1].x);
+    acc.vals[1].y = tanhf(acc.vals[1].y);
+    acc.vals[1].z = tanhf(acc.vals[1].z);
+    acc.vals[1].w = tanhf(acc.vals[1].w);
   }
 };
 
@@ -2066,7 +2097,6 @@ struct VecNT<16> {
     acc.vals[0].vals[1].y *= a;
     acc.vals[0].vals[1].z *= a;
     acc.vals[0].vals[1].w *= a;
-
     acc.vals[1].vals[0].x *= a;
     acc.vals[1].vals[0].y *= a;
     acc.vals[1].vals[0].z *= a;
@@ -2075,6 +2105,26 @@ struct VecNT<16> {
     acc.vals[1].vals[1].y *= a;
     acc.vals[1].vals[1].z *= a;
     acc.vals[1].vals[1].w *= a;
+  }
+
+  // acc <- tanh(acc)
+  DEVICE_INLINE void tanh() {
+    acc.vals[0].vals[0].x = tanhf(acc.vals[0].vals[0].x);
+    acc.vals[0].vals[0].y = tanhf(acc.vals[0].vals[0].y);
+    acc.vals[0].vals[0].z = tanhf(acc.vals[0].vals[0].z);
+    acc.vals[0].vals[0].w = tanhf(acc.vals[0].vals[0].w);
+    acc.vals[0].vals[1].x = tanhf(acc.vals[0].vals[1].x);
+    acc.vals[0].vals[1].y = tanhf(acc.vals[0].vals[1].y);
+    acc.vals[0].vals[1].z = tanhf(acc.vals[0].vals[1].z);
+    acc.vals[0].vals[1].w = tanhf(acc.vals[0].vals[1].w);
+    acc.vals[1].vals[0].x = tanhf(acc.vals[1].vals[0].x);
+    acc.vals[1].vals[0].y = tanhf(acc.vals[1].vals[0].y);
+    acc.vals[1].vals[0].z = tanhf(acc.vals[1].vals[0].z);
+    acc.vals[1].vals[0].w = tanhf(acc.vals[1].vals[0].w);
+    acc.vals[1].vals[1].x = tanhf(acc.vals[1].vals[1].x);
+    acc.vals[1].vals[1].y = tanhf(acc.vals[1].vals[1].y);
+    acc.vals[1].vals[1].z = tanhf(acc.vals[1].vals[1].z);
+    acc.vals[1].vals[1].w = tanhf(acc.vals[1].vals[1].w);
   }
 };
 
