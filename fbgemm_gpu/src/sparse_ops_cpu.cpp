@@ -1658,40 +1658,44 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl("permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
-  m.impl("permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
+      "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
+  DISPATCH_TO_CPU(
+      "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
+
+  DISPATCH_TO_CPU(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "asynchronous_exclusive_cumsum",
       fbgemm_gpu::asynchronous_exclusive_cumsum_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "asynchronous_inclusive_cumsum",
       fbgemm_gpu::asynchronous_inclusive_cumsum_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "asynchronous_complete_cumsum",
       fbgemm_gpu::asynchronous_complete_cumsum_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_cpu);
-  m.impl("offsets_range", fbgemm_gpu::offsets_range_cpu);
-  m.impl(
+  DISPATCH_TO_CPU("offsets_range", fbgemm_gpu::offsets_range_cpu);
+  DISPATCH_TO_CPU(
       "batched_unary_embeddings",
       fbgemm_gpu::batched_unary_embeddings_forward_cpu);
-  m.impl("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
-  m.impl("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
+      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
+  DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
+  DISPATCH_TO_CPU(
       "histogram_binning_calibration",
       fbgemm_gpu::histogram_binning_calibration_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "histogram_binning_calibration_by_feature",
       fbgemm_gpu::histogram_binning_calibration_by_feature_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "generic_histogram_binning_calibration_by_feature",
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cpu);
-  m.impl("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
-  m.impl(
+  DISPATCH_TO_CPU("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
+  DISPATCH_TO_CPU(
       "embedding_bag_rowwise_prune", fbgemm_gpu::embedding_bag_rowwise_prune);
 }

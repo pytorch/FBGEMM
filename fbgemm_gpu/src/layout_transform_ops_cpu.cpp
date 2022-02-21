@@ -73,7 +73,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl(
+  DISPATCH_TO_CPU(
       "recat_embedding_grad_output_mixed_D",
       fbgemm_gpu::recat_embedding_grad_output_mixed_D_cpu);
 }
