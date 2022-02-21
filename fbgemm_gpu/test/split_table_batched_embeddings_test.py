@@ -23,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     RecordCacheMetrics,
     BoundsCheckMode,
+    EpilogueType,
 )
 
 
@@ -2934,6 +2935,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         mixed_weights_ty: bool,
         output_dtype: SparseType,
+        epilogue_type: EpilogueType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(
@@ -2948,6 +2950,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(
             not mixed
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
+        )
+        # TANH prologue function can only exist on GPUs for now.
+        assume(
+            not use_cpu
+            or epilogue_type != split_table_batched_embeddings_ops.EpilogueType.TANH
         )
 
         mode = "sum"
@@ -3055,6 +3062,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
+            epilogue_type=epilogue_type,
         )
         # Initilize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
@@ -3198,6 +3206,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
+        if epilogue_type == split_table_batched_embeddings_ops.EpilogueType.TANH:
+            f = torch.tanh(f)
         torch.testing.assert_allclose(
             fc2.float().cpu(),
             f.float().cpu(),
@@ -3250,6 +3260,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_ty: SparseType = nbit_weights_ty
             mixed_weights_ty = False
         output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
+        epilogue_type = random.choice([EpilogueType.NONE, EpilogueType.TANH])
         self.execute_nbit_forward_(
             T,
             D,
@@ -3266,6 +3277,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_array_for_index_remapping,
             mixed_weights_ty,
             output_dtype,
+            epilogue_type,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -3318,6 +3330,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_ty: SparseType = nbit_weights_ty
             mixed_weights_ty = False
         output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
+        epilogue_type = random.choice([EpilogueType.NONE, EpilogueType.TANH])
         self.execute_nbit_forward_(
             T,
             D,
@@ -3334,6 +3347,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_array_for_index_remapping,
             mixed_weights_ty,
             output_dtype,
+            epilogue_type,
         )
 
     @unittest.skipIf(*gpu_unavailable)

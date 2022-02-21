@@ -36,4 +36,9 @@ enum class BoundsCheckMode : uint8_t {
   IGNORE = 2,
 };
 
+enum class EpilogueType : uint8_t {
+  NONE = 0,
+  TANH = 1,
+};
+
 } // namespace

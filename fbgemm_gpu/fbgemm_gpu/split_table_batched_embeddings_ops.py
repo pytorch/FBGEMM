@@ -65,6 +65,11 @@ class BoundsCheckMode(enum.IntEnum):
     NONE = 3
 
 
+class EpilogueType(enum.IntEnum):
+    NONE = 0
+    TANH = 1
+
+
 RecordCacheMetrics: NamedTuple = NamedTuple(
     "RecordCacheMetrics",
     [("record_cache_miss_counter", bool), ("record_tablewise_cache_miss", bool)],
@@ -1553,6 +1558,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
+        epilogue_type: EpilogueType = EpilogueType.NONE,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1571,6 +1577,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
         self.output_dtype: int = output_dtype.as_int()
+        self.epilogue_type = epilogue_type
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -1980,6 +1987,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
+            epilogue_type=self.epilogue_type,
         )
 
     def _apply_split(
