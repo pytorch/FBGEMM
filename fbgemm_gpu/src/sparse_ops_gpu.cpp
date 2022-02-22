@@ -165,6 +165,8 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
+      "permute_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cuda);
+  DISPATCH_TO_CUDA(
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cuda);
   DISPATCH_TO_CUDA(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cuda);
