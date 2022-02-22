@@ -234,34 +234,34 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl(
+  DISPATCH_TO_CPU(
       "FloatToFused8BitRowwiseQuantized",
       fbgemm_gpu::float_to_fused8bitrowwise_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "HalfToFused8BitRowwiseQuantized",
       fbgemm_gpu::half_to_fused8bitrowwise_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "FloatToFused8BitRowwiseQuantizedOut",
       fbgemm_gpu::_float_to_fused8bitrowwise_cpu_out);
-  m.impl(
+  DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToFloat",
       fbgemm_gpu::fused8bitrowwise_to_float_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToFloatOut",
       fbgemm_gpu::_fused8bitrowwise_to_float_cpu_out);
-  m.impl(
+  DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToHalf",
       fbgemm_gpu::fused8bitrowwise_to_half_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "FloatToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::float_to_fusednbitrowwise_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "FusedNBitRowwiseQuantizedSBHalfToFloat",
       fbgemm_gpu::fusednbitrowwise_to_float_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "FusedNBitRowwiseQuantizedSBHalfToHalf",
       fbgemm_gpu::fusednbitrowwise_to_half_cpu);
-  m.impl(
+  DISPATCH_TO_CPU(
       "HalfToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::half_to_fusednbitrowwise_cpu);
 }

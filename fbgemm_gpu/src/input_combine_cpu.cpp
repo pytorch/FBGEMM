@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "fbgemm_gpu/input_combine.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
@@ -220,13 +221,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
   m.def(
       "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)");
-  m.impl(
-      "tbe_input_combine",
-      torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(fbgemm_gpu::tbe_input_combine_cpu)));
-  m.impl(
+  DISPATCH_TO_CPU("tbe_input_combine", fbgemm_gpu::tbe_input_combine_cpu);
+  DISPATCH_TO_CPU(
       "tbe_input_combine_with_length",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(fbgemm_gpu::tbe_input_combine_with_length_cpu)));
+      fbgemm_gpu::tbe_input_combine_with_length_cpu);
 }
