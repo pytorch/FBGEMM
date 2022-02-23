@@ -235,7 +235,7 @@ def print_p2p_bandwidth(
 
 
 def benchmark(
-    all_to_one_only,
+    all_to_one_only: bool,
     num_ads: int,
     embedding_dimension: int,
     ads_tables: int,
@@ -243,8 +243,8 @@ def benchmark(
     p2p_bw: bool = False,
     dst_device: int = 0,
     data_type: str = "FP16",
-    include_quantization: bool = False,
     mode: str = "P2P",
+    skip_dequantization: bool = False,
     num_of_embeddings: int = 10000,
     pooling_factor: int = 25,
 ) -> str:
@@ -296,6 +296,7 @@ def benchmark(
         include_quantization,
         include_tbe,
         fused_tbe,
+        skip_dequantization,
         data_type,
     ):
         if include_tbe:
@@ -340,6 +341,9 @@ def benchmark(
                 quantized, batch_indices.size(0), batch_indices.device
             )
 
+        if skip_dequantization:
+            return pooled_quantized_result
+
         PooledEmbeddingDequantizeDataTypeFP16 = 1
         if data_type == "INT8":
             return torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim(
@@ -367,6 +371,7 @@ def benchmark(
             include_quantization,
             include_tbe,
             fused_tbe,
+            skip_dequantization,
             data_type,
         )
         t = benchmark_torch_function(
@@ -376,6 +381,7 @@ def benchmark(
                 include_quantization,
                 include_tbe,
                 fused_tbe,
+                skip_dequantization,
                 data_type,
             ),
         )
@@ -385,6 +391,7 @@ def benchmark(
                 include_quantization,
                 include_tbe,
                 fused_tbe,
+                skip_dequantization,
                 data_type,
             )
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -426,22 +433,25 @@ def benchmark(
     type=click.Choice(["P2P", "P2P_QUANT", "P2P_TBE", "P2P_FUSED_TBE"]),
     default="P2P",
 )
+# For quantized communication, do we dequantize back to FP16 in the end.
+@click.option("--skip_dequantization", is_flag=True, default=False)
 @click.option("--num_of_embeddings", default=100000, type=int)
 @click.option("--pooling_factor", default=25, type=int)
 @click.option("--sweep", is_flag=True, default=False)
 def main(
-    all_to_one_only,
-    num_ads,
-    embedding_dimension,
-    ads_tables,
+    all_to_one_only: bool,
+    num_ads: int,
+    embedding_dimension: int,
+    ads_tables: int,
     iters: int,
     p2p_bw: bool,
     dst_device: int,
     data_type: str,
-    mode: bool,
-    num_of_embeddings: str,
+    mode: str,
+    skip_dequantization: bool,
+    num_of_embeddings: int,
     pooling_factor: int,
-    sweep,
+    sweep: bool,
 ) -> None:
     csv_header = (
         "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, "
@@ -461,7 +471,7 @@ def main(
             num_ads *= 8 // num_gpu
             for embedding_dimension in [16, 64, 112, 304]:
                 for ads_tables in [25, 50, 100, 400, 800]:
-                    if num_ads * embedding_dimension * ads_tables > 1228800000:
+                    if num_ads * embedding_dimension * ads_tables > 983040000:
                         continue  # Skip tests that are too large
                     signal.signal(signal.SIGTERM, handler)
                     signal.alarm(600)
@@ -479,6 +489,7 @@ def main(
                             dst_device,
                             data_type,
                             mode,
+                            skip_dequantization,
                             num_of_embeddings,
                             pooling_factor,
                         )
@@ -501,6 +512,7 @@ def main(
         dst_device,
         data_type,
         mode,
+        skip_dequantization,
         num_of_embeddings,
         pooling_factor,
     )
