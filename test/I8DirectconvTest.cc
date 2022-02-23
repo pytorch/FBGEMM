@@ -778,12 +778,13 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
     // fbgemm top-level function for direct conv path
     PackWeightsForConv<2> packedB_2D(conv_p, Bint8.data());
 
-    vector<int32_t> col_offsetsT(conv_p.OC * MDim);
-    packedB_2D.getPackedWForDirectconv().get()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
-              conv_p,
-              Bint8_zero_point.data(),
-              col_offsetsT,
-              conv_p.OC);
+    if (packedB_2D.getPackedWForDirectconv().get()) {
+      packedB_2D.getPackedWForDirectconv().get()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
+          conv_p,
+          Bint8_zero_point.data(),
+          col_offsets,
+          conv_p.OC);
+    }
 
     DoNothing<> doNothingObj{};
     ReQuantizeOutput<false, QuantizationGranularity::TENSOR> outputProcObj(
@@ -793,7 +794,7 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
         Aint8_zero_point,
         Bint8_zero_point.data(),
         nullptr, // row offsets
-        col_offsetsT.data(),
+        col_offsets.data(),
         nullptr, // bias
         conv_p.OC,
         conv_p.G);

@@ -92,7 +92,7 @@ bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       ret = false;
     }
   }
-
+  ret = false;
   return ret;
 }
 
