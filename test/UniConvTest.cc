@@ -791,7 +791,7 @@ void runRequantizeTest(
     PackWeightsForConv<SPATIAL_DIM> packedWeights(conv_p, Bint8.data());
 
     // DirectConv col_offsets is handled differently
-    if (takeDirectConvPath<SPATIAL_DIM, std::int32_t>(conv_p)) {
+    if (packedWeights.getPackedWForDirectconv().get()) {
       packedWeights.getPackedWForDirectconv()
           .get()
           ->col_offsets_with_zero_pt_s8acc32_DirectConvT(
