@@ -21,6 +21,10 @@ void bounds_check_indices_cuda(
     int64_t bounds_check_mode,
     Tensor warning);
 
+TORCH_LIBRARY_FRAGMENT(fb, m) {
+  DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
 }
