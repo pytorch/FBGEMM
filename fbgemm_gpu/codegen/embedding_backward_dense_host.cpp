@@ -392,6 +392,12 @@ Tensor split_embedding_codegen_lookup_dense_function(
   }
 }
 
+TORCH_LIBRARY_FRAGMENT(fb, m) {
+  DISPATCH_TO_CUDA(
+      "dense_embedding_codegen_lookup_function",
+      split_embedding_codegen_lookup_dense_function);
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "dense_embedding_codegen_lookup_function",
