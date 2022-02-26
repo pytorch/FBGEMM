@@ -285,7 +285,7 @@ def lxu_cache_lookup(
     t_ms = benchmark_same_input(
         iters,
         lambda linearized_indices, lxu_cache_state: torch.ops.fbgemm.lxu_cache_lookup(
-            linearized_indices, lxu_cache_state
+            linearized_indices, lxu_cache_state, tbe.total_cache_hash_size
         ),
         linearized_indices,
         tbe.lxu_cache_state,
@@ -293,13 +293,15 @@ def lxu_cache_lookup(
 
     # Run once again to obtain cache miss ratio.
     locations = torch.ops.fbgemm.lxu_cache_lookup(
-        linearized_indices, tbe.lxu_cache_state
+        linearized_indices, tbe.lxu_cache_state, tbe.total_cache_hash_size
     )
-    num_misses = torch.sum(locations == -1)
+    num_invalid_accesses = torch.sum(linearized_indices == tbe.total_cache_hash_size)
+    num_valid_accesses = linearized_indices.numel() - num_invalid_accesses
+    num_misses = torch.sum(locations == -1) - num_invalid_accesses
     logging.info(
         f"Across {iters} runs, T: {num_tables}, Cached T: {get_num_cached_tables(num_tables, cached_tables_ratio)}, "
         f"BS: {batch}, cache_load_factor: {cache_load_factor}, {t_ms * 1.0e3:.0f}us, "
-        f"cache miss: {num_misses.item() / locations.numel() * 100}%"
+        f"cache miss: {num_misses.item() / num_valid_accesses * 100}%"
     )
 
 

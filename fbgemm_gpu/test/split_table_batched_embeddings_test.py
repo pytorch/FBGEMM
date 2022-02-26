@@ -3923,6 +3923,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_lxu_cache_lookup(self) -> None:
         ASSOC: int = split_table_batched_embeddings_ops.ASSOC
+        max_index: int = 8000
         # Use single cache set to avoid dealing with cache set hash algorithm.
         lxu_cache_state_gpu = torch.arange(ASSOC, dtype=torch.int64).unsqueeze(0).cuda()
 
@@ -3931,7 +3932,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [32, 33, 34, 35, 36, 100, 1000, 1725]
         ).cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices_0, lxu_cache_state_gpu
+            linear_cache_indices_0, lxu_cache_state_gpu, max_index
         )
         self.assertTrue(
             torch.equal(
@@ -3947,7 +3948,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_indices_1 = torch.randint(0, ASSOC, (ASSOC,))
         linear_cache_indices_1 = cache_indices_1.cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices_1, lxu_cache_state_gpu
+            linear_cache_indices_1, lxu_cache_state_gpu, max_index
         )
         self.assertTrue(
             torch.equal(
@@ -3957,9 +3958,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Testing mixture.
-        miss_cache_indices_0 = torch.randint(32, 2000, (10,))
+        miss_cache_indices_0 = torch.randint(ASSOC, max_index, (10,))
         hit_cache_indices_0 = torch.randint(0, ASSOC, (8,))
-        miss_cache_indices_1 = torch.randint(32, 2000, (16,))
+        miss_cache_indices_1 = torch.randint(ASSOC, max_index, (16,))
         hit_cache_indices_1 = torch.randint(0, ASSOC, (8,))
         linear_cache_indices_2 = torch.cat(
             [
@@ -3970,7 +3971,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         ).cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices_2, lxu_cache_state_gpu
+            linear_cache_indices_2, lxu_cache_state_gpu, max_index
         )
 
         expected_result = torch.cat(
