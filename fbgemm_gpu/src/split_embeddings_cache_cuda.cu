@@ -1860,39 +1860,56 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
         linear_cache_indices,
     const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
+    int64_t invalid_index,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
-  int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
+  const int32_t n0 =
+      blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
+  if (n0 >= N) {
     return;
   }
-  int64_t idx = linear_cache_indices[n];
-  int32_t cache_set = cache_slot(idx, C);
-  auto slot = threadIdx.x;
-  bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-  if (found) {
-    lxu_cache_locations[n] = cache_set * kWarpSize + slot;
-  }
-#ifdef __HIP_PLATFORM_HCC__
-  // FIXME: __any_sync with mask isn't supported by HIP yet.
-  // See https://fburl.com/fvy7j0lq for the similar context.
-  // assert false here with https://fburl.com/pfm7enw2
-  assert(false);
-  if (!__any(found)) {
-#else
-  if (!__any_sync(0xFFFFFFFF, found)) {
-#endif
-    if (threadIdx.x == 0) {
-      lxu_cache_locations[n] = kCacheLocationMissing;
+
+  int32_t cache_location = kCacheLocationMissing;
+  const auto slot = threadIdx.x;
+  for (int i = 0; i < blockDim.x; ++i) {
+    const int64_t idx = linear_cache_indices[n0 + i];
+    if (idx == invalid_index) {
+      continue;
     }
+    const int32_t cache_set = cache_slot(idx, C);
+    const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+#ifdef __HIP_PLATFORM_HCC__
+    // FIXME: __ballot_sync with mask isn't supported by HIP yet.
+    // See https://fburl.com/fvy7j0lq for the similar context.
+    // assert false here with https://fburl.com/pfm7enw2
+    assert(false);
+    const auto bitmap = __ballot(found);
+    if (bitmap) {
+      const auto way = __ffsll(bitmap) - 1;
+#else
+    const auto bitmap = __ballot_sync(0xFFFFFFFF, found);
+    if (bitmap) {
+      // LSB == 1 hence we need to subtract one to get lane ID.
+      const auto way = __ffs(bitmap) - 1;
+#endif
+      if (i == threadIdx.x) {
+        cache_location = cache_set * kWarpSize + way;
+      }
+    }
+  }
+
+  const int32_t n = n0 + threadIdx.x;
+  if (n < N) {
+    lxu_cache_locations[n] = cache_location;
   }
 }
 
 Tensor lxu_cache_lookup_cuda(
     Tensor linear_cache_indices,
-    Tensor lxu_cache_state) {
+    Tensor lxu_cache_state,
+    int64_t invalid_index) {
   TENSOR_ON_CUDA_GPU(linear_cache_indices);
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
 
@@ -1908,7 +1925,7 @@ Tensor lxu_cache_lookup_cuda(
   }
 
   const dim3 threads(kWarpSize, kMaxThreads / kWarpSize);
-  const dim3 blocks(div_round_up(N, kMaxThreads / kWarpSize));
+  const dim3 blocks(div_round_up(N, kMaxThreads));
 
   AT_DISPATCH_INDEX_TYPES(
       linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&]() {
@@ -1921,6 +1938,7 @@ Tensor lxu_cache_lookup_cuda(
                 .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
             lxu_cache_state
                 .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            invalid_index,
             lxu_cache_locations
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
