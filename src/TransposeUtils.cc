@@ -34,6 +34,9 @@ void transpose_simd(
     unsigned ld_src,
     T* dst,
     unsigned ld_dst) {
+  if (M == 0 || N == 0) {
+    return;
+  }
   if ((M == 1 && ld_dst == 1) || (N == 1 && ld_src == 1)) {
     if (dst != src) {
       // sizeof must be first operand force dims promotion to OS-bitness type
