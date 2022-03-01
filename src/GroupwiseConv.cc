@@ -1059,12 +1059,13 @@ void fbgemmGroupwiseConv(
     }
     int32_t* out_start = outBuffer + oh_start * OW * OC;
     const uint8_t* in_start = activations + ih_start * IW * IC;
-    int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
+    int32_t* rowOffsetBuf_start =
+        rowOffsetBuf ? rowOffsetBuf + oh_start * OW * G_together : nullptr;
     for (int i = batch_start; i < batch_end; ++i) {
       const uint8_t* in_start_batch = in_start + i * IH_IW * conv_param.IC;
       int32_t* out_start_batch = out_start + i * OH_OW * OC;
       int32_t* rowOffsetBuf_start_batch =
-          rowOffsetBuf_start + i * OH_OW * G_together;
+          rowOffsetBuf ? rowOffsetBuf_start + i * OH_OW * G_together : nullptr;
       for (int g = 0; g < G; g += G_together) {
         const uint8_t* in_start_group = in_start_batch + g * C_per_G;
         int8_t* weight_start =
@@ -1186,12 +1187,14 @@ void fbgemmGroupwiseConv(
     vector<uint8_t> zero_points(IH * IW * IC, a_zero_point);
     int32_t* out_start = outBuffer + oh_start * OW * OC;
     const uint8_t* in_start = activations + ih_start * IW * IC;
-    int32_t* rowOffsetBuf_start = rowOffsetBuf + oh_start * OW * G_together;
+    int32_t* rowOffsetBuf_start =
+        rowOffsetBuf ? rowOffsetBuf + oh_start * OW * G_together : nullptr;
     for (int i = batch_start; i < batch_end; ++i) {
       const uint8_t* in_start_batch = in_start + i * IT_IH_IW * IC;
       int32_t* out_start_batch = out_start + i * OT_OH_OW * OC;
-      int32_t* rowOffsetBuf_start_batch =
-          rowOffsetBuf_start + i * OT_OH_OW * G_together;
+      int32_t* rowOffsetBuf_start_batch = rowOffsetBuf
+          ? rowOffsetBuf_start + i * OT_OH_OW * G_together
+          : nullptr;
       for (int g = 0; g < G; g += G_together) {
         const uint8_t* in_start_group = in_start_batch + g * C_per_G;
         int8_t* weight_start =
@@ -1206,8 +1209,9 @@ void fbgemmGroupwiseConv(
 
         for (int ot = 0; ot < OT; ++ot) {
           int32_t* out_start_t = out_start_group + ot * OH_OW * OC;
-          int32_t* rowOffsetBuf_start_t =
-              rowOffsetBuf_start_group + ot * OH_OW * G_together;
+          int32_t* rowOffsetBuf_start_t = rowOffsetBuf
+              ? rowOffsetBuf_start_group + ot * OH_OW * G_together
+              : nullptr;
           for (int t = 0; t < T; ++t) {
             int t_in = -conv_param.pad[0] + ot * conv_param.stride[0] + t;
             const uint8_t* in_start_t = in_start_group + t_in * IH_IW * IC;
