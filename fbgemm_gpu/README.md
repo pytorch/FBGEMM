@@ -3,8 +3,6 @@
 [![FBGEMMCI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml)
 [![Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml)
 [![Nightly Build CPU](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build_cpu.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build_cpu.yml)
-[![Release Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_release_build.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_release_build.yml)
-[![Release Build CPU](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_release_build_cpu.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_release_build_cpu.yml)
 
 FBGEMM_GPU (FBGEMM GPU kernel library) is a collection of
 high-performance CUDA GPU operator library for GPU training and inference.
@@ -34,7 +32,10 @@ conda install scikit-build jinja2 ninja cmake hypothesis
 Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
-pip install fbgemm-gpu-nightly
+pip install fbgemm-gpu-nightly (nightly build version)
+pip install fbgemm-gpu (release version)
+pip install fbgemm-gpu-nightly-cpu (nightly build with CPU only)
+pip install fbgemm-gpu-cpu (release version with CPU only)
 ```
 
 ## Build from source
