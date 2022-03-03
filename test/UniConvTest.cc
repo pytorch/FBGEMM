@@ -806,8 +806,6 @@ void runRequantizeTest(
     // #pragma omp parallel
     // #endif
     {
-      vector<int32_t> row_offset_buf(rowOffsetBufferSizeGConv(conv_p));
-
       DoNothing<> doNothingObj{};
 
       int num_threads = fbgemm_get_num_threads();
