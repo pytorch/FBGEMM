@@ -495,6 +495,235 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
   runRequantizeTest<3>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
 }
 
+template <int SPATIAL_DIM = 2>
+void runFloatOutputTest(matrix_op_t /* unused */,
+    matrix_op_t btrans,
+    QuantizationGranularity q_granularity,
+    bool a_symmetric, bool b_symmetric) {
+  vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
+  for (auto conv_p : shapes) {
+    int T = SPATIAL_DIM <= 2 ? 1 : conv_p.K[SPATIAL_DIM - 3];
+    int R = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
+    int S = conv_p.K[SPATIAL_DIM - 1];
+    int G = conv_p.G;
+    int OC = conv_p.OC;
+    int IT = SPATIAL_DIM <= 2 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 3];
+    int IH = SPATIAL_DIM == 1 ? 1 : conv_p.IN_DIM[SPATIAL_DIM - 2];
+    int IW = conv_p.IN_DIM[SPATIAL_DIM - 1];
+    int OT = SPATIAL_DIM <= 2 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 3];
+    int OH = SPATIAL_DIM == 1 ? 1 : conv_p.OUT_DIM[SPATIAL_DIM - 2];
+    int OW = conv_p.OUT_DIM[SPATIAL_DIM - 1];
+    int IC_per_G = conv_p.IC / conv_p.G;
+    int OC_per_G = conv_p.OC / conv_p.G;
+
+    // activations
+    aligned_vector<uint8_t> Aint8(
+        conv_p.MB * IT * IH *IW * conv_p.IC, 0);
+
+    // weights
+    // when btrans == Transpose, the weight matrix is
+    // in layout G K/G (T R S C/G) instead of G (T R S C/G) K/G
+    aligned_vector<int8_t> Bint8(T * R * S * G * IC_per_G * OC_per_G, 0);
+    aligned_vector<int8_t> Bint8_tr(Bint8.size(), 0);
+
+    aligned_vector<int32_t> Cint32_ref(conv_p.MB *OT *OH * OW * OC, 0);
+    aligned_vector<int32_t> Cint32_fb(Cint32_ref.size(), 0);
+    aligned_vector<float> Cfloat_ref(Cint32_ref.size(), 0);
+    aligned_vector<float> Cfloat_fb(Cint32_ref.size(), 0);
+
+    randFill<uint8_t>(Aint8, 0, 5);
+    int32_t Aint8_zero_point = a_symmetric ? 0 : 4;
+
+    randFill<int8_t>(Bint8, -4, 4);
+
+    // computing column offset
+    vector<int32_t> col_offsets(G * OC_per_G);
+
+    int ncols_per_quant_group = G * OC_per_G;
+    if (q_granularity == QuantizationGranularity::GROUP) {
+      ncols_per_quant_group = OC_per_G;
+    } else if (q_granularity == QuantizationGranularity::OUT_CHANNEL) {
+      ncols_per_quant_group = 1;
+    }
+
+    aligned_vector<int32_t> Bint8_zero_point(
+        G * OC_per_G / ncols_per_quant_group);
+    if (b_symmetric) {
+      randFill(Bint8_zero_point, 0, 0);
+    } else {
+      randFill(Bint8_zero_point, -3, -1);
+    }
+
+    // matrix dimensions after im2col for each GEMM.
+    // For each group, there is one GEMM of the following dimensions
+    int MDim = conv_p.MB * OT * OH * OW;
+    int NDim = OC_per_G;
+    int KDim = T * R * S * IC_per_G;
+
+    vector<uint8_t> Aint8_im2col(MDim * KDim * G);
+    im2col_ref(conv_p, Aint8.data(), Aint8_zero_point, Aint8_im2col.data());
+
+    vector<int32_t> row_offsets(MDim);
+
+    float Aint8_scale = 0.11;
+    aligned_vector<float> Bint8_scale(Bint8_zero_point.size());
+    randFill(Bint8_scale, 0.1234f / 2, 0.1234f * 3 / 2);
+
+    // reference implementation
+    // conv_ref expects weights to be in G (T R S C/G) K/G
+    int8_t* rightBData = Bint8.data();
+    if (btrans == matrix_op_t::Transpose) {
+      transposeConvWeights(conv_p, Bint8.data(), Bint8_tr.data());
+      rightBData = Bint8_tr.data();
+    }
+    for (int g = 0; g < G; ++g) {
+      col_offsets_with_zero_pt_s8acc32_ref(
+          R * S * IC_per_G,
+          OC_per_G,
+          OC_per_G,
+          rightBData + g * R * S * IC_per_G * OC_per_G,
+          Bint8_zero_point.data() + g * OC_per_G / ncols_per_quant_group,
+          col_offsets.data() + g * OC_per_G,
+          ncols_per_quant_group);
+    }
+    conv_ref(
+        conv_p, Aint8.data(), Aint8_zero_point, rightBData, Cint32_ref.data());
+
+    for (int g = 0; g < G; ++g) {
+      row_offsets_u8acc32_ref(
+          MDim,
+          KDim,
+          KDim * G,
+          Aint8_im2col.data() + g * KDim,
+          row_offsets.data());
+
+      requantize_u8acc32_float_output_ref(
+          MDim,
+          NDim,
+          G * NDim,
+          Cint32_ref.data() + g * NDim,
+          Cfloat_ref.data() + g * NDim,
+          Aint8_scale,
+          Bint8_scale.data() + g * NDim / ncols_per_quant_group,
+          Aint8_zero_point,
+          Bint8_zero_point.data() + g * NDim / ncols_per_quant_group,
+          row_offsets.data(),
+          col_offsets.data() + g * NDim,
+          nullptr,
+          ncols_per_quant_group);
+    }
+
+    PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM> packedWeights(
+        btrans, conv_p, Bint8.data(), nullptr);
+
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+    {
+      vector<int32_t> row_offset_buf(rowOffsetBufferSizeGConv(conv_p));
+
+      DoNothing<float, float> doNothingObj{};
+
+      int num_threads = fbgemm_get_num_threads();
+      int tid = fbgemm_get_thread_num();
+
+      if (q_granularity == QuantizationGranularity::TENSOR) {
+        ReQuantizeForFloat<false, QuantizationGranularity::TENSOR> reqObj(
+            doNothingObj,
+            Aint8_scale,
+            Bint8_scale.data(),
+            Aint8_zero_point,
+            Bint8_zero_point.data(),
+            Bint8_zero_point[0] ? row_offset_buf.data() : nullptr,
+            col_offsets.data(),
+            nullptr,
+            G * NDim,
+            G);
+
+        fbgemmGroupwiseConv(
+            conv_p,
+            Aint8.data(),
+            Aint8_zero_point,
+            Bint8_zero_point[0] ? row_offset_buf.data() : nullptr,
+            packedWeights,
+            Cfloat_fb.data(),
+            Cint32_fb.data(),
+            reqObj,
+            tid,
+            num_threads);
+      } else if (q_granularity == QuantizationGranularity::GROUP) {
+        ReQuantizeForFloat<false, QuantizationGranularity::GROUP> reqObj(
+            doNothingObj,
+            Aint8_scale,
+            Bint8_scale.data(),
+            Aint8_zero_point,
+            Bint8_zero_point.data(),
+            row_offset_buf.data(),
+            col_offsets.data(),
+            nullptr,
+            G * NDim,
+            G);
+
+        fbgemmGroupwiseConv(
+            conv_p,
+            Aint8.data(),
+            Aint8_zero_point,
+            row_offset_buf.data(),
+            packedWeights,
+            Cfloat_fb.data(),
+            Cint32_fb.data(),
+            reqObj,
+            tid,
+            num_threads);
+
+      } else {
+        ReQuantizeForFloat<false, QuantizationGranularity::OUT_CHANNEL> reqObj(
+            doNothingObj,
+            Aint8_scale,
+            Bint8_scale.data(),
+            Aint8_zero_point,
+            Bint8_zero_point.data(),
+            row_offset_buf.data(),
+            col_offsets.data(),
+            nullptr,
+            G * NDim,
+            G);
+
+        fbgemmGroupwiseConv(
+            conv_p,
+            Aint8.data(),
+            Aint8_zero_point,
+            row_offset_buf.data(),
+            packedWeights,
+            Cfloat_fb.data(),
+            Cint32_fb.data(),
+            reqObj,
+            tid,
+            num_threads);
+      }
+    } // omp parallel
+
+    compare_validate_buffers(
+        Cfloat_ref.data(),
+        Cfloat_fb.data(),
+        MDim,
+        NDim * G,
+        NDim * G,
+        0.0f);
+  } // for each shape
+}
+
+TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeFloatOutputTest) {
+  matrix_op_t atrans, btrans;
+  QuantizationGranularity q_granularity;
+  bool a_symmetric, b_symmetric;
+
+  tie(atrans, btrans, q_granularity, a_symmetric, b_symmetric) = GetParam();
+
+  runFloatOutputTest<2>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
+  runFloatOutputTest<3>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
+}
+
 /**
  * @brief Unit test for uint8 activations, int8 weights, and 32-bit
  * accumulation. Output processing: nothing

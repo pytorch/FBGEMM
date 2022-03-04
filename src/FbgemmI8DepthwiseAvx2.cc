@@ -17,7 +17,10 @@ using namespace std;
 namespace fbgemm {
 
 // Dispatch input shape and FUSE_RELU
-template <QuantizationGranularity Q_GRAN, typename BIAS_TYPE /*=std::int32_t*/>
+template <
+    QuantizationGranularity Q_GRAN,
+    typename BIAS_TYPE /*=std::int32_t*/,
+    typename OUT_TYPE /*=std::uint8_t*/>
 void depthwise_2d_same_pad(
     int N,
     int H,
@@ -32,7 +35,7 @@ void depthwise_2d_same_pad(
     const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     int32_t C_zero_point,
-    uint8_t* C,
+    OUT_TYPE* C,
     const int32_t* col_offsets,
     const BIAS_TYPE* bias,
     bool fuse_relu,
@@ -137,7 +140,7 @@ void depthwise_2d_same_pad(
   }
 }
 
-#define INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE)               \
+#define INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE, OUT_TYPE)     \
   template FBGEMM_API void                                \
   depthwise_2d_same_pad<QuantizationGranularity::Q_GRAN>( \
       int N,                                              \
@@ -153,7 +156,7 @@ void depthwise_2d_same_pad(
       const PackedDepthWiseConvMatrix& B,                 \
       const float* C_multiplier,                          \
       int32_t C_zero_point,                               \
-      uint8_t* C,                                         \
+      OUT_TYPE* C,                                        \
       const int32_t* col_offsets,                         \
       const BIAS_TYPE* bias,                              \
       bool fuse_relu,                                     \
@@ -161,9 +164,13 @@ void depthwise_2d_same_pad(
       int thread_id,                                      \
       int num_threads);
 
-#define INSTANTIATE_BIAS_T(Q_GRAN)  \
-  INSTANTIATE_BASE(Q_GRAN, int32_t) \
-  INSTANTIATE_BASE(Q_GRAN, float)
+#define INSTANTIATE_CT(Q_GRAN, BIAS_TYPE)      \
+  INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE, uint8_t) \
+  INSTANTIATE_BASE(Q_GRAN, BIAS_TYPE, float)
+
+#define INSTANTIATE_BIAS_T(Q_GRAN) \
+  INSTANTIATE_CT(Q_GRAN, int32_t)  \
+  INSTANTIATE_CT(Q_GRAN, float)
 
 INSTANTIATE_BIAS_T(TENSOR)
 INSTANTIATE_BIAS_T(GROUP)

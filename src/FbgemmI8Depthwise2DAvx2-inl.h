@@ -21,7 +21,8 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     QuantizationGranularity Q_GRAN,
-    typename BIAS_TYPE>
+    typename BIAS_TYPE,
+    typename OUT_TYPE>
 static ALWAYS_INLINE void depthwise_2d_kernel_(
     int H,
     int W,
@@ -38,7 +39,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::int32_t* C_int32,
-    std::uint8_t* C_uint8,
+    OUT_TYPE* C,
     std::int32_t* row_offsets,
     const std::int32_t* col_offsets,
     const BIAS_TYPE* bias,
@@ -87,7 +88,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
         C_multiplier,
         C_zero_point,
         C_int32,
-        C_uint8 + (h * W_OUT + w) * OC,
+        C + (h * W_OUT + w) * OC,
         OC,
         row_offsets,
         col_offsets,
@@ -100,7 +101,7 @@ static ALWAYS_INLINE void depthwise_2d_kernel_(
         C_multiplier,
         C_zero_point,
         C_int32,
-        C_uint8 + (h * W_OUT + w) * OC,
+        C + (h * W_OUT + w) * OC,
         OC,
         row_offsets,
         col_offsets,
@@ -120,7 +121,8 @@ template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
     QuantizationGranularity Q_GRAN,
-    typename BIAS_TYPE>
+    typename BIAS_TYPE,
+    typename OUT_TYPE>
 static ALWAYS_INLINE void depthwise_2d_(
     int N,
     int H,
@@ -136,7 +138,7 @@ static ALWAYS_INLINE void depthwise_2d_(
     const float* C_multiplier,
     std::int32_t C_zero_point,
     std::int32_t* C_int32,
-    std::uint8_t* C_uint8,
+    OUT_TYPE* C,
     const std::int32_t* col_offsets,
     const BIAS_TYPE* bias,
     const float* act_times_w_scale,
@@ -172,7 +174,7 @@ static ALWAYS_INLINE void depthwise_2d_(
 
   for (int n = n_begin; n < n_end; ++n) {
     const std::uint8_t* A_base = A + n * H * W * IC;
-    std::uint8_t* C_uint8_base = C_uint8 + n * H_OUT * W_OUT * OC;
+    OUT_TYPE* C_base = C + n * H_OUT * W_OUT * OC;
 
     int h = 0;
     int w = 0;
@@ -201,7 +203,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -231,7 +233,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -261,7 +263,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -305,7 +307,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -353,7 +355,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -384,7 +386,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -416,7 +418,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -446,7 +448,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -476,7 +478,7 @@ static ALWAYS_INLINE void depthwise_2d_(
             C_multiplier,
             C_zero_point,
             C_int32,
-            C_uint8_base,
+            C_base,
             row_offsets,
             col_offsets,
             bias,
@@ -494,7 +496,8 @@ template <
     bool FUSE_RELU,
     bool HAS_BIAS,
     QuantizationGranularity Q_GRAN,
-    typename BIAS_TYPE>
+    typename BIAS_TYPE,
+    typename OUT_TYPE>
 static void depthwise_2d_(
     int N,
     int H,
@@ -509,7 +512,7 @@ static void depthwise_2d_(
     const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     std::int32_t C_zero_point,
-    std::uint8_t* C,
+    OUT_TYPE* C,
     const std::int32_t* col_offsets,
     const BIAS_TYPE* bias,
     const float* act_times_w_scale,
@@ -642,7 +645,8 @@ template <
     int S,
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
-    typename BIAS_TYPE>
+    typename BIAS_TYPE,
+    typename OUT_TYPE>
 static void depthwise_2d_(
     int N,
     int H,
@@ -657,7 +661,7 @@ static void depthwise_2d_(
     const PackedDepthWiseConvMatrix& B,
     const float* C_multiplier,
     std::int32_t C_zero_point,
-    std::uint8_t* C,
+    OUT_TYPE* C,
     const std::int32_t* col_offsets,
     const BIAS_TYPE* bias,
     const float* act_times_w_scale,

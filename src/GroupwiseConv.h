@@ -61,6 +61,16 @@ struct is_requantization<
     ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>>
     : std::true_type {};
 
+template <
+    bool FUSE_RELU,
+    QuantizationGranularity Q_GRAN,
+    typename outT,
+    typename inT,
+    typename nextOPType>
+struct is_requantization<
+    ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>>
+    : std::true_type {};
+
 using jit_conv_kernel_fp = void (*)(
     const uint8_t* in_acts,
     int8_t* wghts,
