@@ -756,6 +756,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -803,6 +804,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
         )
 
@@ -1807,6 +1809,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -1854,6 +1857,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
         )
 
