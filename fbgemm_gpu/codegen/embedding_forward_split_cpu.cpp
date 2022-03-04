@@ -348,8 +348,6 @@ void batched_csr2csc(
     batched_csc.weights = static_cast<float*>(
         fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
-  batched_csc.column_segment_ids =
-      static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
 
   int column_ptr_curr = 0;
   int t = 0;
@@ -359,6 +357,9 @@ void batched_csr2csc(
       batched_csr_offsets[table_to_feature_offset[t] * B];
   int num_non_empty_segments = 0;
   if (!batched_csc.weights) {
+    batched_csc.column_segment_ids =
+        static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
+
     int* tmpBufKeys =
         static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
     int* tmpBufValues =
