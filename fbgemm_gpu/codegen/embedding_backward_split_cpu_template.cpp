@@ -154,8 +154,9 @@ void split_embedding_backward_exact_cpu_kernel(
                   ? nullptr
                   : batched_cscs[t].weights + *offsets_begin_ptr,
               reinterpret_cast<float*>(grad_blocked_buffer));
-          // TODO: more friendly error msg.
-          TORCH_CHECK(success);
+
+          TORCH_CHECK(success,
+              "spmdm kernel generation failed");
           int num_rows_processed = rowwise_adagrad_kernel(
               c_block_end - c,
               hash_size * D,
@@ -169,8 +170,12 @@ void split_embedding_backward_exact_cpu_kernel(
               /*weight_decay=*/0,
               /*counter=*/nullptr,
               /*counter_halflife=*/0);
-          // TODO: more friendly error msg.
-          TORCH_CHECK(num_rows_processed == c_block_end - c);
+
+          TORCH_CHECK(num_rows_processed == c_block_end - c,
+              "num of rows processed by adagrad: ",
+              num_rows_processed,
+              "does not match c_block size: ",
+              c_block_end - c);
         } // for each c
       }); // parallel for
     } else
