@@ -22,7 +22,12 @@ std::pair<K*, V*> radix_sort_parallel(
     int64_t elements_count,
     int64_t max_value);
 
-// report error from fbgemm cpu embedding lookup kernels
+/**
+ * report error from fbgemm cpu embedding lookup kernels
+ * @params allow_minus_one true for embedding kernels generated with
+ *         scale_bias_last == false that can take -1 indices (output from
+ *         pruned embedding id mapping)
+ */
 template <typename IndexType>
 void report_embedding_error(
     int t,
