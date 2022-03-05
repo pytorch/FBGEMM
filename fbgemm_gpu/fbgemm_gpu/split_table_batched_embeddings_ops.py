@@ -1552,7 +1552,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
-        cache_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
