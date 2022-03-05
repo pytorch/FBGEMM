@@ -81,6 +81,10 @@ GenerateEmbeddingSpMDM(
 /**
  * @param output_stride If -1, output_stride is same as block_size
  * @param input_stride If -1, input_stride is same as block_size
+ * @param scale_bias_last if false, scale and bias appear at the beginning
+ *        of each row and are in fp16 for table batched embedding (TBE)
+ *        in FBGEMM_GPU. If false, it can also take -1 indices (output from
+ *        pruned embedding id mapping)
  */
 template <
     typename InType,
@@ -131,6 +135,10 @@ GenerateEmbeddingSpMDMNBit(
  * @param output_stride If -1, output_stride is same as block_size
  * @param input_stride in Bytes. If -1, input_stride is same as
  *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
+ * @param scale_bias_last if false, scale and bias appear at the beginning
+ *        of each row and are in fp16 for table batched embedding (TBE)
+ *        in FBGEMM_GPU. If false, it can also take -1 indices (output from
+ *        pruned embedding id mapping)
  */
 template <
     typename IndexType,
