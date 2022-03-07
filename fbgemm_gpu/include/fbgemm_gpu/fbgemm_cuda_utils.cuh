@@ -1086,8 +1086,6 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   half shift_scale_x = __low2half(shift_scale);
   half shift_scale_y = __high2half(shift_scale);
 
-  // TODO: Enable this for HIP
-#ifndef __HIP_PLATFORM_HCC__
   res.vals[0] = hfma2(
       res.vals[0],
       __half2(
@@ -1112,7 +1110,6 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
           hmul(shift_scale_x, __float2half(32)),
           hmul(shift_scale_x, __float2half(32))),
       __half2(shift_scale_y, shift_scale_y));
-#endif
   return res;
 }
 
@@ -1620,5 +1617,12 @@ DEVICE_INLINE float float8_min(float8 val) {
 
 #undef min
 #undef max
+
+#ifdef __HIP_PLATFORM_HCC__
+__device__ int __any_sync(uint64_t mask, int predicate) {
+  uint64_t predicate_bit_pattern = __ballot(predicate);
+  return (predicate_bit_pattern & mask) > 0;  
+}
+#endif
 
 } // namespace fbgemm_gpu
