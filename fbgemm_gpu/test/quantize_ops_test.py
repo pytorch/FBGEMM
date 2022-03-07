@@ -21,6 +21,7 @@ try:
         fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
         gpu_available,
+        skipIfRocm,
     )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
@@ -41,6 +42,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
+    @skipIfRocm()
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -110,6 +112,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @skipIfRocm()
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -247,6 +250,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
 
 class TestDenseMLPQuantizationConversion(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @skipIfRocm
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
