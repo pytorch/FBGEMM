@@ -34,9 +34,9 @@ __host__ __device__ inline int32_t unpadded_row_size_in_bytes(int32_t dim, Spars
     return 0;
 }
 
-__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty, int32_t row_alignment) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, 16);
+  return round_up(r, row_alignment);
 }
 
 // "Effective" number of elements in the row when we include the row-wise quantization parameters.
@@ -228,7 +228,8 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
       return;
   }
 
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+  // default to 16 byte alignment for GPU TBE
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, 16);
 
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
     return;
@@ -702,7 +703,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int2_D > 0) {
-        auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2), 128);
+        auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2, 16), 128);
         TORCH_CHECK(max_int2_128b_rows <= 2);
         if (max_int2_128b_rows > 0) {
           X(2, 16, 0, 1);
@@ -745,7 +746,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int4_D > 0) {
-        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4), 128);
+        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, 16), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -791,7 +792,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int8_D > 0) {
-        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8), 128);
+        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8, 16), 128);
         TORCH_CHECK(max_int8_128b_rows <= 8);
         if (max_int8_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -840,7 +841,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float16_D > 0) {
-        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16), 128);
+        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16, 16), 128);
         TORCH_CHECK(max_fp16_128b_rows <= 16);
         if (max_fp16_128b_rows > 0) {
           X(2, 8, 0, 2);
@@ -889,7 +890,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float32_D > 0) {
-        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32), 128);
+        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, 16), 128);
         TORCH_CHECK(max_fp32_128b_rows <= 32);
         // FP32 is used for numerical validations and tiny embeddings tables.
         // We haven't carefully tuned the perf of FP32 embeddings.
