@@ -3123,7 +3123,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -3372,7 +3371,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assert unique_cache_miss_count == expect_out
         assert cache_miss_forward_count <= unique_cache_miss_count
 
-    @skipIfRocm()
     @given(N=st.integers(min_value=1, max_value=8))
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_miss_counter(self, N: int) -> None:
