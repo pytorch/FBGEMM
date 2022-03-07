@@ -400,7 +400,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.just(SparseType.INT8),
         weighted=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -459,7 +459,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.just(SparseType.FP16),
         weighted=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -518,7 +518,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.just(SparseType.FP32),
         weighted=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1068,7 +1068,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1625,7 +1625,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1687,7 +1687,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1749,7 +1749,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1811,7 +1811,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1873,7 +1873,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -1935,7 +1935,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         row_wise=st.booleans(),
         mixed=st.booleans(),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -2990,7 +2990,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # TODO: implement for SparseType.INT2,
             ]
         ),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
@@ -3067,7 +3067,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP32,
             ]
         ),
-        use_cache=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
