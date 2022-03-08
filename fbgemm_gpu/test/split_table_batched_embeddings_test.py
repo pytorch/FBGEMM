@@ -29,7 +29,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM, skipIfRocm
+    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
@@ -842,7 +842,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 equal_nan=True,
             )
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),
@@ -1058,7 +1057,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             param.requires_grad = False
         torch.autograd.gradcheck(cc, (indices, offsets, per_sample_weights))
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -1986,7 +1984,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -2453,7 +2450,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-4,
                 )
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -2513,7 +2509,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -2573,7 +2568,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -2633,7 +2627,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
