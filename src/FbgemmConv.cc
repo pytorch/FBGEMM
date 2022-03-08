@@ -343,10 +343,6 @@ int fbgemmConv(
     case optimized_conv_t::directconv: {
       // specialized direct convolution path
       // std::cout << "Directconv fast path" << std::endl;
-      static_assert(
-          std::is_same<typename processOutputType::outType, std::uint8_t>::
-              value,
-          "For directconv 2d, only requantized output is supported");
       fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
           conv_p,
           // Aint8,
