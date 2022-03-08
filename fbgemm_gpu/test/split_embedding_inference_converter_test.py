@@ -27,7 +27,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_available
 
@@ -134,7 +134,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 SparseType.FP32,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         pruning_ratio=st.sampled_from([None, 0.0]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
