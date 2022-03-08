@@ -29,7 +29,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM, skipIfRocm
+    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
