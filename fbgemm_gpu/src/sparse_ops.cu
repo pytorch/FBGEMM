@@ -469,7 +469,7 @@ __global__ void permute_1D_data_kernel(
     indices_t* __restrict__ permuted_indices,
     weights_t* __restrict__ permuted_weights) {
   int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = blockDim.y;
+  const int stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < permuted_lengths_size; b_t += stride) {
     offsets_t output_start = output_offsets[b_t];
     offsets_t segment_length;
