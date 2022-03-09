@@ -837,7 +837,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         dev_weights.type(),
     {% endif %}
         "split_embedding_backward_{{ optimizer }}_exact_kernel",
-        ([&] {
+        [&] {
             {% if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
@@ -1133,7 +1133,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             return;
         }
         {% endfor %}
-        }));
+        });
 
     return {{ "grad_dev_weights" if dense else "" }};
 }

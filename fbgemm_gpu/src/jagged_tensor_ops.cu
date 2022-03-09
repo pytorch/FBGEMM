@@ -70,11 +70,9 @@ jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", ([&]() {
+      offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            values.scalar_type(),
-            "jagged_2d_to_dense_forward_kernel_2",
-            ([&]() {
+            values.scalar_type(), "jagged_2d_to_dense_forward_kernel_2", [&] {
               jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
                   <<<div_round_up((B * max_L), kMaxThreads / kWarpSize),
                      dim3(kWarpSize, kMaxThreads / kWarpSize),
@@ -87,8 +85,8 @@ jagged_2d_to_dense_forward_cuda(Tensor values, Tensor offsets, int32_t max_L) {
                       values_contig.data_ptr<scalar_t>(),
                       padded_values.data_ptr<scalar_t>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
 
   return padded_values;
 }
@@ -140,11 +138,11 @@ Tensor jagged_2d_to_dense_backward_cuda(
   const auto offsets_contig = offsets.contiguous();
 
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_2d_to_dense_backward_kernel_1", ([&]() {
+      offsets.scalar_type(), "jagged_2d_to_dense_backward_kernel_1", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             grad_padded_values.scalar_type(),
             "jagged_2d_to_dense_backward_kernel_2",
-            ([&]() {
+            [&] {
               jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
                   <<<div_round_up((B * max_L), kMaxThreads / kWarpSize),
                      dim3(kWarpSize, kMaxThreads / kWarpSize),
@@ -157,8 +155,8 @@ Tensor jagged_2d_to_dense_backward_cuda(
                       grad_padded_values_config.data_ptr<scalar_t>(),
                       grad_values.data_ptr<scalar_t>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
 
   return grad_values;
 }
@@ -207,9 +205,9 @@ Tensor jagged_1d_to_dense_gpu(
   const auto offsets_contig = offsets.contiguous();
   const int32_t num_threads = 512; // 256~1024 per xingl
   AT_DISPATCH_INDEX_TYPES(
-      offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", ([&]() {
+      offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", [&] {
         AT_DISPATCH_ALL_TYPES(
-            values.scalar_type(), "jagged_1d_to_dense_kernel_2", ([&]() {
+            values.scalar_type(), "jagged_1d_to_dense_kernel_2", [&] {
               jagged_1d_to_dense_kernel<index_t, scalar_t>
                   <<<div_round_up(B * max_L, num_threads),
                      num_threads,
@@ -222,8 +220,8 @@ Tensor jagged_1d_to_dense_gpu(
                       values_contig.data_ptr<scalar_t>(),
                       padded_values.data_ptr<scalar_t>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
 
   return padded_values;
 }
@@ -253,7 +251,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
     auto offsets = at::empty({B + 1}, lengths.options());
     offsets[0].zero_();
     AT_DISPATCH_INTEGRAL_TYPES(
-        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               nullptr,
               temp_storage_bytes,
@@ -261,12 +259,12 @@ stacked_jagged_2d_to_dense_forward_cuda(
               offsets.data_ptr<scalar_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
-        }));
+        });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
     AT_DISPATCH_INTEGRAL_TYPES(
-        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               temp_storage.data_ptr(),
               temp_storage_bytes,
@@ -274,17 +272,15 @@ stacked_jagged_2d_to_dense_forward_cuda(
               offsets.data_ptr<scalar_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
-        }));
+        });
     offsets_tensor_per_key.push_back(offsets);
     auto padded_values = at::empty({B, max_L, D}, values.options());
     padded_values_per_key.push_back(padded_values);
     int64_t start = offset_per_key[t] * D;
     AT_DISPATCH_INDEX_TYPES(
-        offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", ([&]() {
+        offsets.scalar_type(), "jagged_2d_to_dense_forward_kernel_1", [&] {
           AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-              values.scalar_type(),
-              "jagged_2d_to_dense_forward_kernel_2",
-              ([&]() {
+              values.scalar_type(), "jagged_2d_to_dense_forward_kernel_2", [&] {
                 jagged_2d_to_dense_forward_kernel<index_t, scalar_t>
                     <<<fbgemm_gpu::div_round_up(
                            (B * max_L),
@@ -301,8 +297,8 @@ stacked_jagged_2d_to_dense_forward_cuda(
                         &(values_contig.data_ptr<scalar_t>()[start]),
                         padded_values.data_ptr<scalar_t>());
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
-              }));
-        }));
+              });
+        });
   }
 
   return std::make_tuple(padded_values_per_key, offsets_tensor_per_key);
@@ -333,11 +329,11 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
     AT_DISPATCH_INDEX_TYPES(
         offsets_config.scalar_type(),
         "jagged_2d_to_dense_backward_kernel_1",
-        ([&]() {
+        [&] {
           AT_DISPATCH_FLOATING_TYPES_AND_HALF(
               grad_padded_values_config.scalar_type(),
               "jagged_2d_to_dense_backward_kernel_2",
-              ([&]() {
+              [&] {
                 jagged_2d_to_dense_backward_kernel<index_t, scalar_t>
                     <<<fbgemm_gpu::div_round_up(
                            (B * max_L),
@@ -354,8 +350,8 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
                         grad_padded_values_config.data_ptr<scalar_t>(),
                         &(grad_values.data_ptr<scalar_t>()[start]));
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
-              }));
-        }));
+              });
+        });
   }
 
   return grad_values;
@@ -383,7 +379,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
     int64_t max_L = max_lengths_per_key[t];
     size_t temp_storage_bytes = 0;
     AT_DISPATCH_INTEGRAL_TYPES(
-        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               nullptr,
               temp_storage_bytes,
@@ -391,12 +387,12 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
               offsets.data_ptr<scalar_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
-        }));
+        });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
     AT_DISPATCH_INTEGRAL_TYPES(
-        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+        lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               temp_storage.data_ptr(),
               temp_storage_bytes,
@@ -404,15 +400,15 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
               offsets.data_ptr<scalar_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
-        }));
+        });
     auto padded_values = at::empty({B, max_L}, values.options());
     padded_values_per_key.push_back(padded_values);
     int64_t start = offset_per_key[t];
     const int32_t num_threads = 512; // 256~1024 per xingl
     AT_DISPATCH_INDEX_TYPES(
-        offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", ([&]() {
+        offsets.scalar_type(), "jagged_1d_to_dense_kernel_1", [&] {
           AT_DISPATCH_ALL_TYPES(
-              values.scalar_type(), "jagged_1d_to_dense_kernel_2", ([&]() {
+              values.scalar_type(), "jagged_1d_to_dense_kernel_2", [&] {
                 jagged_1d_to_dense_kernel<index_t, scalar_t>
                     <<<div_round_up(B * max_L, num_threads),
                        num_threads,
@@ -425,8 +421,8 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
                         &(values_contig.data_ptr<scalar_t>()[start]),
                         padded_values.data_ptr<scalar_t>());
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
-              }));
-        }));
+              });
+        });
   }
 
   return padded_values_per_key;

@@ -45,7 +45,7 @@ Tensor recat_embedding_grad_output_cuda(
   Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", ([&] {
+      grad_output.type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 3>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
         int64_t feature_offset = 0;
@@ -65,7 +65,7 @@ Tensor recat_embedding_grad_output_cuda(
         }
         TORCH_CHECK(sgo_offset == grad_output.numel());
         TORCH_CHECK(feature_offset == T_global);
-      }));
+      });
   return sharded_grad_output;
 }
 
@@ -85,7 +85,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
       at::empty({grad_output.numel()}, grad_output.options());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", ([&] {
+      grad_output.type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
         int64_t sgo_offset = 0;
@@ -105,7 +105,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
         }
         TORCH_CHECK(sgo_offset == grad_output.numel());
         TORCH_CHECK(accum_dim_sum == global_dim_sum);
-      }));
+      });
 
   return sharded_grad_output;
 }
@@ -134,7 +134,7 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
       (B_local * dim_num), fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize));
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", ([&] {
+      grad_output.type(), "recat_embedding_gradients", [&] {
         recat_copy_async_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 dim_sum_per_rank.data_ptr<int64_t>(),
@@ -145,7 +145,7 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
                 B_local,
                 dim_sum);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
 
   return sharded_grad_output;
 }

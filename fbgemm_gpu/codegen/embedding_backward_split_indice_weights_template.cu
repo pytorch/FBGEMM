@@ -229,7 +229,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         lxu_cache_weights.type(),
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
-        ([&] {
+        [&] {
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
             if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
@@ -279,7 +279,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
             return;
             }
             {% endfor %}
-        }));
+        });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return grad_indice_weights;
