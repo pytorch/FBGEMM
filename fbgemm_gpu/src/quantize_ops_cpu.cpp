@@ -7,9 +7,10 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <fbgemm_gpu/sparse_ops.h>
+#include <fbgemm_gpu/sparse_ops_utils.h>
 #include <torch/library.h>
 #include "fbgemm/QuantUtils.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/quantize_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -210,6 +211,105 @@ Tensor half_to_fusednbitrowwise_cpu(
   return _float_to_fusednbitrowwise_cpu<fbgemm::float16>(input, bit_rate);
 }
 
+void FloatToFP8Quantized_ref(
+    const float* const input,
+    const size_t nrows,
+    const size_t ncols,
+    uint8_t* const output,
+    const int ebits,
+    const int mbits,
+    const int bias) {
+  for (const auto row : c10::irange(nrows)) {
+    const float* input_row = input + row * ncols;
+    uint8_t* output_row = output + row * ncols;
+
+    for (const auto col : c10::irange(ncols)) {
+      output_row[col] = float_to_hfp8(
+          input_row[col],
+          ebits,
+          mbits,
+          bias,
+          static_cast<float>(
+              (1 << ((1 << ebits) - 2 - bias)) * (2 - std::pow(2, -mbits))));
+    }
+  }
+}
+
+void FP8QuantizedToFloat_ref(
+    const uint8_t* const input,
+    const size_t nrows,
+    const size_t ncols,
+    float* const output,
+    const int ebits,
+    const int /*mbits*/,
+    const int bias) {
+  const int32_t output_columns = ncols;
+
+  for (const auto row : c10::irange(nrows)) {
+    const uint8_t* input_row = input + row * ncols;
+    float* output_row = output + row * output_columns;
+
+    for (const auto col : c10::irange(ncols)) {
+      output_row[col] = hfp8_to_float(input_row[col], ebits, bias);
+    }
+  }
+}
+
+at::Tensor _float_to_hfp8_cpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+  TORCH_CHECK(min_pos > 0 && max_pos > 0 && max_pos > min_pos);
+
+  const auto input_sizes = input.sizes();
+  const int32_t nrows = input_sizes[0];
+  const int32_t ncols = input_sizes[1];
+  auto output = at::empty({nrows, ncols}, input.options().dtype(at::kByte));
+
+  FloatToFP8Quantized_ref(
+      input.data_ptr<float>(),
+      nrows,
+      ncols,
+      output.data_ptr<uint8_t>(),
+      ebits,
+      mbits,
+      bias);
+
+  return output;
+}
+
+at::Tensor _hfp8_to_float_cpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  const auto input_sizes = input.sizes();
+  const int32_t nrows = input_sizes[0];
+  const int32_t ncols = input_sizes[1];
+  const int32_t output_columns = ncols;
+  auto output = at::empty(
+      {nrows, output_columns}, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat)); //
+
+  FP8QuantizedToFloat_ref(
+      input.data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output.data_ptr<float>(),
+      ebits,
+      mbits,
+      bias);
+
+  return output;
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -231,6 +331,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
+  m.def(
+      "FloatToHFP8Quantized(Tensor input, int ebits, int mbits, int bias, float min_pos, float max_pos) -> Tensor");
+  m.def(
+      "HFP8QuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -264,4 +368,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "HalfToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::half_to_fusednbitrowwise_cpu);
+  DISPATCH_TO_CPU("FloatToHFP8Quantized", fbgemm_gpu::_float_to_hfp8_cpu);
+  DISPATCH_TO_CPU("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_cpu);
 }

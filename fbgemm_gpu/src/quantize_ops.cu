@@ -13,11 +13,14 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/quantize_ops.cuh"
+#include "fbgemm_gpu/quantize_ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
+#include <ATen/native/TensorIterator.h>
+#include <ATen/native/cuda/Loops.cuh>
 
 using Tensor = at::Tensor;
 
@@ -718,4 +721,61 @@ at::Tensor _fusednbitrowwise_to_half_gpu(
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
 }
 
+at::Tensor _float_to_hfp8_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos) {
+  TORCH_CHECK(ebits + mbits == 7);
+  TORCH_CHECK(ebits > 0 && mbits > 0);
+  TORCH_CHECK(min_pos > 0 && max_pos > 0 && max_pos > min_pos);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  auto output = at::empty({}, input.options().dtype(at::kByte));
+  output.resize_(0);
+
+  auto iter = at::TensorIteratorConfig()
+                  .check_all_same_dtype(false)
+                  .add_output(output)
+                  .add_input(input)
+                  .build();
+
+  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(float in) -> uint8_t {
+    return float_to_hfp8(in, ebits, mbits, bias, max_pos);
+  });
+
+  return output;
+}
+
+at::Tensor _hfp8_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias) {
+  TORCH_CHECK(ebits + mbits == 7);
+  TORCH_CHECK(ebits > 0);
+  TORCH_CHECK(mbits > 0);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  auto output = at::empty({}, input.options().dtype(at::kFloat));
+  output.resize_(0);
+
+  auto iter = at::TensorIteratorConfig()
+                  .check_all_same_dtype(false)
+                  .add_output(output)
+                  .add_input(input)
+                  .build();
+
+  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(uint8_t in) -> float {
+    return hfp8_to_float(in, ebits, bias);
+  });
+
+  return output;
+}
 } // namespace fbgemm_gpu
