@@ -192,12 +192,12 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
   {% endif %}
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.scalar_type(), "split_embedding_backward_cpu", [&]() {
+      grad_output.scalar_type(), "split_embedding_backward_cpu", [&] {
         using grad_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             host_weights.scalar_type(),
             "split_embedding_backward_cpu_inner",
-            [&]() {
+            [&] {
               split_embedding_backward_approx_cpu_kernel<scalar_t, grad_t>(
                   grad_output,
                   host_weights,

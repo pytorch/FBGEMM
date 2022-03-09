@@ -345,7 +345,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   grad_output = grad_output.contiguous();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
         // TODO: respect output_dtype
         using grad_t = float;
         split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
@@ -377,7 +377,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&]() {
+      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
 
         split_embedding_backward_exact_cpu_dense_kernel<scalar_t>(
             grad,

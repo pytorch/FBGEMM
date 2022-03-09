@@ -130,7 +130,7 @@ void bounds_check_indices_cuda(
   }
   constexpr size_t kNumThreads = 256;
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&]() {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
     bounds_check_indices_kernel<index_t>
         <<<div_round_up(B * T, kNumThreads / fbgemm_gpu::kWarpSize),
            dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),

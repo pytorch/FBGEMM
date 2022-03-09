@@ -76,7 +76,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   const auto bin_num_examples_packed = bin_num_examples.contiguous();
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cuda", [&]() {
+      logit.type(), "histogram_binning_calibration_cuda", [&] {
         histogram_binning_calibration_kernel<scalar_t>
             <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
                num_threads,
@@ -201,10 +201,10 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   AT_DISPATCH_INDEX_TYPES(
       segment_offsets.scalar_type(),
       "to_dense_segment_value_cuda_wrapper",
-      [&]() {
+      [&] {
         using offset_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            segment_value.scalar_type(), "to_dense_segment_value_cuda", [&]() {
+            segment_value.scalar_type(), "to_dense_segment_value_cuda", [&] {
               using value_t = index_t;
               to_dense_segment_value_kernel<offset_t, value_t>
                   <<<fbgemm_gpu::div_round_up(
@@ -232,12 +232,12 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(),
       "histogram_binning_calibration_by_feature_cuda_wrapper",
-      [&]() {
+      [&] {
         using logit_t = scalar_t;
         AT_DISPATCH_INDEX_TYPES(
             dense_segment_value_packed.scalar_type(),
             "histogram_binning_calibration_by_feature_cuda",
-            [&]() {
+            [&] {
               using segment_value_t = index_t;
               histogram_binning_calibration_by_feature_kernel<
                   logit_t,
@@ -362,10 +362,10 @@ generic_histogram_binning_calibration_by_feature_cuda(
   AT_DISPATCH_INDEX_TYPES(
       segment_offsets.scalar_type(),
       "to_dense_segment_value_cuda_wrapper",
-      [&]() {
+      [&] {
         using offset_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            segment_value.scalar_type(), "to_dense_segment_value_cuda", [&]() {
+            segment_value.scalar_type(), "to_dense_segment_value_cuda", [&] {
               using value_t = index_t;
               to_dense_segment_value_kernel<offset_t, value_t>
                   <<<fbgemm_gpu::div_round_up(
@@ -392,12 +392,12 @@ generic_histogram_binning_calibration_by_feature_cuda(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(),
       "generic_histogram_binning_calibration_by_feature_cuda_wrapper",
-      [&]() {
+      [&] {
         using logit_t = scalar_t;
         AT_DISPATCH_INDEX_TYPES(
             dense_segment_value_packed.scalar_type(),
             "generic_histogram_binning_calibration_by_feature_cuda",
-            [&]() {
+            [&] {
               using segment_value_t = index_t;
               generic_histogram_binning_calibration_by_feature_kernel<
                   logit_t,
