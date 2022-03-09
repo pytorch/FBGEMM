@@ -303,7 +303,7 @@ Tensor linearize_cache_indices_cuda(
 
   auto table_offsets = offsets.slice(0, B, B * T, B);
   AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "linearize_cache_indices_kernel", [&]() {
+      indices.scalar_type(), "linearize_cache_indices_kernel", [&] {
         linearize_cache_indices_kernel<<<
             div_round_up(num_indices, kMaxThreads),
             kMaxThreads,
@@ -342,7 +342,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
         {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
   }
   AT_DISPATCH_INDEX_TYPES(
-      linear_indices.scalar_type(), "get_unique_indices_cuda", [&]() {
+      linear_indices.scalar_type(), "get_unique_indices_cuda", [&] {
         // sort indices
         size_t temp_storage_bytes_0 = 0;
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
@@ -504,7 +504,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&]() {
+      unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
@@ -995,7 +995,7 @@ void lru_cache_insert_byte_cuda(
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),
       "lru_cache_insert_byte_cuda",
-      [&]() {
+      [&] {
         lru_cache_insert_byte_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
@@ -1126,7 +1126,7 @@ void lfu_update_counts_cuda(
 
   int32_t N = unique_indices.size(0);
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lfu_update_counts_cuda", [&]() {
+      unique_indices.scalar_type(), "lfu_update_counts_cuda", [&] {
         lfu_update_counts_kernel<<<
             div_round_up(N, kMaxThreads),
             kMaxThreads,
@@ -1230,7 +1230,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&]() {
+      unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lfu_cache_find_uncached_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
@@ -1754,7 +1754,7 @@ void lfu_cache_insert_byte_cuda(
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),
       "lfu_cache_insert_byte_cuda",
-      [&]() {
+      [&] {
         lfu_cache_insert_byte_kernel<<<
             div_round_up(N, kCacheMaxThreads / kWarpSize),
             dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
@@ -1928,7 +1928,7 @@ Tensor lxu_cache_lookup_cuda(
   const dim3 blocks(div_round_up(N, kMaxThreads));
 
   AT_DISPATCH_INDEX_TYPES(
-      linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&]() {
+      linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&] {
         lxu_cache_lookup_kernel<<<
             blocks,
             threads,

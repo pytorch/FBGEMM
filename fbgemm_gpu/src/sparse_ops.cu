@@ -80,7 +80,7 @@ Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
       calc_offsets_range_thread_block(range_size, N);
   dim3 threads(vector_size, rows_per_block);
   AT_DISPATCH_INDEX_TYPES(
-      offsets_contig.scalar_type(), "offsets_range_kernel", [&]() {
+      offsets_contig.scalar_type(), "offsets_range_kernel", [&] {
         _offsets_range_cuda_kernel<index_t>
             <<<num_blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 N,
@@ -139,7 +139,7 @@ Tensor segment_sum_csr_cuda(
   auto output = at::empty(csr_seg.numel() - 1, values.options());
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cuda", [&]() {
+  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cuda", [&] {
     _segment_sum_csr_cuda_kernel<scalar_t>
         <<<num_blocks,
            threads_per_block,
@@ -167,7 +167,7 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
@@ -175,12 +175,12 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
@@ -188,7 +188,7 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   return t_out;
 }
 
@@ -204,7 +204,7 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_exclusive_sum_wrapper1", ([&] {
+      t_in.scalar_type(), "cub_exclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             nullptr,
             temp_storage_bytes,
@@ -212,12 +212,12 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_exclusive_sum_wrapper2", ([&] {
+      t_in.scalar_type(), "cub_exclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
@@ -225,7 +225,7 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   return t_out;
 }
 
@@ -243,7 +243,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
   t_out[0].zero_();
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
@@ -251,12 +251,12 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
@@ -264,7 +264,7 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
             t_out.data_ptr<scalar_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   return t_out;
 }
 
@@ -344,7 +344,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
   constexpr int32_t threads_1 = 256;
   const auto blocks_1 = cuda_calc_xblock_count(B * T, threads_1);
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_2D_lengths_kernel", ([&] {
+      lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
         permute_2D_lengths_kernel<index_t>
             <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
                 T,
@@ -353,7 +353,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
                 permute.data_ptr<int32_t>(),
                 permuted_lengths.data_ptr<index_t>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
 
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
@@ -372,13 +372,13 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_2D_data_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_2D_data_kernel_1", [&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES_AND(
             at::ScalarType::Half,
             indices.scalar_type(),
             "permute_2D_data_kernel_2",
-            ([&] {
+            [&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
@@ -389,7 +389,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
                     at::ScalarType::Half,
                     weights_value.scalar_type(),
                     "permute_2D_data_kernel_3",
-                    ([&] {
+                    [&] {
                       using weights_t = scalar_t;
                       permute_2D_data_kernel<
                           true,
@@ -411,7 +411,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
                               permuted_indices.data_ptr<indices_t>(),
                               permuted_weights.data_ptr<weights_t>());
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
-                    })); // for each weights_t
+                    }); // for each weights_t
               } else {
                 permute_2D_data_kernel<
                     false,
@@ -434,8 +434,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
                         nullptr);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               }
-            })); // for each indices_t
-      })); // for each offsets_t
+            }); // for each indices_t
+      }); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
@@ -524,7 +524,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
   const auto blocks_1 =
       cuda_calc_xblock_count(permuted_lengths_size, threads_1);
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_1D_lengths_kernel", ([&] {
+      lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
         permute_1D_lengths_kernel<index_t>
             <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
                 lengths_contig.data_ptr<index_t>(),
@@ -532,7 +532,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
                 permute.data_ptr<int32_t>(),
                 permuted_lengths.data_ptr<index_t>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
 
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
@@ -552,13 +552,13 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
   permuted_indices = at::empty(permuted_indices_size, indices.options());
 
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_1D_data_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_1D_data_kernel_1", [&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES_AND(
             at::ScalarType::Half,
             indices.scalar_type(),
             "permute_1D_data_kernel_2",
-            ([&] {
+            [&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
@@ -569,7 +569,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
                     at::ScalarType::Half,
                     weights_value.scalar_type(),
                     "permute_1D_data_kernel_3",
-                    ([&] {
+                    [&] {
                       using weights_t = scalar_t;
                       permute_1D_data_kernel<
                           true,
@@ -590,7 +590,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
                               permuted_indices.data_ptr<indices_t>(),
                               permuted_weights.data_ptr<weights_t>());
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
-                    })); // for each weights_t
+                    }); // for each weights_t
               } else {
                 permute_1D_data_kernel<
                     false,
@@ -612,8 +612,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
                         nullptr);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               }
-            })); // for each indices_t
-      })); // for each offsets_t
+            }); // for each indices_t
+      }); // for each offsets_t
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
@@ -756,12 +756,12 @@ block_bucketize_sparse_features_cuda(
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig.scalar_type(),
       "_block_bucketize_sparse_features_cuda_kernel1",
-      ([&] {
+      [&] {
         using offset_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
             indices_contig.scalar_type(),
             "_block_bucketize_sparse_features_cuda_kernel2",
-            ([&] {
+            [&] {
               _block_bucketize_sparse_features_cuda_kernel1<<<
                   num_blocks,
                   threads_per_block,
@@ -775,8 +775,8 @@ block_bucketize_sparse_features_cuda(
                   indices_contig.data_ptr<index_t>(),
                   new_lengths.data_ptr<offset_t>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
 
   // bucketize nonzeros
   new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
@@ -791,16 +791,16 @@ block_bucketize_sparse_features_cuda(
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cuda_kernel2<
                             true,
                             true,
@@ -825,9 +825,9 @@ block_bucketize_sparse_features_cuda(
                                 new_pos.data_ptr<index_t>(),
                                 unbucketize_permute.data_ptr<index_t>());
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
-                      }));
-                }));
-          }));
+                      });
+                });
+          });
     } else if (weights.has_value()) {
       Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
@@ -835,16 +835,16 @@ block_bucketize_sparse_features_cuda(
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cuda_kernel2<
                             true,
                             true,
@@ -869,21 +869,20 @@ block_bucketize_sparse_features_cuda(
                                 nullptr,
                                 unbucketize_permute.data_ptr<index_t>());
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
-                      }));
-                }));
-          }));
-
+                      });
+                });
+          });
     } else if (bucketize_pos) {
       new_pos = at::empty_like(indices);
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_block_bucketize_sparse_features_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cuda_kernel2<
                       true,
                       false,
@@ -908,19 +907,18 @@ block_bucketize_sparse_features_cuda(
                           new_pos.data_ptr<index_t>(),
                           unbucketize_permute.data_ptr<index_t>());
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
-                }));
-          }));
-
+                });
+          });
     } else {
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_block_bucketize_sparse_features_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cuda_kernel2<
                       true,
                       false,
@@ -945,8 +943,8 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           unbucketize_permute.data_ptr<index_t>());
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
-                }));
-          }));
+                });
+          });
     }
   } else {
     if (weights.has_value() & bucketize_pos) {
@@ -957,16 +955,16 @@ block_bucketize_sparse_features_cuda(
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cuda_kernel2<
                             false,
                             true,
@@ -991,10 +989,9 @@ block_bucketize_sparse_features_cuda(
                                 new_pos.data_ptr<index_t>(),
                                 nullptr);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
-                      }));
-                }));
-          }));
-
+                      });
+                });
+          });
     } else if (weights.has_value()) {
       Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
@@ -1002,16 +999,16 @@ block_bucketize_sparse_features_cuda(
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cuda_kernel2<
                             false,
                             true,
@@ -1036,21 +1033,20 @@ block_bucketize_sparse_features_cuda(
                                 nullptr,
                                 nullptr);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
-                      }));
-                }));
-          }));
-
+                      });
+                });
+          });
     } else if (bucketize_pos) {
       new_pos = at::empty_like(indices);
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_block_bucketize_sparse_features_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cuda_kernel2<
                       false,
                       false,
@@ -1075,19 +1071,18 @@ block_bucketize_sparse_features_cuda(
                           new_pos.data_ptr<index_t>(),
                           nullptr);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
-                }));
-          }));
-
+                });
+          });
     } else {
       AT_DISPATCH_INDEX_TYPES(
           offsets_contig.scalar_type(),
           "_bucketize_sparse_features_weight_cuda_kernel2_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices_contig.scalar_type(),
                 "_block_bucketize_sparse_features_cuda_kernel2_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cuda_kernel2<
                       false,
                       false,
@@ -1112,8 +1107,8 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           nullptr);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
-                }));
-          }));
+                });
+          });
     }
   }
 
@@ -1172,7 +1167,7 @@ Tensor reorder_batched_ad_lengths_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", ([&] {
+      cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", [&] {
         reorder_batched_ad_lengths_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 cat_ad_lengths
@@ -1183,7 +1178,7 @@ Tensor reorder_batched_ad_lengths_gpu(
                     .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
                 T);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
   return reordered_cat_ad_lengths;
 }
 
@@ -1264,7 +1259,7 @@ Tensor reorder_batched_ad_indices_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", ([&] {
+      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", [&] {
         reorder_batched_ad_indices_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 cat_ad_offsets
@@ -1279,7 +1274,7 @@ Tensor reorder_batched_ad_indices_gpu(
                     .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 T);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
   return reordered_cat_ad_indices;
 }
 
@@ -1340,9 +1335,9 @@ Tensor batched_unary_embeddings_forward_cuda(
   dim3 blocks(cuda_calc_xblock_count(B, threads), T, N);
   auto output = at::empty({N, B, T}, weight.options());
   AT_DISPATCH_INDEX_TYPES(
-      indices.type(), "batched_unary_embeddings_forward_kernel", ([&] {
+      indices.type(), "batched_unary_embeddings_forward_kernel", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            weight.type(), "batched_unary_embeddings_forward_kernel", ([&] {
+            weight.type(), "batched_unary_embeddings_forward_kernel", [&] {
               batched_unary_embeddings_forward_kernel<scalar_t>
                   <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                       N,
@@ -1354,8 +1349,8 @@ Tensor batched_unary_embeddings_forward_cuda(
                       indices.data_ptr<index_t>(),
                       output.data_ptr<scalar_t>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
   return output;
 }
 
@@ -1475,11 +1470,11 @@ Tensor batched_unary_embeddings_backward_cuda(
       cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads), N);
   auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
-      indices.type(), "batched_unary_embeddings_backward_kernel", ([&] {
+      indices.type(), "batched_unary_embeddings_backward_kernel", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             grad_output.type(),
             "batched_unary_embeddings_backward_kernel",
-            ([&] {
+            [&] {
               batched_unary_embeddings_backward_kernel<scalar_t>
                   <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                       N,
@@ -1498,8 +1493,8 @@ Tensor batched_unary_embeddings_backward_cuda(
                       sorted_linear_indices_num_runs.data_ptr<int32_t>(),
                       FixedDivisor(B));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            }));
-      }));
+            });
+      });
   return grad_weight;
 }
 

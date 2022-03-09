@@ -195,14 +195,14 @@ Tensor split_embedding_codegen_forward_cpu(
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
   AT_DISPATCH_FLOATING_TYPES(
-      output.scalar_type(), "split_embedding_cpu_forward", [&]() {
+      output.scalar_type(), "split_embedding_cpu_forward", [&] {
         using output_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND2(
             at::ScalarType::Half,
             at::ScalarType::Byte,
             weights.scalar_type(),
             "split_embedding_cpu_forward",
-            [&]() {
+            [&] {
               using ind_weights_t = std::conditional<
                   std::is_same<scalar_t, double>::value,
                   double,
@@ -294,12 +294,12 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       grad_output.scalar_type(),
       "split_embedding_grad_indice_weights_cpu_outer",
-      [&]() {
+      [&] {
         using grad_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             weights.scalar_type(),
             "split_embedding_grad_indice_weights_cpu",
-            [&]() {
+            [&] {
               using weights_t = scalar_t;
               split_embedding_grad_indice_weights_cpu_kernel<weights_t, grad_t>(
                   grad_output,

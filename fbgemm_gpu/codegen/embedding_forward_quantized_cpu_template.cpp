@@ -164,13 +164,13 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
-    DISPATCH_OUTPUT_TYPES(output.type(), "intn_split_embedding_codegen_forward_kernel", ([&] {
+    DISPATCH_OUTPUT_TYPES(output.type(), "intn_split_embedding_codegen_forward_kernel", [&] {
         auto* output_acc = output.data_ptr<output_t>();
         {% if weighted %}
         const float* indice_weights_acc = indice_weights.data_ptr<float>();
         {% endif %}
 
-        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] () {
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] {
             const auto* indices_acc = indices.data_ptr<index_t>();
             const auto* offsets_acc = offsets.data_ptr<index_t>();
             const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
@@ -320,7 +320,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
             }
             return;
         });
-    }));
+    });
     return output;
 }
 

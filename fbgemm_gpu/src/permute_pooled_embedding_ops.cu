@@ -63,7 +63,7 @@ Tensor permute_pooled_embs_gpu(
       (B + max_grid_dim_y - 1) / max_grid_dim_y);
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      pooled_embs_contiguous.type(), "permute_pooled_embeddings", ([&] {
+      pooled_embs_contiguous.type(), "permute_pooled_embeddings", [&] {
         permute_pooled_embs_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 pooled_embs_contiguous.data_ptr<scalar_t>(),
@@ -75,7 +75,7 @@ Tensor permute_pooled_embs_gpu(
                 T,
                 dim_sum);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+      });
 
   return permuted_pooled_embs;
 }

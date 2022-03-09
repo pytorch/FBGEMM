@@ -385,7 +385,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         lxu_cache_weights.type(),
         output.type(),
         {% endif %}
-        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", ([&] {
+        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
         {% if not nobag %}
         {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
         if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
@@ -467,7 +467,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
             return;
         {% endif %}
-        }));
+        });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;

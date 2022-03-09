@@ -38,7 +38,7 @@ Tensor _cat_int_tensors(
 
   for (size_t i = 0; i < tensor_list.size(); i++) {
     AT_DISPATCH_INDEX_TYPES(
-        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&]() {
+        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&] {
           auto indices_acc = tensor_list[i].accessor<index_t, 1>();
           for (auto j = 0; j < tensor_list[i].numel(); j++) {
             combined_tensors_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
@@ -135,7 +135,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
 
   for (size_t i = 0; i < offsets_list.size(); i++) {
     AT_DISPATCH_INDEX_TYPES(
-        offsets_list[i].scalar_type(), "tbe_input_offsets_", [&]() {
+        offsets_list[i].scalar_type(), "tbe_input_offsets_", [&] {
           auto offsets_acc = offsets_list[i].accessor<index_t, 1>();
           for (int64_t j = 1,
                        size = offsets_list[i].numel() -

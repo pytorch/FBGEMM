@@ -30,7 +30,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
   t_out[0].zero_();
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
@@ -38,12 +38,12 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
             t_out.data_ptr<scalar_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
   AT_DISPATCH_INTEGRAL_TYPES(
-      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", ([&] {
+      t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
@@ -51,7 +51,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
             t_out.data_ptr<scalar_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
-      }));
+      });
   return t_out;
 }
 
@@ -158,10 +158,10 @@ transpose_embedding_input(
   using at::RestrictPtrTraits;
 
   AT_DISPATCH_INDEX_TYPES(
-      infos.scalar_type(), "transpose_embedding_input1", ([&] {
+      infos.scalar_type(), "transpose_embedding_input1", [&] {
         using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(), "transpose_embedding_input2", ([&] {
+            indices.scalar_type(), "transpose_embedding_input2", [&] {
               if (!nobag) {
                 linearize_index_kernel<<<
                     div_round_up(B * T, kMaxThreads),
@@ -257,8 +257,8 @@ transpose_embedding_input(
                         linear_indices_sorted.numel(),
                         at::cuda::getCurrentCUDAStream()));
               }
-            }));
-      }));
+            });
+      });
 
   auto sorted_linear_indices_cumulative_run_lengths =
       asynchronous_complete_cumsum(sorted_linear_indices_run_lengths);

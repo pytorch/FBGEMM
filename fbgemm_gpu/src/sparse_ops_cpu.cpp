@@ -376,7 +376,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_2D_lengths_cpu_kernel", ([&] {
+      lengths.scalar_type(), "permute_2D_lengths_cpu_kernel", [&] {
         _permute_2D_lengths_cpu_kernel(
             T,
             B,
@@ -386,7 +386,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
             permuted_lengths.data_ptr<index_t>(),
             input_offsets.data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
+      }); // for each scalar_t
 
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
@@ -397,16 +397,16 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
   }
   permuted_indices = at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_2D_indices_weights_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_2D_indices_weights_kernel_1", [&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES(
-            indices.scalar_type(), "permute_2D_indices_weights_kernel_2", ([&] {
+            indices.scalar_type(), "permute_2D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
               AT_DISPATCH_FLOATING_TYPES(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_2D_indices_weights_kernel_3",
-                  ([&] {
+                  [&] {
                     using weights_t = scalar_t;
                     if (weights.has_value()) {
                       const auto weights_value_contig =
@@ -445,9 +445,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
                           nullptr,
                           permuted_lengths.data_ptr<offsets_t>());
                     }
-                  })); // for each weights_t
-            })); // for each indices_t
-      })); // for each offsets_t
+                  }); // for each weights_t
+            }); // for each indices_t
+      }); // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
@@ -503,13 +503,13 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
   AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_1D_lengths_cpu_kernel", ([&] {
+      lengths.scalar_type(), "permute_1D_lengths_cpu_kernel", [&] {
         _permute_1D_lengths_cpu_kernel(
             lengths_contig->data_ptr<index_t>(),
             permuted_lengths_size,
             permute.data_ptr<int32_t>(),
             permuted_lengths.data_ptr<index_t>());
-      })); // for each scalar_t
+      }); // for each scalar_t
 
   const auto input_offsets = asynchronous_exclusive_cumsum_cpu(lengths);
   const auto output_offsets =
@@ -525,16 +525,16 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
 
   permuted_indices = at::empty(permuted_indices_size, indices.options());
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_1D_indices_weights_kernel_1", ([&] {
+      input_offsets.scalar_type(), "permute_1D_indices_weights_kernel_1", [&] {
         using offsets_t = index_t;
         AT_DISPATCH_ALL_TYPES(
-            indices.scalar_type(), "permute_1D_indices_weights_kernel_2", ([&] {
+            indices.scalar_type(), "permute_1D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
               AT_DISPATCH_FLOATING_TYPES(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_1D_indices_weights_kernel_3",
-                  ([&] {
+                  [&] {
                     using weights_t = scalar_t;
                     if (weights.has_value()) {
                       const auto weights_value_contig =
@@ -571,9 +571,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
                           permuted_indices.data_ptr<indices_t>(),
                           nullptr);
                     }
-                  })); // for each weights_t
-            })); // for each indices_t
-      })); // for each offsets_t
+                  }); // for each weights_t
+            }); // for each indices_t
+      }); // for each offsets_t
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
@@ -611,16 +611,16 @@ block_bucketize_sparse_features_cpu(
       AT_DISPATCH_INDEX_TYPES(
           lengths.scalar_type(),
           "block_bucketize_sparse_features_weights_cpu_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_weights_cpu_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "bucketize_sparse_features_weights_cpu_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cpu<
                             true,
                             true,
@@ -638,23 +638,23 @@ block_bucketize_sparse_features_cpu(
                             new_weights,
                             new_pos,
                             unbucketize_permute);
-                      }));
-                }));
-          }));
+                      });
+                });
+          });
     } else {
       AT_DISPATCH_INDEX_TYPES(
           lengths.scalar_type(),
           "block_bucketize_sparse_features_weights_cpu_1",
-          ([&] {
+          [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_weights_cpu_2",
-                ([&] {
+                [&] {
                   AT_DISPATCH_FLOATING_TYPES(
                       weights_value.scalar_type(),
                       "bucketize_sparse_features_weights_cpu_3",
-                      ([&] {
+                      [&] {
                         _block_bucketize_sparse_features_cpu<
                             false,
                             true,
@@ -672,21 +672,21 @@ block_bucketize_sparse_features_cpu(
                             new_weights,
                             new_pos,
                             unbucketize_permute);
-                      }));
-                }));
-          }));
+                      });
+                });
+          });
     }
   } else {
     if (sequence) {
       const auto lengths_sum = indices.numel();
       unbucketize_permute = at::empty({lengths_sum}, indices.options());
       AT_DISPATCH_INDEX_TYPES(
-          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", ([&] {
+          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_cpu_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cpu<
                       true,
                       false,
@@ -704,16 +704,16 @@ block_bucketize_sparse_features_cpu(
                       new_weights,
                       new_pos,
                       unbucketize_permute);
-                }));
-          }));
+                });
+          });
     } else {
       AT_DISPATCH_INDEX_TYPES(
-          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", ([&] {
+          lengths.scalar_type(), "block_bucketize_sparse_features_cpu_1", [&] {
             using offset_t = index_t;
             AT_DISPATCH_INDEX_TYPES(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_cpu_2",
-                ([&] {
+                [&] {
                   _block_bucketize_sparse_features_cpu<
                       false,
                       false,
@@ -731,8 +731,8 @@ block_bucketize_sparse_features_cpu(
                       new_weights,
                       new_pos,
                       unbucketize_permute);
-                }));
-          }));
+                });
+          });
     }
   }
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
@@ -759,12 +759,12 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_exclusive_cumsum_cpu_kernel", ([&] {
+      t_in_contig->type(), "asynchronous_exclusive_cumsum_cpu_kernel", [&] {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->data_ptr<scalar_t>(),
             output.data_ptr<scalar_t>());
-      }));
+      });
   return output;
 }
 
@@ -774,7 +774,7 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_inclusive_cumsum_cpu_kernel", ([&] {
+      t_in_contig->type(), "asynchronous_inclusive_cumsum_cpu_kernel", [&] {
         scalar_t cumsum = 0;
         const auto* input_ptr = t_in_contig->data_ptr<scalar_t>();
         const auto N = t_in_contig->numel();
@@ -784,7 +784,7 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
           cumsum += input_ptr[i];
           output_ptr[i] = cumsum;
         }
-      }));
+      });
   return output;
 }
 
@@ -795,12 +795,12 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = at::zeros({t_in.numel() + 1}, t_in.options());
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_complete_cumsum_cpu_kernel", ([&] {
+      t_in_contig->type(), "asynchronous_complete_cumsum_cpu_kernel", [&] {
         const auto N = t_in_contig->numel();
         const auto last_sum = exclusive_scan_ptrs_cpu(
             N, t_in_contig->data_ptr<scalar_t>(), output.data_ptr<scalar_t>());
         output.data_ptr<scalar_t>()[N] = last_sum;
-      }));
+      });
   return output;
 }
 
@@ -914,7 +914,7 @@ Tensor reorder_batched_ad_indices_cpu(
 
   Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_indices.type(), "reorder_batched_ad_indices_cpu_kernel", ([&] {
+      cat_ad_indices.type(), "reorder_batched_ad_indices_cpu_kernel", [&] {
         reorder_batched_ad_indices_cpu_<scalar_t>(
             cat_ad_offsets,
             cat_ad_indices,
@@ -922,7 +922,7 @@ Tensor reorder_batched_ad_indices_cpu(
             batch_offsets,
             num_ads_in_batch,
             reordered_cat_ad_indices);
-      }));
+      });
 
   return reordered_cat_ad_indices;
 }
@@ -1000,33 +1000,32 @@ Tensor batched_unary_embeddings_forward_cpu(
   auto* output_data = output.data_ptr<float>();
   const auto* weight_data = weight.data_ptr<float>();
 
-  AT_DISPATCH_INDEX_TYPES(
-      table_offsets.scalar_type(), "unary_indices", ([&] {
-        const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
-        const index_t* offsets_data = offsets.data_ptr<index_t>();
-        const index_t* indices_data = indices.data_ptr<index_t>();
-        const index_t sum_E = table_offsets_data[T];
+  AT_DISPATCH_INDEX_TYPES(table_offsets.scalar_type(), "unary_indices", [&] {
+    const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
+    const index_t* offsets_data = offsets.data_ptr<index_t>();
+    const index_t* indices_data = indices.data_ptr<index_t>();
+    const index_t sum_E = table_offsets_data[T];
 
-        for (const auto n : c10::irange(N)) {
-          for (const auto b : c10::irange(B)) {
-            for (const auto t : c10::irange(T)) {
-              const index_t indices_start = offsets_data[t * B + b];
-              const index_t indices_end = offsets_data[t * B + b + 1];
-              float sum = 0;
-              for (const auto l : c10::irange(indices_start, indices_end)) {
-                const index_t idx =
-                    n * sum_E + table_offsets_data[t] + indices_data[l];
-                // Since we don't care about the performance of CPU impl, adding
-                // the boundary check here. OOB will result in undefined
-                // behavior for GPU impl.
-                TORCH_CHECK(idx < weight.numel());
-                sum += weight_data[idx];
-              }
-              output_data[(n * B + b) * T + t] = sum;
-            }
+    for (const auto n : c10::irange(N)) {
+      for (const auto b : c10::irange(B)) {
+        for (const auto t : c10::irange(T)) {
+          const index_t indices_start = offsets_data[t * B + b];
+          const index_t indices_end = offsets_data[t * B + b + 1];
+          float sum = 0;
+          for (const auto l : c10::irange(indices_start, indices_end)) {
+            const index_t idx =
+                n * sum_E + table_offsets_data[t] + indices_data[l];
+            // Since we don't care about the performance of CPU impl, adding
+            // the boundary check here. OOB will result in undefined
+            // behavior for GPU impl.
+            TORCH_CHECK(idx < weight.numel());
+            sum += weight_data[idx];
           }
+          output_data[(n * B + b) * T + t] = sum;
         }
-      }));
+      }
+    }
+  });
 
   return output;
 }
@@ -1079,11 +1078,11 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig->scalar_type(),
       "jagged_2d_to_dense_forward_by_offsets",
-      ([&]() {
+      [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             values_contig->scalar_type(),
             "jagged_2d_to_dense_forward_by_values",
-            ([&]() {
+            [&] {
               jagged_2d_to_dense_forward_kernel(
                   B,
                   max_L,
@@ -1091,8 +1090,8 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
                   offsets_contig->data_ptr<index_t>(),
                   values_contig->data_ptr<scalar_t>(),
                   padded_values.data_ptr<scalar_t>());
-            }));
-      }));
+            });
+      });
 
   return padded_values;
 }
@@ -1147,9 +1146,9 @@ Tensor jagged_1d_to_dense_cpu(
 
   auto padded_values = at::empty({B, max_L}, values.options());
   AT_DISPATCH_INDEX_TYPES(
-      offsets_contig->scalar_type(), "jagged_1d_to_dense_1", ([&]() {
+      offsets_contig->scalar_type(), "jagged_1d_to_dense_1", [&] {
         AT_DISPATCH_ALL_TYPES(
-            values_contig->scalar_type(), "jagged_1d_to_dense_2", ([&]() {
+            values_contig->scalar_type(), "jagged_1d_to_dense_2", [&] {
               jagged_1d_to_dense_kernel<index_t, scalar_t>(
                   B,
                   max_L,
@@ -1157,8 +1156,8 @@ Tensor jagged_1d_to_dense_cpu(
                   offsets_contig->data_ptr<index_t>(),
                   values_contig->data_ptr<scalar_t>(),
                   padded_values.data_ptr<scalar_t>());
-            }));
-      }));
+            });
+      });
 
   return padded_values;
 }
@@ -1213,7 +1212,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cpu", [&]() {
+      logit.type(), "histogram_binning_calibration_cpu", [&] {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
             logit.numel(),
             recalibrate_value,
@@ -1292,14 +1291,10 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   Tensor dense_segment_value =
       at::empty({logit.numel()}, segment_value.options());
   AT_DISPATCH_INDEX_TYPES(
-      segment_value.scalar_type(),
-      "to_dense_representation_cpu_wrapper",
-      [&]() {
+      segment_value.scalar_type(), "to_dense_representation_cpu_wrapper", [&] {
         using segment_value_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            segment_lengths.scalar_type(),
-            "to_dense_representation_cpu",
-            [&]() {
+            segment_lengths.scalar_type(), "to_dense_representation_cpu", [&] {
               using segment_length_t = index_t;
               _to_dense_representation<segment_value_t, segment_length_t>(
                   segment_lengths.numel(),
@@ -1317,12 +1312,12 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(),
       "histogram_binning_calibration_by_feature_cpu_wrapper",
-      [&]() {
+      [&] {
         using logit_t = scalar_t;
         AT_DISPATCH_INDEX_TYPES(
             segment_value.scalar_type(),
             "histogram_binning_calibration_by_feature_cpu",
-            [&]() {
+            [&] {
               using segment_value_t = index_t;
               _histogram_binning_calibration_by_feature_cpu_kernel<
                   logit_t,
@@ -1415,14 +1410,10 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   Tensor dense_segment_value =
       at::empty({logit.numel()}, segment_value.options());
   AT_DISPATCH_INDEX_TYPES(
-      segment_value.scalar_type(),
-      "to_dense_representation_cpu_wrapper",
-      [&]() {
+      segment_value.scalar_type(), "to_dense_representation_cpu_wrapper", [&] {
         using segment_value_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            segment_lengths.scalar_type(),
-            "to_dense_representation_cpu",
-            [&]() {
+            segment_lengths.scalar_type(), "to_dense_representation_cpu", [&] {
               using segment_length_t = index_t;
               _to_dense_representation<segment_value_t, segment_length_t>(
                   segment_lengths.numel(),
@@ -1438,12 +1429,12 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(),
       "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
-      [&]() {
+      [&] {
         using logit_t = scalar_t;
         AT_DISPATCH_INDEX_TYPES(
             segment_value.scalar_type(),
             "generic_histogram_binning_calibration_by_feature_cpu",
-            [&]() {
+            [&] {
               using segment_value_t = index_t;
               _generic_histogram_binning_calibration_by_feature_cpu_kernel<
                   logit_t,
@@ -1493,14 +1484,14 @@ Tensor segment_sum_csr_cpu(
   TENSOR_ON_CPU(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cpu", ([&] {
-                          _segment_sum_csr_cpu_kernel<scalar_t>(
-                              csr_seg.numel() - 1,
-                              batch_size,
-                              csr_seg.data_ptr<int>(),
-                              values.data_ptr<scalar_t>(),
-                              output.data_ptr<scalar_t>());
-                        }));
+  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cpu", [&] {
+    _segment_sum_csr_cpu_kernel<scalar_t>(
+        csr_seg.numel() - 1,
+        batch_size,
+        csr_seg.data_ptr<int>(),
+        values.data_ptr<scalar_t>(),
+        output.data_ptr<scalar_t>());
+  });
   return output;
 }
 
