@@ -857,7 +857,7 @@ Tensor reorder_batched_ad_lengths_cpu(
   return reordered_cat_ad_lengths;
 }
 
-template <class T>
+template <typename index_t, typename scalar_t>
 void reorder_batched_ad_indices_cpu_(
     const Tensor& cat_ad_offsets,
     const Tensor& cat_ad_indices,
@@ -869,11 +869,11 @@ void reorder_batched_ad_indices_cpu_(
   const int64_t nT = (cat_ad_offsets.numel() - 1) / num_ads_in_batch;
 
   const auto* batch_offsets_data = batch_offsets.data_ptr<int32_t>();
-  const auto* cat_ad_offsets_data = cat_ad_offsets.data_ptr<int32_t>();
+  const auto* cat_ad_offsets_data = cat_ad_offsets.data_ptr<index_t>();
   const auto* reordered_cat_ad_offsets_data =
-      reordered_cat_ad_offsets.data_ptr<int32_t>();
-  const auto* cat_ad_indices_data = cat_ad_indices.data_ptr<T>();
-  auto* output_data = output.data_ptr<T>();
+      reordered_cat_ad_offsets.data_ptr<index_t>();
+  const auto* cat_ad_indices_data = cat_ad_indices.data_ptr<scalar_t>();
+  auto* output_data = output.data_ptr<scalar_t>();
 
   for (auto b = 0; b < nB; b++) {
     const auto num_ads_b = batch_offsets_data[b + 1] - batch_offsets_data[b];
@@ -913,15 +913,22 @@ Tensor reorder_batched_ad_indices_cpu(
   TENSOR_ON_CPU(batch_offsets);
 
   Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
-  AT_DISPATCH_ALL_TYPES(
-      cat_ad_indices.type(), "reorder_batched_ad_indices_cpu_kernel", [&] {
-        reorder_batched_ad_indices_cpu_<scalar_t>(
-            cat_ad_offsets,
-            cat_ad_indices,
-            reordered_cat_ad_offsets,
-            batch_offsets,
-            num_ads_in_batch,
-            reordered_cat_ad_indices);
+  AT_DISPATCH_INDEX_TYPES(
+      cat_ad_offsets.scalar_type(),
+      "reorder_batched_ad_indices_cpu_kernel_1",
+      [&] {
+        AT_DISPATCH_ALL_TYPES(
+            cat_ad_indices.type(),
+            "reorder_batched_ad_indices_cpu_kernel_2",
+            [&] {
+              reorder_batched_ad_indices_cpu_<index_t, scalar_t>(
+                  cat_ad_offsets,
+                  cat_ad_indices,
+                  reordered_cat_ad_offsets,
+                  batch_offsets,
+                  num_ads_in_batch,
+                  reordered_cat_ad_indices);
+            });
       });
 
   return reordered_cat_ad_indices;
