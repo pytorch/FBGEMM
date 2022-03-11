@@ -52,7 +52,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus,
         non_default_stream,
         r,
-        dim,
+        dim: int,
     ) -> None:
         dst_device = r.randint(0, num_gpus - 1)
         torch.cuda.set_device(dst_device)
