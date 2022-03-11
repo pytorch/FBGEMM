@@ -148,64 +148,16 @@ class FBGEMM_GPU_BuildExtension(BuildExtension.with_options(no_python_abi_suffix
                 hipify_python.hipify(
                         project_directory=cur_dir,
                         output_directory=cur_dir,
-                        includes="codegen/*",
+                        header_include_dirs=[
+                            os.path.join(cur_dir, "include"),
+                            os.path.join(cur_dir, "src"),
+                            cur_dir,
+                        ], 
+                        includes=["*"],
+                        extra_files=CUDA_source,
                         show_detailed=True,
                         is_pytorch_extension=True,
                         clean_ctx=clean_ctx)
-
-            def replace_pattern(hip_file, pattern_map):
-                patterns = {}
-                for regexp in pattern_map:
-                    patterns[regexp] = re.compile(regexp.format(exclude=""))
-                with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp_file:
-                   with open(hip_file) as src_file:
-                        for line in src_file:
-                            for regexp in pattern_map:
-                                pattern = pattern_map[regexp]
-                                exclude = pattern[0]
-                                replacement = pattern[1]
-                                in_regexp = regexp.format(exclude="")
-                                if len(pattern_map[regexp]) == 4:
-                                    all_ori = pattern[2]
-                                    all_new = pattern[3]
-                                else:
-                                    all_ori = None
-                                    all_new = None
-                                if re.search(in_regexp, line) and \
-                                        (exclude is None or not re.search(regexp.format(exclude=exclude), line)):
-                                    ori = line
-                                    if all_ori is not None and all_ori in line:
-                                        line = line.replace(all_ori, all_new)
-                                    else:
-                                        line = patterns[regexp].sub(replacement, line)
-
-                            tmp_file.write(line)
-
-                shutil.copystat(hip_file, tmp_file.name)
-                shutil.move(tmp_file.name, hip_file)
-
-            def post_hipify(hip_file):
-                replace_pattern(hip_file, {"(#include.*\"codegen.*){exclude}[.]cuh": ["_hip", "\\1_hip.cuh"],
-                    "{exclude}cub(::DeviceRunLengthEncode)": ["hip", "hipcub\\1"],
-                    "(#include.*[<\"].*){exclude}cub(.*)[.]cuh": ["hip", "\\1hipcub\\2.hpp"],
-                    "(#include.*[<\"]fbgemm_gpu.*)({exclude}[.]cuh)": ["_hip", "\\1_hip\\2", "cuda", "hip"],
-                    "cudaCpuDeviceId": [None, "hipCpuDeviceId"],
-                    "split_embeddings_utils[.]cuh": [None, "split_embeddings_utils_hip.cuh"]})
-
-            abs_build_path = os.path.join(cur_dir, build_codegen_path)
-            for f in cpp_cuda_output_files:
-                if f.endswith(".cu"):
-                    hip_f = os.path.join(abs_build_path, f.replace("cuda", "hip").replace(".cu", ".hip"))
-                    post_hipify(hip_f)
-
-            for s in ["codegen", "src"]:
-                for f in os.listdir(s):
-                    if f.endswith(".hip") or f.endswith("hip.cuh"):
-                        hip_f = os.path.join(s, f)
-                        post_hipify(hip_f)
-
-            os.system("hipify-perl src/split_embeddings_utils.cuh > src/split_embeddings_utils_hip.cuh")
-            post_hipify("src/split_embeddings_utils_hip.cuh")
 
         super().build_extension(ext)
 
@@ -230,26 +182,10 @@ if "--cpu_only" in sys.argv:
     cpu_only_build = True
     sys.argv.remove("--cpu_only")
 
-setup(
-    name="fbgemm_gpu",
-    install_requires=[
-        "torch",
-        "Jinja2",
-        "click",
-        "hypothesis",
-    ],
-    version="0.0.1",
-    long_description=long_description,
-    ext_modules=[
-        CUDAExtension(
-            name="fbgemm_gpu_py",
-            sources=[
+CUDA_source = [
                 os.path.join(cur_dir, build_codegen_path, "{}".format(f))
                 for f in cpp_cuda_output_files + cpp_cpu_output_files
-            ]
-            + cpp_asmjit_files
-            + cpp_fbgemm_files
-            + [
+            ] + cpp_asmjit_files + cpp_fbgemm_files + [
                 os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
                 os.path.join(cur_dir, "codegen/embedding_forward_quantized_host.cpp"),
@@ -278,8 +214,9 @@ setup(
                 os.path.join(cur_dir, "src/jagged_tensor_ops.cu"),
                 os.path.join(cur_dir, "src/histogram_binning_calibration_ops.cu"),
                 os.path.join(cur_dir, "src/split_embeddings_utils.cu"),
-            ],
-            include_dirs=[
+            ]
+
+common_included = [
                 cur_dir,
                 os.path.join(cur_dir, "include"),
                 os.path.join(cur_dir, "../include"),
@@ -288,34 +225,42 @@ setup(
                 os.path.join(cur_dir, "../third_party/asmjit/src/core"),
                 os.path.join(cur_dir, "../third_party/asmjit/src/x86"),
                 os.path.join(cur_dir, "../third_party/cpuinfo/include"),
-            ] + include_dirs,
+            ]
+
+CUDA_include = common_included + include_dirs
+
+Cpp_source = [
+                os.path.join(cur_dir, build_codegen_path, "{}".format(f))
+                for f in cpp_cpu_output_files
+            ] + cpp_asmjit_files + cpp_fbgemm_files + [
+                os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
+                os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
+            ]
+
+setup(
+    name="fbgemm_gpu",
+    install_requires=[
+        "torch",
+        "Jinja2",
+        "click",
+        "hypothesis",
+    ],
+    version="0.0.1",
+    long_description=long_description,
+    ext_modules=[
+        CUDAExtension(
+            name="fbgemm_gpu_py",
+            sources=CUDA_source,
+            include_dirs=CUDA_include,
             extra_compile_args={"cxx": extra_compile_args + ["-DFBGEMM_GPU_WITH_CUDA"],
                                 "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
             libraries=libraries,
         ) if not cpu_only_build else
         CppExtension(
             name="fbgemm_gpu_py",
-            sources=[
-                os.path.join(cur_dir, build_codegen_path, "{}".format(f))
-                for f in cpp_cpu_output_files
-            ]
-            + cpp_asmjit_files
-            + cpp_fbgemm_files
-            + [
-                os.path.join(cur_dir, "codegen/embedding_forward_split_cpu.cpp"),
-                os.path.join(cur_dir, "codegen/embedding_forward_quantized_host_cpu.cpp"),
-                os.path.join(cur_dir, "codegen/embedding_backward_dense_host_cpu.cpp"),
-            ],
-            include_dirs=[
-                cur_dir,
-                os.path.join(cur_dir, "include"),
-                os.path.join(cur_dir, "../include"),
-                os.path.join(cur_dir, "../src"),
-                os.path.join(cur_dir, "../third_party/asmjit/src"),
-                os.path.join(cur_dir, "../third_party/asmjit/src/core"),
-                os.path.join(cur_dir, "../third_party/asmjit/src/x86"),
-                os.path.join(cur_dir, "../third_party/cpuinfo/include"),
-            ],
+            sources=Cpp_source,
+            include_dirs=common_included,
             extra_compile_args={"cxx": extra_compile_args},
         )
     ],
