@@ -15,6 +15,7 @@ import click
 import numpy as np
 import tabulate
 import torch
+from fbgemm_gpu.bench.utils import benchmark_torch_function
 
 try:
     # pyre-ignore[21]
@@ -34,19 +35,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     EmbeddingLocation,
 )
 from torch.profiler import ProfilerActivity, profile
-
-
-def benchmark_torch_function(iters: int, f, *args) -> float:
-    f(*args)
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    start_event.record()
-    for _ in range(iters):
-        f(*args)
-    end_event.record()
-    torch.cuda.synchronize()
-    return (start_event.elapsed_time(end_event) * 1.0e-3) / iters
 
 
 def get_gpu_device(gpu_num) -> torch.device:
@@ -216,11 +204,13 @@ def print_p2p_bandwidth(
     for i in range(num_gpus):
         for j in range(num_gpus):
             with torch.cuda.device(i):
-                t = benchmark_torch_function(
-                    iters,
+                t, _ = benchmark_torch_function(
                     lambda: pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
                     if i != j
                     else pooled_ad_embeddings[i].clone(),
+                    (),
+                    flush_gpu_cache_size_mb=0,
+                    iters=iters,
                 )
                 p2p_copy_bw[i, j] = (
                     pooled_ad_embeddings[i].numel() * bytes_per_element / t / 1.0e9
@@ -374,9 +364,9 @@ def benchmark(
             skip_dequantization,
             data_type,
         )
-        t = benchmark_torch_function(
-            iters,
-            lambda: pool_func_with_quantization(
+        t, _ = benchmark_torch_function(
+            pool_func_with_quantization,
+            (
                 batch_indices,
                 include_quantization,
                 include_tbe,
@@ -384,6 +374,8 @@ def benchmark(
                 skip_dequantization,
                 data_type,
             ),
+            flush_gpu_cache_size_mb=0,
+            iters=iters,
         )
         with profile(activities=[ProfilerActivity.CUDA]) as prof:
             pool_func_with_quantization(
