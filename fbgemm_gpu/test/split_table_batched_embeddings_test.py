@@ -3100,16 +3100,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 D = D_2 * 2
 
                 def comp(i: int) -> np.ndarray:
-                    subs = np_weights.view(np.uint16) >> (i * 4)
+                    subs = np_weights.view(np.uint8) >> (i * 4)
                     sub_mask = subs & 0xF
                     result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
                         -1, 1
                     ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
                         np.float32
                     )
-                    return result.astype(np.float16).astype(np.float32)
+                    return result.astype(np.float32)
 
-                comps = [comp(i) for i in range(4)]
+                comps = [comp(i) for i in range(2)]
                 comps = np.stack(comps)
                 comps = comps.transpose(1, 2, 0)
                 comps = comps.reshape(E, D)
@@ -3129,7 +3129,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
                         np.float32
                     )
-                    return result.astype(np.float16).astype(np.float32)
+                    return result.astype(np.float32)
 
                 comps = [comp(i) for i in range(4)]
                 comps = np.stack(comps)
@@ -3443,7 +3443,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cpu_hashtable=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_nbit_forward_pruning(
+    def test_pruning(
         self,
         T: int,
         B: int,
