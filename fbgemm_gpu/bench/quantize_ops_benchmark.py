@@ -3,14 +3,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import functools
 import logging
 import random
-import time
-from typing import Callable, Tuple
 
 import click
 import torch
-from torch import Tensor
+from fbgemm_gpu.bench.utils import benchmark_torch_function
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -20,66 +19,6 @@ try:
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-
-
-def benchmark_torch_function(
-    func: Callable[[Tensor], Tensor],
-    input: Tensor,
-    flush_gpu_cache_size_mb: int,
-) -> Tuple[float, Tensor]:
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        # Flush the cache
-        if flush_gpu_cache_size_mb:
-            _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-            )
-            torch.cuda.synchronize()
-        start_event.record()
-        # Benchmark code
-        output = func(input)
-        # Accumulate the time for iters iteration
-        end_event.record()
-        torch.cuda.synchronize()
-        elapsed_time = start_event.elapsed_time(end_event) * 1.0e-3
-    else:
-        start_time = time.time()
-        output = func(input)
-        elapsed_time = time.time() - start_time
-    return float(elapsed_time), output
-
-
-def benchmark_torch_mixdim_function(
-    func: Callable[[Tensor, Tensor, int], Tensor],
-    input: Tensor,
-    D_offsets: Tensor,
-    output_dtype: int,
-    flush_gpu_cache_size_mb: int,
-) -> Tuple[float, Tensor]:
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        # Flush the cache
-        if flush_gpu_cache_size_mb:
-            _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-            )
-            torch.cuda.synchronize()
-        start_event.record()
-        # Benchmark code
-        output = func(input, D_offsets, output_dtype)
-        # Accumulate the time for iters iteration
-        end_event.record()
-        torch.cuda.synchronize()
-        elapsed_time = start_event.elapsed_time(end_event) * 1.0e-3
-    else:
-        start_time = time.time()
-        output = func(input, D_offsets, output_dtype)
-        elapsed_time = time.time() - start_time
-    return float(elapsed_time), output
 
 
 @click.group()
@@ -110,62 +49,55 @@ def bench(
         "2bit_dequant": 0.0,
     }
 
+    benchmark = functools.partial(
+        benchmark_torch_function,
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        iters=1,
+        num_warmups=0,
+    )
+
     input_data = torch.rand(num_rows, num_columns).float()
     if torch.cuda.is_available():
         input_data = input_data.cuda()
     for step in range(iters + warmup_runs):
-        time, quant_data_8bit = benchmark_torch_function(
+        time, quant_data_8bit = benchmark(
             torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized,
-            input_data,
-            flush_gpu_cache_size_mb,
+            (input_data,),
         )
         if step >= warmup_runs:
             total_time["8bit_quant"] += time
 
-        time, quant_data_4bit = benchmark_torch_function(
-            lambda input: torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                input, 4
-            ),
-            input_data,
-            flush_gpu_cache_size_mb,
+        time, quant_data_4bit = benchmark(
+            torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
+            (input_data, 4),
         )
         if step >= warmup_runs:
             total_time["4bit_quant"] += time
 
-        time, quant_data_2bit = benchmark_torch_function(
-            lambda input: torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                input, 2
-            ),
-            input_data,
-            flush_gpu_cache_size_mb,
+        time, quant_data_2bit = benchmark(
+            torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
+            (input_data, 2),
         )
         if step >= warmup_runs:
             total_time["2bit_quant"] += time
 
-        time, _ = benchmark_torch_function(
+        time, _ = benchmark(
             torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
-            quant_data_8bit,
-            flush_gpu_cache_size_mb,
+            (quant_data_8bit,),
         )
         if step >= warmup_runs:
             total_time["8bit_dequant"] += time
 
-        time, _ = benchmark_torch_function(
-            lambda input: torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
-                input, 4
-            ),
-            quant_data_4bit,
-            flush_gpu_cache_size_mb,
+        time, _ = benchmark(
+            torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
+            (quant_data_4bit, 4),
         )
         if step >= warmup_runs:
             total_time["4bit_dequant"] += time
 
-        time, _ = benchmark_torch_function(
-            lambda input: torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
-                input, 2
-            ),
-            quant_data_2bit,
-            flush_gpu_cache_size_mb,
+        time, _ = benchmark(
+            torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
+            (quant_data_2bit, 2),
         )
         if step >= warmup_runs:
             total_time["2bit_dequant"] += time
@@ -214,31 +146,31 @@ def mixdim(
     total_time_mixed_dim_fp16 = 0.0
     total_time_single_dim = 0.0
 
+    benchmark = functools.partial(
+        benchmark_torch_function,
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        iters=1,
+        num_warmups=0,
+    )
+
     for step in range(iters + warmup_runs):
-        time, _ = benchmark_torch_mixdim_function(
+        time, _ = benchmark(
             torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-            input_data,
-            D_offsets,
-            0,
-            0,
+            (input_data, D_offsets, 0),
         )  # output is FP32
         if step >= warmup_runs:
             total_time_mixed_dim_fp32 += time
 
-        time, _ = benchmark_torch_mixdim_function(
+        time, _ = benchmark(
             torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-            input_data,
-            D_offsets,
-            1,
-            0,
+            (input_data, D_offsets, 1),
         )  # output is FP16
         if step >= warmup_runs:
             total_time_mixed_dim_fp16 += time
 
-        time, _ = benchmark_torch_function(
+        time, _ = benchmark(
             torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
-            input_data,
-            0,
+            (input_data,),
         )  # output is FP32
         if step >= warmup_runs:
             total_time_single_dim += time
