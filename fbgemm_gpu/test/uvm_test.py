@@ -141,7 +141,12 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Reference uvm tensor from second cuda device
-        device_prototype = torch.empty(0, device="cuda:1")
+        try:
+            device_prototype = torch.empty(0, device="cuda:1")
+        except RuntimeError:
+            # Skip the tests if there is no "cuda:1" device
+            return
+
         second_t = torch.ops.fbgemm.uvm_to_device(uvm_t, device_prototype)
 
         assert torch.ops.fbgemm.is_uvm_tensor(second_t)
