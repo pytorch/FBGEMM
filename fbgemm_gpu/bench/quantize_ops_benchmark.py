@@ -8,15 +8,19 @@ import logging
 import random
 
 import click
+import fbgemm_gpu
 import torch
-from fbgemm_gpu.bench.utils import benchmark_torch_function
 
 logging.basicConfig(level=logging.DEBUG)
 
-try:
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if open_source:
     # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-except Exception:
+    from bench_utils import benchmark_torch_function
+else:
+    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
+
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
