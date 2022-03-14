@@ -90,8 +90,8 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
             dim,
         )
         self.assertEqual(output.device, torch.device(f"cuda:{dst_device}"))
-        torch.testing.assert_allclose(output_ref, output.cpu())
-        torch.testing.assert_allclose(output_ref, output_cpu)
+        torch.testing.assert_close(output_ref, output.cpu())
+        torch.testing.assert_close(output_ref, output_cpu)
 
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
@@ -117,7 +117,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
             cuda_outputs = torch.ops.fbgemm.all_to_one_device(cuda_inputs, dst_device)
             for i, o in zip(inputs, cuda_outputs):
                 self.assertEqual(o.device, dst_device)
-                torch.testing.assert_allclose(o.cpu(), i)
+                torch.testing.assert_close(o.cpu(), i)
 
 
 if __name__ == "__main__":
