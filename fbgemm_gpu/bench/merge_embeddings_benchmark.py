@@ -12,21 +12,19 @@ import signal
 from typing import Tuple, List
 
 import click
+import fbgemm_gpu
 import numpy as np
 import tabulate
 import torch
-from fbgemm_gpu.bench.utils import benchmark_torch_function
 
-try:
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if open_source:
     # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
-    )
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    from bench_utils import benchmark_torch_function
+else:
+    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
+
 
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
