@@ -39,9 +39,9 @@ uint32_t round_up(uint32_t a, uint32_t b) {
   return ((a + b - 1) / b) * b;
 }
 
-inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty, int32_t row_alignment) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, 16);
+  return round_up(r, row_alignment);
 }
 
 inline uint32_t pruned_hash_function(uint32_t h) {
@@ -187,9 +187,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
-                const int32_t D_vecs = div_round_up(D, 8);
-                const int32_t D_tail_elements = D % 8;
-                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+                // default to 1 byte alignment for CPU TBE
+                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, 1);
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);

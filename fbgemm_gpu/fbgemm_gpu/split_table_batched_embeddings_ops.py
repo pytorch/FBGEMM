@@ -1466,10 +1466,12 @@ def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
 
-def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+def rounded_row_size_in_bytes(
+    dim: int, weight_ty: SparseType, row_alignment: int
+) -> int:
     r = unpadded_row_size_in_bytes(dim, weight_ty)
     # align each row to 16-byte boundaries.
-    return round_up(r, 16)
+    return round_up(r, row_alignment)
 
 
 def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
@@ -1491,6 +1493,7 @@ def align_to_cacheline(a: int) -> int:
 def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
+    row_alignment: int,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1498,7 +1501,9 @@ def nbit_construct_split_state(
     host_size = 0
     uvm_size = 0
     for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
-        embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty)
+        embedding_dim = rounded_row_size_in_bytes(
+            embedding_dim, weight_ty, row_alignment
+        )
         state_size = align_to_cacheline(num_embeddings * embedding_dim)
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
@@ -1580,6 +1585,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        self.row_alignment = 1 if self.use_cpu else 16
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -1680,15 +1687,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.max_D: int = max(dims)
         cached_dims = [
-            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3])
+            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3], 16)
             for embedding_spec in self.embedding_specs
             if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
         ]
         self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
 
         weight_split: SplitState = nbit_construct_split_state(
-            self.embedding_specs,
-            cacheable=True,
+            self.embedding_specs, cacheable=True, row_alignment=self.row_alignment
         )
 
         self.weights_physical_placements: List[int] = [
@@ -2223,8 +2229,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_uvm
             offset = self.weights_physical_offsets[t]
             weights_shifts = weights.detach()[
-                offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
-            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
+                offset : offset
+                + rows * rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment)
+            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment))
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
