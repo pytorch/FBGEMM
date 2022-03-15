@@ -1039,7 +1039,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 offsets=offsets.int(),
             )
             lowp_pooled_emb_split = [
-                d + 8 if output_dtype == SparseType.INT8 else d for d in op.dims
+                d + 8 if output_dtype == SparseType.INT8 else d for d in Ds
             ]
             lowp_pooled_output_per_table = torch.split(
                 lowp_pooled_output, lowp_pooled_emb_split, dim=1
@@ -1050,9 +1050,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 else t.float()
                 for t in lowp_pooled_output_per_table
             ]
-            fp32_pooled_output_per_table = torch.split(
-                fp32_pooled_output, op.dims, dim=1
-            )
+            fp32_pooled_output_per_table = torch.split(fp32_pooled_output, Ds, dim=1)
             dq_fp32_pooled_output_per_table = [
                 torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
                     torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
@@ -2969,7 +2967,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
 
-        D_alignment = max(weights_ty_list[t].align_size() for t in range(T))
+        D_alignment = max(
+            1 if ty.bit_rate() % 8 == 0 else int(8 / ty.bit_rate())
+            for ty in weights_ty_list
+        )
         D = round_up(D, D_alignment)
 
         if not mixed:
@@ -3359,7 +3360,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         iters = 3
         E = int(10 ** log_E)
 
-        D_alignment = weights_ty.align_size()
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
         D = round_up(D, D_alignment)
 
         if not mixed:

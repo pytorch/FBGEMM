@@ -1582,7 +1582,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
-        self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
 
@@ -1605,18 +1604,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
 
         T_ = len(self.embedding_specs)
-
         assert T_ > 0
-        for (dim, weight_ty) in zip(dims, weights_tys):
-            assert (
-                dim % weight_ty.align_size() == 0
-            ), f"{dim} % {weight_ty.align_size() } != 0"
 
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
         T = len(self.feature_table_map)
         assert T_ <= T
+
         table_has_feature = [False] * T_
         for t in self.feature_table_map:
             table_has_feature[t] = True
@@ -1624,12 +1619,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
-        for weight_ty in weights_tys:
+        for dim, weight_ty in zip(dims, weights_tys):
             if not weight_ty.is_float():
                 assert (
-                    self.total_D % 2 == 0
-                ), "the total_D needs to be even so the FP16 output will be aligned with 4 bytes"
-                break
+                    dim % (8 / weight_ty.bit_rate()) == 0
+                ), "For quantized types we need to at least pack at byte granularity"
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
@@ -1685,7 +1679,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.uint8
         )
 
-        self.max_D: int = max(dims)
         cached_dims = [
             rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3], 16)
             for embedding_spec in self.embedding_specs

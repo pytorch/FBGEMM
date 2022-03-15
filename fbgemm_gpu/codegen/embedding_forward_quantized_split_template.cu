@@ -216,12 +216,12 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
     "output_t can only be float or half or bytes now"
   );
 
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+  const uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
   {% if not nobag %}
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
+  const int32_t D_start = D_offsets[t];
+  const int32_t D_end = D_offsets[t + 1];
+  const int32_t D = D_end - D_start;
   {% endif %}
   SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
   if (weight_ty != SparseType::{{ type_map[bit_width].enum_name }}) {
@@ -347,7 +347,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           {% endif %}
         }
         {% else %}
-        int32_t output_j = indices_starts[i] + L_start + input_row_idx;
+        const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
         if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
@@ -355,11 +355,12 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
             // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
             // the scale/shift handling).
             // Reason: to avoid divergence the first thread in the warp computes garbage.
-            int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             if (output_d >= 0 && output_d < D) {
+              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
               VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
-              acc.store(&output[output_j][output_d]);
+              acc.store(&output[output_j][output_d], num_valid_outputs);
             }
           }
         } else if (std::is_same<output_t, uint8_t>::value) {
@@ -381,11 +382,12 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           qparams = warp_find_qparams(thread_local_min, thread_local_max);
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-            int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             if (output_d >= 0 && output_d < D) {
+              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
               VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
-              acc.store(&output[output_j][output_d], qparams);
+              acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
             }
           }
           if (threadIdx.x == 0) {
@@ -400,20 +402,21 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   {% if not nobag %}
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    float inv_L = 1.0 / Ls[i];
+    const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    const float inv_L = 1.0 / Ls[i];
 
     if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
 
         if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][D_start + output_d]);
+          const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+          accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
         }
 
       }
@@ -440,9 +443,10 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
       int output_D_end = output_D_start + D;
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams);
+          const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
         }
       }
       if (threadIdx.x == 0) {
@@ -989,4 +993,4 @@ Tensor pruned_array_lookup_cuda(
   return dense_indices;
 }
 {% endif %}
-                            // clang-format on
+                                    // clang-format on
