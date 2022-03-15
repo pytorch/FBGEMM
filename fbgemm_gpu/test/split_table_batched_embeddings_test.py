@@ -405,7 +405,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if not weighted
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             fc2.float(),
             f.float(),
             atol=8.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
@@ -910,7 +910,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 cat_deq_lowp_pooled_output, cat_dq_fp32_pooled_output
             )
 
@@ -1069,7 +1069,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 cat_deq_lowp_pooled_output,
                 cat_dq_fp32_pooled_output,
                 rtol=1e-2,
@@ -1260,7 +1260,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             fc2.float(),
             f.float(),
             atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
@@ -1271,7 +1271,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             goc = torch.cat(gos, dim=0).contiguous()
         fc2.backward(goc)
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
             atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
@@ -1525,7 +1525,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cache:
             cc.flush()
         for t in range(T):
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 cc.split_embedding_weights()[t],
                 # pyre-fixme[16]: `float` has no attribute `half`.
                 new_weights[t].half()
@@ -1753,7 +1753,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
         for t in range(T):
             ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 split_optimizer_states[t].float().cpu(),
                 ref_optimizer_state.mean(dim=1) if row_wise else ref_optimizer_state,
                 atol=1.0e-2 if weights_precision == SparseType.FP16 else 1.0e-4,
@@ -1761,7 +1761,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         for t in range(T):
             # optimizer_state = squares (no row-wise) or sum squares (row-wise)
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 cc.split_embedding_weights()[t].float().cpu(),
                 torch.addcdiv(
                     bs[t].weight.float().cpu(),
@@ -1836,12 +1836,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
         for t in range(T_):
             if feature_requires_grad[t]:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     indice_weight_grad_mask.view(T_, B, L)[t],
                     indice_weight_grad_all.view(T_, B, L)[t],
                 )
             else:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     indice_weight_grad_mask.view(T_, B, L)[t],
                     torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
                 )
@@ -2301,12 +2301,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for indices, offsets, _ in requests:
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
-            torch.testing.assert_allclose(output, output_ref)
+            torch.testing.assert_close(output, output_ref)
             output.backward(grad_output)
             output_ref.backward(grad_output)
         cc.flush()
         for t in range(T):
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
@@ -2530,7 +2530,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 )
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     m1.float().cpu(), m1_ref.float(), atol=1.0e-4, rtol=1.0e-4
                 )
                 weights_new = split_weights[t]
@@ -2541,7 +2541,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     + eps
                 )
                 # TODO: why is tolerance off here?
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     weights_new.float().cpu(),
                     weights_ref.float(),
                     atol=1.0e-2,
@@ -2559,7 +2559,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 lambda_ = (iter_ + 1) ** 0.5
                 m1_ref = dense_cpu_grad.pow(2).mean(dim=1)
                 m1_ref *= lambda_
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     m1.float().index_select(dim=0, index=x[t].view(-1)).cpu(),
                     m1_ref.float().index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
@@ -2569,7 +2569,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 weights_ref = bs[t].weight.cpu() - lr * lambda_ * dense_cpu_grad / (
                     torch.pow(m1_ref.view(m1_ref.numel(), 1), 1.0 / 3) + eps
                 )
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
@@ -2586,13 +2586,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 ) * (1.0 - beta2)
-                torch.testing.assert_allclose(
-                    m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4
-                )
+                torch.testing.assert_close(m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4)
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
-                torch.testing.assert_allclose(
-                    m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
-                )
+                torch.testing.assert_close(m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4)
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -2607,7 +2603,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                     - lr * weight_decay * bs[t].weight.cpu()
                 )
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-3,
@@ -2624,13 +2620,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 ) * (1.0 - beta2)
-                torch.testing.assert_allclose(
-                    m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4
-                )
+                torch.testing.assert_close(m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4)
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
-                torch.testing.assert_allclose(
-                    m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4
-                )
+                torch.testing.assert_close(m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4)
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2 ** iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -2643,7 +2635,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ).cpu() / torch.linalg.norm(rtw, dim=1, ord=2).view(m1.shape[0], 1)
                 weights_new = split_weights[t]
                 weights_ref = bs[t].weight.cpu() - lr * true_ratio * rtw
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-3,
@@ -2669,7 +2661,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     dense_cpu_grad + weight_decay * bs[t].weight.cpu()
                 )
 
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     m1.index_select(dim=0, index=x[t].view(-1)).cpu(),
                     # pyre-fixme[16]: `float` has no attribute `index_select`.
                     m1_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
@@ -2678,7 +2670,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 weights_new = split_weights[t]
                 weights_ref = bs[t].weight.cpu() - m1_ref
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-4,
@@ -3198,7 +3190,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             fc2.float().cpu(),
             f.float().cpu(),
             atol=1.0e-2,
@@ -3433,7 +3425,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             offsets = offsets.int()
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
-            torch.testing.assert_allclose(output, output_ref)
+            torch.testing.assert_close(output, output_ref, equal_nan=True)
 
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -3508,7 +3500,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 indices, offsets, hash_table, hash_table_offsets
             )
 
-        torch.testing.assert_allclose(dense_indices, dense_indices_)
+        torch.testing.assert_close(dense_indices, dense_indices_)
 
         # now, use a value that does not exist in the original set of indices
         # and so should be pruned out.
@@ -3521,7 +3513,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 indices, offsets, hash_table, hash_table_offsets
             )
 
-        torch.testing.assert_allclose(dense_indices.clone().fill_(-1), dense_indices_)
+        torch.testing.assert_close(dense_indices.clone().fill_(-1), dense_indices_)
 
     @given(
         L=st.integers(min_value=0, max_value=16),
@@ -3799,13 +3791,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rows_per_table, indices, offsets, bounds_check_mode, warning
         )
         # we don't modify when we are in-bounds.
-        torch.testing.assert_allclose(indices_copy, indices)
+        torch.testing.assert_close(indices_copy, indices)
         indices[:] = torch.iinfo(dtype).max
         if bounds_check_mode != BoundsCheckMode.FATAL:
             torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table, indices, offsets, bounds_check_mode, warning
             )
-            torch.testing.assert_allclose(indices, torch.zeros_like(indices))
+            torch.testing.assert_close(indices, torch.zeros_like(indices))
             if bounds_check_mode == BoundsCheckMode.WARNING:
                 self.assertEqual(warning.item(), indices.numel())
         else:

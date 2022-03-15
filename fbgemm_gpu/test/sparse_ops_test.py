@@ -211,10 +211,10 @@ class SparseOpsTest(unittest.TestCase):
             permuted_indices_ref,
             permuted_weights_ref,
         ) = self.permute_indices_ref_(lengths, indices, weights, permute.long(), is_1D)
-        torch.testing.assert_allclose(permuted_indices_cpu, permuted_indices_ref)
-        torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
+        torch.testing.assert_close(permuted_indices_cpu, permuted_indices_ref)
+        torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
         if has_weight:
-            torch.testing.assert_allclose(permuted_weights_cpu, permuted_weights_ref)
+            torch.testing.assert_close(permuted_weights_cpu, permuted_weights_ref)
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
@@ -243,14 +243,10 @@ class SparseOpsTest(unittest.TestCase):
                     weights.cuda() if has_weight else None,
                     None,
                 )
-            torch.testing.assert_allclose(
-                permuted_indices_gpu.cpu(), permuted_indices_cpu
-            )
-            torch.testing.assert_allclose(
-                permuted_lengths_gpu.cpu(), permuted_lengths_cpu
-            )
+            torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+            torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
             if has_weight:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     permuted_weights_gpu.cpu(), permuted_weights_cpu
                 )
             else:
@@ -297,10 +293,10 @@ class SparseOpsTest(unittest.TestCase):
             permuted_indices_ref,
             permuted_weights_ref,
         ) = self.permute_indices_ref_(lengths, indices, weights, permute.long())
-        torch.testing.assert_allclose(permuted_indices_cpu, permuted_indices_ref)
-        torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
+        torch.testing.assert_close(permuted_indices_cpu, permuted_indices_ref)
+        torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
         if has_weight:
-            torch.testing.assert_allclose(permuted_weights_cpu, permuted_weights_ref)
+            torch.testing.assert_close(permuted_weights_cpu, permuted_weights_ref)
         else:
             assert permuted_weights_cpu is None and permuted_weights_ref is None
 
@@ -315,14 +311,10 @@ class SparseOpsTest(unittest.TestCase):
                 indices.cuda(),
                 weights.cuda() if has_weight else None,
             )
-            torch.testing.assert_allclose(
-                permuted_indices_gpu.cpu(), permuted_indices_cpu
-            )
-            torch.testing.assert_allclose(
-                permuted_lengths_gpu.cpu(), permuted_lengths_cpu
-            )
+            torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
+            torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
             if has_weight:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     permuted_weights_gpu.cpu(), permuted_weights_cpu
                 )
             else:
@@ -354,8 +346,8 @@ class SparseOpsTest(unittest.TestCase):
             permuted_embeddings_ref,
             _,
         ) = self.permute_indices_ref_(lengths, embeddings, None, permute.long())
-        torch.testing.assert_allclose(permuted_embeddings_cpu, permuted_embeddings_ref)
-        torch.testing.assert_allclose(permuted_lengths_cpu, permuted_lengths_ref)
+        torch.testing.assert_close(permuted_embeddings_cpu, permuted_embeddings_ref)
+        torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
 
         if gpu_available:
             (
@@ -368,12 +360,10 @@ class SparseOpsTest(unittest.TestCase):
                 embeddings.cuda(),
                 None,
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 permuted_embeddings_gpu.cpu(), permuted_embeddings_cpu
             )
-            torch.testing.assert_allclose(
-                permuted_lengths_gpu.cpu(), permuted_lengths_cpu
-            )
+            torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -444,8 +434,8 @@ class SparseOpsTest(unittest.TestCase):
             None,
         )
 
-        torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref)
-        torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref)
+        torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
+        torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
 
     # pyre-ignore [56]
     @given(
@@ -462,15 +452,21 @@ class SparseOpsTest(unittest.TestCase):
         ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
         zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
         zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
-        torch.testing.assert_allclose(
-            np.cumsum(x.cpu().numpy()).astype(np_index_dtype), zi.cpu()
+        torch.testing.assert_close(
+            torch.from_numpy(np.cumsum(x.cpu().numpy()).astype(np_index_dtype)),
+            zi.cpu(),
         )
-        torch.testing.assert_allclose(
-            (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(np_index_dtype),
+        torch.testing.assert_close(
+            torch.from_numpy(
+                (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(np_index_dtype)
+            ),
             ze.cpu(),
         )
-        torch.testing.assert_allclose(
-            (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype), zc.cpu()
+        torch.testing.assert_close(
+            torch.from_numpy(
+                (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype)
+            ),
+            zc.cpu(),
         )
 
         if gpu_available:
@@ -478,15 +474,22 @@ class SparseOpsTest(unittest.TestCase):
             ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
             zi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(x)
             zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
-            torch.testing.assert_allclose(
-                np.cumsum(x.cpu().numpy()).astype(np_index_dtype), zi.cpu()
+            torch.testing.assert_close(
+                torch.from_numpy(np.cumsum(x.cpu().numpy()).astype(np_index_dtype)),
+                zi.cpu(),
             )
-            torch.testing.assert_allclose(
-                (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(np_index_dtype),
+            torch.testing.assert_close(
+                torch.from_numpy(
+                    (np.cumsum([0] + x.cpu().numpy().tolist())[:-1]).astype(
+                        np_index_dtype
+                    )
+                ),
                 ze.cpu(),
             )
-            torch.testing.assert_allclose(
-                (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype),
+            torch.testing.assert_close(
+                torch.from_numpy(
+                    (np.cumsum([0] + x.cpu().numpy().tolist())).astype(np_index_dtype)
+                ),
                 zc.cpu(),
             )
 
@@ -501,16 +504,20 @@ class SparseOpsTest(unittest.TestCase):
     ) -> None:
         lengths = np.array([np.random.randint(low=0, high=20) for _ in range(N)])
         offsets = np.cumsum(np.concatenate(([0], lengths)))[:-1]
-        range_ref = np.concatenate([np.arange(size) for size in lengths])
+        range_ref = torch.from_numpy(
+            np.concatenate([np.arange(size) for size in lengths])
+        )
         output_size = np.sum(lengths)
 
         offsets_cpu = torch.tensor(offsets, dtype=offsets_type)
         range_cpu = torch.ops.fbgemm.offsets_range(offsets_cpu, output_size)
-        torch.testing.assert_allclose(range_cpu, range_ref, 0, 0)
+        range_ref = torch.tensor(range_ref, dtype=range_cpu.dtype)
+        torch.testing.assert_close(range_cpu, range_ref, rtol=0, atol=0)
 
         if gpu_available:
             range_gpu = torch.ops.fbgemm.offsets_range(offsets_cpu.cuda(), output_size)
-            torch.testing.assert_allclose(range_gpu.cpu(), range_ref, 0, 0)
+            range_ref = torch.tensor(range_ref, dtype=range_gpu.dtype)
+            torch.testing.assert_close(range_gpu.cpu(), range_ref, rtol=0, atol=0)
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
@@ -607,12 +614,12 @@ class SparseOpsTest(unittest.TestCase):
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
             lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights
         )
-        torch.testing.assert_allclose(new_lengths_cpu, new_lengths_ref, 0, 0)
-        torch.testing.assert_allclose(new_indices_cpu, new_indices_ref, 0, 0)
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
         if has_weight:
-            torch.testing.assert_allclose(new_weights_cpu, new_weights_ref)
+            torch.testing.assert_close(new_weights_cpu, new_weights_ref)
         if bucketize_pos:
-            torch.testing.assert_allclose(new_pos_cpu, new_pos_ref)
+            torch.testing.assert_close(new_pos_cpu, new_pos_ref)
         if sequence:
             value_unbucketized_indices = unbucketize_indices_value(
                 new_indices_cpu, new_lengths_cpu, block_sizes, my_size, B
@@ -620,7 +627,7 @@ class SparseOpsTest(unittest.TestCase):
             unbucketized_indices = torch.index_select(
                 value_unbucketized_indices, 0, unbucketize_permute
             )
-            torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
+            torch.testing.assert_close(unbucketized_indices, indices, rtol=0, atol=0)
 
         if gpu_available:
             (
@@ -638,12 +645,16 @@ class SparseOpsTest(unittest.TestCase):
                 my_size,
                 weights.cuda() if has_weight else None,
             )
-            torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
-            torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+            )
             if has_weight:
-                torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_cpu)
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
             if bucketize_pos:
-                torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_cpu)
+                torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
             if sequence:
                 value_unbucketized_indices = unbucketize_indices_value(
                     new_indices_gpu.cpu(),
@@ -655,7 +666,9 @@ class SparseOpsTest(unittest.TestCase):
                 unbucketized_indices = torch.index_select(
                     value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
                 )
-                torch.testing.assert_allclose(unbucketized_indices, indices, 0, 0)
+                torch.testing.assert_close(
+                    unbucketized_indices, indices, rtol=0, atol=0
+                )
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -680,14 +693,14 @@ class SparseOpsTest(unittest.TestCase):
         reordered_batched_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
             cat_ad_lengths, batch_offsets, num_ads_in_batch
         )
-        torch.testing.assert_allclose(cat_ad_lengths, reordered_batched_ad_lengths)
+        torch.testing.assert_close(cat_ad_lengths, reordered_batched_ad_lengths)
 
         cat_ad_lengths_cpu = cat_ad_lengths.cpu()
         batch_offsets_cpu = batch_offsets.cpu()
         reordered_batched_ad_lengths_cpu = torch.ops.fbgemm.reorder_batched_ad_lengths(
             cat_ad_lengths_cpu, batch_offsets_cpu, num_ads_in_batch
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             reordered_batched_ad_lengths_cpu, reordered_batched_ad_lengths.cpu()
         )
 
@@ -713,7 +726,7 @@ class SparseOpsTest(unittest.TestCase):
         reordered_batched_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
             cat_ad_lengths, batch_offsets, num_ads_in_batch
         )
-        torch.testing.assert_allclose(cat_ad_lengths, reordered_batched_ad_lengths)
+        torch.testing.assert_close(cat_ad_lengths, reordered_batched_ad_lengths)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -741,7 +754,7 @@ class SparseOpsTest(unittest.TestCase):
         reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
             cat_ad_lengths, batch_offsets, num_ads_in_batch
         )
-        torch.testing.assert_allclose(cat_ad_lengths, reordered_cat_ad_lengths)
+        torch.testing.assert_close(cat_ad_lengths, reordered_cat_ad_lengths)
 
         cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
         reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
@@ -754,7 +767,7 @@ class SparseOpsTest(unittest.TestCase):
             batch_offsets,
             num_ads_in_batch,
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
             cat_ad_indices.view(B, T, A, L),
         )
@@ -782,7 +795,7 @@ class SparseOpsTest(unittest.TestCase):
         reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
             cat_ad_lengths, batch_offsets, num_ads_in_batch
         )
-        torch.testing.assert_allclose(cat_ad_lengths, reordered_cat_ad_lengths)
+        torch.testing.assert_close(cat_ad_lengths, reordered_cat_ad_lengths)
         cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
         reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
             reordered_cat_ad_lengths
@@ -794,7 +807,7 @@ class SparseOpsTest(unittest.TestCase):
             batch_offsets,
             num_ads_in_batch,
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
             cat_ad_indices.view(B, T, A, L),
         )
@@ -831,6 +844,8 @@ class SparseOpsTest(unittest.TestCase):
             max_sequence_length,
             D,
         ).to_dense()
+        if is_half:
+            ref_output_values = ref_output_values.half()
 
         # test cpu forward
         if is_half:
@@ -842,7 +857,7 @@ class SparseOpsTest(unittest.TestCase):
             offsets=offsets,
             max_sequence_length=max_sequence_length,
         )
-        torch.testing.assert_allclose(ref_output_values, output_values)
+        torch.testing.assert_close(ref_output_values, output_values)
 
         if torch.cuda.is_available():
             # test gpu forward
@@ -858,11 +873,13 @@ class SparseOpsTest(unittest.TestCase):
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
             )
-            torch.testing.assert_allclose(ref_output_values, output_values)
+            torch.testing.assert_close(ref_output_values, output_values)
 
             # test gpu backward
             output_values.backward(ref_output_values)
-            torch.testing.assert_allclose(ref_values, values.grad)
+            if is_half:
+                ref_values = ref_values.half()
+            torch.testing.assert_close(ref_values, values.grad)
 
     def test_jagged_2d_to_dense_truncation(self) -> None:
         # Test the case where max_sequence_length < max(lengths[i])
@@ -888,7 +905,7 @@ class SparseOpsTest(unittest.TestCase):
             offsets=offsets,
             max_sequence_length=max_sequence_length,
         )
-        torch.testing.assert_allclose(ref_output_values, output_values)
+        torch.testing.assert_close(ref_output_values, output_values)
 
         if torch.cuda.is_available():
             # test gpu forward
@@ -901,14 +918,14 @@ class SparseOpsTest(unittest.TestCase):
                 offsets=offsets,
                 max_sequence_length=max_sequence_length,
             )
-            torch.testing.assert_allclose(ref_output_values, output_values)
+            torch.testing.assert_close(ref_output_values, output_values)
 
             # test gpu backward
             expected_grad = ref_values
             expected_grad[4, :] = 0  # due to truncation
             expected_grad = expected_grad.cuda()
             output_values.backward(ref_output_values)
-            torch.testing.assert_allclose(expected_grad, values.grad)
+            torch.testing.assert_close(expected_grad, values.grad)
 
     @unittest.skipIf(*gpu_unavailable)
     @settings(
@@ -957,14 +974,14 @@ class SparseOpsTest(unittest.TestCase):
             offsets=offsets,
             max_sequence_length=max_sequence_length,
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             ref_output_values, torch.cat(output_values_per_table)
         )
 
         # test backward
         output_values = torch.cat(output_values_per_table)
         output_values.backward(ref_output_values)
-        torch.testing.assert_allclose(ref_values, values.grad)
+        torch.testing.assert_close(ref_values, values.grad)
 
     @settings(
         verbosity=Verbosity.verbose,
@@ -1039,7 +1056,7 @@ class SparseOpsTest(unittest.TestCase):
             max_sequence_length=max_sequence_length,
             padding_value=padding_value,
         )
-        torch.testing.assert_allclose(ref_output_values, output_values)
+        torch.testing.assert_close(ref_output_values, output_values)
 
         if torch.cuda.is_available():
             # test gpu forward
@@ -1053,7 +1070,7 @@ class SparseOpsTest(unittest.TestCase):
                 max_sequence_length=max_sequence_length,
                 padding_value=padding_value,
             )
-            torch.testing.assert_allclose(ref_output_values, output_values)
+            torch.testing.assert_close(ref_output_values, output_values)
 
     def test_jagged_1d_to_dense_truncation(self) -> None:
         lengths_ = np.array([1, 3, 0, 1])
@@ -1071,7 +1088,7 @@ class SparseOpsTest(unittest.TestCase):
             max_sequence_length=1,
             padding_value=-1,
         )
-        torch.testing.assert_allclose(ref_output, output)
+        torch.testing.assert_close(ref_output, output)
 
         if torch.cuda.is_available():
             # test gpu forward
@@ -1085,7 +1102,7 @@ class SparseOpsTest(unittest.TestCase):
                 max_sequence_length=1,
                 padding_value=-1,
             )
-            torch.testing.assert_allclose(ref_output, output)
+            torch.testing.assert_close(ref_output, output)
 
     @unittest.skipIf(*gpu_unavailable)
     @settings(
@@ -1159,7 +1176,7 @@ class SparseOpsTest(unittest.TestCase):
             max_sequence_length=max_sequence_length,
             padding_value=padding_value,
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             ref_output_values, torch.cat(output_values_per_table)
         )
 
@@ -1194,7 +1211,7 @@ class SparseOpsTest(unittest.TestCase):
             [1426, 1437, 1437, 1428, 1431], dtype=torch.long
         )
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
             rtol=1e-03,
@@ -1223,7 +1240,7 @@ class SparseOpsTest(unittest.TestCase):
                 bin_ctr_weight_value=0.9995,
             )
 
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
                 rtol=1e-03,
@@ -1287,7 +1304,7 @@ class SparseOpsTest(unittest.TestCase):
             [206426, 161437, 166437, 71428, 161431], dtype=torch.long
         )
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
             rtol=1e-03,
@@ -1320,7 +1337,7 @@ class SparseOpsTest(unittest.TestCase):
                 bin_ctr_weight_value=0.9995,
             )
 
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
                 rtol=1e-03,
@@ -1389,7 +1406,7 @@ class SparseOpsTest(unittest.TestCase):
             [206426, 161437, 166437, 71428, 161431], dtype=torch.long
         )
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
             rtol=1e-03,
@@ -1420,7 +1437,7 @@ class SparseOpsTest(unittest.TestCase):
                 bin_ctr_weight_value=0.9995,
             )
 
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
                 rtol=1e-03,
@@ -1501,7 +1518,7 @@ class SparseOpsTest(unittest.TestCase):
             bin_ctr_weight_value=bin_ctr_weight_value,
         )
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             calibrated_prediction_cpu,
             calibrated_prediction_gpu.cpu(),
             rtol=1e-03,
@@ -1522,8 +1539,8 @@ class SparseOpsTest(unittest.TestCase):
             torch.IntTensor([0, 2, 3, 5]),
             torch.Tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
         )
-        torch.testing.assert_allclose(
-            segment_sum_cpu, torch.Tensor([10.0, 11.0, 34.0]), 0, 0
+        torch.testing.assert_close(
+            segment_sum_cpu, torch.Tensor([10.0, 11.0, 34.0]), rtol=0, atol=0
         )
         if torch.cuda.is_available():
             segment_sum_cuda = torch.ops.fbgemm.segment_sum_csr(
@@ -1533,8 +1550,8 @@ class SparseOpsTest(unittest.TestCase):
                     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
                 ).cuda(),
             )
-            torch.testing.assert_allclose(
-                segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), 0, 0
+            torch.testing.assert_close(
+                segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), rtol=0, atol=0
             )
 
 
