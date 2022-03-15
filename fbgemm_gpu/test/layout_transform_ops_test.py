@@ -52,7 +52,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output(
             grad_output, num_features_per_rank
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 
@@ -95,7 +95,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
         sharded_grad_output_impl = torch.ops.fbgemm.recat_embedding_grad_output_mixed_D(
             grad_output, dim_sum_per_rank
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 
@@ -142,7 +142,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
                 cumsum_dim_sum_per_rank_tensor.cuda(),
             )
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
         num_features_per_rank = np.random.randint(low=1, high=20, size=(W,)).tolist()
@@ -178,7 +178,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
                 grad_output, dim_sum_per_rank_tensor, cumsum_dim_sum_per_rank_tensor
             )
         )
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
 

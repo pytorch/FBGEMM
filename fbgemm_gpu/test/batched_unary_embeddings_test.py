@@ -119,7 +119,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor, indices_tensor)
-        torch.testing.assert_allclose(output_ref, output)
+        torch.testing.assert_close(output_ref, output)
 
         # forward with int_64
         ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
@@ -130,7 +130,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor.long(), indices_tensor.long())
-        torch.testing.assert_allclose(output_ref, output)
+        torch.testing.assert_close(output_ref, output)
 
         # No implementation for CPU backprop yet
         if not gpu_infer:
@@ -146,7 +146,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             d_weight_ref.append(emb.weight.grad)
         d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, sum(hash_sizes), -1)
         d_weight = unary_emb.weight.grad
-        torch.testing.assert_allclose(d_weight_ref, d_weight)
+        torch.testing.assert_close(d_weight_ref, d_weight)
 
     @unittest.skipIf(*gpu_unavailable)
     def test_gpu(self) -> None:

@@ -150,9 +150,9 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             fused_rowwise_8bit_dequantize_reference(quantized_data.numpy())
         )
         if not is_output_half:
-            torch.testing.assert_allclose(dequantized_data.float(), reference.float())
+            torch.testing.assert_close(dequantized_data.float(), reference.float())
         else:
-            torch.testing.assert_allclose(dequantized_data.half(), reference.half())
+            torch.testing.assert_close(dequantized_data.half(), reference.half())
 
         if gpu_available:
             input_data_gpu = input_data.cuda()
@@ -180,11 +180,11 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             )
 
             if not is_output_half:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     dequantized_data_trimmed.float(), reference.float()
                 )
             else:
-                torch.testing.assert_allclose(
+                torch.testing.assert_close(
                     dequantized_data_trimmed.half(), reference.half()
                 )
 
@@ -215,7 +215,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 )
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), reference)
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
 
 class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
@@ -341,7 +341,7 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
         if output_dtype == SparseType.FP16:
             output_ref_concat = output_ref_concat.half()
 
-        torch.testing.assert_allclose(output_ref_concat, mixed_dim_dequant_output)
+        torch.testing.assert_close(output_ref_concat, mixed_dim_dequant_output)
 
 
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
@@ -463,12 +463,19 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         if nrows == 0 or ncols == 0:
             assert dequantized_data.numel() == 0
             return
-        reference = torch.from_numpy(
-            fused_rowwise_nbit_quantize_dequantize_reference(
-                input_data.float().numpy(), bit_rate
+        if not is_output_half:
+            reference = torch.from_numpy(
+                fused_rowwise_nbit_quantize_dequantize_reference(
+                    input_data.float().numpy(), bit_rate
+                )
             )
-        )
-        torch.testing.assert_allclose(dequantized_data, reference)
+        else:
+            reference = torch.from_numpy(
+                fused_rowwise_nbit_quantize_dequantize_reference(
+                    input_data.float().numpy(), bit_rate
+                )
+            ).half()
+        torch.testing.assert_close(dequantized_data, reference)
 
         if gpu_available:
             input_data_gpu = input_data.cuda()
@@ -495,7 +502,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                     )
                 )
             # compare quantized data
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 dequantized_data_gpu.cpu().float(), dequantized_data.float()
             )
 
@@ -529,7 +536,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 )
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), reference)
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
 
 class TestDenseMLPQuantizationConversion(unittest.TestCase):
@@ -561,9 +568,7 @@ class TestDenseMLPQuantizationConversion(unittest.TestCase):
         dequantized_data = torch.ops.fb.MSFPQuantizedToFloat(
             quantized_data.cuda(), ebits, mbits, bias
         )
-        torch.testing.assert_allclose(
-            dequantized_data.cpu(), input_data, rtol=1, atol=0
-        )
+        torch.testing.assert_close(dequantized_data.cpu(), input_data, rtol=1, atol=0)
 
 
 if __name__ == "__main__":

@@ -200,7 +200,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         quantized_emb_out = sparse_arch(indices.int(), offsets.int())  # B, T, D
 
         # Compare FP32 emb module vs. quantize_type (FP16, INT8, INT4, INT2) emb module
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             emb_out.float().cpu(),
             quantized_emb_out.float().cpu(),
             atol=1.0e-1,
@@ -280,7 +280,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             )  # B, T, D
 
             # Compare FP32 emb module with remapped index vs. FP16 emb module with pruning
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 emb_out.float().cpu(),
                 pruned_emb_out.float().cpu(),
                 atol=1.0e-1,
