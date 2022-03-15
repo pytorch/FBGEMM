@@ -2977,7 +2977,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
 
-        D_alignment = max(weights_ty_list[t].align_size() for t in range(T))
+        D_alignment = max(1 if ty.bit_rate() % 8 == 0 else int(8 / ty.bit_rate()) for ty in weights_ty_list)
         D = round_up(D, D_alignment)
 
         if not mixed:
@@ -3367,7 +3367,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         iters = 3
         E = int(10 ** log_E)
 
-        D_alignment = weights_ty.align_size()
+        D_alignment = 1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
         D = round_up(D, D_alignment)
 
         if not mixed:

@@ -877,9 +877,30 @@ DEVICE_INLINE void store_qparams_to_row(emb_t* ptr, float2 qparams) {
 
 template <>
 DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
-  float* qparam_ptr = reinterpret_cast<float*>(ptr);
-  qparam_ptr[0] = qparams.x;
-  qparam_ptr[1] = qparams.y;
+  auto ptr_as_uint = reinterpret_cast<uintptr_t>(ptr);
+  if (ptr_as_uint % 8 == 0) {
+    *reinterpret_cast<float2*>(ptr) = qparams;
+  } else if (ptr_as_uint % 4 == 0) {
+    auto* ptr_float = reinterpret_cast<float*>(ptr);
+    auto* qparam_ptr = reinterpret_cast<const float*>(&qparams.x);
+#pragma unroll
+    for (int i = 0; i < 2; ++i) {
+      ptr_float[i] = qparam_ptr[i];
+    }
+  } else if (ptr_as_uint % 2 == 0) {
+    auto* ptr_16bit = reinterpret_cast<uint16_t*>(ptr);
+    auto* qparam_ptr = reinterpret_cast<const uint16_t*>(&qparams.x);
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+      ptr_16bit[i] = qparam_ptr[i];
+    }
+  } else {
+    auto* qparam_ptr = reinterpret_cast<const uint8_t*>(&qparams.x);
+#pragma unroll
+    for (int i = 0; i < 8; ++i) {
+      ptr[i] = qparam_ptr[i];
+    }
+  }
 }
 
 template <typename emb_t, typename cache_t, typename dst_t>
@@ -1600,29 +1621,32 @@ struct VecNT<1> {
     acc = a;
   }
 
-  DEVICE_INLINE void store(float* output_ptr) {
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 1) {
     *output_ptr = acc;
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr) {
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 1) {
     __half val = to_half(acc);
     *reinterpret_cast<__half*>(output_ptr) = val;
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr) {
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
-    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 1) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
     output_ptr[0] = lrintf((acc - qparams.y) * inv_scale);
   }
 
-  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -1654,30 +1678,57 @@ struct VecNT<2> {
     acc = __half22float2(a);
   }
 
-  DEVICE_INLINE void store(float* output_ptr) {
-    *reinterpret_cast<int2*>(output_ptr) = *reinterpret_cast<const int2*>(&acc);
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 2) {
+    // num_valid_outputs can be any integer for half.
+    if (uintptr_t(output_ptr) % 8 == 0 && num_valid_outputs == 2) {
+      *reinterpret_cast<float2*>(output_ptr) = acc;
+    } else {
+#pragma unroll
+      for (int i = 0; i < 2; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *(&acc.x + i);
+        }
+      }
+    }
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr) {
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 2) {
     half2 val = to_half2(acc);
-    *reinterpret_cast<int1*>(output_ptr) = *reinterpret_cast<const int1*>(&val);
+    // num_valid_outputs can be any integer for half.
+    if (uintptr_t(output_ptr) % 4 == 0 && num_valid_outputs == 2) {
+      *reinterpret_cast<half2*>(output_ptr) = val;
+    } else {
+#pragma unroll
+      for (int i = 0; i < 2; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *reinterpret_cast<const at::Half*>(&val.x + i);
+        }
+      }
+    }
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr) {
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 2) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
-    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = lrintf((acc.x - qparams.y) * inv_scale);
-    output_ptr[1] = lrintf((acc.y - qparams.y) * inv_scale);
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 2) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 2; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = lrintf(((&acc.x)[i] - qparams.y) * inv_scale);
+      }
+    }
   }
 
-  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 2) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 2) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -1711,60 +1762,85 @@ struct VecNT<4> {
     acc = accumulate_packed_int8(acc, v, shift_scale);
   }
 
-  DEVICE_INLINE void store(float* output_ptr) {
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 4) {
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
-    if (aligned_16b) {
-      *reinterpret_cast<int4*>(output_ptr) =
-          *reinterpret_cast<const int4*>(&acc);
-    } else if (aligned_8b) {
-      auto v = *reinterpret_cast<const int4*>(&acc);
-      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v.x, v.y);
-      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v.z, v.w);
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_16b && num_valid_outputs == 4) {
+      *reinterpret_cast<float4*>(output_ptr) =
+          *reinterpret_cast<const float4*>(&acc);
+    } else if (aligned_8b && num_valid_outputs >= 2) {
+      *reinterpret_cast<float2*>(output_ptr) =
+          *reinterpret_cast<const float2*>(&(acc.x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<float2*>(output_ptr + 2) =
+            *reinterpret_cast<const float2*>(&(acc.x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) = *(&(acc.x) + 2);
+      }
     } else {
-      *(output_ptr + 0) = acc.x;
-      *(output_ptr + 1) = acc.y;
-      *(output_ptr + 2) = acc.z;
-      *(output_ptr + 3) = acc.w;
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *(&(acc.x) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr) {
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 4) {
     half4 val = to_half4(acc);
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
-    if (aligned_8b) {
-      *reinterpret_cast<int2*>(output_ptr) =
-          *reinterpret_cast<const int2*>(&val);
-    } else if (aligned_4b) {
-      auto v = *reinterpret_cast<const int2*>(&val);
-      *reinterpret_cast<int*>(output_ptr + 0) = v.x;
-      *reinterpret_cast<int*>(output_ptr + 2) = v.y;
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_8b && num_valid_outputs == 4) {
+      *reinterpret_cast<float2*>(output_ptr) =
+          *reinterpret_cast<const float2*>(&val);
+    } else if (aligned_4b && num_valid_outputs >= 2) {
+      *reinterpret_cast<float*>(output_ptr) =
+          *reinterpret_cast<const float*>(&(val.vals[0].x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<float*>(output_ptr + 2) =
+            *reinterpret_cast<const float*>(&(val.vals[0].x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) =
+            *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + 2);
+      }
     } else {
-      *(output_ptr + 0) = __low2half(val.vals[0]);
-      *(output_ptr + 1) = __high2half(val.vals[0]);
-      *(output_ptr + 2) = __low2half(val.vals[1]);
-      *(output_ptr + 3) = __high2half(val.vals[1]);
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr) {
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
-    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = lrintf((acc.x - qparams.y) * inv_scale);
-    output_ptr[1] = lrintf((acc.y - qparams.y) * inv_scale);
-    output_ptr[2] = lrintf((acc.z - qparams.y) * inv_scale);
-    output_ptr[3] = lrintf((acc.w - qparams.y) * inv_scale);
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = lrintf(((&(acc.x))[i] - qparams.y) * inv_scale);
+      }
+    }
   }
 
-  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -1800,84 +1876,102 @@ struct VecNT<8> {
     acc = accumulate_packed_int4(acc, v, shift_scale);
   }
 
-  DEVICE_INLINE void store(float* output_ptr) {
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 8) {
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
-    if (aligned_16b) { // 128 bit cache line
-      *reinterpret_cast<int4*>(output_ptr) =
-          *reinterpret_cast<const int4*>(&(acc.vals[0]));
-      *reinterpret_cast<int4*>(output_ptr + 4) =
-          *reinterpret_cast<const int4*>(&(acc.vals[1]));
+    // Since byte granule is guaranteed, num_valid_outputs is multiple of 2 for
+    // int4.
+    if (aligned_16b && num_valid_outputs >= 4) { // 128 bit cache line
+      *reinterpret_cast<float4*>(output_ptr) =
+          *reinterpret_cast<const float4*>(&(acc.vals[0]));
+      if (num_valid_outputs == 8) {
+        *reinterpret_cast<float4*>(output_ptr + 4) =
+            *reinterpret_cast<const float4*>(&(acc.vals[1]));
+      } else if (num_valid_outputs == 6) {
+        *reinterpret_cast<float2*>(output_ptr + 4) =
+            *reinterpret_cast<const float2*>(&(acc.vals[1]));
+      }
     } else if (aligned_8b) {
-      auto v0 = *reinterpret_cast<const int4*>(&(acc.vals[0]));
-      auto v1 = *reinterpret_cast<const int4*>(&(acc.vals[1]));
-      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v0.x, v0.y);
-      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v0.z, v0.w);
-      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v1.x, v1.y);
-      *reinterpret_cast<int2*>(output_ptr + 6) = make_int2(v1.z, v1.w);
+#pragma unroll
+      for (int i = 0; i < 8; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<float2*>(output_ptr + i) =
+              *reinterpret_cast<const float2*>(&(acc.vals[0].x) + i);
+        }
+      }
     } else {
-      *(output_ptr + 0) = acc.vals[0].x;
-      *(output_ptr + 1) = acc.vals[0].y;
-      *(output_ptr + 2) = acc.vals[0].z;
-      *(output_ptr + 3) = acc.vals[0].w;
-      *(output_ptr + 4) = acc.vals[1].x;
-      *(output_ptr + 5) = acc.vals[1].y;
-      *(output_ptr + 6) = acc.vals[1].z;
-      *(output_ptr + 7) = acc.vals[1].w;
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *(&(acc.vals[0].x) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr) {
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 8) {
     half8 val = to_half8(acc);
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
-    if (aligned_16b) {
-      *reinterpret_cast<int4*>(output_ptr) =
-          *reinterpret_cast<const int4*>(&val);
-    } else if (aligned_8b) {
-      auto v = *reinterpret_cast<const int4*>(&val);
-      *reinterpret_cast<int2*>(output_ptr) = make_int2(v.x, v.y);
-      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v.z, v.w);
+    // Since byte granule is guaranteed, num_valid_outputs is multiple of 2 for
+    // int4.
+    if (aligned_16b && num_valid_outputs == 8) {
+      *reinterpret_cast<half8*>(output_ptr) =
+          *reinterpret_cast<const half8*>(&val);
+    } else if (aligned_8b && num_valid_outputs >= 4) {
+      *reinterpret_cast<half4*>(output_ptr) =
+          *reinterpret_cast<const half4*>(&(val.vals[0].x));
+      if (num_valid_outputs == 8) {
+        *reinterpret_cast<half4*>(output_ptr + 4) =
+            *reinterpret_cast<const half4*>(&(val.vals[0].x) + 4);
+      } else if (num_valid_outputs == 6) {
+        *reinterpret_cast<half2*>(output_ptr + 4) =
+            *reinterpret_cast<const half2*>(&(val.vals[0].x) + 4);
+      }
     } else if (aligned_4b) {
-      auto v = *reinterpret_cast<const int4*>(&val);
-      *reinterpret_cast<int*>(output_ptr + 0) = v.x;
-      *reinterpret_cast<int*>(output_ptr + 2) = v.y;
-      *reinterpret_cast<int*>(output_ptr + 4) = v.z;
-      *reinterpret_cast<int*>(output_ptr + 6) = v.w;
+#pragma unroll
+      for (int i = 0; i < 8; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<half2*>(output_ptr + i) =
+              *reinterpret_cast<const half2*>(&(val.vals[0].x) + i);
+        }
+      }
     } else {
-      *(output_ptr + 0) = __low2half(val.vals[0]);
-      *(output_ptr + 1) = __high2half(val.vals[0]);
-      *(output_ptr + 2) = __low2half(val.vals[1]);
-      *(output_ptr + 3) = __high2half(val.vals[1]);
-      *(output_ptr + 4) = __low2half(val.vals[2]);
-      *(output_ptr + 5) = __high2half(val.vals[2]);
-      *(output_ptr + 6) = __low2half(val.vals[3]);
-      *(output_ptr + 7) = __high2half(val.vals[3]);
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr) {
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 8) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
-    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = lrintf((acc.vals[0].x - qparams.y) * inv_scale);
-    output_ptr[1] = lrintf((acc.vals[0].y - qparams.y) * inv_scale);
-    output_ptr[2] = lrintf((acc.vals[0].z - qparams.y) * inv_scale);
-    output_ptr[3] = lrintf((acc.vals[0].w - qparams.y) * inv_scale);
-    output_ptr[4] = lrintf((acc.vals[1].x - qparams.y) * inv_scale);
-    output_ptr[5] = lrintf((acc.vals[1].y - qparams.y) * inv_scale);
-    output_ptr[6] = lrintf((acc.vals[1].z - qparams.y) * inv_scale);
-    output_ptr[7] = lrintf((acc.vals[1].w - qparams.y) * inv_scale);
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 8) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 8; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = lrintf(
+            (reinterpret_cast<const float*>(&(acc.vals[0].x))[i] - qparams.y) *
+            inv_scale);
+      }
+    }
   }
 
-  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 8) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 8) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -1917,132 +2011,105 @@ struct VecNT<16> {
     acc = accumulate_packed_int2(acc, v, shift_scale);
   }
 
-  DEVICE_INLINE void store(float* output_ptr) {
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 16) {
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     if (aligned_16b) { // 128 bit cache line
-      *reinterpret_cast<int4*>(output_ptr) =
-          *reinterpret_cast<const int4*>(&(acc.vals[0].vals[0]));
-      *reinterpret_cast<int4*>(output_ptr + 4) =
-          *reinterpret_cast<const int4*>(&(acc.vals[0].vals[1]));
-      *reinterpret_cast<int4*>(output_ptr + 8) =
-          *reinterpret_cast<const int4*>(&(acc.vals[1].vals[0]));
-      *reinterpret_cast<int4*>(output_ptr + 12) =
-          *reinterpret_cast<const int4*>(&(acc.vals[1].vals[1]));
+#pragma unroll
+      for (int i = 0; i < 16; i += 4) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<float4*>(output_ptr + i) =
+              *reinterpret_cast<const float4*>(&(acc.vals[0].vals[0]) + i);
+        }
+      }
     } else if (aligned_8b) {
-      auto v0 = *reinterpret_cast<const int4*>(&(acc.vals[0].vals[0]));
-      auto v1 = *reinterpret_cast<const int4*>(&(acc.vals[0].vals[1]));
-      auto v2 = *reinterpret_cast<const int4*>(&(acc.vals[1].vals[0]));
-      auto v3 = *reinterpret_cast<const int4*>(&(acc.vals[1].vals[1]));
-      *reinterpret_cast<int2*>(output_ptr + 0) = make_int2(v0.x, v0.y);
-      *reinterpret_cast<int2*>(output_ptr + 2) = make_int2(v0.z, v0.w);
-      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v1.x, v1.y);
-      *reinterpret_cast<int2*>(output_ptr + 6) = make_int2(v1.z, v1.w);
-      *reinterpret_cast<int2*>(output_ptr + 8) = make_int2(v2.x, v2.y);
-      *reinterpret_cast<int2*>(output_ptr + 10) = make_int2(v2.z, v2.w);
-      *reinterpret_cast<int2*>(output_ptr + 12) = make_int2(v3.x, v3.y);
-      *reinterpret_cast<int2*>(output_ptr + 14) = make_int2(v3.z, v3.w);
+#pragma unroll
+      for (int i = 0; i < 16; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<float2*>(output_ptr + i) =
+              *reinterpret_cast<const float2*>(&(acc.vals[0].vals[0]) + i);
+        }
+      }
     } else {
-      *(output_ptr + 0) = acc.vals[0].vals[0].x;
-      *(output_ptr + 1) = acc.vals[0].vals[0].y;
-      *(output_ptr + 2) = acc.vals[0].vals[0].z;
-      *(output_ptr + 3) = acc.vals[0].vals[0].w;
-      *(output_ptr + 4) = acc.vals[0].vals[1].x;
-      *(output_ptr + 5) = acc.vals[0].vals[1].y;
-      *(output_ptr + 6) = acc.vals[0].vals[1].z;
-      *(output_ptr + 7) = acc.vals[0].vals[1].w;
-
-      *(output_ptr + 8) = acc.vals[1].vals[0].x;
-      *(output_ptr + 9) = acc.vals[1].vals[0].y;
-      *(output_ptr + 10) = acc.vals[1].vals[0].z;
-      *(output_ptr + 11) = acc.vals[1].vals[0].w;
-      *(output_ptr + 12) = acc.vals[1].vals[1].x;
-      *(output_ptr + 13) = acc.vals[1].vals[1].y;
-      *(output_ptr + 14) = acc.vals[1].vals[1].z;
-      *(output_ptr + 15) = acc.vals[1].vals[1].w;
+#pragma unroll
+      for (int i = 0; i < 16; ++i) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<float*>(output_ptr + i) =
+              *reinterpret_cast<const float*>(&(acc.vals[0].vals[0]) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr) {
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 16) {
     half16 val = to_half16(acc);
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
-    if (aligned_16b) {
-      *reinterpret_cast<int4*>(output_ptr) =
-          *reinterpret_cast<const int4*>(&val);
-      *reinterpret_cast<int4*>(output_ptr + 8) =
-          *reinterpret_cast<const int4*>(&val.vals[4]);
+    // Since byte granule is guaranteed, num_valid_outputs is multiple of 4 for
+    // int2.
+    if (aligned_16b && num_valid_outputs >= 8) {
+      *reinterpret_cast<half8*>(output_ptr) =
+          *reinterpret_cast<const half8*>(&(val.vals[0].x));
+      if (num_valid_outputs == 16) {
+        *reinterpret_cast<half8*>(output_ptr + 8) =
+            *reinterpret_cast<const half8*>(&(val.vals[0].x) + 8);
+      } else if (num_valid_outputs == 12) {
+        *reinterpret_cast<half4*>(output_ptr + 8) =
+            *reinterpret_cast<const half4*>(&(val.vals[0].x) + 8);
+      }
     } else if (aligned_8b) {
-      auto v0 = *reinterpret_cast<const int4*>(&val);
-      auto v1 = *reinterpret_cast<const int4*>(&val.vals[4]);
-      *reinterpret_cast<int2*>(output_ptr) = make_int2(v0.x, v0.y);
-      *reinterpret_cast<int2*>(output_ptr + 4) = make_int2(v0.z, v0.w);
-      *reinterpret_cast<int2*>(output_ptr + 8) = make_int2(v1.x, v1.y);
-      *reinterpret_cast<int2*>(output_ptr + 12) = make_int2(v1.z, v1.w);
+#pragma unroll
+      for (int i = 0; i < 16; i += 4) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<half4*>(output_ptr + i) =
+              *reinterpret_cast<const half4*>(&(val.vals[0].x) + i);
+        }
+      }
     } else if (aligned_4b) {
-      auto v0 = *reinterpret_cast<const int4*>(&val);
-      auto v1 = *reinterpret_cast<const int4*>(&val.vals[4]);
-      *reinterpret_cast<int*>(output_ptr + 0) = v0.x;
-      *reinterpret_cast<int*>(output_ptr + 2) = v0.y;
-      *reinterpret_cast<int*>(output_ptr + 4) = v0.z;
-      *reinterpret_cast<int*>(output_ptr + 6) = v0.w;
-
-      *reinterpret_cast<int*>(output_ptr + 8) = v1.x;
-      *reinterpret_cast<int*>(output_ptr + 10) = v1.y;
-      *reinterpret_cast<int*>(output_ptr + 12) = v1.z;
-      *reinterpret_cast<int*>(output_ptr + 14) = v1.w;
+#pragma unroll
+      for (int i = 0; i < 16; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<half2*>(output_ptr + i) =
+              *reinterpret_cast<const half2*>(&(val.vals[0].x) + i);
+        }
+      }
     } else {
-      *(output_ptr + 0) = __low2half(val.vals[0]);
-      *(output_ptr + 1) = __high2half(val.vals[0]);
-      *(output_ptr + 2) = __low2half(val.vals[1]);
-      *(output_ptr + 3) = __high2half(val.vals[1]);
-      *(output_ptr + 4) = __low2half(val.vals[2]);
-      *(output_ptr + 5) = __high2half(val.vals[2]);
-      *(output_ptr + 6) = __low2half(val.vals[3]);
-      *(output_ptr + 7) = __high2half(val.vals[3]);
-
-      *(output_ptr + 8) = __low2half(val.vals[4]);
-      *(output_ptr + 9) = __high2half(val.vals[4]);
-      *(output_ptr + 10) = __low2half(val.vals[5]);
-      *(output_ptr + 11) = __high2half(val.vals[5]);
-      *(output_ptr + 12) = __low2half(val.vals[6]);
-      *(output_ptr + 13) = __high2half(val.vals[6]);
-      *(output_ptr + 14) = __low2half(val.vals[7]);
-      *(output_ptr + 15) = __high2half(val.vals[7]);
+#pragma unroll
+      for (int i = 0; i < 16; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
+        }
+      }
     }
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr) {
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 16) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, float2 qparams) {
-    float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
-    output_ptr[0] = lrintf((acc.vals[0].vals[0].x - qparams.y) * inv_scale);
-    output_ptr[1] = lrintf((acc.vals[0].vals[0].y - qparams.y) * inv_scale);
-    output_ptr[2] = lrintf((acc.vals[0].vals[0].z - qparams.y) * inv_scale);
-    output_ptr[3] = lrintf((acc.vals[0].vals[0].w - qparams.y) * inv_scale);
-    output_ptr[4] = lrintf((acc.vals[0].vals[1].x - qparams.y) * inv_scale);
-    output_ptr[5] = lrintf((acc.vals[0].vals[1].y - qparams.y) * inv_scale);
-    output_ptr[6] = lrintf((acc.vals[0].vals[1].z - qparams.y) * inv_scale);
-    output_ptr[7] = lrintf((acc.vals[0].vals[1].w - qparams.y) * inv_scale);
-
-    output_ptr[8] = lrintf((acc.vals[1].vals[0].x - qparams.y) * inv_scale);
-    output_ptr[9] = lrintf((acc.vals[1].vals[0].y - qparams.y) * inv_scale);
-    output_ptr[10] = lrintf((acc.vals[1].vals[0].z - qparams.y) * inv_scale);
-    output_ptr[11] = lrintf((acc.vals[1].vals[0].w - qparams.y) * inv_scale);
-    output_ptr[12] = lrintf((acc.vals[1].vals[1].x - qparams.y) * inv_scale);
-    output_ptr[13] = lrintf((acc.vals[1].vals[1].y - qparams.y) * inv_scale);
-    output_ptr[14] = lrintf((acc.vals[1].vals[1].z - qparams.y) * inv_scale);
-    output_ptr[15] = lrintf((acc.vals[1].vals[1].w - qparams.y) * inv_scale);
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 16) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 16; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = lrintf(
+            (reinterpret_cast<const float*>(&(acc.vals[0].vals[0]))[i] -
+             qparams.y) *
+            inv_scale);
+      }
+    }
   }
 
-  DEVICE_INLINE void store(float* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 16) {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, float2 qparams) {
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 16) {
     CUDA_KERNEL_ASSERT(false);
   }
 
