@@ -299,7 +299,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% if not dense %}
     Tensor lxu_cache_locations,
     {% endif %}
-    {% if not dense and not nobag %}
+    {% if not dense %}
     int64_t output_dtype,
     {% endif %}
     int64_t unused
@@ -345,10 +345,29 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     TORCH_CHECK(D % 4 == 0);
     {% endif %}
 
-    {% if nobag %}
-    Tensor output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
-    {% else %}
     Tensor output;
+    {% if nobag %}
+    {% if dense %}
+    if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
+        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
+    } else {
+        output = at::empty({total_L, D}, dev_weights.options());
+    }
+    {% else %}
+    SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
+                o_dtype == SparseType::BF16);
+    if (o_dtype == SparseType::FP32) {
+        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
+    } else if (o_dtype == SparseType::FP16) {
+        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kHalf));
+    } else if (o_dtype == SparseType::BF16) {
+        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kBFloat16));
+    } else {
+        output = at::empty({total_L, D}, dev_weights.options());
+    }
+    {% endif %}
+    {% else %}
     {% if dense %}
     if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
