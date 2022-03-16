@@ -670,6 +670,72 @@ class SparseOpsTest(unittest.TestCase):
                     unbucketized_indices, indices, rtol=0, atol=0
                 )
 
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        has_weight=st.booleans(),
+        bucketize_pos=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_bucketize_sparse_features(
+        self,
+        index_type: Type[torch.dtype],
+        has_weight: bool,
+        bucketize_pos: bool,
+    ) -> None:
+        # pyre-ignore [6]
+        lengths = torch.tensor([0, 2, 1, 3], dtype=index_type)
+        # pyre-ignore [6]
+        indices = torch.tensor([10, 10, 15, 20, 25, 30], dtype=index_type)
+        weights = (
+            torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=torch.float)
+            if has_weight
+            else None
+        )
+
+        # pyre-ignore [6]
+        new_lengths_ref = torch.tensor([0, 2, 0, 2, 0, 0, 1, 1], dtype=index_type)
+        # pyre-ignore [6]
+        new_indices_ref = torch.tensor([5, 5, 10, 15, 7, 12], dtype=index_type)
+        new_weights_ref = torch.tensor(
+            [1.0, 2.0, 4.0, 6.0, 3.0, 5.0], dtype=torch.float
+        )
+        # pyre-ignore [6]
+        new_pos_ref = torch.tensor([0, 1, 0, 2, 0, 1], dtype=index_type)
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+        ) = torch.ops.fbgemm.bucketize_sparse_features(
+            lengths, indices, bucketize_pos, 2, weights
+        )
+        torch.testing.assert_allclose(new_lengths_cpu, new_lengths_ref, 0, 0)
+        torch.testing.assert_allclose(new_indices_cpu, new_indices_ref, 0, 0)
+        if has_weight:
+            torch.testing.assert_allclose(new_weights_cpu, new_weights_ref)
+        if bucketize_pos:
+            torch.testing.assert_allclose(new_pos_cpu, new_pos_ref)
+        if gpu_available:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+            ) = torch.ops.fbgemm.bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                2,
+                weights.cuda() if has_weight else None,
+            )
+            torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
+            torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+            if has_weight:
+                torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_cpu)
+            if bucketize_pos:
+                torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_cpu)
+
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(

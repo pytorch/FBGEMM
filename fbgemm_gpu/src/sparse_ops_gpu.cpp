@@ -174,6 +174,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cuda);
   DISPATCH_TO_CUDA(
+      "bucketize_sparse_features", fbgemm_gpu::bucketize_sparse_features_cuda);
+  DISPATCH_TO_CUDA(
       "asynchronous_exclusive_cumsum",
       fbgemm_gpu::asynchronous_exclusive_cumsum_gpu);
   DISPATCH_TO_CUDA(
