@@ -226,7 +226,8 @@ set(fbgemm_gpu_sources_cpu
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
-    src/sparse_ops_cpu.cpp)
+    src/sparse_ops_cpu.cpp
+    src/permute_pooled_embedding_ops_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_cpu
