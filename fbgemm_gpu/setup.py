@@ -40,6 +40,11 @@ if int(maj_ver) > 1 or (int(maj_ver) == 1 and int(min_ver) >= 5):
 # Get the long description from the relevant file
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 
+generator_flag = []
+torch_dir = torch.__path__[0]
+if os.path.exists(os.path.join(torch_dir, "include", "ATen", "cuda", "CUDAGeneratorImpl.h")):
+    generator_flag = ["-DNEW_GENERATOR_PATH"]
+
 with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
@@ -253,15 +258,15 @@ setup(
             name="fbgemm_gpu_py",
             sources=CUDA_source,
             include_dirs=CUDA_include,
-            extra_compile_args={"cxx": extra_compile_args + ["-DFBGEMM_GPU_WITH_CUDA"],
-                                "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"]},
+            extra_compile_args={"cxx": extra_compile_args + ["-DFBGEMM_GPU_WITH_CUDA"] + generator_flag,
+                                "nvcc": ["-U__CUDA_NO_HALF_CONVERSIONS__"] + generator_flag},
             libraries=libraries,
         ) if not cpu_only_build else
         CppExtension(
             name="fbgemm_gpu_py",
             sources=Cpp_source,
             include_dirs=common_included,
-            extra_compile_args={"cxx": extra_compile_args},
+            extra_compile_args={"cxx": extra_compile_args + generator_flag},
         )
     ],
     cmdclass={"build_ext": FBGEMM_GPU_BuildExtension},

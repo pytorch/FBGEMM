@@ -15,7 +15,11 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#if !defined(NEW_GENERATOR_PATH)
 #include <ATen/CUDAGeneratorImpl.h>
+#else
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#endif
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
