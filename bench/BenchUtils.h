@@ -62,7 +62,7 @@ NOINLINE float cache_evict(const T& vec) {
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
     _mm_mfence();
-#ifndef _MSC_VER
+#ifndef _WIN32
     asm volatile("" ::: "memory");
 #endif
     _mm_clflush(&data[i]);

@@ -28,7 +28,7 @@ void QuantizeAvx2(
     T* dst,
     int len,
     const TensorQuantizationParams& qparams) {
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__) && (defined(__FMA__) || defined(_WIN32))
   constexpr int VLEN = 8;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
@@ -163,7 +163,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   float inverse_scale = 1.f / qparams.scale;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
-#if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
+#if defined(__AVX2__) && (defined(__FMA__) || defined(_WIN32))
 
   constexpr int VLEN = 8;
   // This is the largest int32 value less than int32_max
@@ -1539,7 +1539,7 @@ INSTANTIATE_BIAS(false)
 #undef INSTANTIATE_BIAS
 
 static inline uint16_t floatToHalf(float val) {
-#ifdef _MSC_VER
+#ifdef _WIN32
   // Use _mm256_cvtps_ph/_mm256_cvtph_ps because _cvtsh_ss/_cvtss_sh don't
   // exist in MSVC.
   __m256 val_v = _mm256_set1_ps(val);
@@ -1551,7 +1551,7 @@ static inline uint16_t floatToHalf(float val) {
 #endif
 }
 static inline float halfToFloat(uint16_t val) {
-#ifdef _MSC_VER
+#ifdef _WIN32
   return _mm256_cvtss_f32(_mm256_cvtph_ps(_mm_cvtsi32_si128(val)));
 #else
   return _cvtsh_ss(val);
