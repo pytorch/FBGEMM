@@ -133,7 +133,7 @@ void performance_test() {
          << setw(5) << fixed << setw(5) << setprecision(1) << nops / ttot
          << endl;
 
-    for (auto i = 0; i < Cfp32_mkl.size(); ++i) {
+    for (size_t i = 0; i < Cfp32_mkl.size(); ++i) {
       Cint32_mkl[i] = (int32_t)Cfp32_mkl[i];
     }
 #endif
