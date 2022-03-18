@@ -13,11 +13,14 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/quantize_ops.cuh"
+#include "fbgemm_gpu/quantize_ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
+#include <ATen/native/TensorIterator.h>
+#include <ATen/native/cuda/Loops.cuh>
 
 using Tensor = at::Tensor;
 
@@ -718,4 +721,56 @@ at::Tensor _fusednbitrowwise_to_half_gpu(
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
 }
 
+at::Tensor _float_to_hfp8_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t exponent_bias,
+    const double max_pos) {
+  TORCH_CHECK(ebits > 0);
+  TORCH_CHECK(exponent_bias > 0);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  auto output = at::empty({}, input.options().dtype(at::kByte));
+  output.resize_(0);
+
+  auto iter = at::TensorIteratorConfig()
+                  .check_all_same_dtype(false)
+                  .add_output(output)
+                  .add_input(input)
+                  .build();
+
+  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(float in) -> uint8_t {
+    return float_to_hfp8(in, ebits, exponent_bias, max_pos);
+  });
+
+  return output;
+}
+
+at::Tensor _hfp8_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t exponent_bias) {
+  TORCH_CHECK(ebits > 0);
+  TORCH_CHECK(exponent_bias > 0);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  auto output = at::empty({}, input.options().dtype(at::kFloat));
+  output.resize_(0);
+
+  auto iter = at::TensorIteratorConfig()
+                  .check_all_same_dtype(false)
+                  .add_output(output)
+                  .add_input(input)
+                  .build();
+
+  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(uint8_t in) -> float {
+    return hfp8_to_float(in, ebits, exponent_bias);
+  });
+
+  return output;
+}
 } // namespace fbgemm_gpu

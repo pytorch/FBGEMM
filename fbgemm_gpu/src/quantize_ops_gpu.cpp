@@ -7,6 +7,7 @@
 // Copyright 2004-present Facebook. All Rights Reserved.
 #include <torch/library.h>
 
+#include "fbgemm_gpu/quantize_ops_gpu.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -38,4 +39,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "HalfToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::_half_to_fusednbitrowwise_gpu);
+  DISPATCH_TO_CUDA("FloatToHFP8Quantized", fbgemm_gpu::_float_to_hfp8_gpu);
+  DISPATCH_TO_CUDA("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_gpu);
 }
