@@ -358,21 +358,6 @@ Tensor jagged_dense_elementwise_jagged_output_(
   return output;
 }
 
-Tensor jagged_dense_elementwise_mul(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
-  Tensor output;
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      x_values.scalar_type(), "jagged_scalars", [&] {
-        output = jagged_dense_elementwise_jagged_output_<scalar_t>(
-            x_values, x_offsets, y, [](scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
-      });
-  return output;
-}
-
 class JaggedDenseAddCPUOp
     : public torch::autograd::Function<JaggedDenseAddCPUOp> {
  public:
@@ -430,6 +415,191 @@ Tensor jagged_dense_elementwise_add(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
   return JaggedDenseAddCPUOp::apply(x_values, x_offsets, y)[0];
+}
+
+template <
+    int NUM_JAGGED_DIM,
+    bool NO_INNER_DENSE,
+    typename index_t,
+    typename scalar_t,
+    typename F>
+void jagged_jagged_elementwise_dense_output_kernel_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_values,
+    const Tensor& output,
+    F f,
+    const scalar_t& padding_value) {
+  TENSOR_ON_CPU(x_values);
+  TENSOR_ON_CPU(y_values);
+  TENSOR_ON_CPU(output);
+
+  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM));
+
+  const int outer_dense_size = output.size(0);
+  TORCH_CHECK(outer_dense_size == x_offsets[0].numel() - 1);
+  TORCH_CHECK(!NO_INNER_DENSE || output.size(-1) == 1);
+  const int inner_dense_size = NO_INNER_DENSE ? 1 : output.size(-1);
+  TORCH_CHECK(inner_dense_size == x_values.size(-1));
+  const int jagged_folded_size =
+      output.numel() / (outer_dense_size * inner_dense_size);
+  const int jagged_innermost_size = output.size(-2);
+
+  // Canonicalize output to 3D, collapsing jagged dimensions.
+  Tensor output_reshaped = output.view({output.size(0), -1, output.size(-1)});
+
+  std::vector<at::TensorAccessor<index_t, 1>> x_offsets_accessors =
+      collect_offsets_accessors<index_t>(
+          x_offsets, outer_dense_size, NUM_JAGGED_DIM);
+
+  const at::TensorAccessor<scalar_t, 2> x_accessor =
+      x_values.accessor<scalar_t, 2>();
+  const at::TensorAccessor<scalar_t, 2> y_accessor =
+      y_values.accessor<scalar_t, 2>();
+  at::TensorAccessor<scalar_t, 3> output_accessor =
+      output_reshaped.accessor<scalar_t, 3>();
+
+  for (int oidx = 0; oidx < outer_dense_size; ++oidx) {
+    for (int joidx = 0; joidx < jagged_folded_size / jagged_innermost_size;
+         ++joidx) {
+      int offset_base = oidx;
+      const bool is_zero =
+          walk_down_tensor_storage_tree_except_last_<NUM_JAGGED_DIM>(
+              offset_base, joidx, output.sizes().data(), x_offsets_accessors);
+
+      // As a perf optimization, a separate loop level for the inner-most
+      // jagged dimension.
+      int jiidx = 0;
+      if (!is_zero) {
+        const int begin = x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base];
+        const int end =
+            x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base + 1];
+        for (; jiidx < end - begin; ++jiidx) {
+          int jidx = joidx * jagged_innermost_size + jiidx;
+          if (NO_INNER_DENSE) {
+            output_accessor[oidx][jidx][0] =
+                f(x_accessor[begin + jiidx][0], y_accessor[begin + jiidx][0]);
+          } else {
+            for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
+              output_accessor[oidx][jidx][iidx] =
+                  f(x_accessor[begin + jiidx][iidx],
+                    y_accessor[begin + jiidx][iidx]);
+            }
+          }
+        }
+      }
+      for (; jiidx < jagged_innermost_size; ++jiidx) {
+        int jidx = joidx * jagged_innermost_size + jiidx;
+        if (NO_INNER_DENSE) {
+          output_accessor[oidx][jidx][0] = padding_value;
+        } else {
+          for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
+            output_accessor[oidx][jidx][iidx] = padding_value;
+          }
+        }
+      }
+    } // for each joidx
+  } // for each oidx
+}
+
+template <typename scalar_t, typename F>
+void jagged_jagged_elementwise_dense_output_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_values,
+    const Tensor& output,
+    F f,
+    const scalar_t& padding_value = static_cast<scalar_t>(0)) {
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                             \
+  if (output.size(-1) == 1) {                                              \
+    jagged_jagged_elementwise_dense_output_kernel_<                        \
+        NUM_JAGGED_DIM,                                                    \
+        true,                                                              \
+        index_t>(x_values, x_offsets, y_values, output, f, padding_value); \
+  } else {                                                                 \
+    jagged_jagged_elementwise_dense_output_kernel_<                        \
+        NUM_JAGGED_DIM,                                                    \
+        false,                                                             \
+        index_t>(x_values, x_offsets, y_values, output, f, padding_value); \
+  }
+
+  const int num_jagged_dim = output.dim() - 2;
+  JAGGED_TENSOR_DISPATCH_DIMS();
+
+#undef INVOKE_KERNEL_WITH_DIM
+}
+
+class JaggedDenseMulCPUOp
+    : public torch::autograd::Function<JaggedDenseMulCPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& x_offsets,
+      const Tensor& y) {
+    std::vector<Tensor> tensors_to_save;
+    tensors_to_save.push_back(x_values);
+    tensors_to_save.insert(
+        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
+    tensors_to_save.push_back(y);
+    ctx->save_for_backward(tensors_to_save);
+
+    Tensor output;
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          output = jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values, x_offsets, y, [](scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const Tensor x_values = ctx->get_saved_variables().front();
+    // See jagged_tensor_ops.cu JaggedDenseMulGPUOp why we don't use vector
+    // constructor.
+    std::vector<Tensor> x_offsets;
+    for (size_t i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+      x_offsets.push_back(ctx->get_saved_variables()[i]);
+    }
+    const Tensor y = ctx->get_saved_variables().back();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    Tensor x_values_grad;
+    Tensor y_grad = at::empty_like(y);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          x_values_grad = jagged_dense_elementwise_jagged_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              y,
+              [](scalar_t x, scalar_t y) -> scalar_t { return x * y; });
+
+          jagged_jagged_elementwise_dense_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              x_values,
+              y_grad,
+              [](scalar_t x, scalar_t y) -> scalar_t { return x * y; });
+        });
+
+    return {
+        x_values_grad,
+        torch::autograd::Variable(), // x_offsets
+        y_grad};
+  }
+};
+
+Tensor jagged_dense_elementwise_mul(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  return JaggedDenseMulCPUOp::apply(x_values, x_offsets, y)[0];
 }
 
 } // namespace
