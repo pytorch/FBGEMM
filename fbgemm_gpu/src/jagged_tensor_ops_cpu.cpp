@@ -247,6 +247,34 @@ Tensor jagged_to_padded_dense(
   return padded_values;
 }
 
+template <typename scalar_t, typename F>
+Tensor jagged_dense_elementwise_dense_output_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    F f,
+    const scalar_t& padding_value = static_cast<scalar_t>(0)) {
+  Tensor output = at::empty_like(y);
+  jagged_dense_elementwise_dense_output_(
+      x_values, x_offsets, y, output, f, padding_value);
+  return output;
+}
+
+Tensor jagged_dense_elementwise_add(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      x_values.scalar_type(), "jagged_scalars", [&] {
+        output = jagged_dense_elementwise_dense_output_<scalar_t>(
+            x_values, x_offsets, y, [](scalar_t x, scalar_t y) -> scalar_t {
+              return x + y;
+            });
+      });
+  return output;
+}
+
 } // namespace
 
 Tensor
@@ -286,6 +314,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> Tensor[]");
   m.def(
       "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, int padding_value = 0) -> Tensor");
+  m.def(
+      "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -293,4 +323,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
   DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU("jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
+  DISPATCH_TO_CPU(
+      "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
 }

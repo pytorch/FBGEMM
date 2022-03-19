@@ -1658,6 +1658,39 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(min_value=1, max_value=5),
+        outer_dense_size=st.integers(min_value=1, max_value=5),
+        inner_dense_size=st.integers(min_value=1, max_value=5),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_elementwise_add(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        use_cpu: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, device
+        )
+        y = torch.rand(
+            outer_dense_size * np.prod(max_lengths) * inner_dense_size,
+            dtype=torch.float,
+            device=device,
+        ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        output_ref = x_padded + y
+
+        output = torch.ops.fbgemm.jagged_dense_elementwise_add(x_values, x_offsets, y)
+
+        torch.testing.assert_close(output, output_ref)
+
 
 if __name__ == "__main__":
     unittest.main()
