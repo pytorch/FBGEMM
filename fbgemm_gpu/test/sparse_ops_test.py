@@ -1663,14 +1663,16 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(min_value=1, max_value=5),
         outer_dense_size=st.integers(min_value=1, max_value=5),
         inner_dense_size=st.integers(min_value=1, max_value=5),
+        operation=st.sampled_from(["add", "mul"]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_jagged_elementwise_add(
+    def test_jagged_elementwise_binary(
         self,
         num_jagged_dim: int,
         outer_dense_size: int,
         inner_dense_size: int,
+        operation: str,
         use_cpu: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
@@ -1685,9 +1687,19 @@ class SparseOpsTest(unittest.TestCase):
         ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
-        output_ref = x_padded + y
-
-        output = torch.ops.fbgemm.jagged_dense_elementwise_add(x_values, x_offsets, y)
+        if operation == "add":
+            output_ref = x_padded + y
+            output = torch.ops.fbgemm.jagged_dense_elementwise_add(
+                x_values, x_offsets, y
+            )
+        elif operation == "mul":
+            output_ref = x_padded * y
+            output = torch.ops.fbgemm.jagged_dense_elementwise_mul(
+                x_values, x_offsets, y
+            )
+            output = self._to_padded_dense(output, x_offsets, max_lengths)
+        else:
+            raise AssertionError(f"Unknown operation {operation}")
 
         torch.testing.assert_close(output, output_ref)
 
