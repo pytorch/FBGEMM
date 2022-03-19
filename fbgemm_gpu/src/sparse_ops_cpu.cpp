@@ -1037,138 +1037,6 @@ Tensor batched_unary_embeddings_forward_cpu(
   return output;
 }
 
-template <typename index_t, typename scalar_t>
-void jagged_2d_to_dense_forward_kernel(
-    int32_t B,
-    int32_t max_L,
-    int32_t D,
-    const index_t* offsets,
-    const scalar_t* values_data,
-    scalar_t* padded_values_data) {
-  const auto block_size = max_L * D;
-  const auto embedding_byte_size = D * sizeof(scalar_t);
-  for (auto b = 0; b < B; ++b) {
-    auto start_idx = offsets[b];
-    auto end_idx = offsets[b + 1];
-    auto length = end_idx - start_idx;
-    if (length > max_L) {
-      length = max_L;
-    }
-    auto padding_length = max_L - length;
-    memcpy(
-        &padded_values_data[b * block_size],
-        &values_data[start_idx * D],
-        length * embedding_byte_size);
-    memset(
-        &padded_values_data[b * block_size + length * D],
-        0,
-        padding_length * embedding_byte_size);
-  }
-}
-
-Tensor
-jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
-  TORCH_CHECK(values.dim() == 2);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
-
-  const auto B = offsets.numel() - 1;
-  const auto D = values.size(1);
-  const auto values_contig = values.expect_contiguous();
-  const auto offsets_contig = offsets.expect_contiguous();
-
-  if (values.size(0) == 0) {
-    return at::zeros({B, max_L, D}, values.options());
-  }
-
-  auto padded_values = at::empty({B, max_L, D}, values.options());
-  AT_DISPATCH_INDEX_TYPES(
-      offsets_contig->scalar_type(),
-      "jagged_2d_to_dense_forward_by_offsets",
-      [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            values_contig->scalar_type(),
-            "jagged_2d_to_dense_forward_by_values",
-            [&] {
-              jagged_2d_to_dense_forward_kernel(
-                  B,
-                  max_L,
-                  D,
-                  offsets_contig->data_ptr<index_t>(),
-                  values_contig->data_ptr<scalar_t>(),
-                  padded_values.data_ptr<scalar_t>());
-            });
-      });
-
-  return padded_values;
-}
-
-template <typename index_t, typename scalar_t>
-void jagged_1d_to_dense_kernel(
-    int64_t B,
-    int64_t max_L,
-    scalar_t padding_value,
-    const index_t* offsets,
-    const scalar_t* values_data,
-    scalar_t* padded_values_data) {
-  const auto block_size = max_L;
-  const auto value_byte_size = sizeof(scalar_t);
-  for (auto b = 0; b < B; ++b) {
-    auto start_idx = offsets[b];
-    auto end_idx = offsets[b + 1];
-    auto length = end_idx - start_idx;
-    if (length > max_L) {
-      // Guard against the case that lengths[b] > max_L. This is
-      // a valid use case.
-      length = max_L;
-    }
-    auto padding_length = max_L - length;
-    memcpy(
-        &padded_values_data[b * block_size],
-        &values_data[start_idx],
-        length * value_byte_size);
-    for (int l = 0, offset = b * block_size + length; l < padding_length;
-         ++l, ++offset) {
-      padded_values_data[offset] = padding_value;
-    }
-  }
-}
-
-Tensor jagged_1d_to_dense_cpu(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_L,
-    int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
-
-  const auto B = offsets.numel() - 1;
-  const auto values_contig = values.expect_contiguous();
-  const auto offsets_contig = offsets.expect_contiguous();
-
-  if (values.size(0) == 0 && padding_value == 0) {
-    return at::zeros({B, max_L}, values.options());
-  }
-
-  auto padded_values = at::empty({B, max_L}, values.options());
-  AT_DISPATCH_INDEX_TYPES(
-      offsets_contig->scalar_type(), "jagged_1d_to_dense_1", [&] {
-        AT_DISPATCH_ALL_TYPES(
-            values_contig->scalar_type(), "jagged_1d_to_dense_2", [&] {
-              jagged_1d_to_dense_kernel<index_t, scalar_t>(
-                  B,
-                  max_L,
-                  padding_value,
-                  offsets_contig->data_ptr<index_t>(),
-                  values_contig->data_ptr<scalar_t>(),
-                  padded_values.data_ptr<scalar_t>());
-            });
-      });
-
-  return padded_values;
-}
-
 template <typename T>
 void _histogram_binning_calibration_cpu_kernel(
     const int64_t num_logits,
@@ -1642,18 +1510,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
   m.def(
-      "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
-  m.def(
-      "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
-  m.def(
-      "stacked_jagged_2d_to_dense_forward(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> (Tensor[], Tensor[])");
-  m.def(
-      "stacked_jagged_2d_to_dense_backward(int B, int D, int total_L, Tensor[] grad_padded_values_per_key, Tensor[] offsets_tensor_per_key, int[] offset_per_key) -> Tensor");
-  m.def(
-      "stacked_jagged_1d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value) -> Tensor[]");
-  m.def(
-      "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> Tensor[]");
-  m.def(
       "histogram_binning_calibration(Tensor logit, Tensor bin_num_examples, Tensor bin_num_positives, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
       "histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, int num_bins, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
@@ -1693,9 +1549,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "batched_unary_embeddings",
       fbgemm_gpu::batched_unary_embeddings_forward_cpu);
-  DISPATCH_TO_CPU(
-      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
-  DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU(
       "histogram_binning_calibration",
       fbgemm_gpu::histogram_binning_calibration_cpu);
