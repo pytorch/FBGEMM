@@ -127,9 +127,19 @@ std::tuple<dim3, dim3, Tensor> check_shape_and_partition_(
     const std::vector<Tensor>& offsets,
     const Tensor& dense_tensor) {
   const int outer_dense_size = dense_tensor.size(0);
-  TORCH_CHECK(outer_dense_size == offsets[0].numel() - 1);
+  TORCH_CHECK(
+      outer_dense_size == offsets[0].numel() - 1,
+      "outer_dense_size, ",
+      outer_dense_size,
+      " != offsets[0].numel() - 1, ",
+      offsets[0].numel() - 1);
   const int inner_dense_size = dense_tensor.size(-1);
-  TORCH_CHECK(inner_dense_size == values.size(-1));
+  TORCH_CHECK(
+      inner_dense_size == values.size(-1),
+      "inner_dense_size, ",
+      inner_dense_size,
+      " != values.size(-1), ",
+      values.size(-1));
   const int jagged_folded_size =
       dense_tensor.numel() / (outer_dense_size * inner_dense_size);
   const int jagged_innermost_size = dense_tensor.size(-2);
@@ -166,7 +176,12 @@ void jagged_dense_elementwise_dense_output_(
   }
 
   const int num_jagged_dim = y.dim() - 2;
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(num_jagged_dim),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != num_jagged_dim ",
+      num_jagged_dim);
 
   if (y.size(0) == 0 || y.size(-1) == 0) {
     return;
@@ -215,7 +230,12 @@ Tensor jagged_to_padded_dense(
     const std::vector<int64_t>& max_lengths,
     const int64_t padding_value) {
   const size_t num_jagged_dim = offsets.size();
-  TORCH_CHECK(max_lengths.size() == num_jagged_dim);
+  TORCH_CHECK(
+      max_lengths.size() == num_jagged_dim,
+      "max_lengths.size(), ",
+      max_lengths.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
 
@@ -316,7 +336,12 @@ void jagged_dense_elementwise_jagged_output_(
   }
 
   const int num_jagged_dim = y.dim() - 2;
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(num_jagged_dim),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
 
   if (y.size(0) == 0 || y.size(-1) == 0) {
     return;
@@ -499,7 +524,12 @@ void jagged_jagged_elementwise_dense_output_(
   }
 
   const int num_jagged_dim = output.dim() - 2;
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(num_jagged_dim),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
 
   if (output.size(0) == 0 || output.size(-1) == 0) {
     return;
@@ -758,7 +788,8 @@ class BatchedDenseVecJagged2DMulGPUOp
     device_guard.set_index(v.get_device());
 
     const int B = a_offsets.numel() - 1;
-    TORCH_CHECK(B == 0 || v.size(0) % B == 0);
+    TORCH_CHECK(
+        B == 0 || v.size(0) % B == 0, "B, ", B, " != v.size(0), ", v.size(0));
     const int H = (B == 0) ? 1 : v.size(0) / B;
     const int D = a_values.size(-1) / H;
     const int max_L = v.size(-1);
@@ -817,7 +848,7 @@ class BatchedDenseVecJagged2DMulGPUOp
     Tensor v_grad = at::empty_like(v);
 
     if (B > 0 && D > 0) {
-      TORCH_CHECK(v.size(0) % B == 0);
+      TORCH_CHECK(v.size(0) % B == 0, "v.size(0), ", v.size(0), " != B, ", B);
       const int H = v.size(0) / B;
       const int max_L = v.size(-1);
 
