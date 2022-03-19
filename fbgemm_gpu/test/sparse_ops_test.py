@@ -1712,6 +1712,63 @@ class SparseOpsTest(unittest.TestCase):
             ),
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(1, 32),
+        H=st.integers(1, 3),
+        max_L=st.integers(1, 32),
+        D=st.integers(1, 32),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    def test_batched_dense_vec_jagged_2d_mul(
+        self,
+        B: int,
+        H: int,
+        max_L: int,
+        D: int,
+        use_cpu: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        torch.backends.cuda.matmul.allow_tf32 = False
+
+        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        values = torch.rand((offsets[-1], H * D), device=device)
+        dense = torch.rand((B * H, max_L), device=device)
+        padded_values = torch.ops.fbgemm.jagged_2d_to_dense(
+            values,
+            offsets,
+            max_L,
+        )  # [B, N, H * D]
+
+        output_ref = torch.bmm(
+            dense.unsqueeze(1),
+            padded_values.reshape(B, max_L, H, D)
+            .transpose(1, 2)
+            .reshape(B * H, max_L, D),
+        ).squeeze(
+            1
+        )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
+        output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            dense, values, offsets
+        )
+        torch.testing.assert_close(output, output_ref)
+
+        torch.autograd.gradcheck(
+            torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
+            (
+                dense.clone().detach().double().requires_grad_(True),
+                values.clone().detach().double().requires_grad_(True),
+                offsets,
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

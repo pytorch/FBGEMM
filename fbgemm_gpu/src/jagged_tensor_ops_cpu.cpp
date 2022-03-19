@@ -6,6 +6,7 @@
  */
 
 #include <ATen/ATen.h>
+#include <ATen/AccumulateType.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
@@ -602,6 +603,209 @@ Tensor jagged_dense_elementwise_mul(
   return JaggedDenseMulCPUOp::apply(x_values, x_offsets, y)[0];
 }
 
+template <typename index_t, typename scalar_t>
+void dense_vec_jagged_2d_bmm(
+    const at::TensorAccessor<scalar_t, 2> v,
+    const at::TensorAccessor<scalar_t, 2> a_values,
+    const at::TensorAccessor<index_t, 1> a_offsets,
+    at::TensorAccessor<scalar_t, 2> output) {
+  const int B = a_offsets.size(0) - 1;
+  const int H = v.size(0) / B;
+  const int max_L = v.size(1);
+  const int D = output.size(1);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = a_offsets[b];
+    const int row_end = a_offsets[b + 1];
+    const int length = std::min(row_end - row_start, max_L);
+    if (length == 0) {
+      for (int h = 0; h < H; ++h) {
+        for (int d = 0; d < D; ++d) {
+          output[b * H + h][d] = 0;
+        }
+      }
+    } else {
+      for (int h = 0; h < H; ++h) {
+        for (int d = 0; d < D; ++d) {
+          // use is_cuda=true because acc_type<float, false> = double is too
+          // conservative
+          at::acc_type<scalar_t, true> acc =
+              v[b * H + h][0] * a_values[row_start][h * D + d];
+          for (int l = 1; l < length; ++l) {
+            acc += v[b * H + h][l] * a_values[row_start + l][h * D + d];
+          }
+          output[b * H + h][d] = acc;
+        }
+      }
+    } // length > 0
+  } // for each b
+}
+
+template <typename index_t, typename scalar_t>
+void dense_vec_jagged_2d_transposed_bmm(
+    const at::TensorAccessor<scalar_t, 2> v,
+    const at::TensorAccessor<scalar_t, 2> a_values,
+    const at::TensorAccessor<index_t, 1> a_offsets,
+    at::TensorAccessor<scalar_t, 2> output) {
+  const int B = a_offsets.size(0) - 1;
+  const int H = v.size(0) / B;
+  const int max_L = output.size(1);
+  const int D = v.size(1);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = a_offsets[b];
+    const int row_end = a_offsets[b + 1];
+    const int length = std::min(row_end - row_start, max_L);
+
+    if (D == 0) {
+      for (int h = 0; h < H; ++h) {
+        for (int l = 0; l < max_L; ++l) {
+          output[b * H + h][l] = 0;
+        }
+      }
+    } else {
+      for (int h = 0; h < H; ++h) {
+        int l;
+        for (l = 0; l < length; ++l) {
+          at::acc_type<scalar_t, true> acc =
+              v[b * H + h][0] * a_values[row_start + l][h * D];
+          for (int d = 1; d < D; ++d) {
+            acc += v[b * H + h][d] * a_values[row_start + l][h * D + d];
+          }
+          output[b * H + h][l] = acc;
+        }
+        for (; l < max_L; ++l) {
+          output[b * H + h][l] = 0;
+        }
+      }
+    } // D > 0
+  } // for each b
+}
+
+template <typename index_t, typename scalar_t>
+void outer_prod_jagged_2d_output(
+    const at::TensorAccessor<scalar_t, 2> x,
+    const at::TensorAccessor<scalar_t, 2> y,
+    const at::TensorAccessor<index_t, 1> offsets,
+    at::TensorAccessor<scalar_t, 2> output_values) {
+  const int B = offsets.size(0) - 1;
+  const int H = x.size(0) / B;
+  const int D = y.size(1);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = row_end - row_start;
+    for (int h = 0; h < H; ++h) {
+      for (int l = 0; l < length; ++l) {
+        for (int d = 0; d < D; ++d) {
+          output_values[row_start + l][h * D + d] =
+              x[b * H + h][l] * y[b * H + h][d];
+        }
+      }
+    }
+  }
+}
+
+// batched dense vector x jagged 2D tensor multiplication
+// dense vector [B H, N]
+// jagged tensor [B, N, H D] where N is jagged
+class BatchedDenseVecJagged2DMulCPUOp
+    : public torch::autograd::Function<BatchedDenseVecJagged2DMulCPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& v,
+      const Tensor& a_values,
+      const Tensor& a_offsets) {
+    ctx->save_for_backward({v, a_values, a_offsets});
+
+    TENSOR_ON_CPU(v);
+    TENSOR_ON_CPU(a_values);
+    TENSOR_ON_CPU(a_offsets);
+
+    const int B = a_offsets.numel() - 1;
+    TORCH_CHECK(B == 0 || v.size(0) % B == 0);
+    const int H = B == 0 ? 1 : v.size(0) / B;
+    const int D = a_values.size(-1) / H;
+    auto output = at::empty({B * H, D}, v.options());
+
+    if (B > 0 && D > 0) {
+      AT_DISPATCH_INDEX_TYPES(
+          a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
+            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+                a_values.scalar_type(),
+                "dense_vec_jagged_2d_bmm_kernel_2",
+                [&] {
+                  dense_vec_jagged_2d_bmm<index_t, scalar_t>(
+                      v.accessor<scalar_t, 2>(),
+                      a_values.accessor<scalar_t, 2>(),
+                      a_offsets.accessor<index_t, 1>(),
+                      output.accessor<scalar_t, 2>());
+                });
+          });
+    }
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    const Tensor v = *savedItr++;
+    const Tensor a_values = *savedItr++;
+    const Tensor a_offsets = *savedItr++;
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    TENSOR_ON_CPU(grad_outputs[0]);
+
+    Tensor a_values_grad = at::empty_like(a_values);
+    Tensor v_grad = at::empty_like(v);
+
+    const int B = a_offsets.numel() - 1;
+    const int D = grad_outputs[0].size(-1);
+
+    if (B > 0 && D > 0) {
+      AT_DISPATCH_INDEX_TYPES(
+          a_offsets.scalar_type(),
+          "dense_vec_jagged_2d_bmm_baackward_kernel_1",
+          [&] {
+            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+                grad_outputs[0].scalar_type(),
+                "dense_vec_jagged_2d_bmm_baackward_kernel_2",
+                [&] {
+                  dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
+                      grad_outputs[0].accessor<scalar_t, 2>(),
+                      a_values.accessor<scalar_t, 2>(),
+                      a_offsets.accessor<index_t, 1>(),
+                      v_grad.accessor<scalar_t, 2>());
+
+                  outer_prod_jagged_2d_output<index_t, scalar_t>(
+                      v.accessor<scalar_t, 2>(),
+                      grad_outputs[0].accessor<scalar_t, 2>(),
+                      a_offsets.accessor<index_t, 1>(),
+                      a_values_grad.accessor<scalar_t, 2>());
+                });
+          });
+    }
+
+    return {
+        v_grad,
+        a_values_grad,
+        torch::autograd::Variable(), // a_offsets
+    };
+  }
+};
+
+Tensor batched_dense_vec_jagged_2d_mul(
+    const Tensor& v,
+    const Tensor& a_values,
+    const Tensor& a_offsets) {
+  return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets)[0];
+}
+
 } // namespace
 
 Tensor
@@ -647,6 +851,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // jagged * dense -> jagged (its offsets is same as x_offsets)
   m.def(
       "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
+  m.def(
+      "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -658,4 +864,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
+  DISPATCH_TO_CPU(
+      "batched_dense_vec_jagged_2d_mul",
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
 }
