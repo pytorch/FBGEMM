@@ -100,6 +100,11 @@ void jagged_dense_elementwise_dense_output_kernel_(
   TORCH_CHECK(!NO_INNER_DENSE || y.size(-1) == 1);
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
   TORCH_CHECK(inner_dense_size == x_values.size(-1));
+
+  if (outer_dense_size == 0 || inner_dense_size == 0) {
+    return;
+  }
+
   const int jagged_folded_size =
       y.numel() / (outer_dense_size * inner_dense_size);
   const int jagged_innermost_size = y.size(-2);
@@ -269,6 +274,11 @@ void jagged_dense_elementwise_jagged_output_kernel_(
   TORCH_CHECK(!NO_INNER_DENSE || y.size(-1) == 1);
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
   TORCH_CHECK(inner_dense_size == x_values.size(-1));
+
+  if (outer_dense_size == 0 || inner_dense_size == 0) {
+    return;
+  }
+
   const int jagged_folded_size =
       y.numel() / (outer_dense_size * inner_dense_size);
   const int jagged_innermost_size = y.size(-2);
@@ -442,6 +452,11 @@ void jagged_jagged_elementwise_dense_output_kernel_(
   TORCH_CHECK(!NO_INNER_DENSE || output.size(-1) == 1);
   const int inner_dense_size = NO_INNER_DENSE ? 1 : output.size(-1);
   TORCH_CHECK(inner_dense_size == x_values.size(-1));
+
+  if (outer_dense_size == 0 || inner_dense_size == 0) {
+    return;
+  }
+
   const int jagged_folded_size =
       output.numel() / (outer_dense_size * inner_dense_size);
   const int jagged_innermost_size = output.size(-2);
