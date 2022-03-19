@@ -5,6 +5,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
 import random
 import unittest
 from itertools import accumulate
@@ -1553,6 +1554,109 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(
                 segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), rtol=0, atol=0
             )
+
+    # TODO: reuse code with var_list_to_coo and to_dense
+    def _to_padded_dense(
+        self,
+        values: torch.Tensor,
+        offsets: List[torch.LongTensor],
+        max_lengths: List[int],
+    ) -> torch.Tensor:
+        outer_dense_size = len(offsets[0]) - 1
+        inner_dense_size = values.size(-1)
+        dense = torch.empty(
+            (outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,),
+            device=values.device,
+        )
+        for i in range(outer_dense_size):
+            for jagged_coord in itertools.product(
+                *(list(range(max_l)) for max_l in max_lengths)
+            ):
+                cur_offset = i
+                is_zero = False
+                for d in range(len(max_lengths)):
+                    begin = offsets[d][cur_offset].item()
+                    end = offsets[d][cur_offset + 1].item()
+                    if jagged_coord[d] >= end - begin:
+                        is_zero = True
+                        break
+                    cur_offset = begin + jagged_coord[d]
+                dense[(i,) + jagged_coord] = 0 if is_zero else values[cur_offset]
+        return dense
+
+    # TODO: reuse this code in test_(stacked)_jagged_1/2d
+    def _generate_jagged_tensor(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        device: torch.device,
+    ) -> Tuple[torch.Tensor, List[torch.LongTensor], List[int]]:
+        max_lengths = np.random.randint(low=1, high=10, size=(num_jagged_dim,))
+        x_offsets: List[torch.LongTensor] = []
+        num_lengths = outer_dense_size
+        for d in range(num_jagged_dim):
+            lengths = torch.randint(
+                low=0, high=max_lengths[d] + 1, size=(num_lengths,), device=device
+            )
+            x_offsets.append(torch.ops.fbgemm.asynchronous_complete_cumsum(lengths))
+            num_lengths = x_offsets[-1][-1].item()
+
+        x_values = torch.rand(
+            x_offsets[-1][-1] * inner_dense_size, dtype=torch.float, device=device
+        ).reshape(x_offsets[-1][-1].item(), inner_dense_size)
+
+        return x_values, x_offsets, max_lengths
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(min_value=1, max_value=5),
+        outer_dense_size=st.integers(min_value=1, max_value=5),
+        inner_dense_size=st.integers(min_value=1, max_value=5),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_to_padded_dense(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        use_cpu: bool,
+    ) -> None:
+        # Testing with a basic crafted example.
+        # dense representation is
+        # [[[[0, 1], [ 0,  0], [0, 0]],
+        #   [[2, 3], [ 4,  5], [6, 7]],
+        #   [[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]]],
+        #  [[[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]]],
+        #  [[[8, 9], [10, 11], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]],
+        #   [[0, 0], [ 0,  0], [0, 0]]]],
+        # inner_dense_size = 2
+        # x_offsets = [
+        #     torch.LongTensor([0, 2, 2, 3]),  # lengths torch.Tensor([2, 0, 1]),
+        #     torch.LongTensor([0, 1, 4, 6]),  # lengths torch.Tensor([1, 3, 2]),
+        # ]
+        # outer_dense_size = len(x_offsets[0]) - 1
+        # max_lengths = [4, 3]
+
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, device
+        )
+
+        output_ref = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        output = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values, x_offsets, max_lengths
+        )
+
+        torch.testing.assert_close(output, output_ref)
 
 
 if __name__ == "__main__":
