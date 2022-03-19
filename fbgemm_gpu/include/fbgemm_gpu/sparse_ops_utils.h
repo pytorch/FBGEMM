@@ -262,3 +262,28 @@ constexpr uint32_t cuda_calc_block_count(
   return std::min(
       cuda_calc_xblock_count(num_items, threads_per_block), max_blocks);
 }
+
+// Used in jagged_tensor_ops.cu and jagged_tensor_ops_cpu.cpp
+#define JAGGED_TENSOR_DISPATCH_DIMS()                                         \
+  AT_DISPATCH_INDEX_TYPES(x_offsets[0].scalar_type(), "jagged_indices", [&] { \
+    switch (num_jagged_dim) {                                                 \
+      case 1:                                                                 \
+        INVOKE_KERNEL_WITH_DIM(1);                                            \
+        break;                                                                \
+      case 2:                                                                 \
+        INVOKE_KERNEL_WITH_DIM(2);                                            \
+        break;                                                                \
+      case 3:                                                                 \
+        INVOKE_KERNEL_WITH_DIM(3);                                            \
+        break;                                                                \
+      case 4:                                                                 \
+        INVOKE_KERNEL_WITH_DIM(4);                                            \
+        break;                                                                \
+      case 5:                                                                 \
+        INVOKE_KERNEL_WITH_DIM(5);                                            \
+        break;                                                                \
+      default:                                                                \
+        TORCH_CHECK(                                                          \
+            false, "unsupported number of jagged dim ", num_jagged_dim);      \
+    }                                                                         \
+  });
