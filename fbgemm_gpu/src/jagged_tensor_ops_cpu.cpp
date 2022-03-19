@@ -77,6 +77,7 @@ std::vector<at::TensorAccessor<index_t, 1>> collect_offsets_accessors(
 template <
     int NUM_JAGGED_DIM,
     bool NO_INNER_DENSE,
+    typename index_t,
     typename scalar_t,
     typename F>
 void jagged_dense_elementwise_dense_output_kernel_(
@@ -105,63 +106,60 @@ void jagged_dense_elementwise_dense_output_kernel_(
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
   Tensor output_reshaped = output.view(y_reshaped.sizes());
 
-  AT_DISPATCH_INDEX_TYPES(x_offsets[0].scalar_type(), "jagged_indices", [&] {
-    const std::vector<at::TensorAccessor<index_t, 1>> x_offsets_accessors =
-        collect_offsets_accessors<index_t>(
-            x_offsets, outer_dense_size, NUM_JAGGED_DIM);
+  const std::vector<at::TensorAccessor<index_t, 1>> x_offsets_accessors =
+      collect_offsets_accessors<index_t>(
+          x_offsets, outer_dense_size, NUM_JAGGED_DIM);
 
-    const at::TensorAccessor<scalar_t, 2> x_accessor =
-        x_values.accessor<scalar_t, 2>();
-    const at::TensorAccessor<scalar_t, 3> y_accessor =
-        y_reshaped.accessor<scalar_t, 3>();
-    at::TensorAccessor<scalar_t, 3> output_accessor =
-        output_reshaped.accessor<scalar_t, 3>();
+  const at::TensorAccessor<scalar_t, 2> x_accessor =
+      x_values.accessor<scalar_t, 2>();
+  const at::TensorAccessor<scalar_t, 3> y_accessor =
+      y_reshaped.accessor<scalar_t, 3>();
+  at::TensorAccessor<scalar_t, 3> output_accessor =
+      output_reshaped.accessor<scalar_t, 3>();
 
-    for (int oidx = 0; oidx < outer_dense_size; ++oidx) {
-      for (int joidx = 0; joidx < jagged_folded_size / jagged_innermost_size;
-           ++joidx) {
-        int offset_base = oidx;
-        const bool is_zero =
-            walk_down_tensor_storage_tree_except_last_<NUM_JAGGED_DIM>(
-                offset_base, joidx, y.sizes().data(), x_offsets_accessors);
+  for (int oidx = 0; oidx < outer_dense_size; ++oidx) {
+    for (int joidx = 0; joidx < jagged_folded_size / jagged_innermost_size;
+         ++joidx) {
+      int offset_base = oidx;
+      const bool is_zero =
+          walk_down_tensor_storage_tree_except_last_<NUM_JAGGED_DIM>(
+              offset_base, joidx, y.sizes().data(), x_offsets_accessors);
 
-        // As a perf optimization, a separate loop level for the inner-most
-        // jagged dimension.
-        int jiidx = 0;
-        if (!is_zero) {
-          const int begin =
-              x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base];
-          const int end =
-              x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base + 1];
-          for (; jiidx < end - begin; ++jiidx) {
-            int jidx = joidx * jagged_innermost_size + jiidx;
-            if (NO_INNER_DENSE) {
-              output_accessor[oidx][jidx][0] =
-                  f(x_accessor[begin + jiidx][0], y_accessor[oidx][jidx][0]);
-            } else {
-              for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
-                output_accessor[oidx][jidx][iidx] =
-                    f(x_accessor[begin + jiidx][iidx],
-                      y_accessor[oidx][jidx][iidx]);
-              }
-            }
-          }
-        }
-        for (; jiidx < jagged_innermost_size; ++jiidx) {
+      // As a perf optimization, a separate loop level for the inner-most
+      // jagged dimension.
+      int jiidx = 0;
+      if (!is_zero) {
+        const int begin = x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base];
+        const int end =
+            x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base + 1];
+        for (; jiidx < end - begin; ++jiidx) {
           int jidx = joidx * jagged_innermost_size + jiidx;
           if (NO_INNER_DENSE) {
             output_accessor[oidx][jidx][0] =
-                f(padding_value, y_accessor[oidx][jidx][0]);
+                f(x_accessor[begin + jiidx][0], y_accessor[oidx][jidx][0]);
           } else {
             for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
               output_accessor[oidx][jidx][iidx] =
-                  f(padding_value, y_accessor[oidx][jidx][iidx]);
+                  f(x_accessor[begin + jiidx][iidx],
+                    y_accessor[oidx][jidx][iidx]);
             }
           }
         }
-      } // for each joidx
-    } // for each oidx
-  });
+      }
+      for (; jiidx < jagged_innermost_size; ++jiidx) {
+        int jidx = joidx * jagged_innermost_size + jiidx;
+        if (NO_INNER_DENSE) {
+          output_accessor[oidx][jidx][0] =
+              f(padding_value, y_accessor[oidx][jidx][0]);
+        } else {
+          for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
+            output_accessor[oidx][jidx][iidx] =
+                f(padding_value, y_accessor[oidx][jidx][iidx]);
+          }
+        }
+      }
+    } // for each joidx
+  } // for each oidx
 }
 
 template <typename scalar_t, typename F>
@@ -172,35 +170,21 @@ void jagged_dense_elementwise_dense_output_(
     const Tensor& output,
     F f,
     const scalar_t& padding_value = static_cast<scalar_t>(0)) {
-#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                            \
-  if (y.size(-1) == 1) {                                                  \
-    jagged_dense_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, true>(  \
-        x_values, x_offsets, y, output, f, padding_value);                \
-  } else {                                                                \
-    jagged_dense_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, false>( \
-        x_values, x_offsets, y, output, f, padding_value);                \
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                      \
+  if (y.size(-1) == 1) {                                            \
+    jagged_dense_elementwise_dense_output_kernel_<                  \
+        NUM_JAGGED_DIM,                                             \
+        true,                                                       \
+        index_t>(x_values, x_offsets, y, output, f, padding_value); \
+  } else {                                                          \
+    jagged_dense_elementwise_dense_output_kernel_<                  \
+        NUM_JAGGED_DIM,                                             \
+        false,                                                      \
+        index_t>(x_values, x_offsets, y, output, f, padding_value); \
   }
 
   const int num_jagged_dim = y.dim() - 2;
-  switch (num_jagged_dim) {
-    case 1:
-      INVOKE_KERNEL_WITH_DIM(1);
-      break;
-    case 2:
-      INVOKE_KERNEL_WITH_DIM(2);
-      break;
-    case 3:
-      INVOKE_KERNEL_WITH_DIM(3);
-      break;
-    case 4:
-      INVOKE_KERNEL_WITH_DIM(4);
-      break;
-    case 5:
-      INVOKE_KERNEL_WITH_DIM(5);
-      break;
-    default:
-      TORCH_CHECK(false, "unsupported number of jagged dim ", num_jagged_dim);
-  }
+  JAGGED_TENSOR_DISPATCH_DIMS();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }
@@ -273,6 +257,107 @@ Tensor jagged_dense_elementwise_add(
             });
       });
   return output;
+}
+
+template <
+    int NUM_JAGGED_DIM,
+    bool NO_INNER_DENSE,
+    typename index_t,
+    typename scalar_t,
+    typename F>
+void jagged_dense_elementwise_jagged_output_kernel_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    const Tensor& output_values,
+    F f) {
+  TENSOR_ON_CPU(x_values);
+  TENSOR_ON_CPU(y);
+  TENSOR_ON_CPU(output_values);
+
+  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM));
+
+  const int outer_dense_size = y.size(0);
+  TORCH_CHECK(outer_dense_size == x_offsets[0].numel() - 1);
+  TORCH_CHECK(!NO_INNER_DENSE || y.size(-1) == 1);
+  const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
+  TORCH_CHECK(inner_dense_size == x_values.size(-1));
+  const int jagged_folded_size =
+      y.numel() / (outer_dense_size * inner_dense_size);
+  const int jagged_innermost_size = y.size(-2);
+
+  // Canonicalize y to 3D, collapsing jagged dimensions.
+  Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
+
+  std::vector<at::TensorAccessor<index_t, 1>> x_offsets_accessors =
+      collect_offsets_accessors<index_t>(
+          x_offsets, outer_dense_size, NUM_JAGGED_DIM);
+
+  const at::TensorAccessor<scalar_t, 2> x_accessor =
+      x_values.accessor<scalar_t, 2>();
+  const at::TensorAccessor<scalar_t, 3> y_accessor =
+      y_reshaped.accessor<scalar_t, 3>();
+  at::TensorAccessor<scalar_t, 2> output_accessor =
+      output_values.accessor<scalar_t, 2>();
+
+  for (int oidx = 0; oidx < outer_dense_size; ++oidx) {
+    for (int joidx = 0; joidx < jagged_folded_size / jagged_innermost_size;
+         ++joidx) {
+      int offset_base = oidx;
+      bool is_zero = walk_down_tensor_storage_tree_except_last_<NUM_JAGGED_DIM>(
+          offset_base, joidx, y.sizes().data(), x_offsets_accessors);
+
+      // As a perf optimization, a separate loop level for the inner-most
+      // jagged dimension.
+      int jiidx = 0;
+      if (!is_zero) {
+        const int begin = x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base];
+        const int end =
+            x_offsets_accessors[NUM_JAGGED_DIM - 1][offset_base + 1];
+        for (; jiidx < end - begin; ++jiidx) {
+          int jidx = joidx * jagged_innermost_size + jiidx;
+          if (NO_INNER_DENSE) {
+            output_accessor[begin + jiidx][0] =
+                f(x_accessor[begin + jiidx][0], y_accessor[oidx][jidx][0]);
+          } else {
+            for (int iidx = 0; iidx < inner_dense_size; ++iidx) {
+              output_accessor[begin + jiidx][iidx] =
+                  f(x_accessor[begin + jiidx][iidx],
+                    y_accessor[oidx][jidx][iidx]);
+            }
+          }
+        }
+      }
+    } // for each joidx
+  } // for each oidx
+}
+
+template <typename scalar_t, typename F>
+void jagged_dense_elementwise_jagged_output_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    const Tensor& output_values,
+    F f) {
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)               \
+  if (y.size(-1) == 1) {                                     \
+    jagged_dense_elementwise_jagged_output_kernel_<          \
+        NUM_JAGGED_DIM,                                      \
+        true,                                                \
+        index_t,                                             \
+        scalar_t>(x_values, x_offsets, y, output_values, f); \
+  } else {                                                   \
+    jagged_dense_elementwise_jagged_output_kernel_<          \
+        NUM_JAGGED_DIM,                                      \
+        false,                                               \
+        index_t,                                             \
+        scalar_t>(x_values, x_offsets, y, output_values, f); \
+  }
+
+  int num_jagged_dim = y.dim() - 2;
+  JAGGED_TENSOR_DISPATCH_DIMS();
+
+#undef INVOKE_KERNEL_WITH_DIM
 }
 
 } // namespace
