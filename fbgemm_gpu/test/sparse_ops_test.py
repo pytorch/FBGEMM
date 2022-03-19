@@ -1703,15 +1703,14 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
-        if operation == "add":
-            torch.autograd.gradcheck(
-                torch.ops.fbgemm.jagged_dense_elementwise_add,
-                (
-                    x_values.double().requires_grad_(True),
-                    x_offsets,
-                    y.double().requires_grad_(True),
-                ),
-            )
+        torch.autograd.gradcheck(
+            torch.ops.fbgemm.jagged_dense_elementwise_add,
+            (
+                x_values.double().requires_grad_(True),
+                x_offsets,
+                y.double().requires_grad_(True),
+            ),
+        )
 
 
 if __name__ == "__main__":
