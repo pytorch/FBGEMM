@@ -369,6 +369,40 @@ void jagged_dense_elementwise_jagged_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
+template <typename scalar_t, typename F>
+Tensor jagged_dense_elementwise_jagged_output_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    F f) {
+  Tensor output = at::empty_like(x_values);
+  jagged_dense_elementwise_jagged_output_<scalar_t>(
+      x_values, x_offsets, y, output, f);
+  return output;
+}
+
+Tensor jagged_dense_elementwise_mul(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(x_values.get_device());
+
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      x_values.scalar_type(), "jagged_scalars", [&] {
+        output = jagged_dense_elementwise_jagged_output_<scalar_t>(
+            x_values,
+            x_offsets,
+            y,
+            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+              return x * y;
+            });
+      });
+
+  return output;
+}
+
 } // namespace
 
 Tensor
@@ -577,4 +611,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
+  DISPATCH_TO_CUDA(
+      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
 }
