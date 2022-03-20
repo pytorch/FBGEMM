@@ -6,6 +6,7 @@
  */
 
 #include <ATen/ATen.h>
+#include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -244,21 +245,6 @@ Tensor jagged_dense_elementwise_dense_output_(
   return output;
 }
 
-Tensor jagged_dense_elementwise_add(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
-  Tensor output;
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      x_values.scalar_type(), "jagged_scalars", [&] {
-        output = jagged_dense_elementwise_dense_output_<scalar_t>(
-            x_values, x_offsets, y, [](scalar_t x, scalar_t y) -> scalar_t {
-              return x + y;
-            });
-      });
-  return output;
-}
-
 template <
     int NUM_JAGGED_DIM,
     bool NO_INNER_DENSE,
@@ -385,6 +371,65 @@ Tensor jagged_dense_elementwise_mul(
             });
       });
   return output;
+}
+
+class JaggedDenseAddCPUOp
+    : public torch::autograd::Function<JaggedDenseAddCPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& x_offsets,
+      const Tensor& y) {
+    ctx->save_for_backward(x_offsets);
+    ctx->saved_data["x_values_shape"] = x_values.sizes();
+    ctx->saved_data["y_shape"] = y.sizes();
+
+    Tensor output;
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          output = jagged_dense_elementwise_dense_output_<scalar_t>(
+              x_values, x_offsets, y, [](scalar_t x, scalar_t y) -> scalar_t {
+                return x + y;
+              });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    auto x_values_shape = ctx->saved_data["x_values_shape"].toIntVector();
+    auto y_shape = ctx->saved_data["y_shape"].toIntVector();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    Tensor x_values_grad = at::empty(x_values_shape, grad_outputs[0].options());
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values_grad.scalar_type(), "jagged_scalars", [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values_grad, // dummy not used in the lambda function
+              offsets,
+              grad_outputs[0],
+              x_values_grad,
+              [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
+        });
+
+    return {
+        x_values_grad,
+        torch::autograd::Variable(), // x_offsets
+        grad_outputs[0]};
+  }
+};
+
+// output = x + y where x is jagged, y and output are dense
+Tensor jagged_dense_elementwise_add(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  return JaggedDenseAddCPUOp::apply(x_values, x_offsets, y)[0];
 }
 
 } // namespace
