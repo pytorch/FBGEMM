@@ -168,6 +168,10 @@ void jagged_dense_elementwise_dense_output_(
   const int num_jagged_dim = y.dim() - 2;
   TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
 
+  if (y.numel() == 0) {
+    return;
+  }
+
   dim3 threads, blocks;
   Tensor jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
@@ -313,6 +317,10 @@ void jagged_dense_elementwise_jagged_output_(
 
   const int num_jagged_dim = y.dim() - 2;
   TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
+
+  if (y.numel() == 0) {
+    return;
+  }
 
   dim3 threads, blocks;
   Tensor jagged_dims_tensor;
@@ -492,6 +500,10 @@ void jagged_jagged_elementwise_dense_output_(
 
   const int num_jagged_dim = output.dim() - 2;
   TORCH_CHECK(x_offsets.size() == static_cast<size_t>(num_jagged_dim));
+
+  if (output.numel() == 0) {
+    return;
+  }
 
   dim3 threads, blocks;
   Tensor jagged_dims_tensor;
@@ -848,6 +860,8 @@ class BatchedDenseVecJagged2DMulGPUOp
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
           });
+    } else {
+      v_grad.zero_();
     }
 
     return {
