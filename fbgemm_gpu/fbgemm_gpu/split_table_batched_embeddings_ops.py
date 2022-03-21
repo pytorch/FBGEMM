@@ -197,7 +197,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         optimizer: OptimType = OptimType.EXACT_SGD,
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
         # General Optimizer args
-        stochastic_rounding: bool = False,
+        stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
         learning_rate: float = 0.01,
