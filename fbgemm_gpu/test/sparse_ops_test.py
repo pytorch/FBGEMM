@@ -1610,7 +1610,7 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        num_jagged_dim=st.integers(1, 5),
+        num_jagged_dim=st.integers(1, 2),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -1660,7 +1660,7 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        num_jagged_dim=st.integers(1, 4),
+        num_jagged_dim=st.integers(1, 2),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "mul"]),
