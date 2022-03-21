@@ -1660,9 +1660,9 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        num_jagged_dim=st.integers(min_value=1, max_value=5),
-        outer_dense_size=st.integers(min_value=1, max_value=5),
-        inner_dense_size=st.integers(min_value=1, max_value=5),
+        num_jagged_dim=st.integers(min_value=1, max_value=4),
+        outer_dense_size=st.integers(min_value=1, max_value=4),
+        inner_dense_size=st.integers(min_value=1, max_value=4),
         operation=st.sampled_from(["add", "mul"]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
@@ -1702,6 +1702,16 @@ class SparseOpsTest(unittest.TestCase):
             raise AssertionError(f"Unknown operation {operation}")
 
         torch.testing.assert_close(output, output_ref)
+
+        if operation == "add":
+            torch.autograd.gradcheck(
+                torch.ops.fbgemm.jagged_dense_elementwise_add,
+                (
+                    x_values.double().requires_grad_(True),
+                    x_offsets,
+                    y.double().requires_grad_(True),
+                ),
+            )
 
 
 if __name__ == "__main__":
