@@ -152,12 +152,15 @@ std::tuple<dim3, dim3, Tensor> check_shape_and_partition_(
       div_round_up(outer_dense_size * jagged_folded_size, threads_y));
 
   const int num_jagged_dim = dense_tensor.dim() - 2;
-  const Tensor jagged_dims_tensor =
-      at::from_blob(
-          const_cast<int64_t*>(dense_tensor.sizes().data() + 1),
-          {num_jagged_dim},
-          at::kLong)
-          .to(offsets[0].device());
+  Tensor jagged_dims_tensor = at::empty(
+      {num_jagged_dim},
+      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+  memcpy(
+      jagged_dims_tensor.data_ptr<int64_t>(),
+      dense_tensor.sizes().data() + 1,
+      num_jagged_dim * sizeof(int64_t));
+  jagged_dims_tensor =
+      jagged_dims_tensor.to(offsets[0].device(), /*non_blocking=*/true);
 
   return {dim3(threads_x, threads_y), blocks, jagged_dims_tensor};
 }
