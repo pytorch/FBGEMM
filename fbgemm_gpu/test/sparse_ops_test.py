@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import Verbosity, given, settings
+from hypothesis import Verbosity, assume, given, settings
 
 try:
     # pyre-ignore[21]
@@ -1610,9 +1610,9 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        num_jagged_dim=st.integers(min_value=1, max_value=5),
-        outer_dense_size=st.integers(min_value=1, max_value=5),
-        inner_dense_size=st.integers(min_value=1, max_value=5),
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1660,9 +1660,9 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        num_jagged_dim=st.integers(min_value=1, max_value=4),
-        outer_dense_size=st.integers(min_value=1, max_value=4),
-        inner_dense_size=st.integers(min_value=1, max_value=4),
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "mul"]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
@@ -1720,10 +1720,10 @@ class SparseOpsTest(unittest.TestCase):
     )
     # pyre-ignore [56]
     @given(
-        B=st.integers(1, 32),
+        B=st.integers(0, 32),
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
-        D=st.integers(1, 32),
+        D=st.integers(0, 32),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     def test_batched_dense_vec_jagged_2d_mul(
@@ -1734,6 +1734,7 @@ class SparseOpsTest(unittest.TestCase):
         D: int,
         use_cpu: bool,
     ) -> None:
+        assume(H == 1 or B != 0)
         device = torch.device("cpu" if use_cpu else "cuda")
         torch.backends.cuda.matmul.allow_tf32 = False
 
