@@ -60,7 +60,14 @@ std::vector<at::TensorAccessor<index_t, 1>> collect_offsets_accessors(
   for (int d = 0; d < num_jagged_dim; ++d) {
     TENSOR_ON_CPU(x_offsets[d]);
     x_offsets_accessors.emplace_back(x_offsets[d].accessor<index_t, 1>());
-    TORCH_CHECK(x_offsets[d].numel() == num_lengths_expected + 1);
+    TORCH_CHECK(
+        x_offsets[d].numel() == num_lengths_expected + 1,
+        "x_offsets[",
+        d,
+        "].numel(), ",
+        x_offsets[d].numel(),
+        " != num_lengths_expected + 1, ",
+        num_lengths_expected + 1);
     auto num_lengths = x_offsets_accessors[d][x_offsets[d].numel() - 1];
     num_lengths_expected = num_lengths;
   }
@@ -93,13 +100,29 @@ void jagged_dense_elementwise_dense_output_kernel_(
   TENSOR_ON_CPU(y);
   TENSOR_ON_CPU(output);
 
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != NUM_JAGGED_DIM, ",
+      NUM_JAGGED_DIM);
 
   const int outer_dense_size = y.size(0);
-  TORCH_CHECK(outer_dense_size == x_offsets[0].numel() - 1);
-  TORCH_CHECK(!NO_INNER_DENSE || y.size(-1) == 1);
+  TORCH_CHECK(
+      outer_dense_size == x_offsets[0].numel() - 1,
+      "outer_dense_size, ",
+      outer_dense_size,
+      " != x_offsets[0].numel() - 1, ",
+      x_offsets[0].numel() - 1);
+  TORCH_CHECK(
+      !NO_INNER_DENSE || y.size(-1) == 1, "y.size(-1), ", y.size(-1), " != 1");
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
-  TORCH_CHECK(inner_dense_size == x_values.size(-1));
+  TORCH_CHECK(
+      inner_dense_size == x_values.size(-1),
+      "inner_dense_size, ",
+      inner_dense_size,
+      " != x_values.size(-1), ",
+      x_values.size(-1));
 
   if (y.numel() == 0) {
     return;
@@ -202,7 +225,12 @@ Tensor jagged_to_padded_dense(
     const std::vector<int64_t>& max_lengths,
     const int64_t padding_value = 0) {
   const size_t num_jagged_dim = offsets.size();
-  TORCH_CHECK(max_lengths.size() == num_jagged_dim);
+  TORCH_CHECK(
+      max_lengths.size() == num_jagged_dim,
+      "max_lengths.size(), ",
+      max_lengths.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
 
   const Tensor values_canonicalized = values.view(
       {values.size(0),
@@ -267,13 +295,29 @@ void jagged_dense_elementwise_jagged_output_kernel_(
   TENSOR_ON_CPU(y);
   TENSOR_ON_CPU(output_values);
 
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != NUM_JAGGED_DIM, ",
+      NUM_JAGGED_DIM);
 
   const int outer_dense_size = y.size(0);
-  TORCH_CHECK(outer_dense_size == x_offsets[0].numel() - 1);
-  TORCH_CHECK(!NO_INNER_DENSE || y.size(-1) == 1);
+  TORCH_CHECK(
+      outer_dense_size == x_offsets[0].numel() - 1,
+      "outer_dense_size, ",
+      outer_dense_size,
+      " != x_offsets[0].numel() - 1, ",
+      x_offsets[0].numel() - 1);
+  TORCH_CHECK(
+      !NO_INNER_DENSE || y.size(-1) == 1, "y.size(-1), ", y.size(-1), " != 1");
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
-  TORCH_CHECK(inner_dense_size == x_values.size(-1));
+  TORCH_CHECK(
+      inner_dense_size == x_values.size(-1),
+      "inner_dense_size, ",
+      inner_dense_size,
+      " != x_values.size(-1), ",
+      x_values.size(-1));
 
   if (y.numel() == 0) {
     return;
@@ -445,13 +489,28 @@ void jagged_jagged_elementwise_dense_output_kernel_(
   TENSOR_ON_CPU(y_values);
   TENSOR_ON_CPU(output);
 
-  TORCH_CHECK(x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM));
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(NUM_JAGGED_DIM),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != NUM_JAGGED_DIM, ",
+      NUM_JAGGED_DIM);
 
   const int outer_dense_size = output.size(0);
-  TORCH_CHECK(outer_dense_size == x_offsets[0].numel() - 1);
+  TORCH_CHECK(
+      outer_dense_size == x_offsets[0].numel() - 1,
+      "outer_dense_size, ",
+      outer_dense_size,
+      " != x_offsets[0].numel() - 1, ",
+      x_offsets[0].numel() - 1);
   TORCH_CHECK(!NO_INNER_DENSE || output.size(-1) == 1);
   const int inner_dense_size = NO_INNER_DENSE ? 1 : output.size(-1);
-  TORCH_CHECK(inner_dense_size == x_values.size(-1));
+  TORCH_CHECK(
+      inner_dense_size == x_values.size(-1),
+      "inner_dense_size, ",
+      inner_dense_size,
+      " != x_values.size(-1), ",
+      x_values.size(-1));
 
   if (output.numel() == 0) {
     return;
@@ -740,7 +799,12 @@ class BatchedDenseVecJagged2DMulCPUOp
     TENSOR_ON_CPU(a_offsets);
 
     const int B = a_offsets.numel() - 1;
-    TORCH_CHECK(B == 0 || v.size(0) % B == 0);
+    TORCH_CHECK(
+        B == 0 || v.size(0) % B == 0,
+        "B, ",
+        B,
+        " doesn't divide v.size(0), ",
+        v.size(0));
     const int H = B == 0 ? 1 : v.size(0) / B;
     const int D = a_values.size(-1) / H;
     auto output = at::empty({B * H, D}, v.options());
