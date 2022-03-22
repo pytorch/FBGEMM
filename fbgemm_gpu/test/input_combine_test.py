@@ -29,6 +29,7 @@ class TBEInputPrepareReference(torch.nn.Module):
         indices_list: List[torch.Tensor],
         offsets_list: List[torch.Tensor],
         per_sample_weights_list: List[torch.Tensor],
+        batch_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         size = 0
         assert len(indices_list) > 0
@@ -67,17 +68,36 @@ class TBEInputPrepareReference(torch.nn.Module):
             offsets_accs[i + 1] = offsets_accs[i] + indices_list[i].size(0)
 
         assert offsets_accs[-1] == combined_indices.size(0)
-        combined_offsets_size: List[int] = [int(offsets_starts[-1].item()) + 1]
+        combined_offsets_size: List[int] = (
+            [int(offsets_starts[-1].item()) + 1]
+            if batch_size is None
+            else [batch_size * len(offsets_list) + 1]
+        )
         combined_offsets = torch.zeros(
             combined_offsets_size,
             dtype=torch.int32,
             device=offsets_list[0].device,
         )
-        for i in range(len(self.include_last_offsets)):
-            combined_offsets[offsets_starts[i] : offsets_starts[i + 1]] = (
-                offsets_list[i][: offsets_starts[i + 1] - offsets_starts[i]]
-                + offsets_accs[i]
-            )
+        if batch_size is None:
+            for i in range(len(self.include_last_offsets)):
+                combined_offsets[offsets_starts[i] : offsets_starts[i + 1]] = (
+                    offsets_list[i][: offsets_starts[i + 1] - offsets_starts[i]]
+                    + offsets_accs[i]
+                )
+        else:
+            for i in range(len(self.include_last_offsets)):
+                cur_start = batch_size * i
+                combined_offsets[
+                    cur_start : cur_start + offsets_starts[i + 1] - offsets_starts[i]
+                ] = (
+                    offsets_list[i][: offsets_starts[i + 1] - offsets_starts[i]]
+                    + offsets_accs[i]
+                )
+                cur_start = cur_start + offsets_starts[i + 1] - offsets_starts[i]
+                for j in range(batch_size - offsets_starts[i + 1] + offsets_starts[i]):
+                    combined_offsets[cur_start + j] = (
+                        indices_list[i].numel() + offsets_accs[i]
+                    )
         combined_offsets[-1] = offsets_accs[-1]
         per_sample_weights: Optional[torch.Tensor] = None
         for i in range(len(self.include_last_offsets)):
@@ -163,6 +183,49 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
+    def _run_padding_fused_test(self, dtypes, batch_size) -> None:
+        (
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            empty_per_sample_weights,
+            include_last_offsets,
+        ) = self._get_inputs(dtypes)
+        ref_mod = TBEInputPrepareReference(include_last_offsets)
+
+        outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            torch.BoolTensor(include_last_offsets),
+            batch_size,
+        )
+        ref_outputs = ref_mod(
+            indices_list, offsets_list, per_sample_weights, batch_size
+        )
+        for i, j in zip(outputs, ref_outputs):
+            torch.testing.assert_allclose(i, j)
+        self.assertTrue(outputs[0].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int32)
+
+        outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+            indices_list,
+            offsets_list,
+            empty_per_sample_weights,
+            torch.BoolTensor(include_last_offsets),
+            batch_size,
+        )
+        ref_outputs = ref_mod(
+            indices_list, offsets_list, empty_per_sample_weights, batch_size
+        )
+        for i, j in zip(outputs[:-1], ref_outputs[:-1]):
+            torch.testing.assert_allclose(i, j)
+            self.assertTrue(j.dtype == torch.int32)
+
+        self.assertTrue(outputs[0].dtype == torch.int32)
+        self.assertTrue(outputs[1].dtype == torch.int32)
+        self.assertTrue(outputs[-1].size(0) == 0)
+
     def _offsets_to_lengths(self, offsets, indices, include_last_offsets):
         if include_last_offsets:
             offsets_complete = offsets
@@ -218,6 +281,15 @@ class InputCombineTest(unittest.TestCase):
 
     def test_input_combined_mix_with_length(self) -> None:
         self._run_test_with_length((torch.int64, torch.int32))
+
+    def test_padding_fused_input_combine_int64(self) -> None:
+        self._run_padding_fused_test((torch.int64, torch.int64), 64)
+
+    def test_padding_fused_input_combine_int32(self) -> None:
+        self._run_padding_fused_test((torch.int32, torch.int32), 64)
+
+    def test_padding_fused_input_combined_mix(self) -> None:
+        self._run_padding_fused_test((torch.int64, torch.int32), 64)
 
 
 if __name__ == "__main__":
