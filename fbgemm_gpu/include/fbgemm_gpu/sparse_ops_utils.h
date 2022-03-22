@@ -264,8 +264,11 @@ constexpr uint32_t cuda_calc_block_count(
 }
 
 // Used in jagged_tensor_ops.cu and jagged_tensor_ops_cpu.cpp
+// Passing lambda exp argument by value instead of by reference to avoid
+// "internal compiler error: in maybe_undo_parenthesized_ref" error for specific
+// compiler version.
 #define JAGGED_TENSOR_DISPATCH_DIMS()                                         \
-  AT_DISPATCH_INDEX_TYPES(x_offsets[0].scalar_type(), "jagged_indices", [&] { \
+  AT_DISPATCH_INDEX_TYPES(x_offsets[0].scalar_type(), "jagged_indices", [=] { \
     switch (num_jagged_dim) {                                                 \
       case 1:                                                                 \
         INVOKE_KERNEL_WITH_DIM(1);                                            \
