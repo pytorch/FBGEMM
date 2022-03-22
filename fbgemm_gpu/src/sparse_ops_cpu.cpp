@@ -342,6 +342,90 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
+// This function partitions sparse features
+// cyclically along the sparse dimension into my_size blocks
+template <bool has_weight, typename index_t, typename scalar_t>
+void _bucketize_sparse_features_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    at::Tensor& new_lengths,
+    at::Tensor& new_indices,
+    c10::optional<at::Tensor> new_weights,
+    c10::optional<at::Tensor> new_pos) {
+  TENSOR_ON_CPU(lengths);
+  TENSOR_ON_CPU(indices);
+  TENSOR_ON_CPU(weights);
+  TENSOR_ON_CPU(new_lengths);
+  TENSOR_ON_CPU(new_indices);
+  TENSOR_ON_CPU(new_weights);
+  TENSOR_ON_CPU(new_pos);
+  using uindex_t = std::make_unsigned_t<index_t>;
+
+  // allocate tensors and buffers
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  auto offsets = at::empty({lengths_size + 1}, lengths.options());
+  auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
+  const index_t* lengths_data = lengths.data_ptr<index_t>();
+  index_t* offsets_data = offsets.data_ptr<index_t>();
+  const index_t* indices_data = indices.data_ptr<index_t>();
+  scalar_t* weights_data;
+  scalar_t* new_weights_data;
+  index_t* new_pos_data;
+
+  index_t* const new_lengths_data = new_lengths.data_ptr<index_t>();
+  index_t* const new_offsets_data = new_offsets.data_ptr<index_t>();
+  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
+
+  if (has_weight) {
+    weights_data = weights.value().data_ptr<scalar_t>();
+    new_weights_data = new_weights.value().data_ptr<scalar_t>();
+  }
+  if (bucketize_pos) {
+    new_pos_data = new_pos.value().data_ptr<index_t>();
+  }
+  // count nonzeros
+  prefix_sum(lengths_size, lengths_data, offsets_data);
+  assert(offsets_data[lengths_size] == indices.numel());
+  for (const auto r : c10::irange(lengths_size)) {
+    const index_t rowstart = offsets_data[r];
+    const index_t rowend = offsets_data[r + 1];
+    for (const auto i : c10::irange(rowstart, rowend)) {
+      // Need to handle negative indices if we use raw idices instead of hashed
+      // indices, convert to unsigned
+      const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      const uindex_t p = idx % my_size;
+      new_lengths_data[p * lengths_size + r]++;
+    }
+  }
+  // bucketize nonzeros
+  prefix_sum(new_lengths_size, new_lengths_data, new_offsets_data);
+  assert(new_offsets_data[new_lengths_size] == new_indices.numel());
+  for (const auto r : c10::irange(lengths_size)) {
+    const index_t rowstart = offsets_data[r];
+    const index_t rowend = offsets_data[r + 1];
+    for (const auto i : c10::irange(rowstart, rowend)) {
+      // Need to handle negative indices if we use raw idices instead of hashed
+      // indices, convert to unsigned
+      const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+      const uindex_t p = idx % my_size;
+      const uindex_t new_idx = idx / my_size;
+      const uindex_t pos = new_offsets_data[p * lengths_size + r];
+      new_indices_data[pos] = new_idx;
+      new_offsets_data[p * lengths_size + r]++;
+      if (has_weight) {
+        new_weights_data[pos] = weights_data[i];
+      }
+      if (bucketize_pos) {
+        new_pos_data[pos] = i - rowstart;
+      }
+    }
+  }
+}
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
@@ -736,6 +820,71 @@ block_bucketize_sparse_features_cpu(
     }
   }
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
+}
+
+// This function partitions sparse features
+// cyclically along the sparse dimension into my_size blocks
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+bucketize_sparse_features_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights) {
+  TENSOR_ON_CPU(lengths);
+  TENSOR_ON_CPU(indices);
+  TENSOR_ON_CPU(weights);
+
+  const auto lengths_size = lengths.numel();
+  const auto new_lengths_size = lengths_size * my_size;
+  auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
+  auto new_indices = native_empty_like(indices);
+  Tensor new_weights;
+  Tensor new_pos;
+  if (bucketize_pos) {
+    new_pos = native_empty_like(indices);
+  }
+  if (weights.has_value()) {
+    Tensor weights_value = weights.value();
+    new_weights = native_empty_like(weights_value);
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "bucketize_sparse_features_weights_cpu_1", ([&] {
+          AT_DISPATCH_FLOATING_TYPES(
+              weights_value.scalar_type(),
+              "bucketize_sparse_features_weights_cpu_2",
+              ([&] {
+                _bucketize_sparse_features_cpu<true, index_t, scalar_t>(
+                    lengths,
+                    indices,
+                    weights,
+                    bucketize_pos,
+                    my_size,
+                    new_lengths,
+                    new_indices,
+                    new_weights,
+                    new_pos);
+              }));
+        }));
+  } else {
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "bucketize_sparse_features_cpu", ([&] {
+          _bucketize_sparse_features_cpu<false, index_t, std::nullptr_t>(
+              lengths,
+              indices,
+              weights,
+              bucketize_pos,
+              my_size,
+              new_lengths,
+              new_indices,
+              new_weights,
+              new_pos);
+        }));
+  }
+  return {new_lengths, new_indices, new_weights, new_pos};
 }
 
 // 1D exclusive scan: output[i] = input[i-1] + input[i-2] + input[i-3]
@@ -1499,6 +1648,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+  m.def(
+      "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_complete_cumsum(Tensor t_in) -> Tensor");
@@ -1532,6 +1683,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);
+  DISPATCH_TO_CPU(
+      "bucketize_sparse_features", fbgemm_gpu::bucketize_sparse_features_cpu);
   DISPATCH_TO_CPU(
       "asynchronous_exclusive_cumsum",
       fbgemm_gpu::asynchronous_exclusive_cumsum_cpu);
