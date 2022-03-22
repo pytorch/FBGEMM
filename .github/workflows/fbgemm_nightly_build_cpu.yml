@@ -155,4 +155,5 @@ jobs:
           python -m twine upload \
             --username __token__ \
             --password "$PYPI_TOKEN" \
+            --skip-existing \
             fbgemm_gpu/dist/fbgemm_gpu_nightly_cpu-*.whl
