@@ -84,6 +84,30 @@ block_bucketize_sparse_features_cpu(
     int64_t my_size,
     c10::optional<at::Tensor> weights);
 
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+bucketize_sparse_features_cuda(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+bucketize_sparse_features_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights);
+
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
 permute_2D_sparse_data_cpu(
     const at::Tensor& permute,
