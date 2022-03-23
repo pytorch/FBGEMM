@@ -428,4 +428,17 @@ std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
     const int64_t min_non_pruned_rows,
     const c10::optional<double>& min_save_ratio);
 
+at::Tensor lengths_range(
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+
+at::Tensor& lengths_range_out(
+    at::Tensor& output,
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+
+at::Tensor lengths_range_cuda(
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+
 } // namespace fbgemm_gpu
