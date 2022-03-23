@@ -1729,7 +1729,7 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        operation=st.sampled_from(["add", "mul"]),
+        operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1758,6 +1758,19 @@ class SparseOpsTest(unittest.TestCase):
             output = torch.ops.fbgemm.jagged_dense_elementwise_add(
                 x_values, x_offsets, y
             )
+        elif operation == "add_jagged_output":
+            # from y values, create a jagged tensor and then densify
+            y_padded = self._to_padded_dense(
+                y.view(-1, inner_dense_size), x_offsets, max_lengths
+            )
+            output_ref = x_padded + y_padded
+            (
+                output,
+                output_offsets,
+            ) = torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+                x_values, x_offsets, y_padded
+            )
+            output = self._to_padded_dense(output, output_offsets, max_lengths)
         elif operation == "mul":
             output_ref = x_padded * y
             output, output_offsets = torch.ops.fbgemm.jagged_dense_elementwise_mul(
