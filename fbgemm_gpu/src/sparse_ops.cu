@@ -1786,4 +1786,54 @@ Tensor batched_unary_embeddings_backward_cuda(
   return grad_weight;
 }
 
+Tensor lengths_range_cuda(
+    const Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape) {
+  TENSOR_ON_CUDA_GPU(t_in);
+  TENSOR_NDIM_EQUALS(t_in, 1);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(t_in.get_device());
+
+  const auto t_in_contig = t_in.contiguous();
+  const auto num_seq = t_in_contig.numel();
+
+  Tensor offsets;
+  int64_t output_size = 1;
+
+  if (shape.has_value()) {
+    offsets = fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(t_in_contig);
+    output_size = c10::multiply_integers(shape.value());
+  } else {
+    // if we don't provide the the shape info, this is a slow path
+    // we need to transfer the size of the output from GPU to CPU
+    offsets = fbgemm_gpu::asynchronous_complete_cumsum_gpu(t_in_contig);
+    AT_DISPATCH_INDEX_TYPES(
+        t_in_contig.scalar_type(), "lengths_range_output_size", [&] {
+          output_size = *(offsets[num_seq].cpu().data_ptr<index_t>());
+        });
+  }
+
+  auto output = at::empty({output_size}, t_in.options());
+
+  uint32_t vector_size;
+  uint32_t rows_per_block;
+  uint32_t num_blocks;
+  std::tie(num_blocks, rows_per_block, vector_size) =
+      calc_offsets_range_thread_block(output_size, num_seq);
+  dim3 threads(vector_size, rows_per_block);
+  AT_DISPATCH_INDEX_TYPES(
+      t_in_contig.scalar_type(), "lengths_range_compute", [&] {
+        fbgemm_gpu::_offsets_range_cuda_kernel<index_t>
+            <<<num_blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                num_seq,
+                output_size,
+                offsets.data_ptr<index_t>(),
+                output.data_ptr<index_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+
+  return output;
+}
+
 } // namespace fbgemm_gpu

@@ -1637,6 +1637,60 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
       weights, rowwise_prune_mask, compressed_indices_dtype);
 }
 
+Tensor& lengths_range_out(
+    Tensor& output,
+    const Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape) {
+  TENSOR_ON_CPU(t_in);
+  TENSOR_NDIM_EQUALS(t_in, 1);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  const auto num_seq = t_in_contig->numel();
+
+  int64_t output_size;
+  if (shape.has_value()) {
+    output_size = c10::multiply_integers(shape.value());
+  } else {
+    // slow path: we need to calculate the output size from the lengths tensor
+    output_size = 0;
+    AT_DISPATCH_INDEX_TYPES(
+        t_in_contig->scalar_type(), "lengths_range_compute_output_size", [&]() {
+          const auto* input_data = t_in_contig->data_ptr<index_t>();
+          output_size = c10::sum_integers(input_data, input_data + num_seq);
+        });
+  }
+
+  at::native::resize_(output, {output_size}, c10::nullopt);
+
+  AT_DISPATCH_INDEX_TYPES(
+      t_in_contig->scalar_type(), "lengths_range_compute", [&]() {
+        const auto* input_data = t_in_contig->data_ptr<index_t>();
+        auto* output_data = output.data_ptr<index_t>();
+
+        index_t offset = 0;
+        for (const auto i : c10::irange(num_seq)) {
+          const index_t len = input_data[i];
+          index_t* start = output_data + offset;
+          TORCH_CHECK((output_size - len) >= offset);
+          offset += len;
+          TORCH_CHECK(len >= 0 && offset <= output_size);
+          std::iota(
+              start,
+              start + len,
+              0); // make the third argument the arg of this operator
+        }
+      });
+
+  return output;
+}
+
+Tensor lengths_range(
+    const Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape) {
+  auto output = at::empty({0}, t_in.options());
+  return lengths_range_out(output, t_in, shape);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1670,6 +1724,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
   m.def(
       "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, int min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
+  m.def("lengths_range(Tensor t_in, int[]? shape=None) -> Tensor");
+  m.def(
+      "lengths_range_out(Tensor output, Tensor t_in, int[]? shape=None) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1714,4 +1771,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cpu);
   DISPATCH_TO_CPU(
       "embedding_bag_rowwise_prune", fbgemm_gpu::embedding_bag_rowwise_prune);
+  DISPATCH_TO_CPU("lengths_range", fbgemm_gpu::lengths_range);
+  DISPATCH_TO_CPU("lengths_range_out", fbgemm_gpu::lengths_range_out);
 }
