@@ -428,4 +428,18 @@ std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
     const int64_t min_non_pruned_rows,
     const c10::optional<double>& min_save_ratio);
 
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
+
 } // namespace fbgemm_gpu
