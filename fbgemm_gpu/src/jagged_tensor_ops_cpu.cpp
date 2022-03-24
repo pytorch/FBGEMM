@@ -423,7 +423,6 @@ class JaggedDenseAddCPUOp
       const Tensor& y) {
     ctx->save_for_backward(x_offsets);
     ctx->saved_data["x_values_shape"] = x_values.sizes();
-    ctx->saved_data["y_shape"] = y.sizes();
 
     Tensor output;
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -442,7 +441,6 @@ class JaggedDenseAddCPUOp
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     auto x_values_shape = ctx->saved_data["x_values_shape"].toIntVector();
-    auto y_shape = ctx->saved_data["y_shape"].toIntVector();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     Tensor x_values_grad = at::empty(x_values_shape, grad_outputs[0].options());
@@ -868,6 +866,8 @@ class BatchedDenseVecJagged2DMulCPUOp
                       a_values_grad.accessor<scalar_t, 2>());
                 });
           });
+    } else {
+      v_grad.zero_();
     }
 
     return {

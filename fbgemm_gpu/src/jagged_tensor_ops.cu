@@ -406,7 +406,6 @@ class JaggedDenseAddGPUOp
       const Tensor& y) {
     ctx->save_for_backward(x_offsets);
     ctx->saved_data["x_values_shape"] = x_values.sizes();
-    ctx->saved_data["y_shape"] = y.sizes();
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(x_values.get_device());
@@ -431,7 +430,6 @@ class JaggedDenseAddGPUOp
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     auto x_values_shape = ctx->saved_data["x_values_shape"].toIntVector();
-    auto y_shape = ctx->saved_data["y_shape"].toIntVector();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     at::cuda::OptionalCUDAGuard device_guard;
