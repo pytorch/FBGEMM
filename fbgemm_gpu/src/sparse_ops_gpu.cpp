@@ -44,7 +44,7 @@ class LookupFunctionBatchedUnaryEmbeddingOp
     auto indices = *savedItr++;
     TORCH_CHECK(grad_outputs.size() == 1);
     auto grad_weight = batched_unary_embeddings_backward_cuda(
-        grad_outputs[0], weight, table_offsets, offsets, indices);
+        grad_outputs.front(), weight, table_offsets, offsets, indices);
     return {grad_weight, Tensor(), Tensor(), Tensor()};
   }
 };
@@ -55,7 +55,8 @@ Tensor lookup_batched_unary_embedding_function(
     const Tensor& offsets,
     const Tensor& indices) {
   return LookupFunctionBatchedUnaryEmbeddingOp::apply(
-      weight, table_offsets, offsets, indices)[0];
+             weight, table_offsets, offsets, indices)
+      .front();
 }
 
 class Jagged2DToDenseGPUOp
@@ -83,7 +84,7 @@ class Jagged2DToDenseGPUOp
     int32_t total_L = ctx->saved_data["total_L"].toInt();
 
     using torch::autograd::Variable;
-    auto grad_padded_values = grad_outputs[0];
+    auto grad_padded_values = grad_outputs.front();
     auto grad_values =
         jagged_2d_to_dense_backward_cuda(grad_padded_values, offsets, total_L);
     return {
@@ -99,7 +100,8 @@ Tensor jagged_2d_to_dense_gpu(
     Tensor offsets,
     int64_t max_sequence_length) {
   return Jagged2DToDenseGPUOp::apply(
-      values, offsets, static_cast<int32_t>(max_sequence_length))[0];
+             values, offsets, static_cast<int32_t>(max_sequence_length))
+      .front();
 }
 
 class StackedJagged2DToDenseGPUOp

@@ -109,11 +109,11 @@ void jagged_dense_elementwise_dense_output_kernel_(
 
   const int outer_dense_size = y.size(0);
   TORCH_CHECK(
-      outer_dense_size == x_offsets[0].numel() - 1,
+      outer_dense_size == x_offsets.front().numel() - 1,
       "outer_dense_size, ",
       outer_dense_size,
-      " != x_offsets[0].numel() - 1, ",
-      x_offsets[0].numel() - 1);
+      " != x_offsets.front().numel() - 1, ",
+      x_offsets.front().numel() - 1);
   TORCH_CHECK(
       !NO_INNER_DENSE || y.size(-1) == 1, "y.size(-1), ", y.size(-1), " != 1");
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
@@ -239,7 +239,7 @@ Tensor jagged_to_padded_dense(
            values.sizes().end(),
            1,
            std::multiplies<size_t>())});
-  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+  at::DimVector padded_values_shape({offsets.front().size(0) - 1});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
   if (values.dim() > 1) {
@@ -304,11 +304,11 @@ void jagged_dense_elementwise_jagged_output_kernel_(
 
   const int outer_dense_size = y.size(0);
   TORCH_CHECK(
-      outer_dense_size == x_offsets[0].numel() - 1,
+      outer_dense_size == x_offsets.front().numel() - 1,
       "outer_dense_size, ",
       outer_dense_size,
-      " != x_offsets[0].numel() - 1, ",
-      x_offsets[0].numel() - 1);
+      " != x_offsets.front().numel() - 1, ",
+      x_offsets.front().numel() - 1);
   TORCH_CHECK(
       !NO_INNER_DENSE || y.size(-1) == 1, "y.size(-1), ", y.size(-1), " != 1");
   const int inner_dense_size = NO_INNER_DENSE ? 1 : y.size(-1);
@@ -443,14 +443,15 @@ class JaggedDenseAddCPUOp
     auto x_values_shape = ctx->saved_data["x_values_shape"].toIntVector();
     TORCH_CHECK(grad_outputs.size() == 1);
 
-    Tensor x_values_grad = at::empty(x_values_shape, grad_outputs[0].options());
+    Tensor x_values_grad =
+        at::empty(x_values_shape, grad_outputs.front().options());
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values_grad.scalar_type(), "jagged_scalars", [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               x_values_grad, // dummy not used in the lambda function
               offsets,
-              grad_outputs[0],
+              grad_outputs.front(),
               x_values_grad,
               [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
         });
@@ -458,7 +459,7 @@ class JaggedDenseAddCPUOp
     return {
         x_values_grad,
         torch::autograd::Variable(), // x_offsets
-        grad_outputs[0]};
+        grad_outputs.front()};
   }
 };
 
@@ -467,7 +468,7 @@ Tensor jagged_dense_elementwise_add(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  return JaggedDenseAddCPUOp::apply(x_values, x_offsets, y)[0];
+  return JaggedDenseAddCPUOp::apply(x_values, x_offsets, y).front();
 }
 
 // Unlike JaggedDenseAddGPUOp that treats "zeros" as zeros so adding with
@@ -504,7 +505,7 @@ class JaggedDenseJaggedOutputAddCPUOp
     TORCH_CHECK(grad_outputs.size() == 1);
 
     Tensor y_values_grad = jagged_to_padded_dense(
-        grad_outputs[0],
+        grad_outputs.front(),
         offsets,
         std::vector<int64_t>(y_shape.begin() + 1, y_shape.end() - 1),
         /*padding_value=*/0);
@@ -512,7 +513,7 @@ class JaggedDenseJaggedOutputAddCPUOp
     TORCH_CHECK(y_values_grad.sizes() == y_shape);
 
     return {
-        grad_outputs[0],
+        grad_outputs.front(),
         torch::autograd::Variable(), // x_offsets
         y_values_grad};
   }
@@ -525,7 +526,7 @@ jagged_dense_elementwise_add_jagged_output(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
   return {
-      JaggedDenseJaggedOutputAddCPUOp::apply(x_values, x_offsets, y)[0],
+      JaggedDenseJaggedOutputAddCPUOp::apply(x_values, x_offsets, y).front(),
       x_offsets};
 }
 
@@ -555,11 +556,11 @@ void jagged_jagged_elementwise_dense_output_kernel_(
 
   const int outer_dense_size = output.size(0);
   TORCH_CHECK(
-      outer_dense_size == x_offsets[0].numel() - 1,
+      outer_dense_size == x_offsets.front().numel() - 1,
       "outer_dense_size, ",
       outer_dense_size,
-      " != x_offsets[0].numel() - 1, ",
-      x_offsets[0].numel() - 1);
+      " != x_offsets.front().numel() - 1, ",
+      x_offsets.front().numel() - 1);
   TORCH_CHECK(!NO_INNER_DENSE || output.size(-1) == 1);
   const int inner_dense_size = NO_INNER_DENSE ? 1 : output.size(-1);
   TORCH_CHECK(
@@ -707,13 +708,13 @@ class JaggedDenseMulCPUOp
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values.scalar_type(), "jagged_scalars", [&] {
           x_values_grad = jagged_dense_elementwise_jagged_output_<scalar_t>(
-              grad_outputs[0],
+              grad_outputs.front(),
               x_offsets,
               y,
               [](scalar_t x, scalar_t y) -> scalar_t { return x * y; });
 
           jagged_jagged_elementwise_dense_output_<scalar_t>(
-              grad_outputs[0],
+              grad_outputs.front(),
               x_offsets,
               x_values,
               y_grad,
@@ -731,7 +732,8 @@ std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  return {JaggedDenseMulCPUOp::apply(x_values, x_offsets, y)[0], x_offsets};
+  return {
+      JaggedDenseMulCPUOp::apply(x_values, x_offsets, y).front(), x_offsets};
 }
 
 template <typename index_t, typename scalar_t>
@@ -895,13 +897,13 @@ class BatchedDenseVecJagged2DMulCPUOp
     const Tensor a_offsets = *savedItr++;
     TORCH_CHECK(grad_outputs.size() == 1);
 
-    TENSOR_ON_CPU(grad_outputs[0]);
+    TENSOR_ON_CPU(grad_outputs.front());
 
     Tensor a_values_grad = at::empty_like(a_values);
     Tensor v_grad = at::empty_like(v);
 
     const int B = a_offsets.numel() - 1;
-    const int D = grad_outputs[0].size(-1);
+    const int D = grad_outputs.front().size(-1);
 
     if (B > 0 && D > 0) {
       AT_DISPATCH_INDEX_TYPES(
@@ -909,18 +911,18 @@ class BatchedDenseVecJagged2DMulCPUOp
           "dense_vec_jagged_2d_bmm_baackward_kernel_1",
           [&] {
             AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-                grad_outputs[0].scalar_type(),
+                grad_outputs.front().scalar_type(),
                 "dense_vec_jagged_2d_bmm_baackward_kernel_2",
                 [&] {
                   dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
-                      grad_outputs[0].accessor<scalar_t, 2>(),
+                      grad_outputs.front().accessor<scalar_t, 2>(),
                       a_values.accessor<scalar_t, 2>(),
                       a_offsets.accessor<index_t, 1>(),
                       v_grad.accessor<scalar_t, 2>());
 
                   outer_prod_jagged_2d_output<index_t, scalar_t>(
                       v.accessor<scalar_t, 2>(),
-                      grad_outputs[0].accessor<scalar_t, 2>(),
+                      grad_outputs.front().accessor<scalar_t, 2>(),
                       a_offsets.accessor<index_t, 1>(),
                       a_values_grad.accessor<scalar_t, 2>());
                 });
@@ -941,7 +943,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets)[0];
+  return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets).front();
 }
 
 } // namespace
