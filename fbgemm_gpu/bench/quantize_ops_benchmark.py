@@ -9,7 +9,9 @@ import random
 
 import click
 import fbgemm_gpu
+import hypothesis.strategies as st
 import torch
+from hypothesis import given, settings
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -33,9 +35,13 @@ def cli() -> None:
 @cli.command()
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--iters", default=100)
-@click.option("--num-columns", default=512)
-@click.option("--num-rows", default=512)
 @click.option("--warmup-runs", default=2)
+@settings(max_examples=10, deadline=None)
+# pyre-ignore
+@given(
+    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
+    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
+)
 def bench(
     flush_gpu_cache_size_mb: int,
     iters: int,
@@ -44,71 +50,91 @@ def bench(
     warmup_runs: int,
 ) -> None:
 
-    total_time = {
-        "8bit_quant": 0.0,
-        "4bit_quant": 0.0,
-        "2bit_quant": 0.0,
-        "8bit_dequant": 0.0,
-        "4bit_dequant": 0.0,
-        "2bit_dequant": 0.0,
+    average_time = {
+        "int8_quant": 0.0,
+        "int4_quant": 0.0,
+        "int2_quant": 0.0,
+        "fp8_143_quant": 0.0,
+        "fp8_152_quant": 0.0,
+        "int8_dequant": 0.0,
+        "int4_dequant": 0.0,
+        "int2_dequant": 0.0,
+        "fp8_143_dequant": 0.0,
+        "fp8_152_dequant": 0.0,
     }
 
     benchmark = functools.partial(
         benchmark_torch_function,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        iters=1,
-        num_warmups=0,
+        iters=iters,
+        num_warmups=warmup_runs,
     )
 
     input_data = torch.rand(num_rows, num_columns).float()
+
+    quant_data_8bit = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(input_data)
+    quant_data_4bit = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+        input_data, 4
+    )
+    quant_data_2bit = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+        input_data, 2
+    )
+    quant_data_fp8_143 = torch.ops.fbgemm.FloatToHFP8Quantized(
+        input_data.contiguous(), 4, 14, (2 - 2 ** (-3))
+    )
+    quant_data_fp8_152 = torch.ops.fbgemm.FloatToHFP8Quantized(
+        input_data, 5, 30, (2 - 2 ** (-2))
+    )
+
     if torch.cuda.is_available():
         input_data = input_data.cuda()
-    for step in range(iters + warmup_runs):
-        time, quant_data_8bit = benchmark(
-            torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized,
-            (input_data,),
-        )
-        if step >= warmup_runs:
-            total_time["8bit_quant"] += time
 
-        time, quant_data_4bit = benchmark(
-            torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
-            (input_data, 4),
-        )
-        if step >= warmup_runs:
-            total_time["4bit_quant"] += time
+    average_time["int8_quant"], _ = benchmark(
+        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized,
+        (input_data,),
+    )
+    average_time["int4_quant"], _ = benchmark(
+        torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
+        (input_data, 4),
+    )
 
-        time, quant_data_2bit = benchmark(
-            torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
-            (input_data, 2),
-        )
-        if step >= warmup_runs:
-            total_time["2bit_quant"] += time
+    average_time["int2_quant"], _ = benchmark(
+        torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
+        (input_data, 2),
+    )
+    average_time["fp8_143_quant"], _ = benchmark(
+        torch.ops.fbgemm.FloatToHFP8Quantized,
+        (input_data, 4, 14, (2 - 2 ** (-3))),
+    )
+    average_time["fp8_152_quant"], _ = benchmark(
+        torch.ops.fbgemm.FloatToHFP8Quantized,
+        (input_data, 5, 30, (2 - 2 ** (-2))),
+    )
 
-        time, _ = benchmark(
-            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
-            (quant_data_8bit,),
-        )
-        if step >= warmup_runs:
-            total_time["8bit_dequant"] += time
+    average_time["int8_dequant"], _ = benchmark(
+        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
+        (quant_data_8bit,),
+    )
 
-        time, _ = benchmark(
-            torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
-            (quant_data_4bit, 4),
-        )
-        if step >= warmup_runs:
-            total_time["4bit_dequant"] += time
-
-        time, _ = benchmark(
-            torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
-            (quant_data_2bit, 2),
-        )
-        if step >= warmup_runs:
-            total_time["2bit_dequant"] += time
-
+    average_time["int4_dequant"], _ = benchmark(
+        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
+        (quant_data_4bit, 4),
+    )
+    average_time["int2_dequant"], _ = benchmark(
+        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
+        (quant_data_2bit, 2),
+    )
+    average_time["fp8_143_dequant"], _ = benchmark(
+        torch.ops.fbgemm.HFP8QuantizedToFloat,
+        (quant_data_fp8_143, 4, 14),
+    )
+    average_time["fp8_152_dequant"], _ = benchmark(
+        torch.ops.fbgemm.HFP8QuantizedToFloat,
+        (quant_data_fp8_152, 5, 30),
+    )
     logging.info(f"-------------- ncols={num_columns}, nrows={num_rows}-------------")
-    for k, t_time in total_time.items():
-        logging.info(f"{k} time per iter: {t_time / iters * 1.0e6:.0f}us")
+    for k, t_time in average_time.items():
+        logging.info(f"{k} time per iter: {t_time * 1.0e6:.0f}us")
 
 
 @cli.command()
@@ -146,42 +172,36 @@ def mixdim(
         torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t) for t in input_refs
     ]
     input_data = torch.concat(input_refs_int8, dim=1).contiguous()
-    total_time_mixed_dim_fp32 = 0.0
-    total_time_mixed_dim_fp16 = 0.0
-    total_time_single_dim = 0.0
 
     benchmark = functools.partial(
         benchmark_torch_function,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        iters=1,
-        num_warmups=0,
+        iters=iters,
+        num_warmups=warmup_runs,
     )
 
-    for step in range(iters + warmup_runs):
-        time, _ = benchmark(
-            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-            (input_data, D_offsets, 0),
-        )  # output is FP32
-        if step >= warmup_runs:
-            total_time_mixed_dim_fp32 += time
+    average_time_mixed_dim_fp32, _ = benchmark(
+        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
+        (
+            input_data,
+            D_offsets,
+            0,
+        ),
+    )  # output is FP32
 
-        time, _ = benchmark(
-            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
-            (input_data, D_offsets, 1),
-        )  # output is FP16
-        if step >= warmup_runs:
-            total_time_mixed_dim_fp16 += time
+    average_time_mixed_dim_fp16, _ = benchmark_torch_function(
+        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatMixedDim,
+        (
+            input_data,
+            D_offsets,
+            1,
+        ),
+    )  # output is FP16
 
-        time, _ = benchmark(
-            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
-            (input_data,),
-        )  # output is FP32
-        if step >= warmup_runs:
-            total_time_single_dim += time
-
-    average_time_mixed_dim_fp32 = total_time_mixed_dim_fp32 / iters
-    average_time_mixed_dim_fp16 = total_time_mixed_dim_fp16 / iters
-    average_time_single_dim = total_time_single_dim / iters
+    average_time_single_dim, _ = benchmark(
+        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
+        (input_data,),
+    )  # output is FP32
 
     print(
         f"Input tensor batch_size: {batch_size}, num_tables: {num_tables}, tensor_size: {input_data.numel() / (1 << 30)} GB, average table dimension: {sum(table_dims) * 1.0/num_tables}."
