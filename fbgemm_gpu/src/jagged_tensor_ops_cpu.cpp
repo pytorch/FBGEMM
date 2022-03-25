@@ -219,53 +219,6 @@ void jagged_dense_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-Tensor jagged_to_padded_dense(
-    const Tensor& values,
-    const std::vector<Tensor>& offsets,
-    const std::vector<int64_t>& max_lengths,
-    const int64_t padding_value = 0) {
-  const size_t num_jagged_dim = offsets.size();
-  TORCH_CHECK(
-      max_lengths.size() == num_jagged_dim,
-      "max_lengths.size(), ",
-      max_lengths.size(),
-      " != num_jagged_dim, ",
-      num_jagged_dim);
-
-  const Tensor values_canonicalized = values.view(
-      {values.size(0),
-       std::accumulate(
-           values.sizes().begin() + 1,
-           values.sizes().end(),
-           1,
-           std::multiplies<size_t>())});
-  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
-  padded_values_shape.insert(
-      padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
-  if (values.dim() > 1) {
-    padded_values_shape.push_back(values.size(-1));
-  }
-  Tensor padded_values = at::empty(padded_values_shape, values.options());
-  Tensor padded_values_view =
-      values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
-
-  AT_DISPATCH_ALL_TYPES_AND(
-      at::ScalarType::Half,
-      values.scalar_type(),
-      "jagged_to_padded_dense",
-      [&] {
-        jagged_dense_elementwise_dense_output_<scalar_t>(
-            values_canonicalized,
-            offsets,
-            padded_values_view, // dummy not used in the lambda function
-            padded_values_view,
-            [](scalar_t x, scalar_t /*unused*/) -> scalar_t { return x; },
-            static_cast<scalar_t>(padding_value));
-      });
-
-  return padded_values;
-}
-
 template <typename scalar_t, typename F>
 Tensor jagged_dense_elementwise_dense_output_(
     const Tensor& x_values,
@@ -411,6 +364,105 @@ Tensor jagged_dense_elementwise_jagged_output_(
   jagged_dense_elementwise_jagged_output_<scalar_t>(
       x_values, x_offsets, y, output, f);
   return output;
+}
+
+class JaggedToPaddedDenseCPUOp
+    : public torch::autograd::Function<JaggedToPaddedDenseCPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const std::vector<Tensor>& offsets,
+      const std::vector<int64_t>& max_lengths,
+      const double padding_value) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["total_L"] = values.size(0);
+
+    const size_t num_jagged_dim = offsets.size();
+    TORCH_CHECK(
+        max_lengths.size() == num_jagged_dim,
+        "max_lengths.size(), ",
+        max_lengths.size(),
+        " != num_jagged_dim, ",
+        num_jagged_dim);
+
+    const Tensor values_canonicalized = values.view(
+        {values.size(0),
+         std::accumulate(
+             values.sizes().begin() + 1,
+             values.sizes().end(),
+             1,
+             std::multiplies<size_t>())});
+    at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+    padded_values_shape.insert(
+        padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
+    if (values.dim() > 1) {
+      padded_values_shape.push_back(values.size(-1));
+    }
+    Tensor padded_values = at::empty(padded_values_shape, values.options());
+    Tensor padded_values_view =
+        values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
+
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        values.scalar_type(),
+        "jagged_to_padded_dense",
+        [&] {
+          jagged_dense_elementwise_dense_output_<scalar_t>(
+              values_canonicalized,
+              offsets,
+              padded_values_view, // dummy not used in the lambda function
+              padded_values_view,
+              [](scalar_t x, scalar_t /*unused*/) -> scalar_t { return x; },
+              static_cast<scalar_t>(padding_value));
+        });
+
+    return {padded_values};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    int32_t total_L = ctx->saved_data["total_L"].toInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    TORCH_CHECK(total_L >= 0);
+    auto grad_padded_values = grad_outputs[0];
+
+    int32_t D = grad_padded_values.size(-1);
+    auto grad_values = at::empty({total_L, D}, grad_padded_values.options());
+
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        grad_padded_values.scalar_type(),
+        "jagged_2d_to_dense_backward_kernel",
+        [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              grad_values, // dummy not used in the lambda function
+              {offsets},
+              grad_padded_values,
+              grad_values,
+              [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
+        });
+
+    return {
+        grad_values,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable(), // max_lengths
+        torch::autograd::Variable(), // padding_value
+    };
+  }
+};
+
+// Almost identical copy of jagged_to_padded_dense in jagged_tensor_ops_cpu.cpp
+Tensor jagged_to_padded_dense(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const std::vector<int64_t>& max_lengths,
+    const double padding_value = 0) {
+  return JaggedToPaddedDenseCPUOp::apply(
+      values, offsets, max_lengths, padding_value)[0];
 }
 
 class JaggedDenseAddCPUOp
@@ -952,7 +1004,8 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
 
-  return jagged_to_padded_dense(values, {offsets}, {max_L});
+  return jagged_to_padded_dense(
+      values, {offsets}, {max_L}, /*padding_value=*/0);
 }
 
 Tensor jagged_1d_to_dense_cpu(
@@ -982,7 +1035,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> Tensor[]");
   m.def(
-      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, int padding_value = 0) -> Tensor");
+      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
   // jagged + dense -> dense
   m.def(
       "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");

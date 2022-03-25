@@ -58,50 +58,6 @@ Tensor lookup_batched_unary_embedding_function(
       weight, table_offsets, offsets, indices)[0];
 }
 
-class Jagged2DToDenseGPUOp
-    : public torch::autograd::Function<Jagged2DToDenseGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      Tensor values,
-      Tensor offsets,
-      int32_t max_sequence_length) {
-    int32_t total_L = values.size(0);
-    ctx->save_for_backward({offsets});
-    ctx->saved_data["total_L"] = total_L;
-
-    return {
-        jagged_2d_to_dense_forward_cuda(values, offsets, max_sequence_length)};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    const auto saved = ctx->get_saved_variables();
-    auto savedItr = std::begin(saved);
-    auto offsets = *savedItr++;
-    int32_t total_L = ctx->saved_data["total_L"].toInt();
-
-    using torch::autograd::Variable;
-    auto grad_padded_values = grad_outputs[0];
-    auto grad_values =
-        jagged_2d_to_dense_backward_cuda(grad_padded_values, offsets, total_L);
-    return {
-        grad_values,
-        Variable(), // offsets
-        Variable() // max_sequence_length
-    };
-  }
-};
-
-Tensor jagged_2d_to_dense_gpu(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_sequence_length) {
-  return Jagged2DToDenseGPUOp::apply(
-      values, offsets, static_cast<int32_t>(max_sequence_length))[0];
-}
-
 class StackedJagged2DToDenseGPUOp
     : public torch::autograd::Function<StackedJagged2DToDenseGPUOp> {
  public:
@@ -192,7 +148,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "batched_unary_embeddings",
       fbgemm_gpu::lookup_batched_unary_embedding_function);
-  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
   DISPATCH_TO_CUDA(
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
