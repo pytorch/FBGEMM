@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
-#include "fbgemm_gpu/permute_pooled_embedding_ops_utils.h"
+#include "fbgemm_gpu/permute_pooled_embs_function.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -41,8 +41,6 @@ Tensor permute_pooled_embs_auto_grad_gpu(
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
-  m.def(
-      "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   DISPATCH_TO_CUDA("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_gpu);
   DISPATCH_TO_CUDA(
       "permute_pooled_embs_auto_grad",

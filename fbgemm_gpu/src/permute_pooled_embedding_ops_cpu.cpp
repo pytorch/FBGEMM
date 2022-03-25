@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
-#include "fbgemm_gpu/permute_pooled_embedding_ops_utils.h"
+#include "fbgemm_gpu/permute_pooled_embs_function.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
