@@ -1724,6 +1724,15 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
+        torch.autograd.gradcheck(
+            torch.ops.fbgemm.jagged_to_padded_dense,
+            (
+                x_values.double().requires_grad_(True),
+                x_offsets,
+                max_lengths,
+            ),
+        )
+
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
