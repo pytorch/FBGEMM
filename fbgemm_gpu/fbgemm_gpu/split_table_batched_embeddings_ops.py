@@ -1559,6 +1559,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_reserved_memory: float = 0.0,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
+        row_alignment: Optional[int] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1585,7 +1586,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
 
-        self.row_alignment = 1 if self.use_cpu else 16
+        if row_alignment is None:
+            self.row_alignment: int = 1 if self.use_cpu else 16
+        else:
+            self.row_alignment: int = row_alignment
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
