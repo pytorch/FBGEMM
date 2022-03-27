@@ -1633,6 +1633,7 @@ class SparseOpsTest(unittest.TestCase):
         inner_dense_size = values.size(-1)
         dense = torch.empty(
             (outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,),
+            dtype=values.dtype,
             device=values.device,
         )
         for i in range(outer_dense_size):
@@ -1659,20 +1660,23 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim: int,
         outer_dense_size: int,
         inner_dense_size: int,
+        dtype: torch.dtype,
         device: torch.device,
     ) -> Tuple[torch.Tensor, List[torch.LongTensor], List[int]]:
         max_lengths = np.random.randint(low=1, high=10, size=(num_jagged_dim,))
         x_offsets: List[torch.LongTensor] = []
         num_lengths = outer_dense_size
         for d in range(num_jagged_dim):
+            # Sometimes length[i] exceed max_L meaming jagged->dense will be
+            # truncation vs. padding
             lengths = torch.randint(
-                low=0, high=max_lengths[d] + 1, size=(num_lengths,), device=device
+                low=0, high=max_lengths[d] * 2, size=(num_lengths,), device=device
             )
             x_offsets.append(torch.ops.fbgemm.asynchronous_complete_cumsum(lengths))
             num_lengths = x_offsets[-1][-1].item()
 
         x_values = torch.rand(
-            x_offsets[-1][-1] * inner_dense_size, dtype=torch.float, device=device
+            x_offsets[-1][-1] * inner_dense_size, dtype=dtype, device=device
         ).reshape(x_offsets[-1][-1].item(), inner_dense_size)
 
         return x_values, x_offsets, max_lengths
@@ -1719,7 +1723,7 @@ class SparseOpsTest(unittest.TestCase):
         device = torch.device("cpu" if use_cpu else "cuda")
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
-            num_jagged_dim, outer_dense_size, inner_dense_size, device
+            num_jagged_dim, outer_dense_size, inner_dense_size, torch.float, device
         )
 
         output_ref = self._to_padded_dense(
@@ -1750,6 +1754,7 @@ class SparseOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1759,16 +1764,17 @@ class SparseOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         operation: str,
+        dtype: torch.dtype,
         use_cpu: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
-            num_jagged_dim, outer_dense_size, inner_dense_size, device
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
         )
         y = torch.rand(
             outer_dense_size * np.prod(max_lengths) * inner_dense_size,
-            dtype=torch.float,
+            dtype=dtype,
             device=device,
         ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
 
@@ -1780,17 +1786,24 @@ class SparseOpsTest(unittest.TestCase):
             )
         elif operation == "add_jagged_output":
             # from y values, create a jagged tensor and then densify
-            y_padded = self._to_padded_dense(
-                y.view(outer_dense_size * np.prod(max_lengths), inner_dense_size),
+            y = self._to_padded_dense(
+                torch.rand(
+                    (
+                        max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                        inner_dense_size,
+                    ),
+                    dtype=dtype,
+                    device=device,
+                ),
                 x_offsets,
                 max_lengths,
             )
-            output_ref = x_padded + y_padded
+            output_ref = x_padded + y
             (
                 output,
                 output_offsets,
             ) = torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
-                x_values, x_offsets, y_padded
+                x_values, x_offsets, y
             )
             output = self._to_padded_dense(output, output_offsets, max_lengths)
         elif operation == "mul":
@@ -1804,8 +1817,25 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
+        if operation == "add":
+            f = torch.ops.fbgemm.jagged_dense_elementwise_add
+        elif operation == "add_jagged_output":
+
+            def add_jagged_output_func(*args):
+                return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+                    *args
+                )[0]
+
+            f = add_jagged_output_func
+        elif operation == "mul":
+
+            def mul_func(*args):
+                return torch.ops.fbgemm.jagged_dense_elementwise_mul(*args)[0]
+
+            f = mul_func
+
         torch.autograd.gradcheck(
-            torch.ops.fbgemm.jagged_dense_elementwise_add,
+            f,
             (
                 x_values.double().requires_grad_(True),
                 x_offsets,
@@ -1825,6 +1855,7 @@ class SparseOpsTest(unittest.TestCase):
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     def test_batched_dense_vec_jagged_2d_mul(
@@ -1833,20 +1864,23 @@ class SparseOpsTest(unittest.TestCase):
         H: int,
         max_L: int,
         D: int,
+        dtype: torch.dtype,
         use_cpu: bool,
     ) -> None:
         assume(H == 1 or B != 0)
         device = torch.device("cpu" if use_cpu else "cuda")
         torch.backends.cuda.matmul.allow_tf32 = False
 
-        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        # Sometimes length[i] exceed max_L meaming jagged->dense will be
+        # truncation vs. padding
+        lengths = torch.randint(max_L * 2, size=(B,), device=device)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-        values = torch.rand((offsets[-1], H * D), device=device)
-        dense = torch.rand((B * H, max_L), device=device)
-        padded_values = torch.ops.fbgemm.jagged_2d_to_dense(
+        values = torch.rand((offsets[-1], H * D), dtype=dtype, device=device)
+        dense = torch.rand((B * H, max_L), dtype=dtype, device=device)
+        padded_values = torch.ops.fbgemm.jagged_to_padded_dense(
             values,
-            offsets,
-            max_L,
+            [offsets],
+            [max_L],
         )  # [B, N, H * D]
 
         output_ref = torch.bmm(
@@ -1860,7 +1894,12 @@ class SparseOpsTest(unittest.TestCase):
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
         )
-        torch.testing.assert_close(output, output_ref)
+        torch.testing.assert_close(
+            output,
+            output_ref,
+            rtol=1e-2 if dtype == torch.half else None,
+            atol=1e-2 if dtype == torch.half else None,
+        )
 
         torch.autograd.gradcheck(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
