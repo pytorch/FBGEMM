@@ -1627,6 +1627,7 @@ class SparseOpsTest(unittest.TestCase):
         values: torch.Tensor,
         offsets: List[torch.LongTensor],
         max_lengths: List[int],
+        padding_value: float = 0,
     ) -> torch.Tensor:
         outer_dense_size = len(offsets[0]) - 1
         inner_dense_size = values.size(-1)
@@ -1647,7 +1648,9 @@ class SparseOpsTest(unittest.TestCase):
                         is_zero = True
                         break
                     cur_offset = begin + jagged_coord[d]
-                dense[(i,) + jagged_coord] = 0 if is_zero else values[cur_offset]
+                dense[(i,) + jagged_coord] = (
+                    padding_value if is_zero else values[cur_offset]
+                )
         return dense
 
     # TODO: reuse this code in test_(stacked)_jagged_1/2d
@@ -1679,6 +1682,7 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
+        padding_value=st.sampled_from([0, -1e-8]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1687,6 +1691,7 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim: int,
         outer_dense_size: int,
         inner_dense_size: int,
+        padding_value: float,
         use_cpu: bool,
     ) -> None:
         # Testing with a basic crafted example.
@@ -1717,9 +1722,14 @@ class SparseOpsTest(unittest.TestCase):
             num_jagged_dim, outer_dense_size, inner_dense_size, device
         )
 
-        output_ref = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        output_ref = self._to_padded_dense(
+            x_values, x_offsets, max_lengths, padding_value=padding_value
+        )
         output = torch.ops.fbgemm.jagged_to_padded_dense(
-            x_values, x_offsets, max_lengths
+            x_values,
+            x_offsets,
+            max_lengths,
+            padding_value=padding_value,
         )
 
         torch.testing.assert_close(output, output_ref)
@@ -1730,6 +1740,7 @@ class SparseOpsTest(unittest.TestCase):
                 x_values.double().requires_grad_(True),
                 x_offsets,
                 max_lengths,
+                padding_value,
             ),
         )
 
