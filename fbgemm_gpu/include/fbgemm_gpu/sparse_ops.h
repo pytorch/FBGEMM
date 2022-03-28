@@ -54,6 +54,38 @@ permute_1D_sparse_data_cuda(
     const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
 
+/*
+ * expand_into_jagged_permute expand the sparse data permute index from
+ * table dimension to batch dimension, for cases where the sparse features
+ * has different batch sizes across ranks.
+ *
+ * "permute":
+ * the table level permute index.
+ * "input_offsets":
+ * the exclusive offsets of table-level length.
+ * "output_offsets":
+ * the exclusive offsets of table-level permuted length.
+ *
+ * The op expands the permute from table level to batch level by
+ * contiguously mapping each bag of its corresponding tables to the position the
+ * batch sits on after feature permute. we will derive offset array of table and
+ * batch to compute the output permute.
+ *
+ * The output follows the following formula:
+ * output_permute[table_offset[permute[table]] + batch] <- bag_offset[batch].
+ */
+at::Tensor expand_into_jagged_permute_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& input_offsets,
+    const at::Tensor& output_offsets,
+    int64_t output_size);
+
+at::Tensor expand_into_jagged_permute_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& input_offsets,
+    const at::Tensor& output_offsets,
+    int64_t output_size);
+
 std::tuple<
     at::Tensor,
     at::Tensor,

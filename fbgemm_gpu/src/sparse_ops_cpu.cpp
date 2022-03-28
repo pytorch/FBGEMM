@@ -662,6 +662,58 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
+template <typename index_t, typename offsets_t>
+void _expand_into_jagged_permute_cpu_kernel(
+    const offsets_t* const __restrict__ input_offsets,
+    const offsets_t* const __restrict__ output_offsets,
+    const int64_t permute_size,
+    const index_t* const __restrict__ permute,
+    index_t* const __restrict__ output_permute) {
+  at::parallel_for(
+      0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
+        for (int t = t_begin; t < std::min(t_end, permute_size); ++t) {
+          offsets_t permute_length = output_offsets[t + 1] - output_offsets[t];
+          const offsets_t input_start = input_offsets[permute[t]];
+          const offsets_t output_start = output_offsets[t];
+          for (const auto i : c10::irange(permute_length)) {
+            output_permute[output_start + i] = input_start + i;
+          }
+        }
+      }); // parallel_for T
+}
+
+Tensor expand_into_jagged_permute_cpu(
+    const Tensor& permute,
+    const Tensor& input_offsets,
+    const Tensor& output_offsets,
+    int64_t output_size) {
+  TENSOR_ON_CPU(permute);
+  TENSOR_ON_CPU(input_offsets);
+  TENSOR_ON_CPU(output_offsets);
+  TORCH_CHECK(permute.numel() > 0);
+  TORCH_CHECK(permute.numel() == input_offsets.numel() - 1);
+  TORCH_CHECK(permute.numel() == output_offsets.numel() - 1);
+
+  const auto permute_contig = permute.contiguous();
+
+  const auto permute_size = permute.numel();
+
+  Tensor output_permute = at::empty({output_size}, input_offsets.options());
+
+  AT_DISPATCH_INDEX_TYPES(
+      permute.scalar_type(), "expand_into_jagged_permute_cpu", [&] {
+        using offset_t = index_t;
+        _expand_into_jagged_permute_cpu_kernel(
+            input_offsets.data_ptr<offset_t>(),
+            output_offsets.data_ptr<offset_t>(),
+            permute_size,
+            permute.data_ptr<index_t>(),
+            output_permute.data_ptr<index_t>());
+      });
+
+  return output_permute;
+}
+
 std::tuple<
     Tensor,
     Tensor,
@@ -1701,6 +1753,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
+      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, int output_size) -> Tensor");
+  m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
@@ -1736,7 +1790,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
-
+  DISPATCH_TO_CPU(
+      "expand_into_jagged_permute", fbgemm_gpu::expand_into_jagged_permute_cpu);
   DISPATCH_TO_CPU(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);
