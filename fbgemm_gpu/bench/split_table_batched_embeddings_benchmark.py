@@ -2036,12 +2036,12 @@ def pruned_array(  # noqa C901
     )
     index_remappings_offsets = torch.empty(T + 1, dtype=torch.int32, device="cuda")
     index_remappings_offsets[0] = 0
-    dense_indicies = torch.tensor(range(E), dtype=torch.int32, device="cuda")
+    dense_indices = torch.tensor(range(E), dtype=torch.int32, device="cuda")
     for t in range(T):
         selected_indices = torch.add(
             torch.randperm(original_E, device="cuda"), t * original_E
         )[:E]
-        index_remappings[selected_indices] = dense_indicies
+        index_remappings[selected_indices] = dense_indices
         index_remappings_offsets[t + 1] = index_remappings_offsets[t] + original_E
 
     requests = generate_requests(
