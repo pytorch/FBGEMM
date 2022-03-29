@@ -130,10 +130,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "lxu_cache_flush(Tensor(a!) uvm_weights, Tensor cache_hash_size_cumsum, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor(b!) lxu_cache_state, Tensor(c!) lxu_cache_weights, bool stochastic_rounding) -> ()");
   DISPATCH_TO_CUDA("lxu_cache_flush", lxu_cache_flush_cuda);
   m.def("lxu_cache_slot(int h_in, int C) -> int");
-  m.impl(
-      "lxu_cache_slot",
-      torch::dispatch(
-          c10::DispatchKey::CatchAll, TORCH_FN(host_lxu_cache_slot)));
+  DISPATCH_TO_ALL("lxu_cache_slot", host_lxu_cache_slot);
 }
 
 } // namespace
