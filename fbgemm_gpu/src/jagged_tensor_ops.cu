@@ -142,11 +142,9 @@ std::tuple<dim3, dim3, Tensor> check_shape_and_partition_(
       values.size(-1));
   const int jagged_folded_size =
       dense_tensor.numel() / (outer_dense_size * inner_dense_size);
-  const int jagged_innermost_size = dense_tensor.size(-2);
 
-  const int threads_x = jagged_innermost_size >= kWarpSize / 2
-      ? kWarpSize
-      : jagged_innermost_size;
+  const int threads_x =
+      inner_dense_size >= kWarpSize / 2 ? kWarpSize : inner_dense_size;
   const int threads_y = kMaxThreads / kWarpSize;
   const dim3 blocks(
       div_round_up(outer_dense_size * jagged_folded_size, threads_y));
@@ -332,18 +330,6 @@ void jagged_dense_elementwise_jagged_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-template <typename scalar_t, typename F>
-Tensor jagged_dense_elementwise_jagged_output_(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y,
-    F f) {
-  Tensor output = at::empty_like(x_values);
-  jagged_dense_elementwise_jagged_output_<scalar_t>(
-      x_values, x_offsets, y, output, f);
-  return output;
-}
-
 class JaggedToPaddedDenseGPUOp
     : public torch::autograd::Function<JaggedToPaddedDenseGPUOp> {
  public:
@@ -415,6 +401,8 @@ class JaggedToPaddedDenseGPUOp
     device_guard.set_index(grad_padded_values.get_device());
 
     int32_t D = grad_padded_values.size(-1);
+    // Initialize with zeros so output will be zero for the portion truncated
+    // in forward.
     auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -494,7 +482,7 @@ class JaggedDenseAddGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(grad_outputs[0].get_device());
 
-    Tensor x_values_grad = at::empty(x_values_shape, grad_outputs[0].options());
+    Tensor x_values_grad = at::zeros(x_values_shape, grad_outputs[0].options());
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values_grad.scalar_type(), "jagged_dense_add_backward", [&] {
@@ -540,13 +528,17 @@ class JaggedDenseAddJaggedOutputGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(x_values.get_device());
 
-    Tensor output;
+    // Initialize with jagged input so output will have the same value as the
+    // jagged tensor if there's no corresponding value in the dense tensor.
+    Tensor output = x_values.clone();
+
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values.scalar_type(), "jagged_dense_add_forward", [&] {
-          output = jagged_dense_elementwise_jagged_output_<scalar_t>(
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
               x_values,
               x_offsets,
               y,
+              output,
               [] __device__(scalar_t x, scalar_t y) -> scalar_t {
                 return x + y;
               });
@@ -714,13 +706,16 @@ class JaggedDenseMulGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(x_values.get_device());
 
-    Tensor output;
+    // Initialize with zero so output will be zero if there's no corresponding
+    // value in the dense tensor.
+    Tensor output = at::zeros_like(x_values);
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values.scalar_type(), "jagged_scalars", [&] {
-          output = jagged_dense_elementwise_jagged_output_<scalar_t>(
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
               x_values,
               x_offsets,
               y,
+              output,
               [] __device__(scalar_t x, scalar_t y) -> scalar_t {
                 return x * y;
               });
@@ -748,15 +743,16 @@ class JaggedDenseMulGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(grad_outputs[0].get_device());
 
-    Tensor x_values_grad;
+    Tensor x_values_grad = at::zeros_like(grad_outputs[0]);
     Tensor y_grad = at::empty_like(y);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values.scalar_type(), "jagged_scalars", [&] {
-          x_values_grad = jagged_dense_elementwise_jagged_output_<scalar_t>(
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
               grad_outputs[0],
               x_offsets,
               y,
+              x_values_grad,
               [] __device__(scalar_t x, scalar_t y) -> scalar_t {
                 return x * y;
               });
@@ -975,7 +971,7 @@ class BatchedDenseVecJagged2DMulGPUOp
     const int B = a_offsets.numel() - 1;
     const int D = grad_outputs[0].size(-1);
 
-    Tensor a_values_grad = at::empty_like(a_values);
+    Tensor a_values_grad = at::zeros_like(a_values);
     Tensor v_grad = at::empty_like(v);
 
     if (B > 0 && D > 0) {
