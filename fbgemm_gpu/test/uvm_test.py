@@ -217,7 +217,7 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
-        cpu_clone = torch.ops.fb.uvm_to_cpu_clone(uvm_t)
+        cpu_clone = torch.ops.fbgemm.uvm_to_cpu_clone(uvm_t)
 
         assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
         assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
