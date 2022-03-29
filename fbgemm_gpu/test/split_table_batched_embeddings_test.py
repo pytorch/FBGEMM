@@ -927,6 +927,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
+                SparseType.INT2,
             ]
         ),
         output_dtype=st.sampled_from(
@@ -2957,11 +2958,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_ty_list = [
                 np.random.choice(
                     [
+                        SparseType.FP32,
+                        SparseType.FP16,
                         SparseType.INT8,
                         SparseType.INT4,
                         SparseType.INT2,
-                        SparseType.FP16,
-                        SparseType.FP32,
                     ]
                 )
                 for _ in range(T)
@@ -3337,7 +3338,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
-                # TODO: implement for SparseType.INT2,
+                SparseType.INT2,
             ]
         ),
         cache_algorithm=st.sampled_from(
