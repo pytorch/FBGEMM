@@ -173,4 +173,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
   DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
   DISPATCH_TO_CUDA("lengths_range", fbgemm_gpu::lengths_range_cuda);
+  DISPATCH_TO_CUDA(
+      "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_gpu);
+  DISPATCH_TO_CUDA(
+      "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_gpu);
 }
