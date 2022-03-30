@@ -1608,8 +1608,8 @@ void lfu_cache_populate_cuda(
 // In `lfu_cache_insert_byte_kernel`, we only use uint8_t for the both embedding
 // and cache data type (conforming to the inference TBE kernel logics).
 // - We pass in `weights_tys` to denote the real data types for the embeddings:
-// {FP32, FP16, INT8, INT4}. For example, FP32 is 4 byte element in the byte
-// tensor, and INT4 is half byte element in the byte tensor.
+// {FP32, FP16, INT8, INT4, INT2}. For example, FP32 is 4 byte element in the
+// byte tensor, and INT4 is half byte element in the byte tensor.
 // - We only assume that the embedding and cache have the same precisions (the
 // real "precision" is determined by `weights_tys` although the data types are
 // uint8_t only). Basically no "high-precision cache" support for now.
