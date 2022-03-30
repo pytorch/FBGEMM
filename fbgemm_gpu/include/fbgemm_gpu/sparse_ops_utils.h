@@ -63,6 +63,9 @@ inline bool torch_tensor_empty_or_on_cuda_gpu_check(
 #define DISPATCH_TO_CPU(name, function) \
   m.impl(name, torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(function)))
 
+#define DISPATCH_TO_ALL(name, function) \
+  m.impl(name, torch::dispatch(c10::DispatchKey::CatchAll, TORCH_FN(function)))
+
 #define TENSOR_ON_CPU(x)                                      \
   TORCH_CHECK(                                                \
       torch_tensor_on_cpu_check(x),                           \
