@@ -127,11 +127,11 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         ),
         quantize_type=st.sampled_from(
             [
+                SparseType.FP32,
+                SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
-                SparseType.FP16,
-                SparseType.FP32,
             ]
         ),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -211,7 +211,13 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         quantize_type=st.sampled_from(
-            [SparseType.FP32, SparseType.FP16, SparseType.INT8, SparseType.INT4]
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
