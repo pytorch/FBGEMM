@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+#include <ATen/ATen.h>
 #include <cstdint>
 
 namespace {
@@ -34,6 +35,36 @@ enum class BoundsCheckMode : uint8_t {
   FATAL = 0,
   WARNING = 1,
   IGNORE = 2,
+};
+
+at::ScalarType getScalarType(SparseType dtype) {
+  switch (dtype) {
+    case SparseType::FP32:
+      return at::kFloat;
+    case SparseType::FP16:
+      return at::kHalf;
+    case SparseType::INT8:
+      return at::kByte;
+    case SparseType::BF16:
+      return at::kBFloat16;
+    default:
+      return at::ScalarType::Undefined;
+  }
+};
+
+SparseType getSparseType(at::ScalarType dtype) {
+  switch (dtype) {
+    case at::kFloat:
+      return SparseType::FP32;
+    case at::kHalf:
+      return SparseType::FP16;
+    case at::kByte:
+      return SparseType::INT8;
+    case at::kBFloat16:
+      return SparseType::BF16;
+    default:
+      return SparseType::INVALID;
+  }
 };
 
 } // namespace
