@@ -462,5 +462,18 @@ at::Tensor& lengths_range_out(
 at::Tensor lengths_range_cuda(
     const at::Tensor& t_in,
     const c10::optional<std::vector<int64_t>>& shape);
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
 
 } // namespace fbgemm_gpu
