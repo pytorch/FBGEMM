@@ -1760,6 +1760,60 @@ class SparseOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        precompute_total_L=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_dense_to_jagged(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        use_cpu: bool,
+        precompute_total_L: bool,
+    ) -> None:
+
+        # Generate multi-dim jagged tensor
+        device = torch.device("cpu" if use_cpu else "cuda")
+        values_2d, offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, torch.float, device
+        )
+        values_2d = values_2d.clone().detach().requires_grad_(True)
+
+        # jagged -> dense
+        dense = torch.ops.fbgemm.jagged_to_padded_dense(values_2d, offsets, max_lengths)
+
+        # dense -> jagged (op which is being tested)
+        if precompute_total_L:
+            total_L = values_2d.size(0)
+            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets, total_L
+            )
+        else:
+            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets
+            )
+
+        # jagged -> dense
+        dense2 = torch.ops.fbgemm.jagged_to_padded_dense(
+            jagged_values, jagged_offsets, max_lengths
+        )
+
+        # verify forward
+        torch.testing.assert_allclose(dense, dense2)
+
+        # verify backward
+        dense.retain_grad()
+        ref_output_values = jagged_values.clone().detach().requires_grad_(True)
+        ref_values = dense.clone().detach().requires_grad_(True)
+        jagged_values.backward(ref_output_values)
+        torch.testing.assert_allclose(dense.grad, ref_values)
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
         padding_value=st.sampled_from([0, -1e-8]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
