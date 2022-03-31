@@ -874,10 +874,11 @@ class SparseOpsTest(unittest.TestCase):
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
+        Itype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_reorder_batched_ad_indices(
-        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype
+        self, B: int, T: int, L: int, A: int, Dtype: torch.dtype, Itype: torch.dtype
     ) -> None:
         cat_ad_indices = (
             torch.randint(low=0, high=100, size=(B * T * A * L,)).int().cuda().to(Dtype)
@@ -894,10 +895,12 @@ class SparseOpsTest(unittest.TestCase):
         )
         torch.testing.assert_close(cat_ad_lengths, reordered_cat_ad_lengths)
 
-        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            cat_ad_lengths
+        ).to(Itype)
         reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
             reordered_cat_ad_lengths
-        )
+        ).to(Itype)
         reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
             cat_ad_offsets,
             cat_ad_indices,
