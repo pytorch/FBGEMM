@@ -511,6 +511,79 @@ Tensor jagged_dense_elementwise_add(
   return JaggedDenseAddGPUOp::apply(x_values, x_offsets, y)[0];
 }
 
+class DenseToJaggedGPUOp
+    : public torch::autograd::Function<DenseToJaggedGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& dense,
+      const std::vector<Tensor>& offsets,
+      const c10::optional<int64_t>& total_L) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["dense_shape"] = dense.sizes();
+
+    // D is the embedding dimension
+    auto D = dense.size(-1);
+
+    // If total_L is not given then compute it
+    int64_t total_L_computed;
+    if (total_L.has_value()) {
+      total_L_computed = total_L.value();
+    } else {
+      total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
+    }
+    auto values = at::empty({total_L_computed, D}, dense.options());
+    auto output = at::zeros({total_L_computed, D}, dense.options());
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(dense.get_device());
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        values.scalar_type(), "jagged_dense_add_forward", [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              values,
+              offsets,
+              dense,
+              output,
+              [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                return y;
+              });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor dense_values_grad = jagged_to_padded_dense(
+        grad_outputs[0],
+        offsets,
+        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        /*padding_value=*/0);
+    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+
+    return {
+        dense_values_grad,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable()}; // total_L
+  }
+};
+
+std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
+    const Tensor& dense,
+    const std::vector<Tensor>& offsets,
+    const c10::optional<int64_t>& total_L) {
+  return {DenseToJaggedGPUOp::apply(dense, offsets, total_L)[0], offsets};
+}
+
 // Unlike JaggedDenseAddGPUOp that treats "zeros" as zeros so adding with
 // a dense tensor results in a dense tensor, this operator treats "zeros" as
 // undefined so resulting a jagged tensor.
@@ -1208,6 +1281,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
+  DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
   DISPATCH_TO_CUDA(
       "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
