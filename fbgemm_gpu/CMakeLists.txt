@@ -85,6 +85,7 @@ if(USE_ROCM)
   find_package(rocRAND REQUIRED)
   find_package(hipSPARSE REQUIRED)
   find_package(OpenMP REQUIRED)
+  find_package(rocPRIM REQUIRED)
   
   message("${message_line}")
   message(STATUS "hip found ${ROCM_FOUND}")
@@ -281,7 +282,7 @@ set(fbgemm_gpu_sources_cpu
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/layout_transform_ops_gpu.cpp
-    # src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
+    src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/quantize_ops_cpu.cpp
     src/quantize_ops_gpu.cpp
@@ -341,7 +342,7 @@ elseif(USE_ROCM)
   
   hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES} 
                   HIPCC_OPTIONS ${HIP_CXX_FLAGS})
-  target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE})
+  target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
   set_property(TARGET fbgemm_gpu_py PROPERTY HIP_ARCHITECTURES ${FBGEMM_ROCM_ARCH})
 
   # For ROCm5.1

@@ -31,7 +31,7 @@ except Exception:
 
 
 @unittest.skipIf(*gpu_unavailable)
-@unittest.skipIf(open_source, "Not supported in open source yet")
+#@unittest.skipIf(open_source, "Not supported in open source yet")
 class MergePooledEmbeddingsTest(unittest.TestCase):
     @given(
         num_ads=st.integers(min_value=1, max_value=10),
@@ -39,7 +39,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         ads_tables=st.integers(min_value=1, max_value=32),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         non_default_stream=st.booleans(),
-        r=st.randoms(use_true_random=False),
+        r=st.randoms(),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -93,7 +93,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         non_default_stream=st.booleans(),
-        r=st.randoms(use_true_random=False),
+        r=st.randoms(),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
