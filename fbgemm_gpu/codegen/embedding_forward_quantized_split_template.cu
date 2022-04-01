@@ -192,6 +192,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   {% if not nobag %}
   int64_t pooling_mode,
   {% endif %}
+  int64_t row_alignment,
   {% if weighted %}
   at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
@@ -229,7 +230,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   }
 
   // default to 16 byte alignment for GPU TBE
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, 16);
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
     return;
@@ -602,6 +603,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% if not nobag %}
     int64_t pooling_mode,
     {% endif %}
+    int64_t row_alignment,
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
@@ -698,6 +700,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -707,7 +710,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int2_D > 0) {
-        auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2, 16), 128);
+        auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2, row_alignment), 128);
         TORCH_CHECK(max_int2_128b_rows <= 2);
         if (max_int2_128b_rows > 0) {
           X(2, 16, 0, 1);
@@ -741,6 +744,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -750,7 +754,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int4_D > 0) {
-        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, 16), 128);
+        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -787,6 +791,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -796,7 +801,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int8_D > 0) {
-        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8, 16), 128);
+        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8, row_alignment), 128);
         TORCH_CHECK(max_int8_128b_rows <= 8);
         if (max_int8_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -836,6 +841,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -845,7 +851,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float16_D > 0) {
-        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16, 16), 128);
+        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16, row_alignment), 128);
         TORCH_CHECK(max_fp16_128b_rows <= 16);
         if (max_fp16_128b_rows > 0) {
           X(2, 8, 0, 2);
@@ -885,6 +891,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -894,7 +901,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float32_D > 0) {
-        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, 16), 128);
+        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, row_alignment), 128);
         TORCH_CHECK(max_fp32_128b_rows <= 32);
         // FP32 is used for numerical validations and tiny embeddings tables.
         // We haven't carefully tuned the perf of FP32 embeddings.
