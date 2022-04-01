@@ -1534,16 +1534,16 @@ Tensor reorder_batched_ad_lengths_gpu(
   return reordered_cat_ad_lengths;
 }
 
-template <typename Dtype>
+template <typename Dtype, typename index_t = int32_t>
 __global__ void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
     // laid out as [T][B][A][L] (if all lengths were equal).
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
     const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_offsets,
     at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
@@ -1611,21 +1611,29 @@ Tensor reorder_batched_ad_indices_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel", [&] {
-        reorder_batched_ad_indices_kernel<scalar_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                cat_ad_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                cat_ad_indices
-                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                reordered_cat_ad_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                reordered_cat_ad_indices
-                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                batch_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                T);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel_1", [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            cat_ad_offsets.scalar_type(),
+            "reorder_batched_ad_indices_gpu_kernel_2",
+            [&] {
+              reorder_batched_ad_indices_kernel<scalar_t, index_t><<<
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  cat_ad_offsets
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  cat_ad_indices
+                      .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                  reordered_cat_ad_offsets
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  reordered_cat_ad_indices
+                      .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                  batch_offsets
+                      .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                  T);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
       });
   return reordered_cat_ad_indices;
 }
