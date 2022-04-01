@@ -17,9 +17,6 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
     torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
-    )
-    torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
     )
 
