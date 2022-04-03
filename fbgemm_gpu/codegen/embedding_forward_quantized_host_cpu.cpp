@@ -31,7 +31,6 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    int64_t row_alignment,
     int64_t output_dtype,
     int64_t unused);
 
@@ -46,7 +45,6 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    int64_t row_alignment,
     Tensor indice_weights,
     int64_t output_dtype,
     int64_t unused);
@@ -71,8 +69,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     int64_t output_dtype,
     c10::optional<Tensor>
         lxu_cache_weights, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor> lxu_cache_locations,
-    int64_t row_alignment) {
+    c10::optional<Tensor>
+        lxu_cache_locations // Not used, to match cache interface for CUDA op
+) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
@@ -85,7 +84,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         indices,
         offsets,
         pooling_mode,
-        row_alignment,
         output_dtype,
         0);
   }
@@ -100,7 +98,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       indices,
       offsets,
       pooling_mode,
-      row_alignment,
       *indice_weights,
       output_dtype,
       0);
@@ -127,7 +124,7 @@ Tensor pruned_array_lookup_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int row_alignment = 16) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> Tensor");
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);
