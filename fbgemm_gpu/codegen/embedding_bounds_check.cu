@@ -10,7 +10,7 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>
-__global__ void bounds_check_indices_kernel(
+__global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,

@@ -18,7 +18,7 @@ constexpr size_t kBackwardMaxThreads = 512;
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-__global__ void
+__global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
@@ -39,7 +39,7 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
 }
 
 template <typename grad_t>
-__global__ void __launch_bounds__(kMaxThreads) grad_mean_kernel(
+__global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
     const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
@@ -83,8 +83,7 @@ template <
     typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread>
-__global__ void
-__launch_bounds__(kMaxThreads)
+__global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits> grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
