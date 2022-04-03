@@ -126,7 +126,6 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    int64_t row_alignment,
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
@@ -189,7 +188,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
                 // default to 1 byte alignment for CPU TBE
-                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
+                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, 1);
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);

@@ -31,7 +31,6 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    int64_t row_alignment,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
@@ -53,7 +52,6 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    int64_t row_alignment,
     Tensor indice_weights,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
@@ -74,7 +72,6 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
-    int64_t row_alignment,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
@@ -99,8 +96,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     c10::optional<Tensor> indice_weights,
     int64_t output_dtype,
     c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations,
-    int64_t row_alignment) {
+    c10::optional<Tensor> lxu_cache_locations) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D, max_int4_D, max_int8_D, max_float16_D, max_float32_D};
@@ -119,7 +115,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float32_D,
         indices,
         offsets,
-        row_alignment,
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
@@ -142,7 +137,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         indices,
         offsets,
         pooling_mode,
-        row_alignment,
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
@@ -164,7 +158,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       indices,
       offsets,
       pooling_mode,
-      row_alignment,
       *indice_weights,
       output_dtype,
       lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
