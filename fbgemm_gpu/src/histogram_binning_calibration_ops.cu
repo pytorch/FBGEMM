@@ -15,7 +15,8 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 template <typename T>
-__global__ void histogram_binning_calibration_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void histogram_binning_calibration_kernel(
     const int64_t num_logits,
     const int64_t num_bins,
     const double recalibrate_value,
@@ -71,15 +72,14 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
 
-  const int32_t num_threads = 512;
   const auto logit_packed = logit.contiguous();
   const auto bin_num_examples_packed = bin_num_examples.contiguous();
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(), "histogram_binning_calibration_cuda", [&] {
         histogram_binning_calibration_kernel<scalar_t>
-            <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-               num_threads,
+            <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+               kMaxThreads,
                0,
                at::cuda::getCurrentCUDAStream()>>>(
                 logit.numel(),
@@ -100,7 +100,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
 }
 
 template <typename OffsetType, typename ValueType>
-__global__ void to_dense_segment_value_kernel(
+__global__ __launch_bounds__(kMaxThreads) void to_dense_segment_value_kernel(
     const int64_t num_lengths,
     const ValueType* const segment_value_data,
     const OffsetType* const segment_offsets_data,
@@ -122,7 +122,8 @@ __global__ void to_dense_segment_value_kernel(
 }
 
 template <typename LogitType, typename SegmentValueType>
-__global__ void histogram_binning_calibration_by_feature_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void histogram_binning_calibration_by_feature_kernel(
     const int64_t num_logits,
     const int64_t num_bins,
     const int64_t num_segments,
@@ -194,7 +195,6 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   Tensor dense_segment_value =
       at::empty({logit.numel()}, segment_value.options());
 
-  const int32_t num_threads = 512;
   const auto segment_value_packed = segment_value.contiguous();
   const auto segment_offsets_packed = segment_offsets.contiguous();
   auto dense_segment_value_packed = dense_segment_value.contiguous();
@@ -208,8 +208,8 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
               using value_t = index_t;
               to_dense_segment_value_kernel<offset_t, value_t>
                   <<<fbgemm_gpu::div_round_up(
-                         segment_offsets.numel(), num_threads),
-                     num_threads,
+                         segment_offsets.numel(), kMaxThreads),
+                     kMaxThreads,
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       segment_offsets.numel(),
@@ -242,8 +242,8 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
               histogram_binning_calibration_by_feature_kernel<
                   logit_t,
                   segment_value_t>
-                  <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-                     num_threads,
+                  <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                     kMaxThreads,
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       logit.numel(),
@@ -267,7 +267,8 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
 }
 
 template <typename LogitType, typename SegmentValueType>
-__global__ void generic_histogram_binning_calibration_by_feature_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void generic_histogram_binning_calibration_by_feature_kernel(
     const int64_t num_logits,
     const int64_t num_bins,
     const int64_t num_segments,
@@ -355,7 +356,6 @@ generic_histogram_binning_calibration_by_feature_cuda(
   Tensor dense_segment_value =
       at::empty({logit.numel()}, segment_value.options());
 
-  const int32_t num_threads = 512;
   const auto segment_value_packed = segment_value.contiguous();
   const auto segment_offsets_packed = segment_offsets.contiguous();
   auto dense_segment_value_packed = dense_segment_value.contiguous();
@@ -369,8 +369,8 @@ generic_histogram_binning_calibration_by_feature_cuda(
               using value_t = index_t;
               to_dense_segment_value_kernel<offset_t, value_t>
                   <<<fbgemm_gpu::div_round_up(
-                         segment_offsets.numel(), num_threads),
-                     num_threads,
+                         segment_offsets.numel(), kMaxThreads),
+                     kMaxThreads,
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       segment_offsets.numel(),
@@ -402,8 +402,8 @@ generic_histogram_binning_calibration_by_feature_cuda(
               generic_histogram_binning_calibration_by_feature_kernel<
                   logit_t,
                   segment_value_t>
-                  <<<fbgemm_gpu::div_round_up(logit.numel(), num_threads),
-                     num_threads,
+                  <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
+                     kMaxThreads,
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       logit.numel(),

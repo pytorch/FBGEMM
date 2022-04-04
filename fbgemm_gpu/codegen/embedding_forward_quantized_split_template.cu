@@ -472,7 +472,7 @@ __device__ inline uint32_t pruned_hash_function(uint32_t h) {
     return h;
 }
 
-__global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
+__global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
@@ -547,7 +547,7 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
 }
 
 {% if not weighted %}
-__global__ void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
+__global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,

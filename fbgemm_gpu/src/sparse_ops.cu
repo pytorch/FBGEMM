@@ -59,7 +59,7 @@ std::tuple<uint32_t, uint32_t, uint32_t> calc_offsets_range_thread_block(
 
 // Kernel for calculating the offsets ranges
 template <typename scalar_t>
-__global__ void _offsets_range_cuda_kernel(
+__global__ __launch_bounds__(kMaxThreads) void _offsets_range_cuda_kernel(
     int64_t N,
     int64_t range_size,
     const scalar_t* __restrict__ offsets_data,
@@ -127,7 +127,7 @@ Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
 // Kernel for calculating the segmented sum for sparse matrix with CSR format.
 // See https://moderngpu.github.io/segreduce.html
 template <typename scalar_t>
-__global__ void _segment_sum_csr_cuda_kernel(
+__global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
     int num_segments,
     int batch_size,
     const int* csr_seg_data,
@@ -306,7 +306,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t>
-__global__ void permute_2D_data_kernel(
+__global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     int32_t len,
     int32_t T,
     int32_t B,
@@ -341,7 +341,7 @@ __global__ void permute_2D_data_kernel(
 
 // Kernel for permuting the lengths. Used for permutation of sparse features.
 template <typename index_t>
-__global__ void permute_2D_lengths_kernel(
+__global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
     int32_t T,
     int32_t B,
     const index_t* __restrict__ lengths,
@@ -487,7 +487,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
 
 // Kernel for permuting 1D lengths. Used for permutation of sparse features.
 template <typename index_t>
-__global__ void permute_1D_lengths_kernel(
+__global__ __launch_bounds__(kMaxThreads) void permute_1D_lengths_kernel(
     const index_t* __restrict__ lengths,
     int32_t permuted_lengths_size,
     const int32_t* __restrict__ permute,
@@ -504,7 +504,7 @@ template <
     typename offsets_t,
     typename indices_t,
     typename weights_t>
-__global__ void permute_1D_data_kernel(
+__global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel(
     int32_t permuted_indices_size,
     int32_t permuted_lengths_size,
     const indices_t* __restrict__ indices,
@@ -667,7 +667,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
 // Kernel for generate 1D data permute from dimension permute index.
 // Used for permutation of sparse features.
 template <typename index_t, typename offsets_t>
-__global__ void expand_into_jagged_permute_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void expand_into_jagged_permute_kernel(
     const offsets_t* __restrict__ input_offsets,
     const offsets_t* __restrict__ output_offsets,
     int32_t input_size,
@@ -733,7 +734,8 @@ Tensor expand_into_jagged_permute_cuda(
 // checkpointing with row-wise partition (sparse_feature is partitioned
 // continuously along the sparse dimension into my_size blocks)
 template <typename offset_t, typename index_t>
-__global__ void _block_bucketize_sparse_features_cuda_kernel1(
+__global__
+__launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel1(
     int32_t lengths_size,
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
@@ -773,7 +775,8 @@ template <
     typename offset_t,
     typename index_t,
     typename scalar_t>
-__global__ void _block_bucketize_sparse_features_cuda_kernel2(
+__global__
+__launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel2(
     int lengths_size,
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
@@ -1230,7 +1233,8 @@ block_bucketize_sparse_features_cuda(
 // partition (sparse_feature is partitioned cyclically along the sparse
 // dimension into my_size blocks)
 template <typename scalar_t>
-__global__ void _bucketize_sparse_features_cuda_kernel1(
+__global__
+__launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel1(
     int lengths_size,
     int my_size,
     const scalar_t* __restrict__ offsets_data,
@@ -1259,7 +1263,8 @@ template <
     bool bucketize_pos,
     typename index_t,
     typename scalar_t>
-__global__ void _bucketize_sparse_features_cuda_kernel2(
+__global__
+__launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
     int lengths_size,
     int my_size,
     const index_t* __restrict__ offsets_data,
@@ -1468,7 +1473,8 @@ bucketize_sparse_features_cuda(
 }
 
 template <typename Dtype>
-__global__ void reorder_batched_ad_lengths_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
     // [T][B][#num_ads_b], i.e. [T][sum(#num_ads_b)].
     const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
@@ -1535,7 +1541,8 @@ Tensor reorder_batched_ad_lengths_gpu(
 }
 
 template <typename Dtype, typename index_t = int32_t>
-__global__ void reorder_batched_ad_indices_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
     // laid out as [T][B][A][L] (if all lengths were equal).
@@ -1640,7 +1647,8 @@ Tensor reorder_batched_ad_indices_gpu(
 
 // Forward kernel for batched unary embedding op
 template <typename scalar_t, typename index_t>
-__global__ void batched_unary_embeddings_forward_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     const int32_t N,
     const int32_t B,
     const int32_t T,
@@ -1730,7 +1738,8 @@ Tensor batched_unary_embeddings_forward_cuda(
 //    A challenge is there's no available batched GEMM routine with varying K
 //    dimension.
 template <typename scalar_t, typename index_t>
-__global__ void batched_unary_embeddings_backward_kernel(
+__global__
+__launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int32_t N,
     const int32_t B,
     const int32_t T,
@@ -1911,7 +1920,7 @@ Tensor lengths_range_cuda(
 // Kernel for permuting the indices and weights. Used for permutation of
 // sparse features
 template <bool has_weight, typename index_t, typename scalar_t>
-__global__ void permute_indices_weights_kernel(
+__global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
     int32_t len,
     int32_t T,
     int32_t B,

@@ -60,7 +60,7 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>
-__global__ void linearize_index_kernel(
+__global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -94,7 +94,7 @@ __global__ void linearize_index_kernel(
 }
 
 template <typename index_t>
-__global__ void nobag_linearize_index_kernel(
+__global__ __launch_bounds__(kMaxThreads) void nobag_linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,

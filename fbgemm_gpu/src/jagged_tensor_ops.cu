@@ -83,7 +83,8 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
 // warp size.
 // We rely on compiler unrolling the compiler time constant NUM_JAGGED_DIM.
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
-__global__ void jagged_dense_elementwise_dense_output_kernel_(
+__global__
+__launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
@@ -238,7 +239,8 @@ Tensor jagged_dense_elementwise_dense_output_(
 }
 
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
-__global__ void jagged_dense_elementwise_jagged_output_kernel_(
+__global__
+__launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
@@ -662,7 +664,8 @@ jagged_dense_elementwise_add_jagged_output(
  * @param padding_value padding_value for the output, not for inputs
  */
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
-__global__ void jagged_jagged_elementwise_dense_output_kernel_(
+__global__
+__launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
@@ -855,7 +858,7 @@ std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
 }
 
 template <typename index_t, typename scalar_t>
-__global__ void dense_vec_jagged_2d_bmm(
+__global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
     const at::PackedTensorAccessor32<scalar_t, 2> v,
     const at::PackedTensorAccessor32<scalar_t, 2> a_values,
     const at::PackedTensorAccessor32<index_t, 1> a_offsets,
@@ -893,7 +896,8 @@ __global__ void dense_vec_jagged_2d_bmm(
 }
 
 template <typename index_t, typename scalar_t>
-__global__ void dense_vec_jagged_2d_transposed_bmm(
+__global__
+__launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
     const at::PackedTensorAccessor32<scalar_t, 2> v,
     const at::PackedTensorAccessor32<scalar_t, 2> a_values,
     const at::PackedTensorAccessor32<index_t, 1> a_offsets,
@@ -934,7 +938,7 @@ __global__ void dense_vec_jagged_2d_transposed_bmm(
 }
 
 template <typename index_t, typename scalar_t>
-__global__ void outer_prod_jagged_2d_output(
+__global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
     const at::PackedTensorAccessor32<scalar_t, 2> x,
     const at::PackedTensorAccessor32<scalar_t, 2> y,
     const at::PackedTensorAccessor32<index_t, 1> offsets,
