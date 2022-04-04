@@ -164,6 +164,10 @@ at::Tensor float_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
+at::Tensor _float_to_bfloat16_gpu(const at::Tensor&);
+at::Tensor _bfloat16_to_float_gpu(const at::Tensor&);
+at::Tensor _float_to_bfloat16_cpu(const at::Tensor&);
+at::Tensor _bfloat16_to_float_cpu(const at::Tensor&);
 
 at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
