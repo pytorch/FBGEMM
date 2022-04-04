@@ -42,7 +42,7 @@ except Exception:
         gpu_unavailable,
     )
 
-no_long_tests: bool = True
+no_long_tests: bool = False
 
 
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
