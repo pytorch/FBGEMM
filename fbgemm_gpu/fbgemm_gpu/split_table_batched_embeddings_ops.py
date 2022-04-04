@@ -1984,6 +1984,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
+            row_alignment=self.row_alignment,
         )
 
     def _apply_split(
@@ -2227,6 +2228,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offset : offset
                 + rows * rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment)
             ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment))
+
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
