@@ -342,6 +342,89 @@ void _block_bucketize_sparse_features_cpu(
   }
 }
 
+void FloatToBFloat16Quantized_ref(
+    const float* const input,
+    const size_t nrows,
+    const size_t ncols,
+    uint16_t* const output) {
+  for (const auto row : c10::irange(nrows)) {
+    const float* input_row = input + row * ncols;
+    uint16_t* output_row = output + row * ncols;
+
+    for (const auto col : c10::irange(ncols)) {
+      output_row[col] =
+          (*reinterpret_cast<const uint32_t*>(input_row + col) + (1 << 15)) >>
+          16;
+    }
+  }
+}
+
+void BFloat16QuantizedToFloat_ref(
+    const at::BFloat16* const input,
+    const size_t nrows,
+    const size_t ncols,
+    float* const output) {
+  const int32_t output_columns = ncols;
+
+  for (const auto row : c10::irange(nrows)) {
+    const at::BFloat16* input_row = input + row * ncols;
+    float* output_row = output + row * output_columns;
+
+    for (const auto col : c10::irange(ncols)) {
+      uint32_t val_fp32 = static_cast<uint32_t>(
+                              reinterpret_cast<const uint16_t*>(input_row)[col])
+          << 16;
+      reinterpret_cast<uint32_t*>(output_row)[col] = val_fp32;
+    }
+  }
+}
+
+// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
+at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  const auto input_sizes = input.sizes();
+  const int32_t nrows = input_sizes[0];
+  const int32_t ncols = input_sizes[1];
+  const int32_t output_columns = ncols;
+  auto output = at::empty(
+      {nrows, output_columns},
+      input.options().dtype(at::kHalf)); // at::kHalf
+  // input.options().dtype(at::kBFloat16)); // at::kBFloat16
+
+  FloatToBFloat16Quantized_ref(
+      input.data_ptr<float>(),
+      nrows,
+      ncols,
+      reinterpret_cast<uint16_t*>(output.data_ptr<at::Half>()));
+
+  return output;
+}
+
+// TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
+at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  const auto input_sizes = input.sizes();
+  const int32_t nrows = input_sizes[0];
+  const int32_t ncols = input_sizes[1];
+  const int32_t output_columns = ncols;
+
+  auto output = at::empty(
+      {nrows, output_columns}, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat)); //
+
+  BFloat16QuantizedToFloat_ref(
+      reinterpret_cast<at::BFloat16*>(input.data_ptr<at::Half>()),
+      nrows,
+      ncols,
+      output.data_ptr<float>());
+
+  return output;
+}
+
 // This function partitions sparse features
 // cyclically along the sparse dimension into my_size blocks
 template <bool has_weight, typename index_t, typename scalar_t>
@@ -1919,6 +2002,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "lengths_range_out(Tensor output, Tensor t_in, int[]? shape=None) -> Tensor");
   m.def(
       "permute_sparse_features(Tensor permute, Tensor lengths, Tensor indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
+  m.def("Bfloat16QuantizedToFloat(Tensor input) -> Tensor");
+  m.def("FloatToBfloat16Quantized(Tensor input) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1968,4 +2053,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("lengths_range_out", fbgemm_gpu::lengths_range_out);
   DISPATCH_TO_CPU(
       "permute_sparse_features", fbgemm_gpu::permute_sparse_features_cpu);
+  DISPATCH_TO_CPU(
+      "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_cpu);
+  DISPATCH_TO_CPU(
+      "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_cpu);
 }
