@@ -749,7 +749,7 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
     #  `hypothesis.strategies.sampled_from(["BF16"])` to decorator factory
     #  `hypothesis.given`.
     @given(
-        precision=st.sampled_from(["BF16"]),
+        precision=st.just("BF16"),
         batch_size=st.integers(min_value=1, max_value=256),
         k=st.integers(min_value=2, max_value=2),
         n=st.integers(min_value=2, max_value=2),
@@ -761,8 +761,8 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
             input_data = torch.tensor(
                 np.random.rand(n, k).astype(np.float32), dtype=torch.float32
             )
-            quantized_data = torch.ops.fb.FloatToBfloat16Quantized(input_data)
-            dequantized_data = torch.ops.fb.Bfloat16QuantizedToFloat(quantized_data)
+            quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
+            dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
             torch.testing.assert_allclose(
                 dequantized_data, input_data, rtol=1e-2, atol=1e-2
             )
@@ -792,7 +792,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(self, nrows: int, ncols: int) -> None:
         input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToBfloat16Quantized(input_data)
+        quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
         if nrows == 0 or ncols == 0:
             assert quantized_data.numel() == 0
             return
@@ -804,7 +804,9 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
-            quantized_data_gpu = torch.ops.fb.FloatToBfloat16Quantized(input_data_gpu)
+            quantized_data_gpu = torch.ops.fbgemm.FloatToBfloat16Quantized(
+                input_data_gpu
+            )
             quantized_data_numpy = quantized_data_gpu.cpu().numpy()
             quantized_data_numpy.dtype = np.uint16
             np.testing.assert_allclose(quantized_data_numpy, reference)
@@ -819,8 +821,8 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op(self, nrows: int, ncols: int) -> None:
         input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToBfloat16Quantized(input_data)
-        dequantized_data = torch.ops.fb.Bfloat16QuantizedToFloat(quantized_data)
+        quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
+        dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
         if nrows == 0 or ncols == 0:
             assert dequantized_data.numel() == 0
             return
@@ -832,8 +834,10 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
-            quantized_data_gpu = torch.ops.fb.FloatToBfloat16Quantized(input_data_gpu)
-            dequantized_data_gpu = torch.ops.fb.Bfloat16QuantizedToFloat(
+            quantized_data_gpu = torch.ops.fbgemm.FloatToBfloat16Quantized(
+                input_data_gpu
+            )
+            dequantized_data_gpu = torch.ops.fbgemm.Bfloat16QuantizedToFloat(
                 quantized_data_gpu
             )
             # compare quantized data
@@ -852,13 +856,15 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
     ) -> None:
         ncols, nrows = ncols_nrows
         input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToBfloat16Quantized(input_data)
-        dequantized_data = torch.ops.fb.Bfloat16QuantizedToFloat(quantized_data)
+        quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
+        dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
-            quantized_data_gpu = torch.ops.fb.FloatToBfloat16Quantized(input_data_gpu)
-            dequantized_data_gpu = torch.ops.fb.Bfloat16QuantizedToFloat(
+            quantized_data_gpu = torch.ops.fbgemm.FloatToBfloat16Quantized(
+                input_data_gpu
+            )
+            dequantized_data_gpu = torch.ops.fbgemm.Bfloat16QuantizedToFloat(
                 quantized_data_gpu
             )
             # compare quantized data
