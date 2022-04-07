@@ -1586,8 +1586,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
 
-        # FIXME: pass row_alignment after fixing the kernel argument pass issue
-        self.row_alignment: int = 1 if self.use_cpu else 16
+        if row_alignment is None:
+            self.row_alignment: int = 1 if self.use_cpu else 16
+        else:
+            self.row_alignment = row_alignment
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -1984,6 +1986,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
+            row_alignment=self.row_alignment,
         )
 
     def _apply_split(
@@ -2227,6 +2230,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offset : offset
                 + rows * rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment)
             ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment))
+
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
