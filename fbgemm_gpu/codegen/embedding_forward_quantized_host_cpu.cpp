@@ -73,8 +73,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         lxu_cache_weights, // Not used, to match cache interface for CUDA op
     c10::optional<Tensor>
         lxu_cache_locations, // Not used, to match cache interface for CUDA op
-   c10::optional<int64_t> row_alignment
-) {
+    c10::optional<int64_t> row_alignment) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
