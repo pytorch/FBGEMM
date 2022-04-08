@@ -6,6 +6,7 @@
  */
 #pragma once
 #include <ATen/ATen.h>
+#include <c10/macros/Macros.h>
 #include <cstdint>
 
 namespace {
@@ -68,3 +69,44 @@ SparseType getSparseType(at::ScalarType dtype) {
 };
 
 } // namespace
+
+namespace nbit {
+
+C10_HOST_DEVICE C10_ALWAYS_INLINE uint32_t round_up(uint32_t a, uint32_t b) {
+  return ((a + b - 1) / b) * b;
+}
+
+C10_HOST_DEVICE C10_ALWAYS_INLINE uint32_t
+div_round_up(uint32_t a, uint32_t b) {
+  return ((a + b - 1) / b);
+}
+
+C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t
+unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+  if (weight_ty == SparseType::FP32) {
+    return dim * 4;
+  }
+  if (weight_ty == SparseType::FP16) {
+    return dim * 2;
+  }
+  if (weight_ty == SparseType::INT8) {
+    return dim + 4;
+  }
+  if (weight_ty == SparseType::INT4) {
+    return dim / 2 + 4;
+  }
+  if (weight_ty == SparseType::INT2) {
+    return dim / 4 + 4;
+  }
+  return 0;
+}
+
+C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t padded_row_size_in_bytes(
+    int32_t dim,
+    SparseType weight_ty,
+    int32_t row_alignment) {
+  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
+  return round_up(r, row_alignment);
+}
+
+} // namespace nbit

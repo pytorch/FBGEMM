@@ -4042,6 +4042,122 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=64),
+        log_E=st.integers(min_value=2, max_value=3),
+        N=st.integers(min_value=0, max_value=50),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+            ]
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_embedding_inplace_update(
+        self,
+        T: int,  # num of embedding tables
+        D: int,  # embedding dim
+        log_E: int,  # embedding table row number
+        N: int,  # num of update rows per table
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+    ) -> None:
+        D_alignment = max(weights_ty.align_size(), output_dtype.align_size())
+        D = round_up(D, D_alignment)
+        Ds = [
+            round_up(
+                np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                D_alignment,
+            )
+            for _ in range(T)
+        ]
+        E = int(10 ** log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+        weights_ty_list = [weights_ty] * T
+        locations = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+
+        # create two embedding bag op with random weights
+        op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, W_TY, L)
+                for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
+            ],
+            output_dtype=output_dtype,
+            device=torch.cuda.current_device(),
+        )
+        op.fill_random_weights()
+        op_ref = (
+            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    ("", E, D, W_TY, L)
+                    for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
+                ],
+                output_dtype=output_dtype,
+                device=torch.cuda.current_device(),
+            )
+        )
+        op_ref.fill_random_weights()
+
+        # randomly generate update table and row indices
+        update_table_indices = []
+        update_row_indices = []
+        for t in range(T):
+            n = np.random.randint(low=0, high=N) if N > 0 else 0
+            if n == 0:
+                continue
+            update_table_indices.append(t)
+            update_row_indices.append(random.sample(range(Es[t]), n))
+
+        # generate update tensor based on weights from "op_ref" embedding table
+        update_weights_list = []
+        ref_split_weights = op_ref.split_embedding_weights(split_scale_shifts=False)
+        for i in range(len(update_table_indices)):
+            table_idx = update_table_indices[i]
+            (ref_weights, _) = ref_split_weights[table_idx]
+            update_weights = []
+            for row_idx in update_row_indices[i]:
+                update_weights.append(ref_weights[row_idx].tolist())
+            update_weights_tensor = torch.tensor(
+                update_weights, device=torch.cuda.current_device(), dtype=torch.uint8
+            )
+            update_weights_list.append(update_weights_tensor)
+
+        # run inplace update on "op" embedding table
+        op.embedding_inplace_update(
+            update_table_indices,
+            update_row_indices,
+            update_weights_list,
+        )
+
+        # verify weights are equal with "op_ref" for the updated rows in "op"
+        split_weights = op.split_embedding_weights(split_scale_shifts=False)
+        for i in range(len(update_table_indices)):
+            t = update_table_indices[i]
+            for r in update_row_indices[i]:
+                (weights, _) = split_weights[t]
+                (ref_weights, _) = ref_split_weights[t]
+                self.assertEqual(weights.size(), ref_weights.size())
+                torch.testing.assert_close(
+                    weights[r],
+                    ref_weights[r],
+                    rtol=1e-2,
+                    atol=1e-2,
+                    equal_nan=True,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

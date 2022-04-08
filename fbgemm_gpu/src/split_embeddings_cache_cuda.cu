@@ -40,39 +40,6 @@ using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
 
-namespace {
-__forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b) * b;
-}
-__host__ __device__ inline int32_t unpadded_row_size_in_bytes(
-    int32_t dim,
-    SparseType weight_ty) {
-  if (weight_ty == SparseType::FP32) {
-    return dim * 4;
-  }
-  if (weight_ty == SparseType::FP16) {
-    return dim * 2;
-  }
-  if (weight_ty == SparseType::INT8) {
-    return dim + 4;
-  }
-  if (weight_ty == SparseType::INT4) {
-    return dim / 2 + 4;
-  }
-  if (weight_ty == SparseType::INT2) {
-    return dim / 4 + 4;
-  }
-  return 0;
-}
-
-__host__ __device__ inline int32_t padded_row_size_in_bytes(
-    int32_t dim,
-    SparseType weight_ty) {
-  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, 16);
-}
-} // namespace
-
 // // TODO: do we care about 64-bit indices? Currently we just ignore.
 // __host__ DEVICE_INLINE uint32_t cache_slot(int32_t h_in, int32_t C) {
 //   // MurmorHash3 32-bit mixing function.
@@ -944,7 +911,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     int32_t D_insert = D_end_insert - D_start_insert;
 
     const int32_t D_insert_bytes =
-        padded_row_size_in_bytes(D_insert, weight_ty_insert);
+        nbit::padded_row_size_in_bytes(D_insert, weight_ty_insert, 16);
 
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
@@ -1705,7 +1672,7 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     int32_t D_insert = D_end_insert - D_start_insert;
 
     const int32_t D_insert_bytes =
-        padded_row_size_in_bytes(D_insert, weight_ty_insert);
+        nbit::padded_row_size_in_bytes(D_insert, weight_ty_insert, 16);
 
     // insert into cache
     auto row =
