@@ -89,7 +89,7 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tables", default=2)
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
-def main(batch_size, num_tables, num_tasks, repeats):
+def main(batch_size, num_tables, num_tasks, repeats) -> None:
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))
