@@ -23,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
 from hypothesis import Verbosity, given, settings
 from torch import nn
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
