@@ -38,8 +38,8 @@ namespace {
  *               portion of the jagged tensor
  */
 template <int NUM_JAGGED_DIM, typename index_t>
-DEVICE_INLINE bool walk_down_tensor_storage_tree_(
-    int& offset,
+DEVICE_INLINE std::pair<bool, int> walk_down_tensor_storage_tree_(
+    const int input_offset,
     const int flattened_jagged_idx,
     const int64_t* jagged_dims,
     const std::array<index_t*, NUM_JAGGED_DIM>& x_offsets) {
@@ -55,6 +55,7 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
 
   // walk down the tree
   bool is_zero = false;
+  int offset = input_offset;
 #pragma unroll
   for (int d = 0; d < NUM_JAGGED_DIM; ++d) {
     const int begin = x_offsets[d][offset];
@@ -65,7 +66,7 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
     }
     offset = begin + jagged_coords[d];
   }
-  return is_zero;
+  return std::make_pair(is_zero, offset);
 }
 
 // output = f(x, y) where x is jagged, y is dense, and output is dense.
@@ -104,9 +105,9 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
     const int oidx = outer / jagged_folded_size;
     const int jidx = outer % jagged_folded_size;
 
-    int offset = oidx;
-    const bool is_zero = walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
-        offset, jidx, jagged_dims, x_offsets);
+    const auto [is_zero, offset] =
+        walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
+            oidx, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
       for (int iidx = threadIdx.x; iidx < inner_dense_size;
@@ -260,9 +261,9 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
     const int oidx = outer / jagged_folded_size;
     const int jidx = outer % jagged_folded_size;
 
-    int offset = oidx;
-    const bool is_zero = walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
-        offset, jidx, jagged_dims, x_offsets);
+    const auto [is_zero, offset] =
+        walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
+            oidx, jidx, jagged_dims, x_offsets);
 
     if (!is_zero) {
       for (int iidx = threadIdx.x; iidx < inner_dense_size;
@@ -686,9 +687,9 @@ __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kerne
     const int oidx = outer / jagged_folded_size;
     const int jidx = outer % jagged_folded_size;
 
-    int offset = oidx;
-    const bool is_zero = walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
-        offset, jidx, jagged_dims, x_offsets);
+    const auto [is_zero, offset] =
+        walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
+            oidx, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
       for (int iidx = threadIdx.x; iidx < inner_dense_size;
@@ -996,7 +997,6 @@ class BatchedDenseVecJagged2DMulGPUOp
         v.size(0));
     const int H = (B == 0) ? 1 : v.size(0) / B;
     const int D = a_values.size(-1) / H;
-    const int max_L = v.size(-1);
     auto output = at::empty({B * H, D}, v.options());
 
     if (B > 0 && D > 0) {
