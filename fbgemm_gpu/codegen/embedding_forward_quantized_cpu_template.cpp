@@ -22,28 +22,6 @@ namespace {
 
 using Tensor = at::Tensor;
 
-inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
-    if (weight_ty == SparseType::FP32) { return dim * 4; }
-    if (weight_ty == SparseType::FP16) { return dim * 2; }
-    if (weight_ty == SparseType::INT8) { return dim + 4; }
-    if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
-    if (weight_ty == SparseType::INT2) { return dim / 4 + 4; }
-    return 0;
-}
-
-uint32_t div_round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b);
-}
-
-uint32_t round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b) * b;
-}
-
-inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty, int32_t row_alignment) {
-  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, row_alignment);
-}
-
 inline uint32_t pruned_hash_function(uint32_t h) {
     // MurmorHash3 32-bit mixing function.
     h ^= h >> 16;
@@ -189,7 +167,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
                 // default to 1 byte alignment for CPU TBE
-                const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
+                const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
