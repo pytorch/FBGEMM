@@ -2376,3 +2376,38 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     [mapping for mapping in index_remapping if mapping is not None]
                 ).to(self.current_device)
             )
+
+    def _embedding_inplace_update_per_table(
+        self,
+        update_table_idx: int,
+        update_row_indices: List[int],
+        update_weights: Tensor,
+    ) -> None:
+        row_size = len(update_row_indices)
+        if row_size == 0:
+            return
+        update_row_indices = torch.tensor(
+            update_row_indices,
+            device=self.current_device,
+            dtype=torch.int64,
+        )
+        table_values = self.split_embedding_weights(split_scale_shifts=False)[
+            update_table_idx
+        ]
+        table_values[0].scatter_(
+            dim=0,
+            index=update_row_indices.view(row_size, 1).expand_as(update_weights),
+            src=update_weights,
+        )
+
+    @torch.jit.export
+    def embedding_inplace_update(
+        self,
+        update_table_indices: List[int],
+        update_row_indices: List[List[int]],
+        update_weights: List[Tensor],
+    ) -> None:
+        for i in range(len(update_table_indices)):
+            self._embedding_inplace_update_per_table(
+                update_table_indices[i], update_row_indices[i], update_weights[i]
+            )

@@ -16,29 +16,6 @@ namespace nbit {
 
 constexpr int32_t kCacheLocationMissing = -1;
 
-__forceinline__ __host__ __device__ uint32_t round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b) * b;
-}
-
-
-__forceinline__ __host__ __device__ uint32_t div_round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b);
-}
-
-__host__ __device__ inline int32_t unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
-    if (weight_ty == SparseType::FP32) { return dim * 4; }
-    if (weight_ty == SparseType::FP16) { return dim * 2; }
-    if (weight_ty == SparseType::INT8) { return dim + 4; }
-    if (weight_ty == SparseType::INT4) { return dim / 2 + 4; }
-    if (weight_ty == SparseType::INT2) { return dim / 4 + 4; }
-    return 0;
-}
-
-__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty, int32_t row_alignment) {
-  auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, row_alignment);
-}
-
 // "Effective" number of elements in the row when we include the row-wise quantization parameters.
 __device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
     if (weight_ty == SparseType::FP32) { return dim; }
