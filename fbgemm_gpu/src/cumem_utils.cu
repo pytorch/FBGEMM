@@ -198,18 +198,21 @@ Tensor uvm_to_cpu(Tensor t) {
       t.storage().data_ptr().cast_context<CUDAManagedIndirectContext>(
           &CUDAManagedIndirectContext::release);
   TORCH_CHECK(tcontext != nullptr)
+  auto* ocontext =
+      tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
+          &CUDAManagedContext::release);
   auto storage = Storage(
       Storage::use_byte_size_t(),
       t.storage().nbytes(),
       at::DataPtr(
-          t.data_ptr(),
+          ocontext->ptr_,
           new CUDAManagedIndirectContext(tcontext->storage_),
           &CUDAManagedIndirectContext::release,
           {at::DeviceType::CPU}),
       nullptr, /* allocator */
       /*resizable=*/false);
   return at::empty({0}, t.options().device(Device::Type::CPU))
-      .set_(std::move(storage), 0, t.sizes(), t.strides());
+      .set_(std::move(storage), t.storage_offset(), t.sizes(), t.strides());
 }
 
 // Create a new UVM tensor sharing storage with t on the same device as
@@ -223,18 +226,21 @@ Tensor uvm_to_device(Tensor t, Tensor prototype) {
   TORCH_CHECK(tcontext != nullptr)
 
   auto device = prototype.device();
+  auto* ocontext =
+      tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
+          &CUDAManagedContext::release);
   auto storage = Storage(
       Storage::use_byte_size_t(),
       t.storage().nbytes(),
       at::DataPtr(
-          t.data_ptr(),
+          ocontext->ptr_,
           new CUDAManagedIndirectContext(tcontext->storage_),
           &CUDAManagedIndirectContext::release,
           device),
       nullptr, /* allocator */
       /*resizable=*/false);
   return at::empty({0}, t.options().device(device))
-      .set_(std::move(storage), 0, t.sizes(), t.strides());
+      .set_(std::move(storage), t.storage_offset(), t.sizes(), t.strides());
 }
 
 namespace {
