@@ -172,11 +172,16 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
-        # Reference uvm tensor from second cuda device
-        second_t = uvm_t[0]
+        for i in range(sizes[0]):
+            uvm_slice = uvm_t[i]
+            cpu_slice = torch.ops.fbgemm.uvm_to_cpu(uvm_slice)
 
-        assert torch.ops.fbgemm.is_uvm_tensor(second_t)
-        assert torch.ops.fbgemm.uvm_storage(second_t)
+            assert uvm_slice.storage_offset() == cpu_slice.storage_offset()
+            assert uvm_slice.storage().data_ptr() == uvm_t.storage().data_ptr()
+            assert cpu_slice.storage().data_ptr() == uvm_t.storage().data_ptr()
+
+            assert torch.ops.fbgemm.is_uvm_tensor(uvm_slice)
+            assert torch.ops.fbgemm.uvm_storage(cpu_slice)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
