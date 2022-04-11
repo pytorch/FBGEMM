@@ -197,26 +197,26 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
@@ -234,26 +234,26 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
@@ -273,26 +273,26 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   TORCH_CHECK(t_in.dim() == 1);
   auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
   t_out[0].zero_();
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
