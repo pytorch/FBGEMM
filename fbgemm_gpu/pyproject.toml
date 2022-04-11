@@ -14,6 +14,7 @@ requires = [
 
 [project]
 name = "fbgemm_gpu"
+dynamic = ["version"]
 
 [project.optional-dependencies]
 test = [
