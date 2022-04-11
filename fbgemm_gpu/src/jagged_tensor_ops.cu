@@ -1156,26 +1156,26 @@ stacked_jagged_2d_to_dense_forward_cuda(
     size_t temp_storage_bytes = 0;
     auto offsets = at::empty({B + 1}, lengths.options());
     offsets[0].zero_();
-    AT_DISPATCH_INTEGRAL_TYPES(
+    AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               nullptr,
               temp_storage_bytes,
-              &(lengths_contig.data_ptr<scalar_t>()[t * B]),
-              offsets.data_ptr<scalar_t>() + 1,
+              &(lengths_contig.data_ptr<index_t>()[t * B]),
+              offsets.data_ptr<index_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
         });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
-    AT_DISPATCH_INTEGRAL_TYPES(
+    AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               temp_storage.data_ptr(),
               temp_storage_bytes,
-              &(lengths_contig.data_ptr<scalar_t>()[t * B]),
-              offsets.data_ptr<scalar_t>() + 1,
+              &(lengths_contig.data_ptr<index_t>()[t * B]),
+              offsets.data_ptr<index_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
         });
@@ -1248,26 +1248,26 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
   for (int32_t t = 0; t < T; t++) {
     int64_t max_L = max_lengths_per_key[t];
     size_t temp_storage_bytes = 0;
-    AT_DISPATCH_INTEGRAL_TYPES(
+    AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               nullptr,
               temp_storage_bytes,
-              &(lengths_contig.data_ptr<scalar_t>()[t * B]),
-              offsets.data_ptr<scalar_t>() + 1,
+              &(lengths_contig.data_ptr<index_t>()[t * B]),
+              offsets.data_ptr<index_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
         });
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         lengths.options().dtype(at::kByte));
-    AT_DISPATCH_INTEGRAL_TYPES(
+    AT_DISPATCH_INDEX_TYPES(
         lengths_contig.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
           AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
               temp_storage.data_ptr(),
               temp_storage_bytes,
-              &(lengths_contig.data_ptr<scalar_t>()[t * B]),
-              offsets.data_ptr<scalar_t>() + 1,
+              &(lengths_contig.data_ptr<index_t>()[t * B]),
+              offsets.data_ptr<index_t>() + 1,
               B,
               at::cuda::getCurrentCUDAStream()));
         });
