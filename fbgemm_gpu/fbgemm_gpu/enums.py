@@ -16,7 +16,6 @@ def create_enums(
 ) -> None:
     for enum_name, items in query_op():
         # Create matching python enumeration
-        # pyre-ignore[19]
         new_enum = enum.Enum(enum_name, items)
         # and store it in the module
         namespace[enum_name] = new_enum
