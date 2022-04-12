@@ -23,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     RecordCacheMetrics,
     BoundsCheckMode,
+    WeightDecayMode,
 )
 
 
@@ -2324,6 +2325,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -2462,8 +2464,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             0.9,
             0.01,
         )
-        if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
+        if optimizer == OptimType.EXACT_ADAGRAD:
             optimizer_kwargs["eps"] = eps
+
+        if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["weight_decay"] = weight_decay
+            optimizer_kwargs["weight_decay_mode"] = weight_decay_mode
 
         if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             optimizer_kwargs["eps"] = eps
@@ -2526,25 +2533,42 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # to_dense in GPU is non-deterministic due to atmomics used in
                 # coalescing and floating point non-associativity.
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                if rowwise and not use_cpu and weight_decay_mode == WeightDecayMode.L2:
+                    # We need to skip when using cpu because use_fbgemm (https://fburl.com/code/12131iub)
+                    # is true and the template code (https://fburl.com/code/1kctlup3) is not executed.
+                    dense_cpu_grad += weight_decay * bs[t].weight.cpu()
                 m1_ref = (
                     dense_cpu_grad.pow(2)
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 )
                 torch.testing.assert_close(
-                    m1.float().cpu(), m1_ref.float(), atol=1.0e-4, rtol=1.0e-4
+                    m1.float().index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    m1_ref.float().index_select(dim=0, index=x[t].view(-1).cpu()),
+                    atol=1.0e-4,
+                    rtol=1.0e-4,
                 )
                 weights_new = split_weights[t]
-                weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / (
+                denom = (
                     torch.sqrt(
                         m1_ref if not rowwise else m1_ref.view(m1_ref.numel(), 1)
                     )
                     + eps
                 )
+                if (
+                    rowwise
+                    and not use_cpu
+                    and weight_decay_mode == WeightDecayMode.DECOUPLE
+                ):
+                    weights_ref = bs[t].weight.cpu() - lr * (
+                        dense_cpu_grad / denom + weight_decay * bs[t].weight.cpu()
+                    )
+                else:
+                    weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 # TODO: why is tolerance off here?
                 torch.testing.assert_close(
-                    weights_new.float().cpu(),
-                    weights_ref.float(),
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-2,
                     rtol=1.0e-2,
                 )
@@ -2760,7 +2784,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+            ]
+        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2782,6 +2812,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        weight_decay_mode: WeightDecayMode,
     ) -> None:
         self.execute_backward_optimizers_(
             T,
@@ -2795,6 +2826,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
+            weight_decay_mode,
         )
 
     @given(
