@@ -20,6 +20,14 @@ from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
+try:
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source  # noqa: F401
+except Exception:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update"
+    )
+
 ASSOC = 32
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
@@ -2409,5 +2417,56 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> None:
         for i in range(len(update_table_indices)):
             self._embedding_inplace_update_per_table(
-                update_table_indices[i], update_row_indices[i], update_weights[i]
+                update_table_indices[i],
+                update_row_indices[i],
+                update_weights[i],
             )
+
+    @torch.jit.export
+    def embedding_inplace_update_internal(
+        self,
+        update_table_indices: List[int],
+        update_row_indices: List[List[int]],
+        update_weights: List[Tensor],
+    ) -> None:
+        assert len(update_table_indices) == len(update_row_indices)
+        update_offsets = []
+        update_offset = 0
+        for table_idx in update_table_indices:
+            D_bytes = rounded_row_size_in_bytes(
+                self.embedding_specs[table_idx][2],
+                self.embedding_specs[table_idx][3],
+                self.row_alignment,
+            )
+            update_offsets.append(update_offset)
+            update_offset += D_bytes
+        update_offsets.append(update_offset)
+
+        update_table_indices = torch.tensor(
+            update_table_indices,
+            device=self.current_device,
+            dtype=torch.int32,
+        )
+        update_row_indices = torch.tensor(
+            update_row_indices,
+            device=self.current_device,
+            dtype=torch.int32,
+        )
+        update_offsets = torch.tensor(
+            update_offsets,
+            device=self.current_device,
+            dtype=torch.int32,
+        )
+        # Internal function for now
+        torch.ops.fbgemm.emb_inplace_update(
+            dev_weights=self.weights_dev,
+            uvm_weights=self.weights_uvm,
+            weights_placements=self.weights_placements,
+            weights_offsets=self.weights_offsets,
+            weights_tys=self.weights_tys,
+            D_offsets=self.D_offsets,
+            update_weights=update_weights,
+            update_table_indices=update_table_indices,
+            update_row_indices=update_row_indices,
+            update_offsets=update_offsets,
+        )
