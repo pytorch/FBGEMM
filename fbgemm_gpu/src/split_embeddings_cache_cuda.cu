@@ -857,7 +857,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state) {
+    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    const int64_t row_alignment) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -910,8 +911,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     int32_t D_end_insert = D_offsets[t_insert + 1];
     int32_t D_insert = D_end_insert - D_start_insert;
 
-    const int32_t D_insert_bytes =
-        nbit::padded_row_size_in_bytes(D_insert, weight_ty_insert, 16);
+    const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
+        D_insert, weight_ty_insert, row_alignment);
 
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
@@ -940,7 +941,8 @@ void lru_cache_insert_byte_cuda(
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
     int64_t time_stamp,
-    Tensor lru_state) {
+    Tensor lru_state,
+    int64_t row_alignment) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -987,7 +989,8 @@ void lru_cache_insert_byte_cuda(
             lxu_cache_weights
                 .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
             time_stamp,
-            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>());
+            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            row_alignment);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 }
@@ -1004,7 +1007,8 @@ void lru_cache_populate_byte_cuda(
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
     int64_t time_stamp,
-    Tensor lru_state) {
+    Tensor lru_state,
+    int64_t row_alignment) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -1059,7 +1063,8 @@ void lru_cache_populate_byte_cuda(
       lxu_cache_state,
       lxu_cache_weights,
       time_stamp,
-      lru_state);
+      lru_state,
+      row_alignment);
 }
 
 template <typename index_t>
@@ -1605,7 +1610,8 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
-        lfu_state) {
+        lfu_state,
+    const int64_t row_alignment) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -1671,8 +1677,8 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     int32_t D_end_insert = D_offsets[t_insert + 1];
     int32_t D_insert = D_end_insert - D_start_insert;
 
-    const int32_t D_insert_bytes =
-        nbit::padded_row_size_in_bytes(D_insert, weight_ty_insert, 16);
+    const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
+        D_insert, weight_ty_insert, row_alignment);
 
     // insert into cache
     auto row =
@@ -1699,7 +1705,8 @@ void lfu_cache_insert_byte_cuda(
     Tensor unique_indices_length,
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
-    Tensor lfu_state) {
+    Tensor lfu_state,
+    int64_t row_alignment) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -1744,7 +1751,8 @@ void lfu_cache_insert_byte_cuda(
                 .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
             lxu_cache_weights
                 .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
-            lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
+            lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
+            row_alignment);
       });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1761,7 +1769,8 @@ void lfu_cache_populate_byte_cuda(
     Tensor linear_cache_indices,
     Tensor lxu_cache_state,
     Tensor lxu_cache_weights,
-    Tensor lfu_state) {
+    Tensor lfu_state,
+    int64_t row_alignment) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -1818,7 +1827,8 @@ void lfu_cache_populate_byte_cuda(
       unique_indices_length,
       lxu_cache_state,
       lxu_cache_weights,
-      lfu_state);
+      lfu_state,
+      row_alignment);
 }
 
 template <typename index_t>
