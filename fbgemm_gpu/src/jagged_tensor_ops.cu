@@ -109,15 +109,30 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
         offset, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
-      for (int iidx = threadIdx.x; iidx < inner_dense_size;
+      int iidx;
+      for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
-        output[oidx][jidx][iidx] = f(padding_value, y[oidx][jidx][iidx]);
+        output[oidx][jidx][2 * iidx] =
+            f(padding_value, y[oidx][jidx][2 * iidx]);
+        output[oidx][jidx][2 * iidx + 1] =
+            f(padding_value, y[oidx][jidx][2 * iidx + 1]);
+      }
+      if (iidx * 2 + 1 == inner_dense_size) {
+        output[oidx][jidx][2 * iidx] =
+            f(padding_value, y[oidx][jidx][2 * iidx]);
       }
     } else {
-      for (int iidx = threadIdx.x; iidx < inner_dense_size;
+      int iidx;
+      for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
-        output[oidx][jidx][iidx] =
-            f(x_values[offset][iidx], y[oidx][jidx][iidx]);
+        output[oidx][jidx][2 * iidx] =
+            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
+        output[oidx][jidx][2 * iidx + 1] =
+            f(x_values[offset][2 * iidx + 1], y[oidx][jidx][2 * iidx + 1]);
+      }
+      if (iidx * 2 + 1 == inner_dense_size) {
+        output[oidx][jidx][2 * iidx] =
+            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
       }
     }
   }
@@ -265,10 +280,17 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
         offset, jidx, jagged_dims, x_offsets);
 
     if (!is_zero) {
-      for (int iidx = threadIdx.x; iidx < inner_dense_size;
+      int iidx;
+      for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
-        output_values[offset][iidx] =
-            f(x_values[offset][iidx], y[oidx][jidx][iidx]);
+        output_values[offset][2 * iidx] =
+            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
+        output_values[offset][2 * iidx + 1] =
+            f(x_values[offset][2 * iidx + 1], y[oidx][jidx][2 * iidx + 1]);
+      }
+      if (iidx * 2 + 1 == inner_dense_size) {
+        output_values[offset][2 * iidx] =
+            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
       }
     }
   }
