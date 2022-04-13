@@ -55,12 +55,14 @@ set(OPTIMIZERS
     adagrad
     adam
     approx_rowwise_adagrad
+    approx_rowwise_adagrad_with_weight_decay
     approx_sgd
     lamb
     lars_sgd
     partial_rowwise_adam
     partial_rowwise_lamb
     rowwise_adagrad
+    rowwise_adagrad_with_weight_decay
     rowwise_weighted_adagrad
     sgd)
 
