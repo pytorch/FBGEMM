@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -16,6 +16,7 @@
 #endif
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -30,6 +31,7 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t row_alignment,
     int64_t output_dtype,
     int64_t unused);
 
@@ -44,6 +46,7 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t row_alignment,
     Tensor indice_weights,
     int64_t output_dtype,
     int64_t unused);
@@ -68,7 +71,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     int64_t output_dtype,
     c10::optional<Tensor>
         lxu_cache_weights, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor> lxu_cache_locations) {
+    c10::optional<Tensor>
+        lxu_cache_locations, // Not used, to match cache interface for CUDA op
+    c10::optional<int64_t> row_alignment) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
@@ -81,6 +86,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         indices,
         offsets,
         pooling_mode,
+        row_alignment ? *row_alignment : 1,
         output_dtype,
         0);
   }
@@ -95,6 +101,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       indices,
       offsets,
       pooling_mode,
+      row_alignment ? *row_alignment : 1,
       *indice_weights,
       output_dtype,
       0);
@@ -119,68 +126,31 @@ Tensor pruned_array_lookup_cpu(
     Tensor index_remappings,
     Tensor index_remappings_offsets);
 
-TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.impl(
-      "int_nbit_split_embedding_codegen_lookup_function",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(int_nbit_split_embedding_codegen_lookup_function_cpu)));
-
-  // GPU version of pruned_hashmap needs to use CPU version of
-  // pruned_hashmap_insert
-  m.def(
-      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
-  m.impl(
-      "pruned_hashmap_insert",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(pruned_hashmap_insert_unweighted_cpu)));
-
-  // CPU version of hashmap Lookup isn't used. For CPUs, we should use
-  // PrunedMapCPU below.
-  m.impl(
-      "pruned_hashmap_lookup",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
-
-  // CPU version of array lookup.
-  m.impl(
-      "pruned_array_lookup",
-      torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(pruned_array_lookup_cpu)));
-}
-
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.impl(
+  m.def(
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None) -> Tensor");
+  DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(int_nbit_split_embedding_codegen_lookup_function_cpu)));
+      int_nbit_split_embedding_codegen_lookup_function_cpu);
 
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert
   m.def(
       "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
-  m.impl(
-      "pruned_hashmap_insert",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(pruned_hashmap_insert_unweighted_cpu)));
+  DISPATCH_TO_CPU(
+      "pruned_hashmap_insert", pruned_hashmap_insert_unweighted_cpu);
 
   // CPU version of hashmap Lookup isn't used. For CPUs, we should use
   // PrunedMapCPU below.
-  m.impl(
-      "pruned_hashmap_lookup",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(pruned_hashmap_lookup_unweighted_cpu)));
+  m.def(
+      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
+  DISPATCH_TO_CPU(
+      "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cpu);
 
   // CPU version of array lookup.
-  m.impl(
-      "pruned_array_lookup",
-      torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(pruned_array_lookup_cpu)));
+  m.def(
+      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
+  DISPATCH_TO_CPU("pruned_array_lookup", pruned_array_lookup_cpu);
 }
 
 class PrunedMapCPU : public torch::jit::CustomClassHolder {
@@ -384,7 +354,7 @@ struct TensorQueue : torch::CustomClassHolder {
     init_tensor_ = dict.at(std::string("init_tensor"));
     const std::string key = "queue";
     Tensor size_tensor;
-    size_tensor = dict.at(std::string(key + "/size"));
+    size_tensor = dict.at(std::string(key + "/size")).cpu();
     const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
     int64_t queue_size = size_tensor_acc[0];
 

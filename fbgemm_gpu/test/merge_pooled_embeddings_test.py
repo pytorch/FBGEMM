@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -39,7 +39,8 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         ads_tables=st.integers(min_value=1, max_value=32),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         non_default_stream=st.booleans(),
-        r=st.randoms(),
+        r=st.randoms(use_true_random=False),
+        dim=st.integers(min_value=0, max_value=1),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -51,6 +52,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus,
         non_default_stream,
         r,
+        dim: int,
     ) -> None:
         dst_device = r.randint(0, num_gpus - 1)
         torch.cuda.set_device(dst_device)
@@ -67,27 +69,55 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         streams = [torch.cuda.Stream(device=i) for i in range(num_gpus)]
         import contextlib
 
+        uncat_size = batch_indices.size(0) if dim == 1 else ad_ds[0]
+
         with contextlib.ExitStack() as stack:
             if non_default_stream:
                 for stream in streams:
                     stack.enter_context(torch.cuda.stream(stream))
             output = torch.ops.fbgemm.merge_pooled_embeddings(
-                pooled_ad_embeddings, batch_indices.size(0), batch_indices.device
+                pooled_ad_embeddings, uncat_size, batch_indices.device, dim
             )
 
         def ref(pooled_ad_embeddings, batch_indices):
-            return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=1)
+            return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=dim)
 
         output_ref = ref(pooled_ad_embeddings, batch_indices)
-
         output_cpu = torch.ops.fbgemm.merge_pooled_embeddings(
             [pe.cpu() for pe in pooled_ad_embeddings],
-            batch_indices.size(0),
+            uncat_size,
             batch_indices.cpu().device,
+            dim,
         )
         self.assertEqual(output.device, torch.device(f"cuda:{dst_device}"))
-        torch.testing.assert_allclose(output_ref, output.cpu())
-        torch.testing.assert_allclose(output_ref, output_cpu)
+        torch.testing.assert_close(output_ref, output.cpu())
+        torch.testing.assert_close(output_ref, output_cpu)
+
+    @given(
+        num_inputs=st.integers(min_value=1, max_value=10),
+        num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
+        non_default_stream=st.booleans(),
+        r=st.randoms(use_true_random=False),
+    )
+    # Can instantiate 8 contexts which takes a long time.
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_all_to_one_device(
+        self,
+        num_inputs,
+        num_gpus,
+        non_default_stream,
+        r,
+    ) -> None:
+        dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
+        with torch.cuda.device(dst_device):
+            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            cuda_inputs = [
+                input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
+            ]
+            cuda_outputs = torch.ops.fbgemm.all_to_one_device(cuda_inputs, dst_device)
+            for i, o in zip(inputs, cuda_outputs):
+                self.assertEqual(o.device, dst_device)
+                torch.testing.assert_close(o.cpu(), i)
 
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),

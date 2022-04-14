@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -290,7 +290,7 @@ inst_set_t fbgemmInstructionSet() {
         } else {
           isa = inst_set_t::avx512_vnni;
         }
-      } else if (auto const hasAVX512 = fbgemmHasAvx512Support()) {
+      } else if (fbgemmHasAvx512Support()) {
         if (isXeonD) {
           isa = inst_set_t::avx512_ymm;
         } else {
@@ -351,16 +351,16 @@ bool fbgemmHasAvx512VnniSupport() {
 void fbgemmPartition1D(
     int thread_id,
     int num_threads,
-    int total_work,
-    int& start,
-    int& end) {
+    int64_t total_work,
+    int64_t& start,
+    int64_t& end) {
   // if num_threads == 0,
   // this threads should not perform any work
   if (num_threads == 0) {
     start = end = 0;
     return;
   }
-  int work_per_thread = (total_work + num_threads - 1) / num_threads;
+  int64_t work_per_thread = (total_work + num_threads - 1) / num_threads;
   start = std::min(thread_id * work_per_thread, total_work);
   end = std::min((thread_id + 1) * work_per_thread, total_work);
 }
@@ -368,15 +368,15 @@ void fbgemmPartition1D(
 void fbgemmPartition1DBlocked(
     int thread_id,
     int num_threads,
-    int total_work,
+    int64_t total_work,
     int block_size,
-    int& start,
-    int& end) {
+    int64_t& start,
+    int64_t& end) {
   if (block_size == 1) {
     return fbgemmPartition1D(thread_id, num_threads, total_work, start, end);
   }
-  int total_work_in_blocks = total_work / block_size;
-  int start_block, end_block;
+  int64_t total_work_in_blocks = total_work / block_size;
+  int64_t start_block, end_block;
   fbgemmPartition1D(
       thread_id, num_threads, total_work_in_blocks, start_block, end_block);
   start = std::min(start_block * block_size, total_work);

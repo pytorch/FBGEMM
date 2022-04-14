@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -117,5 +117,40 @@
             " not implemented for output_t '",                               \
             toString(_output_t),                                             \
             "'");                                                            \
+    }                                                                        \
+  }()
+
+#define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
+    grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \
+  case grad_enum_type: {                                                   \
+    using grad_t = grad_cxx_type;                                          \
+    switch (_emb_t) {                                                      \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)      \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)     \
+      default:                                                             \
+        AT_ERROR(                                                          \
+            #NAME, " not implemented for emb_t '", toString(_emb_t), "'"); \
+    }                                                                      \
+  }
+
+#define DISPATCH_EMB_GRAD_CACHE_TYPES(                                       \
+    EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)                              \
+  [&] {                                                                      \
+    const auto& emb_type = EMB_TYPE;                                         \
+    const auto& grad_type = GRAD_TYPE;                                       \
+    const auto& cache_type = CACHE_TYPE;                                     \
+    at::ScalarType _emb_t = ::detail::scalar_type(emb_type);                 \
+    at::ScalarType _grad_t = ::detail::scalar_type(grad_type);               \
+    at::ScalarType _cache_t = ::detail::scalar_type(cache_type);             \
+    switch (_grad_t) {                                                       \
+      PRIVATE_CASE_TYPE_CACHE_EMB(                                           \
+          at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__) \
+      default:                                                               \
+        AT_ERROR(                                                            \
+            #NAME, " not implemented for grad_t '", toString(_grad_t), "'"); \
     }                                                                        \
   }()

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -25,7 +25,7 @@ using namespace fbgemm;
 
 void performance_test() {
   // clang-format off
-  vector<conv_param_t<>> shapes = {
+  const vector<conv_param_t<>> shapes = {
     // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, pad_t, pad_l,
     // pad_b, pad_r
     // conv_param_t<>(1, 16, 16, {16, 14}, 4, {3, 3}, {1, 1}, {1, 1, 1, 1}),
@@ -479,7 +479,9 @@ void performance_test() {
       }
     }
 
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
 
     // packedB.printPackedMatrix("bench B Packed");
     // printMatrix(matrix_op_t::NoTranspose, Cint32_fb_fused.data(), MDim, NDim,

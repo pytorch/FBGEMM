@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -50,6 +50,14 @@ PackWeightsForConv<SPATIAL_DIM, T, accT>::PackWeightsForConv(
           nullptr,
           conv_p.G,
           blocking_params);
+      break;
+    }
+    case optimized_conv_t::directconv: {
+      const int kernel_h = SPATIAL_DIM == 1 ? 1 : conv_p.K[SPATIAL_DIM - 2];
+      const int kernel_w = conv_p.K[SPATIAL_DIM - 1];
+      const int K = kernel_h * kernel_w;
+      W_dc_packed_ = std::make_shared<PackedDirectConvMatrix>(
+          conv_p.IC, conv_p.OC, K, sdata);
       break;
     }
     case optimized_conv_t::fastpath1d: {

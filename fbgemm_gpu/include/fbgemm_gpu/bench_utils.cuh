@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12,7 +12,8 @@
 #include <vector>
 #include "./cuda_utils.cuh"
 
-__global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
+__global__ __launch_bounds__(
+    kMaxThreads) void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   char val = d_flush[idx];
   if (do_write * val) {

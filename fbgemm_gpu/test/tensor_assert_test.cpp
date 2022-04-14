@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * Copyright (c) Intel Corporation.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
@@ -9,8 +9,6 @@
 #include <ATen/ATen.h>
 #include <gtest/gtest.h>
 #include "fbgemm_gpu/sparse_ops_utils.h"
-
-using namespace ::testing;
 
 TEST(tensor_assert_test, gpu_asserts) {
   at::Tensor on_cpu_empty;

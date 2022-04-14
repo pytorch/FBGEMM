@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -92,9 +92,8 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
 
         # check grads for fc1 when permuted, equals to fc2 weights times input_sum
         permute_res = net.permute_pooled_embeddings(net.fc1.weight.grad.view(1, 10))
-        self.assertTrue(
-            permute_res.isclose(input_sum * net.fc2.weight, rtol=1e-03).all().item()
-        )
+        permute_ref = input_sum * net.fc2.weight
+        torch.testing.assert_close(permute_res, permute_ref, rtol=1e-03, atol=1e-03)
 
     def test_compatibility(self) -> None:
         members = inspect.getmembers(sys.modules[INTERN_MODULE])

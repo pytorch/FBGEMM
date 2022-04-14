@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -86,8 +86,8 @@ static inline float16 cpu_float2half_rz(float f) {
 
   unsigned* xp = reinterpret_cast<unsigned int*>(&f);
   unsigned x = *xp;
-  unsigned u = (x & 0x7fffffff), remainder, shift, lsb, lsb_s1, lsb_m1;
-  unsigned sign, exponent, mantissa;
+  unsigned u = (x & 0x7fffffff);
+  unsigned shift, sign, exponent, mantissa;
 
   // Get rid of +NaN/-NaN case first.
   if (u > 0x7f800000) {
@@ -118,12 +118,8 @@ static inline float16 cpu_float2half_rz(float f) {
     exponent = 0;
     mantissa |= 0x800000;
   }
-  lsb = (1 << shift);
-  lsb_s1 = (lsb >> 1);
-  lsb_m1 = (lsb - 1);
 
   // Round to zero.
-  remainder = (mantissa & lsb_m1);
   mantissa >>= shift;
 
   ret = static_cast<float16>(sign | (exponent << 10) | mantissa);

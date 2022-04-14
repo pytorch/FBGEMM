@@ -2,7 +2,7 @@
 
 # pyre-ignore-all-errors[56]
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -14,16 +14,17 @@ import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
 
-# pyre-ignore[21]
-from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
-
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, gpu_available
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, gpu_available
+
+if gpu_available:
+    # pyre-ignore[21]
+    from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
 from hypothesis import Verbosity, given, settings
 
@@ -73,6 +74,7 @@ class UvmTest(unittest.TestCase):
         del uvm_t
         cpu_t.mul_(42)
 
+    @unittest.skipIf(*gpu_unavailable)
     def test_enum(self) -> None:
         # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
@@ -139,7 +141,12 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Reference uvm tensor from second cuda device
-        device_prototype = torch.empty(0, device="cuda:1")
+        try:
+            device_prototype = torch.empty(0, device="cuda:1")
+        except RuntimeError:
+            # Skip the tests if there is no "cuda:1" device
+            return
+
         second_t = torch.ops.fbgemm.uvm_to_device(uvm_t, device_prototype)
 
         assert torch.ops.fbgemm.is_uvm_tensor(second_t)
@@ -202,18 +209,18 @@ class UvmTest(unittest.TestCase):
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_uvm_to_cpu_clone(self, sizes: List[int], vanilla: bool) -> None:
         op = (
-            torch.ops.fb.new_managed_tensor
+            torch.ops.fbgemm.new_managed_tensor
             if not vanilla
-            else torch.ops.fb.new_vanilla_managed_tensor
+            else torch.ops.fbgemm.new_vanilla_managed_tensor
         )
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-        assert torch.ops.fb.is_uvm_tensor(uvm_t)
-        assert torch.ops.fb.uvm_storage(uvm_t)
+        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
+        assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
-        cpu_clone = torch.ops.fb.uvm_to_cpu_clone(uvm_t)
+        cpu_clone = torch.ops.fbgemm.uvm_to_cpu_clone(uvm_t)
 
-        assert not torch.ops.fb.is_uvm_tensor(cpu_clone)
-        assert not torch.ops.fb.uvm_storage(cpu_clone)
+        assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
+        assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -77,6 +77,21 @@ def fused_rowwise_8bit_dequantize_reference(fused_quantized: np.ndarray) -> np.n
     scale = bytes_to_floats(fused_quantized[..., -8:-4].astype(np.uint8).reshape(-1, 4))
     scale = scale.reshape(fused_quantized.shape[:-1] + (scale.shape[-1],))
     bias = bytes_to_floats(fused_quantized[..., -4:].astype(np.uint8).reshape(-1, 4))
+    bias = bias.reshape(fused_quantized.shape[:-1] + (bias.shape[-1],))
+    quantized_data = fused_quantized[..., :-8]
+    return quantized_data * scale + bias
+
+
+def fused_rowwise_8bit_dequantize_reference_half(
+    fused_quantized: np.ndarray,
+) -> np.ndarray:
+    scale = bytes_to_half_floats(
+        fused_quantized[..., -8:-4].astype(np.uint8).reshape(-1, 4)
+    )
+    scale = scale.reshape(fused_quantized.shape[:-1] + (scale.shape[-1],))
+    bias = bytes_to_half_floats(
+        fused_quantized[..., -4:].astype(np.uint8).reshape(-1, 4)
+    )
     bias = bias.reshape(fused_quantized.shape[:-1] + (bias.shape[-1],))
     quantized_data = fused_quantized[..., :-8]
     return quantized_data * scale + bias

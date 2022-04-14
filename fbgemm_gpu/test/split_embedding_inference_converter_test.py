@@ -2,7 +2,7 @@
 
 # pyre-unsafe
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -69,7 +69,7 @@ class SparseArch(nn.Module):
         num_tables,
         num_rows,
         use_cpu,
-    ):
+    ) -> None:
         super().__init__()
         pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
         Ds = [emb_dim] * num_tables
@@ -127,11 +127,11 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         ),
         quantize_type=st.sampled_from(
             [
+                SparseType.FP32,
+                SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
-                # TODO: support SparseType.INT2,
-                SparseType.FP16,
-                SparseType.FP32,
+                SparseType.INT2,
             ]
         ),
         use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
@@ -200,7 +200,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         quantized_emb_out = sparse_arch(indices.int(), offsets.int())  # B, T, D
 
         # Compare FP32 emb module vs. quantize_type (FP16, INT8, INT4, INT2) emb module
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             emb_out.float().cpu(),
             quantized_emb_out.float().cpu(),
             atol=1.0e-1,
@@ -210,12 +210,22 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
     @given(
         use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         use_array_for_index_remapping=st.booleans(),
+        quantize_type=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_l2_norm_pruning_workflow(
         self,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
+        quantize_type: SparseType,
     ) -> None:
         D = 128
         T = 2
@@ -261,7 +271,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
 
             # Apply pruning / quantization transformations on the model!
             split_emb_infer_converter = SplitEmbInferenceConverter(
-                quantize_type=SparseType.FP16,
+                quantize_type=quantize_type,
                 pruning_ratio=pruning_ratio,
                 use_array_for_index_remapping=use_array_for_index_remapping,
             )
@@ -276,7 +286,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             )  # B, T, D
 
             # Compare FP32 emb module with remapped index vs. FP16 emb module with pruning
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 emb_out.float().cpu(),
                 pruned_emb_out.float().cpu(),
                 atol=1.0e-1,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -316,7 +316,9 @@ void performance_test() {
       }
     }
 
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
 
     // packedB.printPackedMatrix("bench B Packed");
     // printMatrix(matrix_op_t::NoTranspose, Cint32_fb.data(), MDim, NDim, NDim,

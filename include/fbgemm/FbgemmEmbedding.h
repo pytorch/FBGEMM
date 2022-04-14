@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -15,7 +15,8 @@ namespace fbgemm {
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 class EmbeddingSpMDMKernelSignature {
  public:
   /**
@@ -43,7 +44,7 @@ class EmbeddingSpMDMKernelSignature {
       const IndexType* indices,
       const OffsetType* offsets_or_lengths,
       const float* weights, // optional, can be null for non-weighted sum
-      float* out)>;
+      OutType* out)>;
 };
 
 /**
@@ -62,47 +63,65 @@ class EmbeddingSpMDMKernelSignature {
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
-FBGEMM_API
-    typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
-    GenerateEmbeddingSpMDM(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch = 16,
-        bool is_weight_positional = false,
-        bool use_offsets = true);
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    InType,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDM(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
  * @param input_stride If -1, input_stride is same as block_size
+ * @param scale_bias_last if false, scale and bias appear at the beginning
+ *        of each row and are in fp16 for table batched embedding (TBE)
+ *        in FBGEMM_GPU. If false, it can also take -1 indices (output from
+ *        pruned embedding id mapping)
  */
 template <
     typename InType,
     typename IndexType,
-    typename OffsetType = std::int32_t>
-FBGEMM_API
-    typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType>::Type
-    GenerateEmbeddingSpMDMWithStrides(
-        const std::int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch = 16,
-        bool is_weight_positional = false,
-        bool use_offsets = true,
-        std::int64_t output_stride = -1,
-        std::int64_t input_stride = -1);
+    typename OffsetType = std::int32_t,
+    typename OutType = float,
+    bool THREAD_LOCAL = false>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    InType,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMWithStrides(
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
  * @tparam OffsetType can be int32_t or int64_t
  * @param bit_rate can be 2 or 4
  */
-template <typename IndexType, typename OffsetType = std::int32_t>
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     std::uint8_t,
     IndexType,
-    OffsetType>::Type
+    OffsetType,
+    OutType>::Type
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
@@ -111,6 +130,37 @@ GenerateEmbeddingSpMDMNBit(
     int prefetch = 16,
     bool is_weight_positional = false,
     bool use_offsets = true);
+
+/**
+ * @param output_stride If -1, output_stride is same as block_size
+ * @param input_stride in Bytes. If -1, input_stride is same as
+ *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
+ * @param scale_bias_last if false, scale and bias appear at the beginning
+ *        of each row and are in fp16 for table batched embedding (TBE)
+ *        in FBGEMM_GPU. If false, it can also take -1 indices (output from
+ *        pruned embedding id mapping)
+ */
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float,
+    bool THREAD_LOCAL = false>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    std::uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMNBitWithStrides(
+    int bit_rate,
+    const std::int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
 template <
     typename InType,

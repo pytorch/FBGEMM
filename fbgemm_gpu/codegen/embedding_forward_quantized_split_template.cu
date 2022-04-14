@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -34,9 +34,9 @@ __host__ __device__ inline int32_t unpadded_row_size_in_bytes(int32_t dim, Spars
     return 0;
 }
 
-__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
+__host__ __device__ inline int32_t padded_row_size_in_bytes(int32_t dim, SparseType weight_ty, int32_t row_alignment) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty);
-  return round_up(r, 16);
+  return round_up(r, row_alignment);
 }
 
 // "Effective" number of elements in the row when we include the row-wise quantization parameters.
@@ -173,7 +173,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 {% for nobag in [True, False] %}
 {% if not nobag or not weighted %}
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-{% for bit_width in [32, 16, 8, 4] %}
+{% for bit_width in [32, 16, 8, 4, 2] %}
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
@@ -192,6 +192,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   {% if not nobag %}
   int64_t pooling_mode,
   {% endif %}
+  int64_t row_alignment,
   {% if weighted %}
   at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
@@ -216,19 +217,20 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
     "output_t can only be float or half or bytes now"
   );
 
-  uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+  const uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
 
   {% if not nobag %}
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
+  const int32_t D_start = D_offsets[t];
+  const int32_t D_end = D_offsets[t + 1];
+  const int32_t D = D_end - D_start;
   {% endif %}
   SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
   if (weight_ty != SparseType::{{ type_map[bit_width].enum_name }}) {
       return;
   }
 
-  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty);
+  // default to 16 byte alignment for GPU TBE
+  const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
     return;
@@ -322,7 +324,10 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           continue;
         }
         const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        {% if bit_width in [8, 4] %}
+        // scale and bias are at the beginning of each row.
+        // rationale: have scale/shift at start since these get loaded first
+        // and then broadcasted around so it might speed up the first cache miss.
+        {% if bit_width in [8, 4, 2] %}
         half2 shift_scale = reinterpret_cast<const half2*>(row)[0];
         {% endif %}
 
@@ -337,21 +342,26 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
         for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
           scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
           {% if weighted %}
-          accumulators[i][j].fma(v, {% if bit_width in [8, 4] %} shift_scale, {% endif %} row_weight);
+          accumulators[i][j].fma(v, {% if bit_width in [8, 4, 2] %} shift_scale, {% endif %} row_weight);
           {% else %}
-          accumulators[i][j].add(v{% if bit_width in [8, 4] %}, shift_scale {% endif %});
+          accumulators[i][j].add(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
           {% endif %}
         }
         {% else %}
-        int32_t output_j = indices_starts[i] + L_start + input_row_idx;
+        const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
         if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-            int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
+            // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
+            // the scale/shift handling).
+            // Reason: to avoid divergence the first thread in the warp computes garbage.
+            const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             if (output_d >= 0 && output_d < D) {
-              VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4] %}, shift_scale {% endif %});
-              acc.store(&output[output_j][output_d]);
+              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+              VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
+              acc.store(&output[output_j][output_d], num_valid_outputs);
             }
           }
         } else if (std::is_same<output_t, uint8_t>::value) {
@@ -364,7 +374,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
             int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-            VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4] %}, shift_scale {% endif %});
+            VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
             if (output_d >= 0 && output_d < D) {
               thread_local_max = max(thread_local_max, float{{ (32 // bit_width) }}_max(acc.acc));
               thread_local_min = min(thread_local_min, float{{ (32 // bit_width) }}_min(acc.acc));
@@ -373,11 +383,12 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
           qparams = warp_find_qparams(thread_local_min, thread_local_max);
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-            int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             if (output_d >= 0 && output_d < D) {
-              VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4] %}, shift_scale {% endif %});
-              acc.store(&output[output_j][output_d], qparams);
+              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+              VecNT<{{ (32 // bit_width) }}> acc(v{% if bit_width in [8, 4, 2] %}, shift_scale {% endif %});
+              acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
             }
           }
           if (threadIdx.x == 0) {
@@ -392,20 +403,21 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   {% if not nobag %}
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    float inv_L = 1.0 / Ls[i];
+    const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
+    const float inv_L = 1.0 / Ls[i];
 
     if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
 
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
           accumulators[i][j].mul(inv_L);
         }
 
         if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][D_start + output_d]);
+          const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+          accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
         }
 
       }
@@ -432,9 +444,10 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
       int output_D_end = output_D_start + D;
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
-        int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+        const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         if (output_d >= 0 && output_d < D) {
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams);
+          const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // bit_width) }}));
+          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
         }
       }
       if (threadIdx.x == 0) {
@@ -446,7 +459,7 @@ __global__ void {{ type_map[bit_width].enum_name }}_split_embedding{{ "_nobag" i
   }
   {% endif %}
 }
-{% endfor %} // for bit_width in [32, 16, 8, 4]
+{% endfor %} // for bit_width in [32, 16, 8, 4, 2]
 {% endif %} // if not nobag or not weighted
 {% endfor %} // for nobag in [True, False]
 
@@ -460,7 +473,7 @@ __device__ inline uint32_t pruned_hash_function(uint32_t h) {
     return h;
 }
 
-__global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
+__global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
@@ -538,7 +551,7 @@ __global__ void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{
 }
 
 {% if not weighted %}
-__global__ void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
+__global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
@@ -593,6 +606,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% if not nobag %}
     int64_t pooling_mode,
     {% endif %}
+    int64_t row_alignment,
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
@@ -636,7 +650,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% else %}
     TORCH_CHECK(D > 0);
     {% endif %}
-    TORCH_CHECK(max_int2_D == 0);
 
     Tensor output;
     const int kINT8QparamsBytes = 8;
@@ -666,9 +679,53 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     using index_t = int32_t;
 
-    // launch 4-bit kernel
     constexpr int32_t kWarpsPerBlock = 4;
 
+    // launch 2-bit kernel
+    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
+        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        {% if not nobag %} \
+        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        {% else %} \
+        D, \
+        {% endif %} \
+        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        {% if not nobag %} \
+        pooling_mode, \
+        {% endif %} \
+        row_alignment, \
+        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
+        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+
+    DISPATCH_OUTPUT_TYPES(output.type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+      if (max_int2_D > 0) {
+        auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2, row_alignment), 128);
+        TORCH_CHECK(max_int2_128b_rows <= 2);
+        if (max_int2_128b_rows > 0) {
+          X(2, 16, 0, 1);
+        }
+        if (max_int2_128b_rows > 1) {
+          X(2, 8, 1, 2);
+        }
+      }
+    }));
+    #undef X
+
+    // launch 4-bit kernel
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
@@ -690,6 +747,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -699,7 +757,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int4_D > 0) {
-        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4), 128);
+        auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -714,6 +772,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
+    // launch 8-bit kernel
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
@@ -735,6 +794,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -744,7 +804,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int8_D > 0) {
-        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8), 128);
+        auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8, row_alignment), 128);
         TORCH_CHECK(max_int8_128b_rows <= 8);
         if (max_int8_128b_rows > 0) {
           X(2, 8, 0, 1);
@@ -762,6 +822,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
+    // launch 16-bit kernel
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
@@ -783,6 +844,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -792,7 +854,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float16_D > 0) {
-        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16), 128);
+        auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16, row_alignment), 128);
         TORCH_CHECK(max_fp16_128b_rows <= 16);
         if (max_fp16_128b_rows > 0) {
           X(2, 8, 0, 2);
@@ -810,6 +872,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
+    // launch 32-bit kernel
     #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
@@ -831,6 +894,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
+        row_alignment, \
         {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
         output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
         lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
@@ -840,7 +904,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     DISPATCH_OUTPUT_TYPES(output.type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float32_D > 0) {
-        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32), 128);
+        auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, row_alignment), 128);
         TORCH_CHECK(max_fp32_128b_rows <= 32);
         // FP32 is used for numerical validations and tiny embeddings tables.
         // We haven't carefully tuned the perf of FP32 embeddings.
@@ -849,7 +913,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
-    // TODO: 2-bit kernels.
     return output;
 }
 {% endif %}  // if not nobag or not weighted
@@ -940,4 +1003,4 @@ Tensor pruned_array_lookup_cuda(
   return dense_indices;
 }
 {% endif %}
-                            // clang-format on
+                                    // clang-format on

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -34,6 +34,9 @@ void transpose_simd(
     unsigned ld_src,
     T* dst,
     unsigned ld_dst) {
+  if (M == 0 || N == 0) {
+    return;
+  }
   if ((M == 1 && ld_dst == 1) || (N == 1 && ld_src == 1)) {
     if (dst != src) {
       // sizeof must be first operand force dims promotion to OS-bitness type

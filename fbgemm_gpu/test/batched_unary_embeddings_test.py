@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -18,9 +18,14 @@ import torch
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
+
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable
+
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
@@ -77,7 +82,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offsets.append(offset)
         return (lengths, offsets, indices)
 
-    def _test_main(self, gpu_infer: bool):
+    def _test_main(self, gpu_infer: bool) -> None:
         if gpu_infer:
             device = torch.device("cuda:0")
             torch.cuda.set_device(device)
@@ -114,7 +119,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor, indices_tensor)
-        torch.testing.assert_allclose(output_ref, output)
+        torch.testing.assert_close(output_ref, output)
 
         # forward with int_64
         ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
@@ -125,7 +130,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor.long(), indices_tensor.long())
-        torch.testing.assert_allclose(output_ref, output)
+        torch.testing.assert_close(output_ref, output)
 
         # No implementation for CPU backprop yet
         if not gpu_infer:
@@ -141,12 +146,13 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             d_weight_ref.append(emb.weight.grad)
         d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, sum(hash_sizes), -1)
         d_weight = unary_emb.weight.grad
-        torch.testing.assert_allclose(d_weight_ref, d_weight)
+        torch.testing.assert_close(d_weight_ref, d_weight)
 
-    def test_gpu(self):
+    @unittest.skipIf(*gpu_unavailable)
+    def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
 
-    def test_cpu(self):
+    def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
 
 

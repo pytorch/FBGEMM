@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -118,14 +118,14 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
     vector<float16> w_fp16(w.size()), w_fp16_ref(w.size());
     default_random_engine generator;
     uniform_real_distribution<float> values_gen(0, 2);
-    for (int i = 0; i < w.size(); ++i) {
+    for (size_t i = 0; i < w.size(); ++i) {
       w_ref[i] = w[i] = values_gen(generator);
       w_fp16_ref[i] = w_fp16[i] = cpu_float2half_rn(w[i]);
     }
-    for (int i = 0; i < h.size(); ++i) {
+    for (size_t i = 0; i < h.size(); ++i) {
       h_ref[i] = h[i] = values_gen(generator);
     }
-    for (int i = 0; i < g.size(); ++i) {
+    for (size_t i = 0; i < g.size(); ++i) {
       g[i] = values_gen(generator);
     }
 
@@ -142,7 +142,6 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         weights,
         batch_size,
         num_rows,
-        embedding_dim,
         average_len,
         corner_case);
     const int64_t* offsets_or_lengths =
@@ -278,13 +277,13 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         << "return vals differ, reference is: " << success_ref
         << " ,fbgemm is: " << success;
     if (success) {
-      for (int i = 0; i < h.size(); ++i) {
+      for (size_t i = 0; i < h.size(); ++i) {
         EXPECT_EQ(h[i], h_ref[i])
             << "results for h differ at (" << i << ") reference: " << h_ref[i]
             << ", FBGEMM: " << h[i] << " emb dim :" << embedding_dim;
       }
 
-      for (int i = 0; i < w.size(); ++i) {
+      for (size_t i = 0; i < w.size(); ++i) {
         float w_, w_ref_;
         if (isWeightFp16) {
           w_ = cpu_half2float(w_fp16[i]);

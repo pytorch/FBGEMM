@@ -25,6 +25,7 @@ set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
+option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -117,17 +118,36 @@ if(MSVC)
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
 else(MSVC)
+  string(APPEND CMAKE_CXX_FLAGS " -Wall")
+  string(APPEND CMAKE_CXX_FLAGS " -Wextra")
+  string(APPEND CMAKE_CXX_FLAGS " -Werror")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
     "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
     "-mavx512vl")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx2.cc
+  set_source_files_properties(
+    src/FbgemmFP16UKernelsAvx2.cc
+    src/FbgemmFP16UKernelsAvx512.cc
+    src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx512.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(src/FbgemmFP16UKernelsAvx512_256.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
+  set_source_files_properties(
+    src/FbgemmI64.cc
+    src/FbgemmI8Depthwise3DAvx2.cc
+    src/FbgemmI8DepthwiseAvx2.cc
+    src/UtilsAvx2.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
+  set_source_files_properties(src/PackMatrix.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
+    set_source_files_properties(
+      src/GenerateKernelU8S8S32ACC32.cc
+      src/GenerateKernelDirectConvU8S8S32ACC32.cc
+      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
+  endif()
+
 endif(MSVC)
 
 if(USE_SANITIZER)
@@ -277,4 +297,8 @@ endif()
 
 if(FBGEMM_BUILD_DOCS)
   add_subdirectory(docs)
+endif()
+
+if(FBGEMM_BUILD_FBGEMM_GPU)
+  add_subdirectory(fbgemm_gpu)
 endif()

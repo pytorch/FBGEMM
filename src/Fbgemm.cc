@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -56,7 +56,7 @@ void fbgemmPacked(
     throw std::runtime_error("unknown architecure");
   }
 
-  int MCB;
+  int64_t MCB;
   int KCB;
   int MR;
 
@@ -144,7 +144,7 @@ void fbgemmPacked(
   // if (thread_id == 0)
   //   std::cout << ", " << th_info.toString();
 
-  int g_begin, g_end, i_begin, i_end;
+  int64_t g_begin, g_end, i_begin, i_end;
 
   // Calculate the begin and end index along the group dimension
   fbgemmPartition1D(

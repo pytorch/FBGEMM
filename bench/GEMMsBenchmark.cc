@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -64,12 +64,11 @@ void performance_test() {
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
-  for (auto shape : shapes) {
+  for (const auto& shape : shapes) {
     int m = shape[0];
     int n = shape[1];
     int k = shape[2];
 
-    float alpha = 1.f, beta = 0.f;
     aligned_vector<uint8_t> Aint8(m * k);
 
     aligned_vector<int8_t> Bint8(k * n);
@@ -93,6 +92,8 @@ void performance_test() {
     double ttot = 0.0;
     string runType;
 #ifdef USE_MKL
+    const float alpha = 1.f;
+    const float beta = 0.f;
     runType = "MKL_fp32";
     ttot = measureWithWarmup(
         [&]() {
@@ -132,7 +133,7 @@ void performance_test() {
          << setw(5) << fixed << setw(5) << setprecision(1) << nops / ttot
          << endl;
 
-    for (auto i = 0; i < Cfp32_mkl.size(); ++i) {
+    for (size_t i = 0; i < Cfp32_mkl.size(); ++i) {
       Cint32_mkl[i] = (int32_t)Cfp32_mkl[i];
     }
 #endif
@@ -212,7 +213,9 @@ void performance_test() {
 #endif
       }
     }
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,
@@ -294,7 +297,9 @@ void performance_test() {
 #endif
       }
     }
-    ((volatile char*)(llc.data()));
+    if (flush) {
+      ((volatile char*)(llc.data()))[0] += 1;
+    }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
     // printMatrix(matrix_op_t::NoTranspose, Aint8.data(), m, k, k,

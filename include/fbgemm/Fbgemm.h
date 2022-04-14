@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -18,6 +18,7 @@
 #include "./FbgemmBuild.h"
 #include "./FbgemmEmbedding.h"
 #include "./FbgemmI8DepthwiseAvx2.h"
+#include "./FbgemmI8DirectconvAvx2.h"
 #include "./FbgemmI8Spmdm.h"
 #include "./QuantUtilsAvx2.h"
 #include "./Types.h"
@@ -601,6 +602,10 @@ class FBGEMM_API PackWeightsForConv {
     return W_dw_packed_;
   }
 
+  std::shared_ptr<PackedDirectConvMatrix> getPackedWForDirectconv() {
+    return W_dc_packed_;
+  }
+
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
   getPackedWForGroupwise() {
     return W_gconv_packed_;
@@ -649,6 +654,8 @@ class FBGEMM_API PackWeightsForConv {
   std::shared_ptr<PackBMatrix<T, accT>> W_im2col_packed_;
   // Packed weights if we use depthwise convolution implementation
   std::shared_ptr<PackedDepthWiseConvMatrix> W_dw_packed_;
+  // Packed weights if we use direct convolution implementation
+  std::shared_ptr<PackedDirectConvMatrix> W_dc_packed_;
   // Packed weights if we use groupwise (small channels per group) convolution
   // implementation
   std::shared_ptr<PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>>
@@ -1097,8 +1104,7 @@ class FBGEMM_API DoSConvOnInpBuffer {
       const std::uint8_t* A,
       const conv_param_t<>& conv_p,
       std::int32_t A_zero_point,
-      const CompressedSparseColumn& B_csc,
-      int groups = 1)
+      const CompressedSparseColumn& B_csc)
       : nextop_(nextop),
         A_(A),
         conv_p_(conv_p),
@@ -1363,27 +1369,6 @@ FBGEMM_API void fbgemmPacked(
  *              nothing for thread_ids > 0, i.e., returns early.
  *
  * @param rowOffsetBuf nullptr if B uses symmetric quantization
- */
-
-template <
-    typename packed_W,
-    typename outType,
-    typename processOutputType,
-    int SPATIAL_DIM = 2>
-FBGEMM_API void fbgemmGroupwiseConv(
-    const conv_param_t<SPATIAL_DIM>& conv_param,
-    const std::uint8_t* activations,
-    std::int32_t a_zero_point,
-    std::int32_t* rowOffsetBuf,
-    packed_W& packed_weights,
-    outType* out,
-    std::int32_t* outBuffer,
-    const processOutputType& outProcess,
-    int thread_id,
-    int num_threads);
-
-/**
- * @param rowOffsetBuf nullptr if B uses symmetric quantization
  *        Note: Currently threading is not supported. This function does
  *              nothing for thread_ids > 0, i.e., returns early.
  */
@@ -1406,6 +1391,22 @@ FBGEMM_API void fbgemmGroupwiseConv(
     int thread_id,
     int num_threads);
 
+template <
+    int SPATIAL_DIM,
+    QuantizationGranularity Q_GRAN,
+    bool FUSE_RELU,
+    typename BIAS_TYPE = std::int32_t>
+FBGEMM_API void fbgemmDirectConv(
+    const conv_param_t<SPATIAL_DIM>& conv_p,
+    const uint8_t* Aint8,
+    PackedDirectConvMatrix& Bint8_tr,
+    uint8_t* C,
+    int32_t* C_buffer,
+    const ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE>& outProcess,
+    const BIAS_TYPE* bias,
+    int thread_id,
+    int num_threads);
+
 /**
  * @return Size of row offset buffer in number of elements needed for
  * fbgemmGroupwiseConv
@@ -1413,22 +1414,6 @@ FBGEMM_API void fbgemmGroupwiseConv(
 template <int SPATIAL_DIM = 2>
 FBGEMM_API int rowOffsetBufferSizeGConv(
     const conv_param_t<SPATIAL_DIM>& conv_param);
-
-/**
- * @brief Perform depthwise separable convolution
- */
-template <
-    typename packingAMatrix,
-    typename packingBMatrix,
-    typename outT,
-    typename processOutputType>
-void convDepthwiseSeparable(
-    const conv_param_t<>& conv_param_dw,
-    const conv_param_t<>& conv_param_1x1,
-    packingAMatrix& packdw,
-    packingBMatrix& packed_1x1,
-    outT* out,
-    const processOutputType& output);
 
 /**
  * @brief Is this depthwise convolution optimized?

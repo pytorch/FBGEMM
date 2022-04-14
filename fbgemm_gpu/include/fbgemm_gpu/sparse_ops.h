@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -39,12 +39,52 @@ at::Tensor segment_sum_csr_cpu(
     const at::Tensor& values);
 
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
-permute_sparse_data_cuda(
+permute_2D_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
     const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_1D_sparse_data_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
+
+/*
+ * expand_into_jagged_permute expand the sparse data permute index from
+ * table dimension to batch dimension, for cases where the sparse features
+ * has different batch sizes across ranks.
+ *
+ * "permute":
+ * the table level permute index.
+ * "input_offsets":
+ * the exclusive offsets of table-level length.
+ * "output_offsets":
+ * the exclusive offsets of table-level permuted length.
+ *
+ * The op expands the permute from table level to batch level by
+ * contiguously mapping each bag of its corresponding tables to the position the
+ * batch sits on after feature permute. we will derive offset array of table and
+ * batch to compute the output permute.
+ *
+ * The output follows the following formula:
+ * output_permute[table_offset[permute[table]] + batch] <- bag_offset[batch].
+ */
+at::Tensor expand_into_jagged_permute_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& input_offsets,
+    const at::Tensor& output_offsets,
+    int64_t output_size);
+
+at::Tensor expand_into_jagged_permute_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& input_offsets,
+    const at::Tensor& output_offsets,
+    int64_t output_size);
 
 std::tuple<
     at::Tensor,
@@ -76,8 +116,40 @@ block_bucketize_sparse_features_cpu(
     int64_t my_size,
     c10::optional<at::Tensor> weights);
 
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+bucketize_sparse_features_cuda(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+bucketize_sparse_features_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights);
+
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
-permute_sparse_data_cpu(
+permute_2D_sparse_data_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_1D_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
@@ -85,11 +157,32 @@ permute_sparse_data_cpu(
     const c10::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
+at::Tensor _half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
+at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
+at::Tensor float_to_fused8bitrowwise_cpu(const at::Tensor& input);
+at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
+at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
+at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
+at::Tensor _float_to_bfloat16_gpu(const at::Tensor&);
+at::Tensor _bfloat16_to_float_gpu(const at::Tensor&);
+at::Tensor _float_to_bfloat16_cpu(const at::Tensor&);
+at::Tensor _bfloat16_to_float_cpu(const at::Tensor&);
+
+at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
+    const at::Tensor& input,
+    const at::Tensor& D_offsets,
+    const int64_t output_dtype);
 at::Tensor _float_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
+at::Tensor _half_to_fusednbitrowwise_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
 at::Tensor _fusednbitrowwise_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
+at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
 at::Tensor& _fused8bitrowwise_to_float_cpu_out(
@@ -98,6 +191,18 @@ at::Tensor& _fused8bitrowwise_to_float_cpu_out(
 at::Tensor& _float_to_fused8bitrowwise_cpu_out(
     at::Tensor& output,
     const at::Tensor& input);
+at::Tensor float_to_fusednbitrowwise_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
+at::Tensor half_to_fusednbitrowwise_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
+at::Tensor fusednbitrowwise_to_float_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
+at::Tensor fusednbitrowwise_to_half_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
 
 at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
@@ -125,7 +230,7 @@ at::Tensor reorder_batched_ad_indices_cpu(
 
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
-    std::vector<int64_t> num_features_per_rank);
+    const std::vector<int64_t>& num_features_per_rank);
 
 at::Tensor recat_embedding_grad_output_mixed_D_cuda(
     const at::Tensor& grad_output, // [B_local][Sum_T_global(D)]
@@ -153,20 +258,32 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& offsets,
     const at::Tensor& indices);
 
-at::Tensor jagged_2d_to_dense_forward_cuda(
+std::tuple<std::vector<at::Tensor>, std::vector<at::Tensor>>
+stacked_jagged_2d_to_dense_forward_cuda(
     at::Tensor values,
-    at::Tensor offsets,
-    int32_t max_L);
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key);
 
-at::Tensor jagged_2d_to_dense_backward_cuda(
-    at::Tensor grad_padded_values,
-    at::Tensor offsets,
-    int32_t total_L);
+at::Tensor stacked_jagged_2d_to_dense_backward_cuda(
+    int64_t B,
+    int64_t D,
+    int64_t total_L,
+    const std::vector<at::Tensor>& grad_padded_values_per_key,
+    const std::vector<at::Tensor>& offsets_tensor_per_key,
+    const std::vector<int64_t>& offset_per_key);
 
 at::Tensor jagged_1d_to_dense_gpu(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L,
+    int64_t padding_value);
+
+std::vector<at::Tensor> stacked_jagged_1d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value);
 
 // Divide the prediction range (e.g., [0, 1]) into B bins. In each bin, use
@@ -336,5 +453,31 @@ std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
     const bool abs,
     const int64_t min_non_pruned_rows,
     const c10::optional<double>& min_save_ratio);
+
+at::Tensor lengths_range(
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+
+at::Tensor& lengths_range_out(
+    at::Tensor& output,
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+
+at::Tensor lengths_range_cuda(
+    const at::Tensor& t_in,
+    const c10::optional<std::vector<int64_t>>& shape);
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
+
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+permute_sparse_features_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const c10::optional<at::Tensor>& weights);
 
 } // namespace fbgemm_gpu

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -27,8 +27,12 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
+#if !defined(NEW_ATOMIC_PATH)
 #include <THC/THCAtomics.cuh>
+#else
+#include <ATen/cuda/Atomic.cuh>
+#endif
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <limits>
 #include <mutex>
 
@@ -250,37 +254,35 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        table_offsets,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
-  int32_t T = cache_hash_size_cumsum.size(0) - 1;
-  int64_t total_cache_hash_size = cache_hash_size_cumsum[T];
-  int32_t B = (offsets.size(0) - 1) / T;
-  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  bool valid = t < T;
+  const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= indices.size(0)) {
+    return;
+  }
 
-  int64_t hash_offset = valid ? cache_hash_size_cumsum[t] : -1;
-  auto indices_start = valid ? offsets[t * B + b] : -1;
-  int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
-  int32_t lane_id = threadIdx.x % kWarpSize;
-
-  // hash_offset < 0 for non-caching tables
-  for (int32_t j = 0; j < kWarpSize; ++j) {
-    auto indices_start_warp = shfl_sync(indices_start, j);
-    int32_t L_warp = shfl_sync(L, j);
-    int64_t hash_offset_warp = shfl_sync(hash_offset, j);
-    if (hash_offset_warp >= 0) {
-      for (int32_t i = lane_id; i < L_warp; i += kWarpSize) {
-        auto idx = __ldg(&indices[indices_start_warp + i]);
-        linear_cache_indices[indices_start_warp + i] = hash_offset_warp + idx;
-      }
+  // Perform binary search.
+  int left = 0;
+  int right = table_offsets.size(0);
+  while (left != right) {
+    const int middle = (left + right) >> 1;
+    if (table_offsets[middle] <= index) {
+      left = middle + 1;
     } else {
-      for (int32_t i = lane_id; i < L_warp; i += kWarpSize) {
-        linear_cache_indices[indices_start_warp + i] = total_cache_hash_size;
-      }
+      right = middle;
     }
+  }
+  const int table_index = left;
+
+  const auto max_offset =
+      __ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+  const auto curr_offset = __ldg(&cache_hash_size_cumsum[table_index]);
+  if (curr_offset >= 0) {
+    linear_cache_indices[index] = indices[index] + curr_offset;
+  } else {
+    linear_cache_indices[index] = max_offset;
   }
 }
 
@@ -295,27 +297,31 @@ Tensor linearize_cache_indices_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cache_hash_size_cumsum.get_device());
 
-  auto T = cache_hash_size_cumsum.size(0) - 1;
+  const auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
   // offsets = [B x T  + 1]
-  auto B = (offsets.size(0) - 1) / T;
+  const auto B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B >= 0);
 
   auto linear_cache_indices = at::empty_like(indices);
-  if (B == 0) {
+  const auto num_indices = indices.numel();
+  if (B == 0 || num_indices == 0) {
     return linear_cache_indices;
   }
+
+  auto table_offsets = offsets.slice(0, B, B * T, B);
   AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "linearize_cache_indices_kernel", [&]() {
+      indices.scalar_type(), "linearize_cache_indices_kernel", [&] {
         linearize_cache_indices_kernel<<<
-            div_round_up(B * T, kMaxThreads),
+            div_round_up(num_indices, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             cache_hash_size_cumsum
                 .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            table_offsets
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
             linear_cache_indices
                 .packed_accessor32<index_t, 1, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -344,7 +350,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
         {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
   }
   AT_DISPATCH_INDEX_TYPES(
-      linear_indices.scalar_type(), "get_unique_indices_cuda", [&]() {
+      linear_indices.scalar_type(), "get_unique_indices_cuda", [&] {
         // sort indices
         size_t temp_storage_bytes_0 = 0;
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
@@ -505,7 +511,7 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&]() {
+      unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
@@ -947,36 +953,6 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     const int32_t D_insert_bytes =
         padded_row_size_in_bytes(D_insert, weight_ty_insert);
 
-    // ensure that threadIdx.x is the only thread reading/writing to
-    // lxu_cache_state
-    int64_t current_idx =
-        threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-    current_idx = shfl_sync(current_idx, 0);
-
-    // not empty
-    if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
-      // evict from slot to backing storage
-      int32_t t_current = cache_index_table_map[current_idx];
-      SparseType weight_ty_current =
-          static_cast<SparseType>(weights_tys[t_current]);
-      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
-      int64_t weights_offset_current = weights_offsets[t_current];
-      int32_t D_start_current = D_offsets[t_current];
-      int32_t D_end_current = D_offsets[t_current + 1];
-      int32_t D_current = D_end_current - D_start_current;
-
-      const int32_t D_current_bytes =
-          padded_row_size_in_bytes(D_current, weight_ty_current);
-
-      auto row =
-          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      // Evict the cache
-      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
-        row[d] = cache_row[d]; // uint8_t access
-      }
-    }
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
     auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
@@ -1026,7 +1002,7 @@ void lru_cache_insert_byte_cuda(
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),
       "lru_cache_insert_byte_cuda",
-      [&]() {
+      [&] {
         lru_cache_insert_byte_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
@@ -1157,7 +1133,7 @@ void lfu_update_counts_cuda(
 
   int32_t N = unique_indices.size(0);
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lfu_update_counts_cuda", [&]() {
+      unique_indices.scalar_type(), "lfu_update_counts_cuda", [&] {
         lfu_update_counts_kernel<<<
             div_round_up(N, kMaxThreads),
             kMaxThreads,
@@ -1260,7 +1236,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   AT_DISPATCH_INDEX_TYPES(
-      unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&]() {
+      unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lfu_cache_find_uncached_kernel<<<
             div_round_up(N, kMaxThreads / kWarpSize),
@@ -1638,8 +1614,8 @@ void lfu_cache_populate_cuda(
 // In `lfu_cache_insert_byte_kernel`, we only use uint8_t for the both embedding
 // and cache data type (conforming to the inference TBE kernel logics).
 // - We pass in `weights_tys` to denote the real data types for the embeddings:
-// {FP32, FP16, INT8, INT4}. For example, FP32 is 4 byte element in the byte
-// tensor, and INT4 is half byte element in the byte tensor.
+// {FP32, FP16, INT8, INT4, INT2}. For example, FP32 is 4 byte element in the
+// byte tensor, and INT4 is half byte element in the byte tensor.
 // - We only assume that the embedding and cache have the same precisions (the
 // real "precision" is determined by `weights_tys` although the data types are
 // uint8_t only). Basically no "high-precision cache" support for now.
@@ -1737,34 +1713,6 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
     const int32_t D_insert_bytes =
         padded_row_size_in_bytes(D_insert, weight_ty_insert);
 
-    // not empty
-    if (insert_current_lfu_cost != -1) {
-      // ensure that threadIdx.x is the only thread reading/writing to
-      // lxu_cache_state
-      int64_t current_idx =
-          threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-      current_idx = shfl_sync(current_idx, 0);
-      int32_t t_current = cache_index_table_map[current_idx];
-      SparseType weight_ty_current =
-          static_cast<SparseType>(weights_tys[t_current]);
-      int64_t idx_current = current_idx - cache_hash_size_cumsum[t_current];
-      int64_t weights_offset_current = weights_offsets[t_current];
-      int32_t D_start_current = D_offsets[t_current];
-      int32_t D_end_current = D_offsets[t_current + 1];
-      int32_t D_current = D_end_current - D_start_current;
-
-      const int32_t D_current_bytes =
-          padded_row_size_in_bytes(D_current, weight_ty_current);
-
-      auto row =
-          &weights[weights_offset_current + idx_current * D_current_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      // Evict the cache
-      for (int32_t d = threadIdx.x; d < D_current_bytes; d += blockDim.x) {
-        row[d] = cache_row[d]; // uint8_t access
-      }
-    }
     // insert into cache
     auto row =
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
@@ -1812,7 +1760,7 @@ void lfu_cache_insert_byte_cuda(
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),
       "lfu_cache_insert_byte_cuda",
-      [&]() {
+      [&] {
         lfu_cache_insert_byte_kernel<<<
             div_round_up(N, kCacheMaxThreads / kWarpSize),
             dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
@@ -1918,38 +1866,56 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
         linear_cache_indices,
     const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
+    int64_t invalid_index,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
-  int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
+  const int32_t n0 =
+      blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
+  if (n0 >= N) {
     return;
   }
-  int64_t idx = linear_cache_indices[n];
-  int32_t cache_set = cache_slot(idx, C);
-  auto slot = threadIdx.x;
-  bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-  if (found) {
-    lxu_cache_locations[n] = cache_set * kWarpSize + slot;
-  }
-#ifdef __HIP_PLATFORM_HCC__
-  // FIXME: __any_sync with mask isn't supported by HIP yet.
-  // See https://fburl.com/fvy7j0lq for the similar context.
-  // assert false here with https://fburl.com/pfm7enw2
-  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
-#else
-  if (!__any_sync(0xFFFFFFFF, found)) {
-#endif
-    if (threadIdx.x == 0) {
-      lxu_cache_locations[n] = kCacheLocationMissing;
+
+  int32_t cache_location = kCacheLocationMissing;
+  const auto slot = threadIdx.x;
+  for (int i = 0; i < blockDim.x; ++i) {
+    const int64_t idx = linear_cache_indices[n0 + i];
+    if (idx == invalid_index) {
+      continue;
     }
+    const int32_t cache_set = cache_slot(idx, C);
+    const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+#ifdef __HIP_PLATFORM_HCC__
+    // FIXME: __ballot_sync with mask isn't supported by HIP yet.
+    // See https://fburl.com/fvy7j0lq for the similar context.
+    // assert false here with https://fburl.com/pfm7enw2
+    assert(false);
+    const auto bitmap = __ballot(found);
+    if (bitmap) {
+      const auto way = __ffsll(bitmap) - 1;
+#else
+    const auto bitmap = __ballot_sync(0xFFFFFFFF, found);
+    if (bitmap) {
+      // LSB == 1 hence we need to subtract one to get lane ID.
+      const auto way = __ffs(bitmap) - 1;
+#endif
+      if (i == threadIdx.x) {
+        cache_location = cache_set * kWarpSize + way;
+      }
+    }
+  }
+
+  const int32_t n = n0 + threadIdx.x;
+  if (n < N) {
+    lxu_cache_locations[n] = cache_location;
   }
 }
 
 Tensor lxu_cache_lookup_cuda(
     Tensor linear_cache_indices,
-    Tensor lxu_cache_state) {
+    Tensor lxu_cache_state,
+    int64_t invalid_index) {
   TENSOR_ON_CUDA_GPU(linear_cache_indices);
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
 
@@ -1965,10 +1931,10 @@ Tensor lxu_cache_lookup_cuda(
   }
 
   const dim3 threads(kWarpSize, kMaxThreads / kWarpSize);
-  const dim3 blocks(div_round_up(N, kMaxThreads / kWarpSize));
+  const dim3 blocks(div_round_up(N, kMaxThreads));
 
   AT_DISPATCH_INDEX_TYPES(
-      linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&]() {
+      linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&] {
         lxu_cache_lookup_kernel<<<
             blocks,
             threads,
@@ -1978,6 +1944,7 @@ Tensor lxu_cache_lookup_cuda(
                 .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
             lxu_cache_state
                 .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            invalid_index,
             lxu_cache_locations
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();

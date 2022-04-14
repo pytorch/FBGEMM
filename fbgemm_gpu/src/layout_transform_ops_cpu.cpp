@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -32,7 +32,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   TORCH_CHECK(B_local * global_dim_sum == grad_output.numel());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", ([&] {
+      grad_output.type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
         at::parallel_for(
@@ -56,7 +56,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
                 }
               }
             });
-      }));
+      });
 
   return sharded_grad_output;
 }
@@ -73,7 +73,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl(
+  DISPATCH_TO_CPU(
       "recat_embedding_grad_output_mixed_D",
       fbgemm_gpu::recat_embedding_grad_output_mixed_D_cpu);
 }

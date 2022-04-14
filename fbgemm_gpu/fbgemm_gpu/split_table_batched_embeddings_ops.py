@@ -2,7 +2,7 @@
 
 # pyre-ignore-all-errors[56]
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -197,7 +197,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         optimizer: OptimType = OptimType.EXACT_SGD,
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
         # General Optimizer args
-        stochastic_rounding: bool = False,
+        stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
         learning_rate: float = 0.01,
@@ -251,6 +251,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert (
                 output_dtype == SparseType.FP32
+                or output_dtype == SparseType.FP16
+                or output_dtype == SparseType.BF16
             ), "Fused pooled embedding quantization only supported for cuda."
 
         if device is not None:
@@ -584,7 +586,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
                 indices,
                 offsets,
@@ -741,7 +743,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return
 
         (indices, offsets) = indices.long(), offsets.long()
-        linear_cache_indices = torch.ops.fb.linearize_cache_indices(
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
             offsets,
@@ -751,9 +753,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics.record_cache_miss_counter
             or self.record_cache_metrics.record_tablewise_cache_miss
         ):
-            lxu_cache_locations = torch.ops.fb.lxu_cache_lookup(
+            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -765,7 +768,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
 
         if self.cache_algorithm == CacheAlgorithm.LRU:
-            torch.ops.fb.lru_cache_populate(
+            torch.ops.fbgemm.lru_cache_populate(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
@@ -780,7 +783,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.stochastic_rounding,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
-            torch.ops.fb.lfu_cache_populate(
+            torch.ops.fbgemm.lfu_cache_populate(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
@@ -798,9 +801,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             len(self.lxu_cache_locations_list) < self.max_prefetch_depth
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
         self.lxu_cache_locations_list.append(
-            torch.ops.fb.lxu_cache_lookup(
+            torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
         )
 
@@ -1049,7 +1053,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
-        torch.ops.fb.lxu_cache_flush(
+        torch.ops.fbgemm.lxu_cache_flush(
             self.weights_uvm,
             self.cache_hash_size_cumsum,
             self.cache_index_table_map,
@@ -1143,7 +1147,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     f"{prefix}_uvm",
                     torch.zeros(
                         split.uvm_size,
-                        out=torch.ops.fb.new_managed_tensor(
+                        out=torch.ops.fbgemm.new_managed_tensor(
                             # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
                             #  for 3rd param but got `Type[Type[torch._dtype]]`.
                             torch.zeros(1, device=self.current_device, dtype=dtype),
@@ -1424,7 +1428,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
-        return torch.ops.fb.dense_embedding_codegen_lookup_function(
+        return torch.ops.fbgemm.dense_embedding_codegen_lookup_function(
             dev_weights=self.weights,
             weights_offsets=self.weights_offsets,
             D_offsets=self.D_offsets,
@@ -1462,10 +1466,12 @@ def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
 
 
-def rounded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+def rounded_row_size_in_bytes(
+    dim: int, weight_ty: SparseType, row_alignment: int
+) -> int:
     r = unpadded_row_size_in_bytes(dim, weight_ty)
     # align each row to 16-byte boundaries.
-    return round_up(r, 16)
+    return round_up(r, row_alignment)
 
 
 def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
@@ -1479,9 +1485,15 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     return r
 
 
+def align_to_cacheline(a: int) -> int:
+    # align each table to 128b cache line boundary.
+    return round_up(a, 128)
+
+
 def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
+    row_alignment: int,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1489,12 +1501,9 @@ def nbit_construct_split_state(
     host_size = 0
     uvm_size = 0
     for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
-
-        def align_to_cacheline(a: int) -> int:
-            # align each table to 128b cache line boundary.
-            return round_up(a, 128)
-
-        embedding_dim = rounded_row_size_in_bytes(embedding_dim, weight_ty)
+        embedding_dim = rounded_row_size_in_bytes(
+            embedding_dim, weight_ty, row_alignment
+        )
         state_size = align_to_cacheline(num_embeddings * embedding_dim)
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
@@ -1524,10 +1533,11 @@ def nbit_construct_split_state(
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP16/INT8/INT4 supports
+    Inference version, with FP16/INT8/INT4/INT2 supports
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
+    record_cache_metrics: RecordCacheMetrics
 
     def __init__(
         self,
@@ -1547,8 +1557,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
-        cache_precision: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
+        record_cache_metrics: Optional[RecordCacheMetrics] = None,
+        row_alignment: Optional[int] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1572,9 +1583,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
-        self.dims: List[int] = dims
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        if row_alignment is None:
+            self.row_alignment: int = 1 if self.use_cpu else 16
+        else:
+            self.row_alignment = row_alignment
+
+        if record_cache_metrics is not None:
+            self.record_cache_metrics = record_cache_metrics
+        else:
+            self.record_cache_metrics = RecordCacheMetrics(False, False)
 
         # mixed D is not supported by no bag kernels
         mixed_D = not all(d == dims[0] for d in dims)
@@ -1588,18 +1608,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
 
         T_ = len(self.embedding_specs)
-
         assert T_ > 0
-        for (dim, weight_ty) in zip(dims, weights_tys):
-            assert (
-                dim % weight_ty.align_size() == 0
-            ), f"{dim} % {weight_ty.align_size() } != 0"
 
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
         T = len(self.feature_table_map)
         assert T_ <= T
+
         table_has_feature = [False] * T_
         for t in self.feature_table_map:
             table_has_feature[t] = True
@@ -1607,12 +1623,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
-        for weight_ty in weights_tys:
+        for dim, weight_ty in zip(dims, weights_tys):
             if not weight_ty.is_float():
                 assert (
-                    self.total_D % 2 == 0
-                ), "the total_D needs to be even so the FP16 output will be aligned with 4 bytes"
-                break
+                    dim % (8 / weight_ty.bit_rate()) == 0
+                ), "For quantized types we need to at least pack at byte granularity"
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
@@ -1645,11 +1660,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor([0], device=self.current_device, dtype=torch.int64),
         )
 
-        def align_to_cacheline(a: int) -> int:
-            # align each table to 128b cache line boundary.
-            # TODO: Change cache line boundary for ROCM
-            return round_up(a, 128)
-
         weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]
         self.register_buffer(
             "weights_tys",
@@ -1673,17 +1683,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.uint8
         )
 
-        self.max_D: int = max(dims)
         cached_dims = [
-            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3])
+            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3], 16)
             for embedding_spec in self.embedding_specs
             if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
         ]
         self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
 
         weight_split: SplitState = nbit_construct_split_state(
-            self.embedding_specs,
-            cacheable=True,
+            self.embedding_specs, cacheable=True, row_alignment=self.row_alignment
         )
 
         self.weights_physical_placements: List[int] = [
@@ -1734,8 +1742,29 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Currently only support cache_precision == embedding_precision.
         # Both are represented as uint8_t
-
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
+
+        if self.record_cache_metrics.record_tablewise_cache_miss:
+            num_tables = len(cache_state.cache_hash_size_cumsum) - 1
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    num_tables,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+        # NOTE: make TorchScript work!
+        else:
+            self.register_buffer(
+                "table_wise_cache_miss",
+                torch.zeros(
+                    0,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
+            )
+
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
@@ -1743,6 +1772,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets,
             cache_reserved_memory,
         )
+
+    @torch.jit.export
+    def get_cache_miss_counter(self) -> Tensor:
+        # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
+        # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
+
+        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
+        # nn.Module]`.
+        return self.cache_miss_counter
+
+    @torch.jit.export
+    def get_table_wise_cache_miss(self) -> Tensor:
+        # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
+
+        return self.table_wise_cache_miss
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
@@ -1754,14 +1798,32 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        linear_cache_indices = torch.ops.fb.linearize_cache_indices(
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
             offsets,
         )
 
+        if (
+            self.record_cache_metrics.record_cache_miss_counter
+            or self.record_cache_metrics.record_tablewise_cache_miss
+        ):
+            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.total_cache_hash_size,
+            )
+            if self.record_cache_metrics.record_cache_miss_counter:
+                self._update_cache_miss_counter(
+                    lxu_cache_locations, linear_cache_indices
+                )
+            if self.record_cache_metrics.record_tablewise_cache_miss:
+                self._update_tablewise_cache_miss(
+                    lxu_cache_locations, linear_cache_indices, offsets
+                )
+
         if self.cache_algorithm == CacheAlgorithm.LRU:
-            torch.ops.fb.lru_cache_populate_byte(
+            torch.ops.fbgemm.lru_cache_populate_byte(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
@@ -1776,7 +1838,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.lxu_state,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
-            torch.ops.fb.lfu_cache_populate_byte(
+            torch.ops.fbgemm.lfu_cache_populate_byte(
                 self.weights_uvm,
                 self.cache_hash_size_cumsum,
                 self.total_cache_hash_size,
@@ -1794,11 +1856,70 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.lxu_cache_locations_list.size() < self.max_prefetch_depth
         ), f"self.lxu_cache_locations_list has grown to size: {self.lxu_cache_locations_list.size()}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
         self.lxu_cache_locations_list.push(
-            torch.ops.fb.lxu_cache_lookup(
+            torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
+                self.total_cache_hash_size,
             )
         )
+
+    def _update_cache_miss_counter(
+        self,
+        lxu_cache_locations: Tensor,
+        linear_cache_indices: Tensor,
+    ) -> None:
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+
+        cache_missed_locations = torch.where(
+            lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
+        )
+        unique_ids_list = torch.unique(cache_missed_locations)
+        unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+        miss_count = torch.sum(unique_ids_count_list)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
+
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
+        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
+        #  nn.Module]` is not a function.
+        self.cache_miss_counter[1] += miss_count
+
+    def _update_tablewise_cache_miss(
+        self,
+        lxu_cache_locations: Tensor,
+        linear_cache_indices: Tensor,
+        offsets: Tensor,
+    ) -> None:
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+
+        # pyre-ignore[6]:
+        # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
+        # positional only parameter to call `len` but got `typing.Union[Tensor, nn.Module]`.
+        num_tables = len(self.cache_hash_size_cumsum) - 1
+        num_offsets_per_table = (len(offsets) - 1) // num_tables
+        cache_missed_locations = torch.where(
+            lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
+        )
+
+        for i in range(num_tables):
+            start = offsets[i * num_offsets_per_table]
+            end = offsets[(i + 1) * num_offsets_per_table]
+
+            current_cache_missed_locations = cache_missed_locations[start:end]
+            unique_ids_list = torch.unique(current_cache_missed_locations)
+            unique_ids_count_list = torch.where(unique_ids_list == CACHE_HIT, 0, 1)
+
+            miss_count = torch.sum(unique_ids_count_list)
+
+            self.table_wise_cache_miss[i] += miss_count
 
     def forward(
         self,
@@ -1819,14 +1940,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table.numel() > 0:
             # Convert from raw indices to pruned indices
-            indices = torch.ops.fb.pruned_hashmap_lookup(
+            indices = torch.ops.fbgemm.pruned_hashmap_lookup(
                 indices,
                 offsets,
                 self.index_remapping_hash_table,
                 self.index_remapping_hash_table_offsets,
             )
         elif self.index_remappings_array.numel() > 0:
-            indices = torch.ops.fb.pruned_array_lookup(
+            indices = torch.ops.fbgemm.pruned_array_lookup(
                 indices,
                 offsets,
                 self.index_remappings_array,
@@ -1835,7 +1956,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # We cast to int as a TorchScript workaround.
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            torch.ops.fb.bounds_check_indices(
+            torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
                 indices,
                 offsets,
@@ -1845,7 +1966,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
         # weights_placements
-        return torch.ops.fb.int_nbit_split_embedding_codegen_lookup_function(
+        return torch.ops.fbgemm.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
             uvm_weights=self.weights_uvm,
             weights_placements=self.weights_placements,
@@ -1865,6 +1986,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
+            row_alignment=self.row_alignment,
         )
 
     def _apply_split(
@@ -1918,7 +2040,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 self.weights_uvm = torch.zeros(
                     uvm_size,
-                    out=torch.ops.fb.new_managed_tensor(
+                    out=torch.ops.fbgemm.new_managed_tensor(
                         torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
                         [uvm_size],
                     ),
@@ -2105,8 +2227,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_uvm
             offset = self.weights_physical_offsets[t]
             weights_shifts = weights.detach()[
-                offset : offset + rows * rounded_row_size_in_bytes(dim, weight_ty)
-            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty))
+                offset : offset
+                + rows * rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment)
+            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment))
+
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
@@ -2224,7 +2348,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     indices, dense_indices, offsets, T
                 )
             else:
-                torch.ops.fb.pruned_hashmap_insert(
+                torch.ops.fbgemm.pruned_hashmap_insert(
                     indices, dense_indices, offsets, hash_table, hash_table_offsets
                 )
                 self.index_remapping_hash_table = hash_table.to(self.current_device)

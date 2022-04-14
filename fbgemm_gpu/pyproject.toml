@@ -12,6 +12,9 @@ requires = [
     "cudatoolkit",
 ]
 
+[project]
+name = "fbgemm_gpu"
+
 [project.optional-dependencies]
 test = [
     "hypothesis",

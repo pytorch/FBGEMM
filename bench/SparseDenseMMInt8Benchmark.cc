@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -160,11 +160,11 @@ int main(int, char**) {
       // "ctDataIntrin_u8");
       //
       // Compare results
-      for (auto i = 0; i < ctDataRef.size(); i++) {
+      for (size_t i = 0; i < ctDataRef.size(); i++) {
         if (std::abs(ctDataRef_u8[i] - ctDataIntrin_u8[i]) > 0) {
           fprintf(
               stderr,
-              "Error: Results differ ref %d and test %d at %d\n",
+              "Error: Results differ ref %d and test %d at %ld\n",
               ctDataRef_u8[i],
               ctDataIntrin_u8[i],
               i);
