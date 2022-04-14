@@ -1112,7 +1112,8 @@ template <
     typename inType,
     typename indxType,
     typename offsetType,
-    typename outType>
+    typename outType,
+    bool THREAD_LOCAL>
 typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDM(
@@ -1126,7 +1127,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       inType,
       indxType,
       offsetType,
-      outType>(
+      outType,
+      THREAD_LOCAL>(
       block_size,
       has_weight,
       normalize_by_lengths,
@@ -1292,37 +1294,52 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t input_stride,                                   \
       bool scale_bias_last);
 
+#define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
+    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
+  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
+      IN_TYPE,                                                \
+      INDEX_TYPE,                                             \
+      OFFSET_TYPE,                                            \
+      OUT_TYPE>::Type                                         \
+  GenerateEmbeddingSpMDM<                                     \
+      IN_TYPE,                                                \
+      INDEX_TYPE,                                             \
+      OFFSET_TYPE,                                            \
+      OUT_TYPE,                                               \
+      THREAD_LOCAL>(                                          \
+      const int64_t block_size,                               \
+      bool has_weight,                                        \
+      bool normalize_by_lengths,                              \
+      int prefetch,                                           \
+      bool is_weight_positional,                              \
+      bool use_offsets);
+
+#define INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
+  template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE>::Type                                                   \
+  GenerateEmbeddingSpMDMRowWiseSparse<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(   \
+      const int64_t block_size,                                            \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
+      bool use_offsets);
+
 #define INSTANTIATE_SPMDM_THREAD_LOCAL(                                     \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)                             \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)  \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<               \
-      IN_TYPE,                                                              \
-      INDEX_TYPE,                                                           \
-      OFFSET_TYPE,                                                          \
-      OUT_TYPE>::Type                                                       \
-  GenerateEmbeddingSpMDM<IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>(       \
-      const int64_t block_size,                                             \
-      bool has_weight,                                                      \
-      bool normalize_by_lengths,                                            \
-      int prefetch,                                                         \
-      bool is_weight_positional,                                            \
-      bool use_offsets);
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                                          \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)                     \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                                          \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)           \
   INSTANTIATE_SPMDM_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)   \
   INSTANTIATE_SPMDM_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16) \
-  template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<  \
-      IN_TYPE,                                                              \
-      INDEX_TYPE,                                                           \
-      OFFSET_TYPE>::Type                                                    \
-  GenerateEmbeddingSpMDMRowWiseSparse<IN_TYPE, INDEX_TYPE, OFFSET_TYPE>(    \
-      const int64_t block_size,                                             \
-      bool has_weight,                                                      \
-      bool normalize_by_lengths,                                            \
-      int prefetch,                                                         \
-      bool is_weight_positional,                                            \
-      bool use_offsets);
+  INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, int32_t) \
@@ -1341,6 +1358,8 @@ INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
+#undef INSTANTIATE_SPMDM_NOSTRIDE_BASE
+#undef INSTANTIATE_SPMDM_ROWWISE_BASE
 
 template <typename IndexType>
 void compressed_indices_remap(
