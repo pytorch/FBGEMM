@@ -3982,6 +3982,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Testing all miss.
         linear_cache_indices_0 = torch.tensor(
             [32, 33, 34, 35, 36, 100, 1000, 1725]
+        ).cuda() if ASSOC == 32 else torch.tensor(
+            [64, 65, 66, 67, 68, 100, 1000, 1725]
         ).cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_0, lxu_cache_state_gpu, max_index
