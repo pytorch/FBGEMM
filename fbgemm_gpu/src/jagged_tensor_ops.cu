@@ -259,27 +259,52 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
+    const std::array<int, NUM_JAGGED_DIM> x_offsets_sizes,
     const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
     at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         output_values,
     const int64_t* jagged_dims,
     F f) {
-  const int outer_dense_size = y.size(0);
-  const int jagged_folded_size = y.size(1);
   const int inner_dense_size = y.size(2);
+  const int nnz = x_values.size(0);
 
-  const int outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int outer_stride = gridDim.x * blockDim.y;
-  for (int outer = outer_begin; outer < outer_dense_size * jagged_folded_size;
-       outer += outer_stride) {
-    const int oidx = outer / jagged_folded_size;
-    const int jidx = outer % jagged_folded_size;
+  const int offset_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const int offset_stride = gridDim.x * blockDim.y;
+  for (int offset = offset_begin; offset < nnz; offset += offset_stride) {
+    int offset_temp = offset;
+    int jidx = 0;
+    bool truncated = false;
+    int dim_prod = 1;
+#pragma unroll
+    for (int d = NUM_JAGGED_DIM - 1; d >= 0; --d) {
+      // Binary search the first that is bigger than offset
+      int count = x_offsets_sizes[d] - 1;
+      int first = 1;
+      while (count > 0) {
+        int idx = first;
+        int step = count / 2;
+        idx += step;
+        if (x_offsets[d][idx] <= offset_temp) {
+          first = ++idx;
+          count -= step + 1;
+        } else {
+          count = step;
+        }
+      }
 
-    int offset = oidx;
-    const bool is_zero = walk_down_tensor_storage_tree_<NUM_JAGGED_DIM>(
-        offset, jidx, jagged_dims, x_offsets);
+      --first;
+      int coord = offset_temp - x_offsets[d][first];
+      if (coord >= jagged_dims[d]) {
+        truncated = true;
+        break;
+      }
+      jidx += coord * dim_prod;
+      dim_prod *= jagged_dims[d];
+      offset_temp = first;
+    }
 
-    if (!is_zero) {
+    if (!truncated) {
+      const int oidx = offset_temp;
       int iidx;
       for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
@@ -291,6 +316,17 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
       if (iidx * 2 + 1 == inner_dense_size) {
         output_values[offset][2 * iidx] =
             f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
+      }
+    } else {
+      int iidx;
+      for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
+           iidx += blockDim.x) {
+        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0);
+        output_values[offset][2 * iidx + 1] =
+            f(x_values[offset][2 * iidx + 1], 0);
+      }
+      if (iidx * 2 + 1 == inner_dense_size) {
+        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0);
       }
     }
   }
@@ -316,7 +352,7 @@ void jagged_dense_elementwise_jagged_output_(
       " != num_jagged_dim, ",
       num_jagged_dim);
 
-  if (y.numel() == 0) {
+  if (y.numel() == 0 || x_values.numel() == 0) {
     return;
   }
 
@@ -324,6 +360,9 @@ void jagged_dense_elementwise_jagged_output_(
   Tensor jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, y);
+  // Patch up blocks.x because we're using different parallelization from other
+  // jagged kernels.
+  blocks.x = div_round_up(x_values.size(0), threads.y);
 
   // Canonicalize y to 3D, collapsing jagged dimensions.
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
@@ -332,14 +371,17 @@ void jagged_dense_elementwise_jagged_output_(
   {                                                                           \
     Tensor x_offsets_contig[num_jagged_dim];                                  \
     std::array<index_t*, NUM_JAGGED_DIM> x_offset_ptrs;                       \
+    std::array<int, NUM_JAGGED_DIM> x_offset_sizes;                           \
     for (int d = 0; d < num_jagged_dim; ++d) {                                \
       x_offsets_contig[d] = x_offsets[d].contiguous();                        \
       x_offset_ptrs[d] = x_offsets_contig[d].template data_ptr<index_t>();    \
+      x_offset_sizes[d] = x_offsets[d].numel();                               \
     }                                                                         \
     jagged_dense_elementwise_jagged_output_kernel_<NUM_JAGGED_DIM, index_t>   \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
             x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
             x_offset_ptrs,                                                    \
+            x_offset_sizes,                                                   \
             y_reshaped                                                        \
                 .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
             output_values                                                     \
@@ -425,9 +467,7 @@ class JaggedToPaddedDenseGPUOp
     device_guard.set_index(grad_padded_values.get_device());
 
     int32_t D = grad_padded_values.size(-1);
-    // Initialize with zeros so output will be zero for the portion truncated
-    // in forward.
-    auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+    auto grad_values = at::empty({total_L, D}, grad_padded_values.options());
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         grad_padded_values.scalar_type(),
@@ -557,7 +597,7 @@ class DenseToJaggedGPUOp
       total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
     }
     auto values = at::empty({total_L_computed, D}, dense.options());
-    auto output = at::zeros({total_L_computed, D}, dense.options());
+    auto output = at::empty_like(values);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dense.get_device());
@@ -1018,7 +1058,6 @@ class BatchedDenseVecJagged2DMulGPUOp
         v.size(0));
     const int H = (B == 0) ? 1 : v.size(0) / B;
     const int D = a_values.size(-1) / H;
-    const int max_L = v.size(-1);
     auto output = at::empty({B * H, D}, v.options());
 
     if (B > 0 && D > 0) {
