@@ -1997,6 +1997,189 @@ Tensor permute102_baddbmm_permute102_cpu(
   return output;
 }
 
+template <typename index_t>
+void _permute_lengths_cpu_kernel(
+    const int32_t T,
+    const int32_t B,
+    const index_t* const __restrict__ lengths,
+    int64_t lengths_size,
+    const int32_t* const __restrict__ permute,
+    index_t* const __restrict__ permuted_lengths,
+    index_t* const __restrict__ input_offsets,
+    int64_t* const __restrict__ output_offsets_per_thread_cumsum) {
+  int num_threads = at::get_num_threads();
+  std::vector<int> input_offsets_per_thread_cumsum(
+      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+
+  // First parallel for: populate permuted_lengths, and compute per-thread
+  // summation of lengths (input_offsets_per_thread_cumsum) and permuted_lengths
+  // (output_offsets_per_thread_cumsum)
+  at::parallel_for(
+      0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        index_t current_input_offset = 0;
+        // Have a separate loop for summing up lengths because lengths_size
+        // can be smaller than T * B.
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end, lengths_size))) {
+          current_input_offset += lengths[tb];
+        }
+
+        index_t current_output_offset = 0;
+        int64_t t_begin = tb_begin / B;
+        int64_t t_end = (tb_end + B - 1) / B;
+        for (const auto t : c10::irange(t_begin, t_end)) {
+          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          for (const auto b : c10::irange(b_begin, b_end)) {
+            auto permuted_length = lengths[permute[t] * B + b];
+            permuted_lengths[t * B + b] = permuted_length;
+            current_output_offset += permuted_length;
+          }
+        }
+        input_offsets_per_thread_cumsum
+            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] =
+                current_input_offset;
+        output_offsets_per_thread_cumsum
+            [(at::get_thread_num() + 1) * FALSE_SHARING_PAD] =
+                current_output_offset;
+      });
+
+  // Inter-thread reduction
+  for (const auto t : c10::irange(1, num_threads)) {
+    input_offsets_per_thread_cumsum[(t + 1) * FALSE_SHARING_PAD] +=
+        input_offsets_per_thread_cumsum[t * FALSE_SHARING_PAD];
+    output_offsets_per_thread_cumsum[(t + 1) * FALSE_SHARING_PAD] +=
+        output_offsets_per_thread_cumsum[t * FALSE_SHARING_PAD];
+  }
+
+  // Second parallel for: populate input_offsets
+  // NOTE: this works assuming the partitioning will be the same as the
+  // first parallel_for.
+  at::parallel_for(
+      0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        index_t current_input_offset = input_offsets_per_thread_cumsum
+            [at::get_thread_num() * FALSE_SHARING_PAD];
+        if (tb_begin < lengths_size) {
+          input_offsets[tb_begin] = current_input_offset;
+        }
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end - 1, lengths_size))) {
+          current_input_offset += lengths[tb];
+          input_offsets[tb + 1] = current_input_offset;
+        }
+      });
+  if (lengths_size >= T * B) {
+    input_offsets[T * B] =
+        input_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
+  }
+
+  // Handle cases when lengths_size > T * B
+  for (const auto i : c10::irange(T * B, lengths_size)) {
+    input_offsets[i + 1] = lengths[i] + input_offsets[i];
+  }
+}
+
+template <typename index_t, typename scalar_t>
+void _permute_embeddings_kernel_cpu(
+    const int32_t T,
+    const int32_t B,
+    const scalar_t* const __restrict__ embeddings,
+    const int32_t* const __restrict__ permute,
+    const index_t* const __restrict__ input_offsets,
+    const int64_t* const __restrict__ output_offsets_per_thread_cumsum,
+    scalar_t* const __restrict__ permuted_embeddings,
+    const index_t* const __restrict__ permuted_lengths) {
+  at::parallel_for(
+      0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        index_t output_start = output_offsets_per_thread_cumsum
+            [at::get_thread_num() * FALSE_SHARING_PAD];
+        int64_t t_begin = tb_begin / B;
+        int64_t t_end = (tb_end + B - 1) / B;
+        for (const auto t : c10::irange(t_begin, t_end)) {
+          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          for (const auto b : c10::irange(b_begin, b_end)) {
+            index_t permuted_length = permuted_lengths[t * B + b];
+            const index_t input_start = input_offsets[permute[t] * B + b];
+            for (const auto i : c10::irange(permuted_length)) {
+              permuted_embeddings[output_start + i] =
+                  embeddings[input_start + i];
+            }
+            output_start += permuted_length;
+          } // for each b
+        } // for each t
+      }); // parallel_for T * B
+}
+
+std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& embeddings) {
+  TENSOR_ON_CPU(permute);
+  TENSOR_ON_CPU(lengths);
+  TENSOR_ON_CPU(embeddings);
+
+  TORCH_CHECK(
+      lengths.dim() == 2,
+      "The dimension of lengths tensor should be equal to 2"
+      "to correctly infer number of features and batch size.");
+
+  const auto permute_contig = permute.expect_contiguous();
+  const auto lengths_contig = lengths.expect_contiguous();
+  const auto embeddings_contig = embeddings.expect_contiguous();
+  // the features to permute over can be less or more with or without
+  // repetitions
+  const auto num_output_features = permute.numel();
+  const auto B = lengths.sizes()[1];
+
+  Tensor permuted_lengths;
+  Tensor permuted_embeddings;
+
+  permuted_lengths = at::empty({num_output_features, B}, lengths.options());
+
+  const auto lengths_size = lengths.numel();
+  auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
+
+  int num_threads = at::get_num_threads();
+  std::vector<int64_t> output_offsets_per_thread_cumsum(
+      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "permute_lengths_cpu_kernel", ([&] {
+        _permute_lengths_cpu_kernel(
+            num_output_features,
+            B,
+            lengths_contig->data_ptr<index_t>(),
+            lengths_size,
+            permute.data_ptr<int32_t>(),
+            permuted_lengths.data_ptr<index_t>(),
+            input_offsets.data_ptr<index_t>(),
+            output_offsets_per_thread_cumsum.data());
+      })); // for each scalar_t
+
+  auto permuted_lengths_sum =
+      output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
+  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
+  AT_DISPATCH_INDEX_TYPES(
+      input_offsets.scalar_type(), "permute_embeddings_kernel_1", ([&] {
+        AT_DISPATCH_FLOATING_TYPES(
+            embeddings.scalar_type(), "permute_embeddings_kernel_2", ([&] {
+              permuted_embeddings =
+                  at::empty(permuted_lengths_sum, embeddings.options());
+              _permute_embeddings_kernel_cpu<index_t, scalar_t>(
+                  num_output_features,
+                  B,
+                  embeddings_contig->data_ptr<scalar_t>(),
+                  permute_contig->data_ptr<int32_t>(),
+                  input_offsets.data_ptr<index_t>(),
+                  output_offsets_per_thread_cumsum.data(),
+                  permuted_embeddings.data_ptr<scalar_t>(),
+                  permuted_lengths.data_ptr<index_t>());
+            })); // for each scalar_t
+      })); // for each index_t
+  return {permuted_lengths, permuted_embeddings};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -2041,6 +2224,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToBfloat16Quantized(Tensor input) -> Tensor");
   m.def(
       "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
+  m.def(
+      "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2097,4 +2282,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "permute102_baddbmm_permute102",
       fbgemm_gpu::permute102_baddbmm_permute102_cpu);
+  DISPATCH_TO_CPU(
+      "permute_sequence_embeddings",
+      fbgemm_gpu::permute_sequence_embeddings_cpu);
 }

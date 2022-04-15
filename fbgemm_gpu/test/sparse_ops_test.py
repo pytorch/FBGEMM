@@ -9,7 +9,7 @@ import itertools
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union, Callable, Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -392,27 +392,49 @@ class SparseOpsTest(unittest.TestCase):
             else:
                 assert permuted_weights_cpu is None
 
+    @staticmethod
+    def permute_embeddings_(
+        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+        *args: Any,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if permute_fn == torch.ops.fbgemm.permute_2D_sparse_data:
+            permuted_lengths, permuted_embeddings, _ = permute_fn(*args, None)
+            return permuted_lengths, permuted_embeddings
+        else:
+            return permute_fn(*args)
+
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
+        permute_fn=st.sampled_from(
+            [
+                torch.ops.fbgemm.permute_2D_sparse_data,
+                torch.ops.fbgemm.permute_sequence_embeddings,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_permute_embeddings(self, B: int, T: int, L: int, long_index: bool) -> None:
-        index_dtype = torch.int32 if long_index else torch.int32
+    def test_permute_embeddings(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
         embeddings = torch.rand(lengths.sum().item()).float()
         permute_list = list(range(T))
         random.shuffle(permute_list)
         permute = torch.IntTensor(permute_list)
 
-        (
-            permuted_lengths_cpu,
-            permuted_embeddings_cpu,
-            _,
-        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, embeddings, None)
+        (permuted_lengths_cpu, permuted_embeddings_cpu) = self.permute_embeddings_(
+            permute_fn, permute, lengths, embeddings
+        )
         (
             permuted_lengths_ref,
             permuted_embeddings_ref,
@@ -422,15 +444,11 @@ class SparseOpsTest(unittest.TestCase):
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
 
         if gpu_available:
-            (
-                permuted_lengths_gpu,
-                permuted_embeddings_gpu,
-                _,
-            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            (permuted_lengths_gpu, permuted_embeddings_gpu) = self.permute_embeddings_(
+                permute_fn,
                 permute.cuda(),
                 lengths.cuda(),
                 embeddings.cuda(),
-                None,
             )
             torch.testing.assert_close(
                 permuted_embeddings_gpu.cpu(), permuted_embeddings_cpu
