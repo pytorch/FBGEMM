@@ -480,4 +480,8 @@ permute_sparse_features_cuda(
     const at::Tensor& indices,
     const c10::optional<at::Tensor>& weights);
 
+at::Tensor permute102_baddbmm_permute102_cuda(
+    const at::Tensor& bias,
+    const at::Tensor& A,
+    const at::Tensor& B);
 } // namespace fbgemm_gpu

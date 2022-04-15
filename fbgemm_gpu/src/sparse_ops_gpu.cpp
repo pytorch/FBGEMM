@@ -179,4 +179,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_gpu);
   DISPATCH_TO_CUDA(
       "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_gpu);
+  DISPATCH_TO_CUDA(
+      "permute102_baddbmm_permute102",
+      fbgemm_gpu::permute102_baddbmm_permute102_cuda);
 }
