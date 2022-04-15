@@ -484,4 +484,15 @@ at::Tensor permute102_baddbmm_permute102_cuda(
     const at::Tensor& bias,
     const at::Tensor& A,
     const at::Tensor& B);
+
+std::tuple<at::Tensor, at::Tensor> permute_sequence_embeddings_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& embeddings);
+
+std::tuple<at::Tensor, at::Tensor> permute_sequence_embeddings_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& embeddings);
+
 } // namespace fbgemm_gpu
