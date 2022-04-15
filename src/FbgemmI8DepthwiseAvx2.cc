@@ -86,14 +86,62 @@ void depthwise_2d_same_pad(
     return;
   }
 
-  if (B.GetKernelProduct() != 5 * 5) {
+  if (B.GetKernelProduct() == 5 * 5) {
+    if (fuse_relu) {
+      depthwise_2d_<5, true /* FUSE_RELU */, Q_GRAN>(
+          N,
+          H,
+          W,
+          IC,
+          OC,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    } else {
+      depthwise_2d_<5, false /* FUSE_RELU */, Q_GRAN>(
+          N,
+          H,
+          W,
+          IC,
+          OC,
+          stride_h,
+          stride_w,
+          A_zero_point,
+          A,
+          B_zero_point,
+          B,
+          C_multiplier,
+          C_zero_point,
+          C,
+          col_offsets,
+          bias,
+          act_times_w_scale,
+          thread_id,
+          num_threads);
+    }
+    return;
+  }
+
+  if (B.GetKernelProduct() != 7 * 7) {
     string msg =
         "[FBGEMM_CONV_ERROR] Packed weight is expected to have kernel_prod " +
-        to_string(5 * 5) + " but has " + to_string(B.GetKernelProduct());
+        to_string(7 * 7) + " but has " + to_string(B.GetKernelProduct());
     throw logic_error(msg);
   }
+
   if (fuse_relu) {
-    depthwise_2d_<5, true /* FUSE_RELU */, Q_GRAN>(
+    depthwise_2d_<7, true /* FUSE_RELU */, Q_GRAN>(
         N,
         H,
         W,
@@ -114,7 +162,7 @@ void depthwise_2d_same_pad(
         thread_id,
         num_threads);
   } else {
-    depthwise_2d_<5, false /* FUSE_RELU */, Q_GRAN>(
+    depthwise_2d_<7, false /* FUSE_RELU */, Q_GRAN>(
         N,
         H,
         W,
