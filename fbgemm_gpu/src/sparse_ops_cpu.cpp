@@ -1962,6 +1962,41 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
+// A: m, batch_size, k
+// B: batch_size, k, n
+// bias: batch_size, n
+// output: m, batch_size, n
+Tensor permute102_baddbmm_permute102_cpu(
+    const Tensor& bias,
+    const Tensor& A,
+    const Tensor& B) {
+  TENSOR_ON_CPU(bias);
+  TENSOR_ON_CPU(A);
+  TENSOR_ON_CPU(B);
+  TENSORS_ON_SAME_DEVICE(A, B);
+  TENSORS_ON_SAME_DEVICE(A, bias);
+  TENSOR_NDIM_EQUALS(A, 3);
+  TENSOR_NDIM_EQUALS(B, 3);
+
+  const auto m = A.size(0);
+  const auto batch_size = B.size(0);
+  const auto n = B.size(2);
+  const auto k = A.size(2);
+  TORCH_CHECK(B.size(0) == batch_size);
+  TORCH_CHECK(B.size(1) == k);
+  TORCH_CHECK(bias.size(0) == batch_size);
+  TORCH_CHECK(bias.size(1) == n);
+
+  auto output = at::empty({m, batch_size, n}, A.options());
+
+  auto A_permute = at::permute(A, {1, 0, 2});
+  auto bias_broadcast = at::unsqueeze(bias, 1);
+  output = at::permute(
+      at::baddbmm(bias_broadcast, A_permute, B, 1.0, 1.0), {1, 0, 2});
+
+  return output;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -2004,6 +2039,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_sparse_features(Tensor permute, Tensor lengths, Tensor indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
   m.def("Bfloat16QuantizedToFloat(Tensor input) -> Tensor");
   m.def("FloatToBfloat16Quantized(Tensor input) -> Tensor");
+  m.def(
+      "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2057,4 +2094,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_cpu);
   DISPATCH_TO_CPU(
       "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_cpu);
+  DISPATCH_TO_CPU(
+      "permute102_baddbmm_permute102",
+      fbgemm_gpu::permute102_baddbmm_permute102_cpu);
 }
