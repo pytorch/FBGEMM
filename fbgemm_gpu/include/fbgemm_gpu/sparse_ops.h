@@ -279,6 +279,32 @@ at::Tensor jagged_1d_to_dense_gpu(
     int64_t max_L,
     int64_t padding_value);
 
+at::Tensor jagged_1d_to_dense_cpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value);
+
+at::Tensor jagged_2d_to_dense_forward_cpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_L);
+
+at::Tensor jagged_2d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_sequence_length);
+
+at::Tensor jagged_2d_to_dense_gpu_forward(
+    at::Tensor values,
+    at::Tensor offsets,
+    int64_t max_sequence_length);
+
+at::Tensor jagged_2d_to_dense_gpu_backward(
+    at::Tensor grad_output,
+    at::Tensor offsets,
+    int64_t max_lengths);
+
 std::vector<at::Tensor> stacked_jagged_1d_to_dense_gpu(
     at::Tensor values,
     at::Tensor lengths,
