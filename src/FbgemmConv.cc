@@ -33,7 +33,7 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
       std::all_of(
                  conv_p.K.begin(),
                  conv_p.K.end(),
-                 [](int i) { return i == 3 || i == 5; }) &&
+                 [](int i) { return i == 3 || i == 5 || i == 7; }) &&
       std::all_of(
                  conv_p.dilation.begin(),
                  conv_p.dilation.end(),
