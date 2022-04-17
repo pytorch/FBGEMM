@@ -14,6 +14,7 @@ import time
 from typing import Callable, List, Optional, Tuple
 
 import click
+import fbgemm_gpu
 import numpy as np
 import torch
 
@@ -36,9 +37,20 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SplitTableBatchedEmbeddingBagsCodegen,
     IntNBitTableBatchedEmbeddingBagsCodegen,
     PoolingMode,
+    rounded_row_size_in_bytes,
 )
 from numpy.random import default_rng
 from torch import Tensor
+
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if open_source:
+    # pyre-ignore[21]
+    from bench_utils import benchmark_torch_function
+else:
+    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
+
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -2126,6 +2138,180 @@ def bounds_check_indices(  # noqa C901
         f"Bounds Check Indices:  B: {B}, "
         f"E: {E}, T: {T}, L: {L}, "
         f"BW: {(8 * B * T * L + 8 * (B * T + 1)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--num-tables", type=int, default=32)
+@click.option("--embedding-dim", type=int, default=248)
+@click.option("--num-embeddings", type=int, default=int(1e5))
+@click.option("--update-row-num", type=int, default=1e4)
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--iters", type=int, default=100)
+def emb_inplace_update(  # noqa C901
+    num_tables: int,
+    embedding_dim: int,
+    num_embeddings: int,
+    update_row_num: int,
+    weights_precision: SparseType,
+    output_dtype: SparseType,
+    iters: int,
+) -> None:
+    if open_source:
+        logging.warning("emb_inplace_update op benchmark doesn't support open source now!")
+        return
+
+    np.random.seed(42)
+    torch.manual_seed(42)
+
+    T = num_tables
+    D = embedding_dim
+    E = num_embeddings
+    N = update_row_num
+
+    D_alignment = max(weights_precision.align_size() for t in range(T))
+    D_alignment = max(D_alignment, output_dtype.align_size())
+    D = round_up(D, D_alignment)
+    Ds = [
+        round_up(
+            np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+            D_alignment,
+        )
+        for _ in range(T)
+    ]
+    Es = [E] * T
+    row_alignment = 16  # use_cpu = False -> only test CUDA function now
+
+    weights_ty_list = [weights_precision] * T
+    managed = [EmbeddingLocation.DEVICE] * T
+    embedding_specs = [
+        (
+            "",
+            E,
+            D,
+            W_TY,
+            EmbeddingLocation(M),
+        )
+        for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+    ]
+    op = IntNBitTableBatchedEmbeddingBagsCodegen(
+        embedding_specs=embedding_specs,
+        output_dtype=output_dtype,
+        device=torch.cuda.current_device(),
+    )
+    # Initilize the random weights for int nbit table split embedding bag
+    op.fill_random_weights()
+
+    update_table_idx = [np.random.randint(low=0, high=T) for _ in range(N)]
+    # Generate non-dup indices
+    table_map = {}
+    update_row_idx = []
+    for t in update_table_idx:
+        while True:
+            row_idx = np.random.randint(low=0, high=Es[t])
+            if t not in table_map or row_idx not in table_map[t]:
+                break
+        if t in table_map:
+            table_map[t].append(row_idx)
+        else:
+            table_map[t] = []
+        table_map[t].append(row_idx)
+        update_row_idx.append(row_idx)
+    update_weight_size = sum(
+        [
+            rounded_row_size_in_bytes(
+                Ds[t],
+                weights_ty_list[t],
+                row_alignment,
+            )
+            for t in update_table_idx
+        ]
+    )
+
+    update_weights = torch.randint(
+        low=0,
+        high=255,
+        size=(update_weight_size,),
+        dtype=torch.uint8,
+        device=torch.cuda.current_device(),
+    )
+
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = output_size_multiplier * N * D + param_size_multiplier * N * D
+
+    # Update op weights with the customized ops
+    op.embedding_inplace_update_internal(
+        update_table_idx,
+        update_row_idx,
+        update_weights,
+    )
+
+    time_per_iter, _ = benchmark_torch_function(
+        op.embedding_inplace_update_internal,
+        (update_table_idx, update_row_idx, update_weights),
+        iters=iters,
+    )
+
+    logging.info(
+        f"Emb inplace update (including H2D for metadata): "
+        f"T: {T}, D: {D}, E: {E}, N: {N}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+    update_offsets = []
+    update_offset = 0
+    for table_idx in update_table_idx:
+        D_bytes = rounded_row_size_in_bytes(
+            Ds[table_idx],
+            weights_ty_list[table_idx],
+            row_alignment,
+        )
+        update_offsets.append(update_offset)
+        update_offset += D_bytes
+    update_offsets.append(update_offset)
+
+    update_table_idx = torch.tensor(
+        update_table_idx,
+        device=torch.cuda.current_device(),
+        dtype=torch.int32,
+    )
+    update_row_idx = torch.tensor(
+        update_row_idx,
+        device=torch.cuda.current_device(),
+        dtype=torch.int32,
+    )
+    update_offsets = torch.tensor(
+        update_offsets,
+        device=torch.cuda.current_device(),
+        dtype=torch.int64,
+    )
+
+    time_per_iter, _ = benchmark_torch_function(
+        torch.ops.fbgemm.emb_inplace_update,
+        (
+            op.weights_dev,
+            op.weights_uvm,
+            op.weights_placements,
+            op.weights_offsets,
+            op.weights_tys,
+            op.D_offsets,
+            update_weights,
+            update_table_idx,
+            update_row_idx,
+            update_offsets,
+            16,  # row_alignment
+        ),
+        iters=iters,
+    )
+
+    logging.info(
+        f"Emb inplace update (pure device update op): "
+        f"T: {T}, D: {D}, E: {E}, N: {N}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
