@@ -24,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     RecordCacheMetrics,
     BoundsCheckMode,
     WeightDecayMode,
+    rounded_row_size_in_bytes,
 )
 
 
@@ -4096,6 +4097,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
             ]
         ),
+        test_internal=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_embedding_inplace_update(
@@ -4106,6 +4108,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         N: int,  # num of update rows per table
         weights_ty: SparseType,
         output_dtype: SparseType,
+        test_internal: bool,  # test with OSS op or internal customized op
     ) -> None:
         D_alignment = max(weights_ty.align_size(), output_dtype.align_size())
         D = round_up(D, D_alignment)
@@ -4120,6 +4123,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
         weights_ty_list = [weights_ty] * T
         locations = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+        if open_source:
+            test_internal = False
 
         # create two embedding bag op with random weights
         op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
@@ -4145,34 +4150,80 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # randomly generate update table and row indices
         update_table_indices = []
+        update_table_indices2 = []
         update_row_indices = []
+        update_row_indices2 = []
         for t in range(T):
             n = np.random.randint(low=0, high=N) if N > 0 else 0
             if n == 0:
                 continue
             update_table_indices.append(t)
-            update_row_indices.append(random.sample(range(Es[t]), n))
+            update_row_id_list = random.sample(range(Es[t]), n)
+            update_row_indices.append(update_row_id_list)
+            update_table_indices2.extend([t] * n)
+            update_row_indices2.extend(update_row_id_list)
 
         # generate update tensor based on weights from "op_ref" embedding table
         update_weights_list = []
         ref_split_weights = op_ref.split_embedding_weights(split_scale_shifts=False)
+
+        row_alignment = 16
+
+        update_weight_size = sum(
+            [
+                rounded_row_size_in_bytes(
+                    Ds[t],
+                    weights_ty_list[t],
+                    row_alignment,
+                )
+                for t in update_table_indices2
+            ]
+        )
+        update_weights_tensor2 = torch.randint(
+            low=0,
+            high=255,
+            size=(update_weight_size,),
+            dtype=torch.uint8,
+            device=torch.cuda.current_device(),
+        )
+
+        update_offsets = 0
         for i in range(len(update_table_indices)):
             table_idx = update_table_indices[i]
             (ref_weights, _) = ref_split_weights[table_idx]
+
+            D_bytes = rounded_row_size_in_bytes(
+                Ds[table_idx], weights_ty_list[table_idx], row_alignment
+            )
+
             update_weights = []
             for row_idx in update_row_indices[i]:
                 update_weights.append(ref_weights[row_idx].tolist())
+                update_weights_tensor2[
+                    update_offsets : update_offsets + D_bytes
+                ] = ref_weights[row_idx]
+                update_offsets += D_bytes
+
             update_weights_tensor = torch.tensor(
                 update_weights, device=torch.cuda.current_device(), dtype=torch.uint8
             )
             update_weights_list.append(update_weights_tensor)
 
         # run inplace update on "op" embedding table
-        op.embedding_inplace_update(
-            update_table_indices,
-            update_row_indices,
-            update_weights_list,
-        )
+        if not test_internal:
+            # Test scatter_ based OSS solution
+            op.embedding_inplace_update(
+                update_table_indices,
+                update_row_indices,
+                update_weights_list,
+            )
+        else:
+            # Test customized op
+            op.embedding_inplace_update_internal(
+                update_table_indices2,
+                update_row_indices2,
+                update_weights_tensor2,
+            )
 
         # verify weights are equal with "op_ref" for the updated rows in "op"
         split_weights = op.split_embedding_weights(split_scale_shifts=False)
