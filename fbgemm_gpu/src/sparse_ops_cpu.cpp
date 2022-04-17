@@ -440,11 +440,11 @@ void _bucketize_sparse_features_cpu(
     c10::optional<at::Tensor> new_pos) {
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
-  TENSOR_ON_CPU(weights);
+  TENSOR_EMPTY_OR_ON_CPU(weights);
   TENSOR_ON_CPU(new_lengths);
   TENSOR_ON_CPU(new_indices);
-  TENSOR_ON_CPU(new_weights);
-  TENSOR_ON_CPU(new_pos);
+  TENSOR_EMPTY_OR_ON_CPU(new_weights);
+  TENSOR_EMPTY_OR_ON_CPU(new_pos);
   using uindex_t = std::make_unsigned_t<index_t>;
 
   // allocate tensors and buffers

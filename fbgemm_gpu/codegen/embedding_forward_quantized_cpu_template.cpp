@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <immintrin.h>
 #include <emmintrin.h>
@@ -40,6 +41,12 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets) {
+    TENSOR_ON_CPU(indices);
+    TENSOR_ON_CPU(dense_indices);
+    TENSOR_ON_CPU(offsets);
+    TENSOR_ON_CPU(hash_table);
+    TENSOR_ON_CPU(hash_table_offsets);
+
     int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
@@ -111,6 +118,18 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     int64_t output_dtype,
     int64_t unused
 ) {
+    TENSOR_ON_CPU(dev_weights);
+    TENSOR_ON_CPU(uvm_weights);
+    TENSOR_ON_CPU(weights_placements);
+    TENSOR_ON_CPU(weights_offsets);
+    TENSOR_ON_CPU(weights_tys);
+    TENSOR_ON_CPU(D_offsets);
+    TENSOR_ON_CPU(indices);
+    TENSOR_ON_CPU(offsets);
+    {% if weighted %}
+    TENSOR_EMPTY_OR_ON_CPU(indice_weights);
+    {% endif %}
+
     int32_t T = D_offsets.numel() - 1;
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
@@ -307,6 +326,11 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets) {
+    TENSOR_ON_CPU(indices);
+    TENSOR_ON_CPU(offsets);
+    TENSOR_ON_CPU(hash_table);
+    TENSOR_ON_CPU(hash_table_offsets);
+
     int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
@@ -365,6 +389,11 @@ Tensor pruned_array_lookup_cpu(
     Tensor offsets,
     Tensor index_remappings,
     Tensor index_remappings_offsets) {
+    TENSOR_ON_CPU(indices);
+    TENSOR_ON_CPU(offsets);
+    TENSOR_ON_CPU(index_remappings);
+    TENSOR_ON_CPU(index_remappings_offsets);
+
     int32_t T = index_remappings_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
