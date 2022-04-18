@@ -27,6 +27,9 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update"
     )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update_cpu"
+    )
 
 ASSOC = 32
 # Maximum number of times prefetch() can be called without
@@ -1621,7 +1624,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
-        ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        ), "CPU device requires EmbeddingLocation.HOST for location!"
 
         T_ = len(self.embedding_specs)
         assert T_ > 0
@@ -2466,7 +2469,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         # Internal function for now
         torch.ops.fbgemm.emb_inplace_update(
-            dev_weights=self.weights_dev,
+            dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
             uvm_weights=self.weights_uvm,
             weights_placements=self.weights_placements,
             weights_offsets=self.weights_offsets,
@@ -2476,5 +2479,5 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_table_indices=update_table_indices,
             update_row_indices=update_row_indices,
             update_offsets=update_offsets,
-            row_alignment=16,
+            row_alignment=self.row_alignment,
         )
