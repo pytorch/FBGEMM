@@ -9,9 +9,12 @@
 
 #include <ATen/ATen.h>
 
+inline bool torch_tensor_on_cpu_check(const at::Tensor& ten) {
+  return ten.is_cpu();
+}
+
 inline bool torch_tensor_on_cpu_check(const c10::optional<at::Tensor>& ten) {
-  return !ten.has_value() ||
-      !ten->is_cuda(); // TODO: Should be a better way to do this
+  return !ten.has_value() || torch_tensor_on_cpu_check(ten.value());
 }
 
 inline std::string torch_tensor_device_name(const at::Tensor& ten) {
@@ -21,7 +24,7 @@ inline std::string torch_tensor_device_name(const at::Tensor& ten) {
 inline std::string torch_tensor_device_name(
     const c10::optional<at::Tensor>& ten) {
   if (ten.has_value()) {
-    return c10::DeviceTypeName(ten->device().type());
+    return torch_tensor_device_name(ten.value());
   } else {
     return "No device: optional tensor unused.";
   }
@@ -45,7 +48,7 @@ inline bool torch_tensor_on_cuda_gpu_check(const at::Tensor& ten) {
 
 inline bool torch_tensor_on_cuda_gpu_check(
     const c10::optional<at::Tensor>& ten) {
-  return !ten.has_value() || ten->is_cuda();
+  return !ten.has_value() || torch_tensor_on_cuda_gpu_check(ten.value());
 }
 
 inline bool torch_tensor_empty_or_on_cuda_gpu_check(const at::Tensor& ten) {
@@ -54,7 +57,17 @@ inline bool torch_tensor_empty_or_on_cuda_gpu_check(const at::Tensor& ten) {
 
 inline bool torch_tensor_empty_or_on_cuda_gpu_check(
     const c10::optional<at::Tensor>& ten) {
-  return !ten.has_value() || (ten->numel() == 0) || ten->is_cuda();
+  return !ten.has_value() ||
+      torch_tensor_empty_or_on_cuda_gpu_check(ten.value());
+}
+
+inline bool torch_tensor_empty_or_on_cpu_check(const at::Tensor& ten) {
+  return (ten.numel() == 0) || ten.is_cpu();
+}
+
+inline bool torch_tensor_empty_or_on_cpu_check(
+    const c10::optional<at::Tensor>& ten) {
+  return !ten.has_value() || torch_tensor_empty_or_on_cpu_check(ten.value());
 }
 
 #define DISPATCH_TO_CUDA(name, function) \
@@ -70,6 +83,12 @@ inline bool torch_tensor_empty_or_on_cuda_gpu_check(
   TORCH_CHECK(                                                \
       torch_tensor_on_cpu_check(x),                           \
       #x " must be a CPU tensor; it is currently on device ", \
+      torch_tensor_device_name(x))
+
+#define TENSOR_EMPTY_OR_ON_CPU(x)                                      \
+  TORCH_CHECK(                                                         \
+      torch_tensor_empty_or_on_cpu_check(x),                           \
+      #x " must be empty or a CPU tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
 #define TENSORS_HAVE_SAME_TYPE(x, y)                       \

@@ -14,7 +14,7 @@ TEST(tensor_assert_test, gpu_asserts) {
   at::Tensor on_cpu_empty;
 
   ASSERT_EQ(on_cpu_empty.numel(), 0);
-  EXPECT_NO_THROW(TENSOR_ON_CPU(on_cpu_empty));
+  EXPECT_NO_THROW(TENSOR_EMPTY_OR_ON_CPU(on_cpu_empty));
   ASSERT_TRUE(torch_tensor_empty_or_on_cuda_gpu_check(on_cpu_empty));
   EXPECT_NO_THROW(TENSOR_EMPTY_OR_ON_CUDA_GPU(on_cpu_empty));
   EXPECT_ANY_THROW(TENSOR_ON_CUDA_GPU(on_cpu_empty));
