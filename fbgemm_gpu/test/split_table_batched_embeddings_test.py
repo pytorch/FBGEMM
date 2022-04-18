@@ -4097,6 +4097,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
             ]
         ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         test_internal=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -4108,6 +4109,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         N: int,  # num of update rows per table
         weights_ty: SparseType,
         output_dtype: SparseType,
+        use_cpu: bool,
         test_internal: bool,  # test with OSS op or internal customized op
     ) -> None:
         D_alignment = max(weights_ty.align_size(), output_dtype.align_size())
@@ -4121,19 +4123,27 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ]
         E = int(10 ** log_E)
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+        row_alignment = 1 if use_cpu else 16
+        current_device = "cpu" if use_cpu else torch.cuda.current_device()
+        location = (
+            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+            if use_cpu
+            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+        )
+
         weights_ty_list = [weights_ty] * T
-        locations = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         if open_source:
             test_internal = False
 
         # create two embedding bag op with random weights
+        locations = [location] * T
         op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 ("", E, D, W_TY, L)
                 for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
             ],
             output_dtype=output_dtype,
-            device=torch.cuda.current_device(),
+            device=current_device,
         )
         op.fill_random_weights()
         op_ref = (
@@ -4143,7 +4153,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
                 ],
                 output_dtype=output_dtype,
-                device=torch.cuda.current_device(),
+                device=current_device,
             )
         )
         op_ref.fill_random_weights()
@@ -4167,8 +4177,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         update_weights_list = []
         ref_split_weights = op_ref.split_embedding_weights(split_scale_shifts=False)
 
-        row_alignment = 16
-
         update_weight_size = sum(
             [
                 rounded_row_size_in_bytes(
@@ -4184,7 +4192,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             high=255,
             size=(update_weight_size,),
             dtype=torch.uint8,
-            device=torch.cuda.current_device(),
+            device=current_device,
         )
 
         update_offsets = 0
@@ -4205,7 +4213,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 update_offsets += D_bytes
 
             update_weights_tensor = torch.tensor(
-                update_weights, device=torch.cuda.current_device(), dtype=torch.uint8
+                update_weights, device=current_device, dtype=torch.uint8
             )
             update_weights_list.append(update_weights_tensor)
 
