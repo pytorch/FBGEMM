@@ -8,7 +8,6 @@
 #include <immintrin.h>
 #include "./TransposeUtils.h"
 #include "./TransposeUtilsAvx2.h"
-
 namespace fbgemm {
 
 namespace {
@@ -680,6 +679,118 @@ static inline void core_transpose_16x32_block_i8(__m512i r[], __m512i u[]) {
   u[7] = _mm512_permutex2var_epi32(r[3], const2, r[7]);
 }
 
+static inline void core_transpose_16x16_block(__m512i r[], __m512i u[]) {
+  // a0a1 b0b1 a2a3 b2b3 a8a9 b8b9 a10a11 b10b11   e0e1 f0f1 e2e3 f2f3 e8e9 f8f9
+  // e10e11 f10f11
+  u[0] = _mm512_unpacklo_epi32(r[0], r[1]);
+  // a4a5 b4b5 a6a7 b6b7 a12a13 b12b13 a14a15 b14b15   e4e5 f4f5 e6e7 f6f7
+  // e12e13 f12f13 e14e15 f14f15
+  u[1] = _mm512_unpackhi_epi32(r[0], r[1]);
+  // c0c1 d0d1 c2c3 d2d3 c8c9 d8d9 c10c11 d10d11   g0g1 h0h1 g2g3 h2h3 g8g9 h8h9
+  // g10g11 h10h11
+  u[2] = _mm512_unpacklo_epi32(r[2], r[3]);
+  // c4c5 d4b5 c6c7 d6b7 c12c13 d12d13 c14c15 d14d15   g4g5 h4h5 g6g7 h6h7
+  // g12g13 h12h13 g14g15 h14h15
+  u[3] = _mm512_unpackhi_epi32(r[2], r[3]);
+  // i j  m n
+  u[4] = _mm512_unpacklo_epi32(r[4], r[5]);
+  u[5] = _mm512_unpackhi_epi32(r[4], r[5]);
+  // k l  o p
+  u[6] = _mm512_unpacklo_epi32(r[6], r[7]);
+  u[7] = _mm512_unpackhi_epi32(r[6], r[7]);
+
+  // a0a1 b0b1 c0c1 d0d1 a8a9 b8b9 c8c9 d8d9  e0e1 f0f1 g0g1 h0h1 e8e9 f8f9 g8g9
+  // h8h9
+  r[0] = _mm512_unpacklo_epi64(u[0], u[2]);
+  // a2a3 b2b3 c2c3 d2d3 a10a11 b10b11 c10c11 d10d11  e2e3 f2f3 g2g3 h2h3 e10e11
+  // f10f11 g10g11 h10h11
+  r[1] = _mm512_unpackhi_epi64(u[0], u[2]);
+  // a4a5 b4b5 c4c5 d4b5 a12a13 b12b13 c12c13 d12d13
+  r[2] = _mm512_unpacklo_epi64(u[1], u[3]);
+  // a6a7 b6b7 c6c7 d6b7 a14a15 b14b15 c14c15 d14d15
+  r[3] = _mm512_unpackhi_epi64(u[1], u[3]);
+  // i j k l m n o p
+  r[4] = _mm512_unpacklo_epi64(u[4], u[6]);
+  r[5] = _mm512_unpackhi_epi64(u[4], u[6]);
+  r[6] = _mm512_unpacklo_epi64(u[5], u[7]);
+  r[7] = _mm512_unpackhi_epi64(u[5], u[7]);
+
+  __m512i const1 = _mm512_set_epi32(
+      0x00370035,
+      0x00330031,
+      0x00270025,
+      0x00230021,
+      0x00170015,
+      0x00130011,
+      0x00070005,
+      0x00030001,
+      0x00360034,
+      0x00320030,
+      0x00260024,
+      0x00220020,
+      0x00160014,
+      0x00120010,
+      0x00060004,
+      0x00020000);
+  __m512i const2 = _mm512_set_epi32(
+      0x003f003d,
+      0x003b0039,
+      0x002f002d,
+      0x002b0029,
+      0x001f001d,
+      0x001b0019,
+      0x000f000d,
+      0x000b0009,
+      0x003e003c,
+      0x003a0038,
+      0x002e002c,
+      0x002a0028,
+      0x001e001c,
+      0x001a0018,
+      0x000e000c,
+      0x000a0008);
+
+  // merge values from two regs
+  u[0] = _mm512_permutex2var_epi16(r[0], const1, r[4]); // 0-- 1--
+  u[4] = _mm512_permutex2var_epi16(r[0], const2, r[4]); // 8-- 9--
+  u[2] = _mm512_permutex2var_epi16(r[2], const1, r[6]); // 4-- 5--
+  u[6] = _mm512_permutex2var_epi16(r[2], const2, r[6]); // 12-- 13--
+  u[1] = _mm512_permutex2var_epi16(r[1], const1, r[5]); // 2-- 3--
+  u[5] = _mm512_permutex2var_epi16(r[1], const2, r[5]); // 10-- 11--
+  u[3] = _mm512_permutex2var_epi16(r[3], const1, r[7]); // 6-- 7--
+  u[7] = _mm512_permutex2var_epi16(r[3], const2, r[7]); // 14-- 15--
+}
+
+static inline void load_with_remainders_i16(
+    const uint16_t* src,
+    int ld_src,
+    __m512i r[],
+    int mrem,
+    int nrem) {
+  __m512i t[16];
+  if (nrem < 16) {
+    __mmask32 mask_nrem_v = (((long long)1) << nrem) - 1;
+    for (int i = 0; i < mrem; ++i) {
+      // mask load
+      t[i] = _mm512_maskz_loadu_epi16(mask_nrem_v, src + i * ld_src);
+    }
+  } else {
+    for (int i = 0; i < mrem; ++i) {
+      // normal load
+      t[i] = _mm512_castsi256_si512(_mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(src + i * ld_src)));
+    }
+  }
+  r[0] = _mm512_inserti64x4(t[0], _mm512_castsi512_si256(t[4]), 0x01);
+  r[1] = _mm512_inserti64x4(t[1], _mm512_castsi512_si256(t[5]), 0x01);
+  r[2] = _mm512_inserti64x4(t[2], _mm512_castsi512_si256(t[6]), 0x01);
+  r[3] = _mm512_inserti64x4(t[3], _mm512_castsi512_si256(t[7]), 0x01);
+  r[4] = _mm512_inserti64x4(t[8], _mm512_castsi512_si256(t[12]), 0x01);
+  r[5] = _mm512_inserti64x4(t[9], _mm512_castsi512_si256(t[13]), 0x01);
+  r[6] = _mm512_inserti64x4(t[10], _mm512_castsi512_si256(t[14]), 0x01);
+  r[7] = _mm512_inserti64x4(t[11], _mm512_castsi512_si256(t[15]), 0x01);
+}
+
 static inline void load_with_remainders_i8(
     const uint8_t* src,
     int ld_src,
@@ -708,6 +819,56 @@ static inline void load_with_remainders_i8(
   r[5] = _mm512_inserti64x4(t[9], _mm512_castsi512_si256(t[13]), 0x01);
   r[6] = _mm512_inserti64x4(t[10], _mm512_castsi512_si256(t[14]), 0x01);
   r[7] = _mm512_inserti64x4(t[11], _mm512_castsi512_si256(t[15]), 0x01);
+}
+
+static inline void store_with_remainders_i16(
+    uint16_t* dst,
+    int ld_dst,
+    __m512i u[],
+    int mrem,
+    int nrem) {
+  if (mrem < 16) {
+    __mmask32 mask_mrem_v = (((long long)1) << mrem) - 1;
+    int i = 0;
+
+    for (; i < nrem / 2 * 2; i += 2) {
+      // mask store
+      int reg_idx = i / 2;
+      _mm512_mask_storeu_epi16(
+          dst + (i + 0) * ld_dst,
+          mask_mrem_v,
+          _mm512_castsi256_si512(_mm512_extracti32x8_epi32(u[reg_idx], 0x0)));
+      _mm512_mask_storeu_epi16(
+          dst + (i + 1) * ld_dst,
+          mask_mrem_v,
+          _mm512_castsi256_si512(_mm512_extracti32x8_epi32(u[reg_idx], 0x1)));
+    }
+    if (i < nrem) {
+      int reg_idx = i / 2;
+      _mm512_mask_storeu_epi16(
+          dst + (i + 0) * ld_dst,
+          mask_mrem_v,
+          _mm512_castsi256_si512(_mm512_extracti32x8_epi32(u[reg_idx], 0x0)));
+    }
+  } else {
+    int i = 0;
+    for (; i < nrem / 2 * 2; i += 2) {
+      // normal store
+      int reg_idx = i / 2;
+      _mm256_storeu_si256(
+          reinterpret_cast<__m256i*>(dst + (i + 0) * ld_dst),
+          _mm512_extracti32x8_epi32(u[reg_idx], 0x0));
+      _mm256_storeu_si256(
+          reinterpret_cast<__m256i*>(dst + (i + 1) * ld_dst),
+          _mm512_extracti32x8_epi32(u[reg_idx], 0x1));
+    }
+    if (i < nrem) {
+      int reg_idx = i / 2;
+      _mm256_storeu_si256(
+          reinterpret_cast<__m256i*>(dst + (i + 0) * ld_dst),
+          _mm512_extracti32x8_epi32(u[reg_idx], 0x0));
+    }
+  }
 }
 
 static inline void store_with_remainders_i8(
@@ -833,6 +994,138 @@ static inline void store_with_remainders_i8(
       default:
         break;
     }
+  }
+}
+
+template <bool MREM = false, bool NREM = false>
+void transpose_16x16_block(
+    const uint16_t* src,
+    int ld_src,
+    uint16_t* dst,
+    int ld_dst,
+    int mrem = 16,
+    int nrem = 16) {
+  __m512i r[8];
+  if (MREM || NREM) {
+    load_with_remainders_i16(src, ld_src, r, mrem, nrem);
+  } else {
+    __m256i t00 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 0 * ld_src));
+    __m256i t04 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 4 * ld_src));
+    // a0a1 a2a3 a4a5 a6a7 a8a9 a10a11 a12a13 a14a15
+    // e0e1 e2e3 e4e5 e6e7 e8e9 e10e11 e12e13 e14e15
+    r[0] = _mm512_inserti64x4(_mm512_castsi256_si512(t00), t04, 0x01);
+
+    __m256i t01 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 1 * ld_src));
+    __m256i t05 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 5 * ld_src));
+    // b0-b15
+    // f0-f15
+    r[1] = _mm512_inserti64x4(_mm512_castsi256_si512(t01), t05, 0x01);
+
+    __m256i t02 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
+    __m256i t06 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 6 * ld_src));
+    // c0-c15
+    // g0-g15
+    r[2] = _mm512_inserti64x4(_mm512_castsi256_si512(t02), t06, 0x01);
+
+    __m256i t03 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
+    __m256i t07 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 7 * ld_src));
+    // d0-d15
+    // g0-h15
+    r[3] = _mm512_inserti64x4(_mm512_castsi256_si512(t03), t07, 0x01);
+
+    __m256i t08 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 8 * ld_src));
+    __m256i t12 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 12 * ld_src));
+    // i0-i15
+    // m0-m15
+    r[4] = _mm512_inserti64x4(_mm512_castsi256_si512(t08), t12, 0x01);
+
+    __m256i t09 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 9 * ld_src));
+    __m256i t13 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 13 * ld_src));
+    // j0-j15
+    // n0-n15
+    r[5] = _mm512_inserti64x4(_mm512_castsi256_si512(t09), t13, 0x01);
+
+    __m256i t10 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 10 * ld_src));
+    __m256i t14 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 14 * ld_src));
+    // k0-k15
+    // o0-o15
+    r[6] = _mm512_inserti64x4(_mm512_castsi256_si512(t10), t14, 0x01);
+
+    __m256i t11 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 11 * ld_src));
+    __m256i t15 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 15 * ld_src));
+    // l0-l15
+    // p0-p15
+    r[7] = _mm512_inserti64x4(_mm512_castsi256_si512(t11), t15, 0x01);
+  }
+  __m512i u[8];
+  core_transpose_16x16_block(r, u);
+  if (MREM || NREM) {
+    store_with_remainders_i16(dst, ld_dst, u, mrem, nrem);
+  } else {
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 0 * ld_dst),
+        _mm512_extracti32x8_epi32(u[0], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 1 * ld_dst),
+        _mm512_extracti32x8_epi32(u[0], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 2 * ld_dst),
+        _mm512_extracti32x8_epi32(u[1], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 3 * ld_dst),
+        _mm512_extracti32x8_epi32(u[1], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 4 * ld_dst),
+        _mm512_extracti32x8_epi32(u[2], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 5 * ld_dst),
+        _mm512_extracti32x8_epi32(u[2], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 6 * ld_dst),
+        _mm512_extracti32x8_epi32(u[3], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 7 * ld_dst),
+        _mm512_extracti32x8_epi32(u[3], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 8 * ld_dst),
+        _mm512_extracti32x8_epi32(u[4], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 9 * ld_dst),
+        _mm512_extracti32x8_epi32(u[4], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 10 * ld_dst),
+        _mm512_extracti32x8_epi32(u[5], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 11 * ld_dst),
+        _mm512_extracti32x8_epi32(u[5], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 12 * ld_dst),
+        _mm512_extracti32x8_epi32(u[6], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 13 * ld_dst),
+        _mm512_extracti32x8_epi32(u[6], 0x01));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 14 * ld_dst),
+        _mm512_extracti32x8_epi32(u[7], 0x0));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(dst + 15 * ld_dst),
+        _mm512_extracti32x8_epi32(u[7], 0x01));
   }
 }
 
@@ -1035,6 +1328,43 @@ void transpose_16x32_block(
     _mm_storeu_si128(
         reinterpret_cast<__m128i*>(dst + 31 * ld_dst),
         _mm512_extracti32x4_epi32(u[7], 0x3));
+  }
+}
+
+template <>
+void transpose_avx512(
+    const int64_t M,
+    const int64_t N,
+    const uint16_t* src,
+    unsigned ld_src,
+    uint16_t* dst,
+    unsigned ld_dst) {
+  int i = 0;
+  for (; i < M / 16 * 16; i += 16) {
+    int j = 0;
+    for (; j < N / 16 * 16; j += 16) {
+      transpose_16x16_block<false, false>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst);
+    }
+    // handle j rem
+    int nrem = N - j;
+    if (nrem > 0) {
+      transpose_16x16_block<false, true>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, 16, nrem);
+    }
+  }
+  // handle i rem
+  int mrem = M - i;
+  if (mrem > 0) {
+    int j = 0;
+    for (; j < N / 16 * 16; j += 16) {
+      transpose_16x16_block<true, false>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, 16);
+    }
+    // handle j rem
+    int nrem = N - j;
+    transpose_16x16_block<true, true>(
+        src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, nrem);
   }
 }
 

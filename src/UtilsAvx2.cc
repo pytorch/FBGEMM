@@ -294,6 +294,45 @@ void transpose_avx2(
       break;
   }
 }
+
+template <>
+void transpose_avx2(
+    unsigned M,
+    unsigned N,
+    const uint16_t* src,
+    unsigned ld_src,
+    uint16_t* dst,
+    unsigned ld_dst) {
+  unsigned i = 0;
+  for (; i < M / 8 * 8; i += 8) {
+    unsigned j = 0;
+    for (; j < N / 16 * 16; j += 16) {
+      transpose_kernel_8x16_avx2<false, false>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst);
+    }
+    // handle j rem
+    unsigned nrem = N - j;
+    if (nrem > 0) {
+      transpose_kernel_8x16_avx2<false, true>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, 8, nrem);
+    }
+  }
+
+  // handle i rem
+  unsigned mrem = M - i;
+  if (mrem > 0) {
+    unsigned j = 0;
+    for (; j < N / 16 * 16; j += 16) {
+      transpose_kernel_8x16_avx2<true, false>(
+          src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, 16);
+    }
+    // handle j rem
+    unsigned nrem = N - j;
+    transpose_kernel_8x16_avx2<true, true>(
+        src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, nrem);
+  }
+}
+
 } // namespace internal
 
 } // namespace fbgemm
