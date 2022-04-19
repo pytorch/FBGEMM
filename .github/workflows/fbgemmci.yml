@@ -242,6 +242,8 @@ jobs:
         python input_combine_test.py
         python quantize_ops_test.py
         python sparse_ops_test.py
+        python -c "import fbgemm_gpu"
+        python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}
