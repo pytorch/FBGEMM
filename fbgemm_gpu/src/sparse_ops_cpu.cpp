@@ -1543,62 +1543,6 @@ void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
   }
 }
 
-template <typename T>
-void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
-    const int64_t num_logits,
-    const int64_t num_bins,
-    const int64_t num_segments,
-    const int64_t num_lengths,
-    const double recalibrate_value,
-    const int64_t bin_ctr_in_use_after,
-    const double bin_ctr_weight_value,
-    const T* const logit_data,
-    const int64_t* const segment_value_data,
-    const int64_t* const segment_lengths_data,
-    const double* const bin_num_examples_data,
-    const double* const bin_num_positives_data,
-    const double* const bin_boundaries,
-    int64_t* const dense_segment_value_data,
-    T* const calibrated_prediction_data,
-    int64_t* const bin_ids_data) {
-  int k = 0;
-  for (const auto i : c10::irange(num_lengths)) {
-    if (segment_lengths_data[i] > 0) {
-      // Add 1 to distinguish between 0 inserted by densification vs. original
-      // value.
-      dense_segment_value_data[i] = segment_value_data[k] + 1;
-      ++k;
-    }
-  }
-
-  for (const auto i : c10::irange(num_logits)) {
-    const T pre_sigmoid = logit_data[i] + recalibrate_value;
-    const double uncalibrated = 1.0 / (1.0 + std::exp(-pre_sigmoid));
-
-    const int curr_bin_id =
-        std::lower_bound(
-            bin_boundaries, bin_boundaries + num_bins, uncalibrated) -
-        bin_boundaries;
-
-    const int64_t curr_segment_value =
-        dense_segment_value_data[i] > num_segments
-        ? 0
-        : std::max(0L, dense_segment_value_data[i] * num_bins);
-
-    bin_ids_data[i] = curr_bin_id + curr_segment_value;
-
-    const auto curr_bin_num_examples = bin_num_examples_data[bin_ids_data[i]];
-    if (curr_bin_num_examples > bin_ctr_in_use_after) {
-      const auto curr_bin_ctr =
-          bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
-      calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-          uncalibrated * (1.0 - bin_ctr_weight_value);
-    } else {
-      calibrated_prediction_data[i] = uncalibrated;
-    }
-  }
-}
-
 std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
     const Tensor& logit,
     const Tensor& segment_value,
@@ -1623,31 +1567,51 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
 
   // dense_segment_value is used as a temporary storage.
   Tensor dense_segment_value =
-      at::zeros({logit.numel()}, segment_value.options());
+      at::empty({logit.numel()}, segment_value.options());
+  AT_DISPATCH_INDEX_TYPES(
+      segment_value.scalar_type(), "to_dense_representation_cpu_wrapper", [&] {
+        using segment_value_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            segment_lengths.scalar_type(), "to_dense_representation_cpu", [&] {
+              using segment_length_t = index_t;
+              _to_dense_representation<segment_value_t, segment_length_t>(
+                  segment_lengths.numel(),
+                  segment_value.data_ptr<segment_value_t>(),
+                  segment_lengths.data_ptr<segment_length_t>(),
+                  dense_segment_value.data_ptr<segment_value_t>());
+            });
+      });
+
   Tensor calibrated_prediction = at::empty_like(logit);
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       logit.type(),
-      "generic_histogram_binning_calibration_by_feature_cpu",
-      [&]() {
-        _generic_histogram_binning_calibration_by_feature_cpu_kernel<scalar_t>(
-            logit.numel(),
-            bin_boundaries.numel() + 1,
-            num_segments,
-            segment_lengths.numel(),
-            recalibrate_value,
-            bin_ctr_in_use_after,
-            bin_ctr_weight_value,
-            logit.data_ptr<scalar_t>(),
-            segment_value.data_ptr<int64_t>(),
-            segment_lengths.data_ptr<int64_t>(),
-            bin_num_examples.data_ptr<double>(),
-            bin_num_positives.data_ptr<double>(),
-            bin_boundaries.data_ptr<double>(),
-            dense_segment_value.data_ptr<int64_t>(),
-            calibrated_prediction.data_ptr<scalar_t>(),
-            bin_ids.data_ptr<int64_t>());
+      "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
+      [&] {
+        using logit_t = scalar_t;
+        AT_DISPATCH_INDEX_TYPES(
+            segment_value.scalar_type(),
+            "generic_histogram_binning_calibration_by_feature_cpu",
+            [&] {
+              using segment_value_t = index_t;
+              _generic_histogram_binning_calibration_by_feature_cpu_kernel<
+                  logit_t,
+                  segment_value_t>(
+                  logit.numel(),
+                  bin_boundaries.numel() + 1,
+                  num_segments,
+                  recalibrate_value,
+                  bin_ctr_in_use_after,
+                  bin_ctr_weight_value,
+                  logit.data_ptr<logit_t>(),
+                  dense_segment_value.data_ptr<segment_value_t>(),
+                  bin_num_examples.data_ptr<double>(),
+                  bin_num_positives.data_ptr<double>(),
+                  bin_boundaries.data_ptr<double>(),
+                  calibrated_prediction.data_ptr<logit_t>(),
+                  bin_ids.data_ptr<int64_t>());
+            });
       });
 
   return std::make_tuple(calibrated_prediction, bin_ids);

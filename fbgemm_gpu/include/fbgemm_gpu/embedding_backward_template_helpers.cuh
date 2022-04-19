@@ -25,8 +25,11 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
+#if !defined(NEW_ATOMIC_PATH)
 #include <THC/THCAtomics.cuh>
-
+#else
+#include <ATen/cuda/Atomic.cuh>
+#endif
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
