@@ -1807,11 +1807,11 @@ class SparseOpsTest(unittest.TestCase):
         # dense -> jagged (op which is being tested)
         if precompute_total_L:
             total_L = values_2d.size(0)
-            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
                 dense, offsets, total_L
             )
         else:
-            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
                 dense, offsets
             )
 

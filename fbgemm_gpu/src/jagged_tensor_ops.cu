@@ -525,72 +525,25 @@ Tensor jagged_to_padded_dense(
       values, offsets, max_lengths, padding_value)[0];
 }
 
-class JaggedDenseAddGPUOp
-    : public torch::autograd::Function<JaggedDenseAddGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& x_values,
-      const std::vector<Tensor>& x_offsets,
-      const Tensor& y) {
-    ctx->save_for_backward(x_offsets);
-    ctx->saved_data["x_values_shape"] = x_values.sizes();
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(x_values.get_device());
-
-    Tensor output;
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values.scalar_type(), "jagged_dense_add_forward", [&] {
-          output = jagged_dense_elementwise_dense_output_<scalar_t>(
-              x_values,
-              x_offsets,
-              y,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x + y;
-              });
-        });
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    auto offsets = ctx->get_saved_variables();
-    auto x_values_shape = ctx->saved_data["x_values_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad_outputs[0].get_device());
-
-    Tensor x_values_grad = at::zeros(x_values_shape, grad_outputs[0].options());
-
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values_grad.scalar_type(), "jagged_dense_add_backward", [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              x_values_grad, // dummy not used in the lambda function
-              offsets,
-              grad_outputs[0],
-              x_values_grad,
-              [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
-                return y;
-              });
-        });
-
-    return {
-        x_values_grad,
-        torch::autograd::Variable(), // x_offsets
-        grad_outputs[0]};
-  }
-};
-
 // output = x + y where x is jagged, y and output are dense
 Tensor jagged_dense_elementwise_add(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  return JaggedDenseAddGPUOp::apply(x_values, x_offsets, y)[0];
+  // Construct max_lengths from y
+  std::vector<int64_t> max_lengths;
+  max_lengths.reserve(x_offsets.size());
+  for (int d = 1; d < y.dim() - 1; d++) {
+    max_lengths.push_back(y.size(d));
+  }
+  TORCH_CHECK(max_lengths.size() == x_offsets.size());
+
+  // Convert x to dense (assume padding is 0.0)
+  auto xd = JaggedToPaddedDenseGPUOp::apply(
+      x_values, x_offsets, max_lengths, /* padding_value */ 0.0)[0];
+
+  auto dense_output = xd + y;
+  return dense_output;
 }
 
 class DenseToJaggedGPUOp
@@ -666,75 +619,20 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
   return {DenseToJaggedGPUOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
-// Unlike JaggedDenseAddGPUOp that treats "zeros" as zeros so adding with
-// a dense tensor results in a dense tensor, this operator treats "zeros" as
-// undefined so resulting a jagged tensor.
-class JaggedDenseAddJaggedOutputGPUOp
-    : public torch::autograd::Function<JaggedDenseAddJaggedOutputGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& x_values,
-      const std::vector<Tensor>& x_offsets,
-      const Tensor& y) {
-    ctx->save_for_backward(x_offsets);
-    ctx->saved_data["y_shape"] = y.sizes();
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(x_values.get_device());
-
-    // Initialize with jagged input so output will have the same value as the
-    // jagged tensor if there's no corresponding value in the dense tensor.
-    Tensor output = x_values.clone();
-
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values.scalar_type(), "jagged_dense_add_forward", [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              x_values,
-              x_offsets,
-              y,
-              output,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x + y;
-              });
-        });
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    auto offsets = ctx->get_saved_variables();
-    auto y_shape = ctx->saved_data["y_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad_outputs[0].get_device());
-
-    Tensor y_values_grad = jagged_to_padded_dense(
-        grad_outputs[0],
-        offsets,
-        std::vector<int64_t>(y_shape.begin() + 1, y_shape.end() - 1),
-        /*padding_value=*/0);
-    TORCH_CHECK(y_values_grad.sizes() == y_shape);
-
-    return {
-        grad_outputs[0],
-        torch::autograd::Variable(), // x_offsets
-        y_values_grad};
-  }
-};
-
 // output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>>
 jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  return {
-      JaggedDenseAddJaggedOutputGPUOp::apply(x_values, x_offsets, y)[0],
-      x_offsets};
+  // Convert to jagged
+  auto jagged_values =
+      DenseToJaggedGPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
+
+  // Add jagged_values + x_values -> sum_values
+  auto sum_values = x_values + jagged_values;
+
+  return {sum_values, x_offsets};
 }
 
 /**
@@ -844,97 +742,18 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-class JaggedDenseMulGPUOp
-    : public torch::autograd::Function<JaggedDenseMulGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& x_values,
-      const std::vector<Tensor>& x_offsets,
-      const Tensor& y) {
-    std::vector<Tensor> tensors_to_save;
-    tensors_to_save.push_back(x_values);
-    tensors_to_save.insert(
-        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
-    tensors_to_save.push_back(y);
-    ctx->save_for_backward(tensors_to_save);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(x_values.get_device());
-
-    // Initialize with zero so output will be zero if there's no corresponding
-    // value in the dense tensor.
-    Tensor output = at::zeros_like(x_values);
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values.scalar_type(), "jagged_scalars", [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              x_values,
-              x_offsets,
-              y,
-              output,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-        });
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    const Tensor x_values = ctx->get_saved_variables().front();
-    // Somehow, the following code generates a segfault during atomic
-    // operations probably related to ref counting.
-    // std::vector<Tensor> x_offsets(
-    //    ctx->get_saved_variables().begin() + 1,
-    //    ctx->get_saved_variables().end() - 1);
-    std::vector<Tensor> x_offsets;
-    for (int i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
-      x_offsets.push_back(ctx->get_saved_variables()[i]);
-    }
-    Tensor y = ctx->get_saved_variables().back();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad_outputs[0].get_device());
-
-    Tensor x_values_grad = at::zeros_like(grad_outputs[0]);
-    Tensor y_grad = at::empty_like(y);
-
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values.scalar_type(), "jagged_scalars", [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              grad_outputs[0],
-              x_offsets,
-              y,
-              x_values_grad,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-
-          jagged_jagged_elementwise_dense_output_<scalar_t>(
-              grad_outputs[0],
-              x_offsets,
-              x_values,
-              y_grad,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-        });
-
-    return {
-        x_values_grad,
-        torch::autograd::Variable(), // x_offsets
-        y_grad};
-  }
-};
-
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  return {JaggedDenseMulGPUOp::apply(x_values, x_offsets, y)[0], x_offsets};
+  // Convert to jagged
+  auto jagged_values =
+      DenseToJaggedGPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
+
+  // Multiply x_values * jagged_values -> prod_values
+  auto prod_values = x_values * jagged_values;
+
+  return {prod_values, x_offsets};
 }
 
 template <typename index_t, typename scalar_t>
