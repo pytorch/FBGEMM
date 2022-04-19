@@ -48,6 +48,10 @@ at::ScalarType getScalarType(SparseType dtype) {
       return at::kByte;
     case SparseType::BF16:
       return at::kBFloat16;
+    case SparseType::INT4:
+      return at::kQUInt4x2;
+    case SparseType::INT2:
+      return at::kQUInt2x4;
     default:
       return at::ScalarType::Undefined;
   }
@@ -60,9 +64,16 @@ SparseType getSparseType(at::ScalarType dtype) {
     case at::kHalf:
       return SparseType::FP16;
     case at::kByte:
+    case at::kChar:
+    case at::kQUInt8:
+    case at::kQInt8:
       return SparseType::INT8;
     case at::kBFloat16:
       return SparseType::BF16;
+    case at::kQUInt4x2:
+      return SparseType::INT4;
+    case at::kQUInt2x4:
+      return SparseType::INT2;
     default:
       return SparseType::INVALID;
   }
