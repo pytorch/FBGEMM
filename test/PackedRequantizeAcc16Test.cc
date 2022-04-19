@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -718,7 +718,6 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
       aligned_vector<int32_t> Cint32_buffer(Cint32_ref.size());
 
       randFill<uint8_t>(Aint8, 0, 255);
-      int32_t Aint8_zero_point = 43;
 
       randFill<int8_t>(Bint8_ref, -128, 127);
       aligned_vector<int8_t> Bint8(Bint8_ref);

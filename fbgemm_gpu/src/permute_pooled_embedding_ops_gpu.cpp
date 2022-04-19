@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -138,11 +138,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_gpu);
   m.def(
       "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
-  m.impl(
+  DISPATCH_TO_CPU(
       "permute_pooled_embs_auto_grad",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(fbgemm_gpu::permute_pooled_embs_auto_grad_cpu)));
+      fbgemm_gpu::permute_pooled_embs_auto_grad_cpu);
   DISPATCH_TO_CUDA(
       "permute_pooled_embs_auto_grad",
       fbgemm_gpu::permute_pooled_embs_auto_grad_gpu);

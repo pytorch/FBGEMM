@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -15,7 +15,7 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>
-__global__ void linearize_index_kernel(
+__global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -49,7 +49,7 @@ __global__ void linearize_index_kernel(
 }
 
 template <typename index_t>
-__global__ void nobag_linearize_index_kernel(
+__global__ __launch_bounds__(kMaxThreads) void nobag_linearize_index_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -113,10 +113,10 @@ transpose_embedding_input(
   using at::RestrictPtrTraits;
 
   AT_DISPATCH_INDEX_TYPES(
-      infos.scalar_type(), "transpose_embedding_input1", ([&] {
+      infos.scalar_type(), "transpose_embedding_input1", [&] {
         using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(), "transpose_embedding_input2", ([&] {
+            indices.scalar_type(), "transpose_embedding_input2", [&] {
               if (!nobag) {
                 linearize_index_kernel<<<
                     div_round_up(B * T, kMaxThreads),
@@ -212,8 +212,8 @@ transpose_embedding_input(
                         linear_indices_sorted.numel(),
                         at::cuda::getCurrentCUDAStream()));
               }
-            }));
-      }));
+            });
+      });
 
   auto sorted_linear_indices_cumulative_run_lengths =
       asynchronous_complete_cumsum(sorted_linear_indices_run_lengths);
@@ -227,3 +227,35 @@ transpose_embedding_input(
       sorted_linear_indices_num_runs,
       sorted_linear_indices_cumulative_run_lengths};
 }
+
+#define DEF_RADIX_SORT_PAIRS_FN(KeyT, ValueT)                        \
+  cudaError_t radix_sort_pairs(                                      \
+      void* d_temp_storage,                                          \
+      size_t& temp_storage_bytes,                                    \
+      const KeyT* d_keys_in,                                         \
+      KeyT* d_keys_out,                                              \
+      const ValueT* d_values_in,                                     \
+      ValueT* d_values_out,                                          \
+      int num_items,                                                 \
+      int begin_bit,                                                 \
+      int end_bit,                                                   \
+      cudaStream_t stream,                                           \
+      bool debug_synchronous) {                                      \
+    return FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
+        d_temp_storage,                                              \
+        temp_storage_bytes,                                          \
+        d_keys_in,                                                   \
+        d_keys_out,                                                  \
+        d_values_in,                                                 \
+        d_values_out,                                                \
+        num_items,                                                   \
+        begin_bit,                                                   \
+        end_bit,                                                     \
+        stream,                                                      \
+        debug_synchronous);                                          \
+  }
+
+DEF_RADIX_SORT_PAIRS_FN(int64_t, float);
+DEF_RADIX_SORT_PAIRS_FN(int64_t, double);
+DEF_RADIX_SORT_PAIRS_FN(int64_t, int64_t);
+DEF_RADIX_SORT_PAIRS_FN(int64_t, int32_t);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,7 +10,7 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>
-__global__ void bounds_check_indices_kernel(
+__global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -130,7 +130,7 @@ void bounds_check_indices_cuda(
   }
   constexpr size_t kNumThreads = 256;
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&]() {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
     bounds_check_indices_kernel<index_t>
         <<<div_round_up(B * T, kNumThreads / fbgemm_gpu::kWarpSize),
            dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),

@@ -14,10 +14,12 @@ using namespace at;
 
 // Allocate the ATen Tensor with unified managed memory (UVM)
 // and set both UVM storage preference to CPU and access from self.device
-Tensor new_managed_tensor(Tensor self, std::vector<std::int64_t> sizes);
+Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes);
 
 // Allocate the ATen Tensor with unified managed memory (UVM)
-Tensor new_vanilla_managed_tensor(Tensor self, std::vector<std::int64_t> sizes);
+Tensor new_vanilla_managed_tensor(
+    Tensor self,
+    const std::vector<std::int64_t>& sizes);
 
 // Check if a tensor is allocated with UVM
 bool uvm_storage(Tensor t);

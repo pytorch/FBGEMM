@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -60,7 +60,6 @@ int run_benchmark(
       weights,
       batch_size,
       num_rows,
-      64, // embedding_dim (not used)
       average_len, // average number of indices in a batch
       EmbeddingSpMDMCornerCase::NONE);
 

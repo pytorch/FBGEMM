@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -21,7 +21,7 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::genComputeBlock(
     x86::Emitter* a,
     x86::Gp buffer_A,
     x86::Gp buffer_B,
-    x86::Gp B_pf,
+    x86::Gp /*B_pf*/,
     int rowRegs,
     int colRegs,
     int lda) {
@@ -58,6 +58,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
+  (void)kc; // Suppress unused variable warning
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
   static constexpr inst_set_t storeInstType =
       simd_info<instSet>::WIDTH_BITS == 512 ? inst_set_t::avx512
@@ -86,6 +87,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
     nRegBlockSizeMin = PackingTraits<uint8_t, int32_t, instSet>::NR_MIN;
     row_interleave = PackingTraits<uint8_t, int32_t, instSet>::ROW_INTERLEAVE;
   }
+  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);

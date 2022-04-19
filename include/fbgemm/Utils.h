@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -58,7 +58,8 @@ enum class optimized_conv_t {
   groupwise,
   pointwise,
   fastpath1d,
-  im2col
+  im2col,
+  directconv
 };
 
 /**
@@ -348,9 +349,9 @@ bool isValidBlockingFactor(BlockingFactors* param) {
 FBGEMM_API void fbgemmPartition1D(
     int thread_id,
     int num_threads,
-    int total_work,
-    int& start,
-    int& end);
+    std::int64_t total_work,
+    std::int64_t& start,
+    std::int64_t& end);
 
 /**
  * @brief Partition work across given number of threads in blocks
@@ -391,8 +392,8 @@ FBGEMM_API void fbgemmPartition1D(
 FBGEMM_API void fbgemmPartition1DBlocked(
     int thread_id,
     int num_threads,
-    int total_work,
+    std::int64_t total_work,
     int block_size,
-    int& start,
-    int& end);
+    std::int64_t& start,
+    std::int64_t& end);
 } // namespace fbgemm

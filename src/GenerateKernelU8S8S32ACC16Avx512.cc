@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -70,6 +70,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     int32_t mc,
     int32_t nc,
     int32_t kc) {
+  (void)kc; // Suppress unused variable warning
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
   std::tuple<bool, int, int, int, int, int, int> kernelSig;
@@ -95,6 +96,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     nRegBlockSizeMin = PackingTraits<uint8_t, int16_t, instSet>::NR_MIN;
     row_interleave = PackingTraits<uint8_t, int16_t, instSet>::ROW_INTERLEAVE;
   }
+  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);

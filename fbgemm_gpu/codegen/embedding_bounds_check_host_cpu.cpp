@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9,6 +9,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -30,7 +31,7 @@ void bounds_check_indices_cpu(
   const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
   auto warning_acc = warning.data_ptr<int64_t>();
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&]() {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
     auto offsets_acc = offsets.accessor<index_t, 1>();
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();
@@ -104,16 +105,19 @@ void bounds_check_indices_cpu(
 }
 } // namespace
 
+// Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.impl(
-      "bounds_check_indices",
-      torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(bounds_check_indices_cpu)));
+  // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
+  // or DCE'd, etc.
+  m.def(
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
+  DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.impl(
-      "bounds_check_indices",
-      torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(bounds_check_indices_cpu)));
+  // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
+  // or DCE'd, etc.
+  m.def(
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
+  DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }

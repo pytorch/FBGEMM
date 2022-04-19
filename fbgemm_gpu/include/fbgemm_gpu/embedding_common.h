@@ -1,10 +1,12 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+#include <ATen/ATen.h>
+#include <c10/macros/Macros.h>
 #include <cstdint>
 
 namespace {
@@ -16,7 +18,8 @@ enum class SparseType : uint8_t {
   INT8 = 2,
   INT4 = 3,
   INT2 = 4,
-  INVALID = 5,
+  BF16 = 5,
+  INVALID = 6,
 };
 
 enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };
@@ -35,10 +38,34 @@ enum class BoundsCheckMode : uint8_t {
   IGNORE = 2,
 };
 
-} // namespace
+at::ScalarType getScalarType(SparseType dtype) {
+  switch (dtype) {
+    case SparseType::FP32:
+      return at::kFloat;
+    case SparseType::FP16:
+      return at::kHalf;
+    case SparseType::INT8:
+      return at::kByte;
+    case SparseType::BF16:
+      return at::kBFloat16;
+    default:
+      return at::ScalarType::Undefined;
+  }
+};
 
-#ifdef __HIP_PLATFORM_HCC__
-   #define SHFL_SYNC_MACRO(var, srcLane) __shfl(var, srcLane)
-#else
-   #define SHFL_SYNC_MACRO(var, srcLane) __shfl_sync(0xFFFFFFFF, var, srcLane)
-#endif
+SparseType getSparseType(at::ScalarType dtype) {
+  switch (dtype) {
+    case at::kFloat:
+      return SparseType::FP32;
+    case at::kHalf:
+      return SparseType::FP16;
+    case at::kByte:
+      return SparseType::INT8;
+    case at::kBFloat16:
+      return SparseType::BF16;
+    default:
+      return SparseType::INVALID;
+  }
+};
+
+} // namespace

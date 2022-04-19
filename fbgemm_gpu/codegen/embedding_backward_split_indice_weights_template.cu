@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -17,11 +17,11 @@ constexpr int32_t kCacheLocationMissing = -1;
 constexpr size_t kForwardMaxThreads = 512;
 
 // TODO: optimization to use multiple warps per row.
-template <typename emb_t, typename cache_t, size_t kMaxVecsPerThread>
+template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerThread>
 __global__
 __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel(
     // [\sum_t E_t x D_t]
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
@@ -92,7 +92,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        Vec4T<at::acc_type<cache_t, true>> go((&grad_output[b][0]) + D_start + d);
+        Vec4T<at::acc_type<grad_t, true>> go((&grad_output[b][0]) + D_start + d);
         grad_out[i] = go;
     }
 
@@ -213,30 +213,33 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     const auto B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
-    auto grad_indice_weights = empty_like(indices, indices.options().dtype(grad_output.dtype()));
+    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(grad_output.scalar_type(), true)));
     if (B == 0) {
       return grad_indice_weights;
     }
     feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
     {% if not dense %}
-    DISPATCH_EMB_CACHE_TYPES(
+    DISPATCH_EMB_GRAD_CACHE_TYPES(
     {% else %}
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     {% endif %}
         dev_weights.type(),
         {% if not dense %}
+        grad_output.type(),
         lxu_cache_weights.type(),
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
-        ([&] {
+        [&] {
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
             if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
                 {% if not dense %}
                 emb_t,
+                grad_t,
                 cache_t,
                 {% else %}
                 scalar_t,
+                at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
                 {{ kMaxVecsPerThread }}><<<
@@ -245,10 +248,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
                 {% if not dense %}
-                grad_output.packed_accessor32<
-                    at::acc_type<cache_t, true>,
-                    2,
-                    at::RestrictPtrTraits>(),
+                grad_output.packed_accessor32<grad_t, 2, at::RestrictPtrTraits>(),
                 dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 {% else %}
                 grad_output.packed_accessor32<
@@ -271,7 +271,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 {% endif %}
                 feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 {% if not dense %}
-                grad_indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>()
+                grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
                 {% else %}
                 grad_indice_weights.packed_accessor32<at::acc_type<scalar_t, true>, 1, at::RestrictPtrTraits>()
                 {% endif %}
@@ -279,7 +279,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
             return;
             }
             {% endfor %}
-        }));
+        });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return grad_indice_weights;

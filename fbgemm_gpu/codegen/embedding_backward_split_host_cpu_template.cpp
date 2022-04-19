@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11,6 +11,7 @@
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -28,7 +29,8 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     int64_t pooling_mode,
     Tensor indice_weights,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }});
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype);
 
 namespace {
 
@@ -52,7 +54,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }}) {
+    {{ args.split_function_args | join(", ") }},
+    int64_t output_dtype) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -67,6 +70,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     ctx->saved_data["gradient_clipping"] = gradient_clipping;
     ctx->saved_data["max_gradient"] = max_gradient;
     ctx->saved_data["stochastic_rounding"] = stochastic_rounding;
+    ctx->saved_data["output_dtype"] = output_dtype;
 
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
@@ -81,7 +85,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         indices,
         offsets,
         pooling_mode,
-        indice_weights_value)};
+        indice_weights_value,
+        output_dtype)};
   }
 
   static torch::autograd::variable_list backward(
@@ -110,6 +115,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     auto gradient_clipping = ctx->saved_data["gradient_clipping"].toBool();
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
     auto stochastic_rounding = ctx->saved_data["stochastic_rounding"].toBool();
+    auto output_dtype = ctx->saved_data["output_dtype"].toInt();
 
     {% for (var, ivalue_cast) in args.saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
@@ -134,7 +140,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         pooling_mode,
         indice_weights,
         stochastic_rounding,
-        {{ args.split_function_arg_names | join(", ") }});
+        {{ args.split_function_arg_names | join(", ") }},
+        output_dtype);
     // NOTE: MEAN pooling will not work with indice_weights!
     auto grad_indice_weights = indice_weights.defined()
         ? split_embedding_codegen_grad_indice_weights_cpu(
@@ -163,7 +170,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         Variable(), // gradient_clipping
         Variable(), // max_gradient
         Variable(), // stochastic_rounding
-        {{ args.split_variables | join(", ") }}
+        {{ args.split_variables | join(", ") }},
+        Variable(), // output_dtype
     };
   }
 };
@@ -204,17 +212,23 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
       gradient_clipping,
       max_gradient,
       stochastic_rounding,
-      {{ args.split_function_arg_names | join(", ") }})[0];
+      {{ args.split_function_arg_names | join(", ") }},
+      output_dtype)[0];
 }
 
+// Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
     m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
-    m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu", torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_cpu)));
+    DISPATCH_TO_CPU(
+        "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
+        split_embedding_codegen_lookup_{{ optimizer }}_function_cpu);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
-    m.impl("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu", torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_cpu)));
+    DISPATCH_TO_CPU(
+        "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
+        split_embedding_codegen_lookup_{{ optimizer }}_function_cpu);
 }
 
 } // namespace

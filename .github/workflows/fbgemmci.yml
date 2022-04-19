@@ -82,7 +82,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [windows-2019]
 
     steps:
     - uses: actions/checkout@v2
@@ -192,3 +192,98 @@ jobs:
         set -e
         ./bazel test --compilation_mode opt :*
 
+  build_gpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install CUDA 11.3
+      shell: bash
+      run: |
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
+        sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
+        sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
+        sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
+        sudo apt-get update
+        sudo apt-get -y install cuda-minimal-build-11-3 cuda-nvrtc-dev-11-3 cuda-nvtx-11-3 cuda-libraries-dev-11-3
+        sudo apt-get -y install libcudnn8-dev
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install git pip python3-dev
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+        # Install pytorch 1.11 as required by fbgemm_gpu
+        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
+
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        git submodule sync
+        git submodule update --init --recursive
+
+    - name: Build fbgemm_gpu
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
+
+    - name: Test fbgemm_gpu installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python input_combine_test.py
+        python quantize_ops_test.py
+        python sparse_ops_test.py
+
+  build_cpu_only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install git pip python3-dev
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+        # Install pytorch 1.11 as required by fbgemm_gpu
+        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        git submodule sync
+        git submodule update --init --recursive
+
+    - name: Build fbgemm_gpu
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        # to avoid "Permission denied" error in '/usr/local/lib/python3.8/dist-packages/' folder
+        sudo python setup.py install --cpu_only
+
+    - name: Test fbgemm_gpu cpu-only installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python batched_unary_embeddings_test.py
+        python input_combine_test.py
+        python layout_transform_ops_test.py
+        python merge_pooled_embeddings_test.py
+        python permute_pooled_embedding_modules_test.py
+        python quantize_ops_test.py
+        python sparse_ops_test.py

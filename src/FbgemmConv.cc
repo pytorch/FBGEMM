@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -68,6 +68,35 @@ bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
 }
 
 template <int SPATIAL_DIM, typename ACC_T>
+bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+  // Note: Direct convolutions (2D) are optimized for
+  // filter size: 2 x 1 to 2 x 6,  transposed conv,
+  // in_channel % 8 == 0, out_channel % 8 == 0
+  // stride = 1 or 2
+  // padding = 0 ( non-zero padding will be supported soon)
+  bool ret = std::is_same<ACC_T, std::int32_t>::value && conv_p.transposed &&
+      conv_p.G == 1 && conv_p.IC % 8 == 0 && conv_p.OC % 8 == 0 &&
+      std::all_of(
+                 conv_p.stride.begin(),
+                 conv_p.stride.end(),
+                 [](int i) { return i == 1 || i == 2; }) &&
+      SPATIAL_DIM == 2 && conv_p.K[SPATIAL_DIM - 2] == 2 &&
+      conv_p.K[SPATIAL_DIM - 1] <= 6 &&
+      std::all_of(conv_p.dilation.begin(), conv_p.dilation.end(), [](int i) {
+               return i == 1;
+             });
+
+  // Check pads: zero padding
+  for (int i = 0; i < SPATIAL_DIM; ++i) {
+    if (conv_p.pad[i] != 0) {
+      ret = false;
+    }
+  }
+  ret = false;
+  return ret;
+}
+
+template <int SPATIAL_DIM, typename ACC_T>
 optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   if (takeDepthWiseFastPath<SPATIAL_DIM, ACC_T>(conv_p)) {
     return optimized_conv_t::depthwise;
@@ -75,6 +104,8 @@ optimized_conv_t ConvFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
     return optimized_conv_t::groupwise;
   } else if (takePointWiseFastPath<SPATIAL_DIM>(conv_p)) {
     return optimized_conv_t::pointwise;
+  } else if (takeDirectConvPath<SPATIAL_DIM, ACC_T>(conv_p)) {
+    return optimized_conv_t::directconv;
   } else if (take1DFastPath<SPATIAL_DIM>(conv_p)) {
     return optimized_conv_t::fastpath1d;
   } else {
@@ -309,6 +340,22 @@ int fbgemmConv(
           blocking_params);
       break;
     }
+    case optimized_conv_t::directconv: {
+      // specialized direct convolution path
+      // std::cout << "Directconv fast path" << std::endl;
+      fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
+          conv_p,
+          // Aint8,
+          activations,
+          *(packed_weights.getPackedWForDirectconv()),
+          out,
+          outBuffer,
+          outProcess,
+          outProcess.getBias(),
+          thread_id,
+          num_threads);
+      break;
+    }
     case optimized_conv_t::fastpath1d: {
       break;
     }
@@ -414,6 +461,15 @@ template bool takeDepthWiseFastPath<3, std::int32_t>(
 template bool takeDepthWiseFastPath<2, std::int16_t>(
     const conv_param_t<2>& conv_p);
 template bool takeDepthWiseFastPath<3, std::int16_t>(
+    const conv_param_t<3>& conv_p);
+
+template bool takeDirectConvPath<2, std::int32_t>(
+    const conv_param_t<2>& conv_p);
+template bool takeDirectConvPath<3, std::int32_t>(
+    const conv_param_t<3>& conv_p);
+template bool takeDirectConvPath<2, std::int16_t>(
+    const conv_param_t<2>& conv_p);
+template bool takeDirectConvPath<3, std::int16_t>(
     const conv_param_t<3>& conv_p);
 
 template FBGEMM_API optimized_conv_t

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -147,6 +147,7 @@ void SparseDenseInt8MVAvx512(
     bool accum,
     int thread_id,
     int num_threads) {
+  (void)num_threads; // Suppress unused variable warning
   // Calcualtes accum ? C += A * B : C = A * B
   constexpr int VLEN_INT32 = 16;
 

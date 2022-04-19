@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -126,7 +126,7 @@ void ExecuteKernel<
   bool lastKBlock = packedB_.isThisLastKBlock(kBlock % packedB_.blockRows());
   bool accum = (kBlock % packedB_.blockRows()) > 0;
 
-  int jb_begin, jb_end;
+  int64_t jb_begin, jb_end;
   fbgemmPartition1D(
       th_info_.n_thread_id,
       th_info_.n_num_threads,
@@ -329,7 +329,7 @@ void ExecuteKernel<
               C_buffer_row_start + jb_begin * nbSize_,
               {row_start_A,
                packed_rows_A,
-               NDim * group + jb_begin * nbSize_,
+               static_cast<int>(NDim * group + jb_begin * nbSize_),
                nSize},
               ldc_,
               ldc_);

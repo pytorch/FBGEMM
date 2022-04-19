@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,6 +10,7 @@
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -65,6 +66,11 @@ class SplitLookupFunction_Dense_Op
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["pooling_mode"] = pooling_mode;
 
+    int64_t output_dtype = -1 /* double */;
+    if (host_weights.scalar_type() == at::kHalf ||
+        host_weights.scalar_type() == at::ScalarType::Byte) {
+      output_dtype = static_cast<int64_t>(SparseType::FP32);
+    }
     return {split_embedding_codegen_forward_cpu(
         host_weights,
         weights_offsets,
@@ -74,7 +80,8 @@ class SplitLookupFunction_Dense_Op
         indices,
         offsets,
         pooling_mode,
-        indice_weights_value)};
+        indice_weights_value,
+        output_dtype)};
   }
 
   static torch::autograd::variable_list backward(
@@ -168,20 +175,21 @@ Tensor split_embedding_codegen_lookup_dense_function(
       feature_requires_grad)[0];
 }
 
-TORCH_LIBRARY_IMPL(fb, CPU, m) {
-  m.impl(
+// Deprecated for fb namespace! Please use fbgemm namespace instead!
+TORCH_LIBRARY_FRAGMENT(fb, m) {
+  m.def(
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+  DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(split_embedding_codegen_lookup_dense_function)));
+      split_embedding_codegen_lookup_dense_function);
 }
 
-TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  m.impl(
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+  DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
-      torch::dispatch(
-          c10::DispatchKey::CPU,
-          TORCH_FN(split_embedding_codegen_lookup_dense_function)));
+      split_embedding_codegen_lookup_dense_function);
 }
 
 } // namespace

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -81,6 +81,7 @@ void cblas_gemm_compute(
   assert(cpuinfo_has_x86_fma3());
   assert(cpuinfo_has_x86_f16c());
   assert(transa == matrix_op_t::NoTranspose);
+  (void)transa; // Suppress unused variable warning
 
   const auto iset = fbgemmInstructionSet();
   // private scratchpad storage
@@ -156,7 +157,7 @@ void cblas_gemm_compute(
           gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
 
           if ((n % Bp.blockColSize()) == 0) {
-            int jb_begin, jb_end;
+            int64_t jb_begin, jb_end;
             fbgemmPartition1D(
                 thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
             gp.B += gp.k * Bp.blockColSize() * jb_begin;
@@ -172,7 +173,7 @@ void cblas_gemm_compute(
           } else {
             int last_blk_col = nbcol * Bp.blockColSize();
             if (nbcol) {
-              int jb_begin, jb_end;
+              int64_t jb_begin, jb_end;
               fbgemmPartition1D(
                   thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
               gp.B += gp.k * Bp.blockColSize() * jb_begin;

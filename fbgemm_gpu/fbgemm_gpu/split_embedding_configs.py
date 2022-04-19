@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -39,6 +39,7 @@ class SparseType(enum.Enum):
     INT8 = "int8"
     INT4 = "int4"
     INT2 = "int2"
+    BF16 = "bf16"
 
     def __str__(self) -> str:
         return self.value
@@ -55,6 +56,8 @@ class SparseType(enum.Enum):
             return SparseType("int4")
         elif ty == 4:
             return SparseType("int2")
+        elif ty == 5:
+            return SparseType("bf16")
         else:
             raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -65,6 +68,7 @@ class SparseType(enum.Enum):
             SparseType.INT8.value: 2,
             SparseType.INT4.value: 3,
             SparseType.INT2.value: 4,
+            SparseType.BF16.value: 5,
         }[self.value]
 
     def bit_rate(self) -> int:
@@ -74,6 +78,7 @@ class SparseType(enum.Enum):
             SparseType.INT8.value: 8,
             SparseType.INT4.value: 4,
             SparseType.INT2.value: 2,
+            SparseType.BF16.value: 16,
         }[self.value]
 
     def align_size(self) -> int:
@@ -83,10 +88,15 @@ class SparseType(enum.Enum):
             SparseType.INT8.value: 4,
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
+            SparseType.BF16.value: 2,
         }[self.value]
 
     def is_float(self) -> bool:
-        if self.value == SparseType.FP32.value or self.value == SparseType.FP16.value:
+        if (
+            self.value == SparseType.FP32.value
+            or self.value == SparseType.FP16.value
+            or self.value == SparseType.BF16.value
+        ):
             return True
         else:
             return False
@@ -96,5 +106,6 @@ ELEMENT_SIZE: Dict[SparseType, int] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.INT8: 1,
+    SparseType.BF16: 2,
     # SparseType.INT4: 0.5,
 }

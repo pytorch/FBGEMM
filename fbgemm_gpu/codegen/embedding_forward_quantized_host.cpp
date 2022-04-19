@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -31,6 +31,7 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t row_alignment,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
@@ -52,6 +53,7 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t row_alignment,
     Tensor indice_weights,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
@@ -72,6 +74,7 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
+    int64_t row_alignment,
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
@@ -96,7 +99,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     c10::optional<Tensor> indice_weights,
     int64_t output_dtype,
     c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations) {
+    c10::optional<Tensor> lxu_cache_locations,
+    c10::optional<int64_t> row_alignment) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D, max_int4_D, max_int8_D, max_float16_D, max_float32_D};
@@ -115,6 +119,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float32_D,
         indices,
         offsets,
+        row_alignment ? *row_alignment : 16,
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
@@ -137,6 +142,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         indices,
         offsets,
         pooling_mode,
+        row_alignment ? *row_alignment : 16,
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
@@ -158,6 +164,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       indices,
       offsets,
       pooling_mode,
+      row_alignment ? *row_alignment : 16,
       *indice_weights,
       output_dtype,
       lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
@@ -177,36 +184,12 @@ Tensor pruned_array_lookup_cuda(
     Tensor index_remappings,
     Tensor index_remappings_offsets);
 
-TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> Tensor");
-  DISPATCH_TO_CUDA(
-      "int_nbit_split_embedding_codegen_lookup_function",
-      int_nbit_split_embedding_codegen_lookup_function);
-
-  m.def(
-      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
-  DISPATCH_TO_CUDA(
-      "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cuda);
-
-  m.def(
-      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
-  DISPATCH_TO_CUDA("pruned_array_lookup", pruned_array_lookup_cuda);
-}
-
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> Tensor");
   DISPATCH_TO_CUDA(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function);
-
-  m.def(
-      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
   DISPATCH_TO_CUDA(
       "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cuda);
 
-  m.def(
-      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
   DISPATCH_TO_CUDA("pruned_array_lookup", pruned_array_lookup_cuda);
 }

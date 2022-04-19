@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -117,14 +117,9 @@ double measureWithWarmup(
   {
 #endif
     for (int i = 0; i < measuredIterations; ++i) {
-      int thread_id = 0;
       std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
-#ifdef _OPENMP
-      if (useOpenMP) {
-        thread_id = omp_get_thread_num();
-      }
-#endif
+      const auto thread_id = useOpenMP ? fbgemm_get_thread_num() : 0;
 
       if (thread_id == 0) {
         fe();
@@ -193,7 +188,7 @@ void transpose_matrix(T* ref, int n, int k) {
   memcpy(ref, local.data(), n * k * sizeof(T));
 }
 
-#if defined(USE_MKL)
+#ifdef USE_MKL
 void test_xerbla(char* srname, const int* info, int);
 #endif
 
@@ -205,9 +200,10 @@ void performance_test(
     bool flush,
     int repetitions,
     bool is_mkl) {
-#if defined(USE_MKL)
+#ifdef USE_MKL
   mkl_set_xerbla((XerblaEntry)test_xerbla);
 #endif
+  (void)is_mkl; // Suppress unused variable warning
 
   float alpha = 1.f, beta = 1.f;
   matrix_op_t btran = matrix_op_t::Transpose;
@@ -361,11 +357,11 @@ void performance_test(
 
 #if defined(USE_MKL) || defined(USE_BLAS)
       // Compare results
-      for (auto i = 0; i < C_ref[0].size(); i++) {
+      for (size_t i = 0; i < C_ref[0].size(); i++) {
         if (std::abs(C_ref[0][i] - C_fb[0][i]) > 1e-3) {
           fprintf(
               stderr,
-              "Error: too high diff between fp32 ref %f and fp16 %f at %d\n",
+              "Error: too high diff between fp32 ref %f and fp16 %f at %ld\n",
               C_ref[0][i],
               C_fb[0][i],
               i);
@@ -375,7 +371,7 @@ void performance_test(
 #endif
     }
 
-#if defined(USE_MKL)
+#ifdef USE_MKL
     if (is_mkl) {
       // Gold via MKL sgemm
       type = "MKL_FP32";

@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 
-project(
-  fbgemm_gpu
-  VERSION 0.0.1
-  LANGUAGES CXX C)
+option(FBGEMM_CPU_ONLY "Build fbgemm_gpu without GPU support" OFF)
 
 set(message_line
     "-------------------------------------------------------------")
@@ -26,8 +23,22 @@ else()
   message(FATAL_ERROR "")
 endif()
 
-if((USE_CUDA EQUAL ON AND USE_ROCM EQUAL ON) OR (USE_CUDA EQUAL OFF AND USE_ROCM EQUAL OFF))
-  message(FATAL_ERROR "Please choose either CUDA or ROCm.")
+if(FBGEMM_CPU_ONLY)
+  message("Building for CPU-only")
+endif()
+
+message("${message_line}")
+
+if(FBGEMM_CPU_ONLY OR USE_ROCM)
+  project(
+    fbgemm_gpu
+    VERSION 0.0.1
+    LANGUAGES CXX C)
+else()
+  project(
+    fbgemm_gpu
+    VERSION 0.0.1
+    LANGUAGES CXX C CUDA)
 endif()
 
 if(USE_CUDA)
@@ -129,7 +140,7 @@ set(gen_cpu_source_files
 set(gen_python_files ${CMAKE_BINARY_DIR}/__init__.py)
 
 foreach(optimizer ${OPTIMIZERS})
-  list(APPEND gen_cpu_source_files
+  list(APPEND gen_gpu_host_source_files
        "gen_embedding_backward_split_${optimizer}.cpp")
 
   list(APPEND gen_cpu_source_files
@@ -174,13 +185,16 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_gpu.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
 )
 
 if(USE_CUDA)
   add_custom_command(
-    OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files} ${gen_python_files}
+    OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files} 
+           ${gen_gpu_host_source_files} ${gen_python_files}
     COMMAND
       "${PYTHON_EXECUTABLE}"
       "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
@@ -217,13 +231,25 @@ set_source_files_properties(
 )
 
 set_source_files_properties(
+  ${gen_gpu_host_source_files}
+  PROPERTIES
+    INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
+)
+
+set_source_files_properties(
   ${gen_gpu_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
              "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include")
 set_source_files_properties(${gen_gpu_source_files}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")
 
-set(gen_source_files ${gen_gpu_source_files} ${gen_cpu_source_files})
+if(NOT FBGEMM_CPU_ONLY)
+  set(gen_source_files ${gen_gpu_source_files}
+      ${gen_gpu_host_source_files} ${gen_cpu_source_files})
+else()
+  set(gen_source_files ${gen_cpu_source_files})
+endif()
 
 #
 # CPP FBGEMM support
@@ -272,23 +298,28 @@ set_source_files_properties(
 set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_split_cpu.cpp
     codegen/embedding_forward_quantized_host_cpu.cpp
-    codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
-    codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
-    codegen/embedding_bounds_check_host.cpp
-    src/cumem_utils_host.cpp
     src/cpu_utils.cpp
+    src/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
+    src/quantize_ops_cpu.cpp
+    src/sparse_ops_cpu.cpp)
+
+if(NOT FBGEMM_CPU_ONLY)
+  list(APPEND fbgemm_gpu_sources_cpu
+    codegen/embedding_forward_quantized_host.cpp
+    codegen/embedding_backward_dense_host.cpp
+    codegen/embedding_bounds_check_host.cpp
+    src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
     src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
-    src/quantize_ops_cpu.cpp
     src/quantize_ops_gpu.cpp
-    src/sparse_ops_cpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp)
+endif()
 
 set(fbgemm_gpu_sources_cpu_option "-mavx;-mf16c;-mfma;-mavx2")
 if(USE_CUDA)
@@ -296,26 +327,33 @@ if(USE_CUDA)
     ${fbgemm_gpu_sources_cpu} PROPERTIES COMPILE_OPTIONS
                                         "${fbgemm_gpu_sources_cpu_option};-fopenmp")
 endif()
-set(fbgemm_gpu_sources_gpu
+
+if(NOT FBGEMM_CPU_ONLY)
+  set(fbgemm_gpu_sources_gpu
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
     src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
     src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu
     src/split_embeddings_utils.cu)
 
-set_source_files_properties(${fbgemm_gpu_sources_gpu}
+  set_source_files_properties(${fbgemm_gpu_sources_gpu}
                             PROPERTIES COMPILE_OPTIONS "${TORCH_CUDA_OPTIONS}")
 
-# XXXUPS!!! Replace with real
-set_source_files_properties(
-  ${fbgemm_gpu_sources_gpu}
-  PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
+  # XXXUPS!!! Replace with real
+  set_source_files_properties(
+    ${fbgemm_gpu_sources_gpu}
+    PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
+endif()
 
 set_source_files_properties(
   ${fbgemm_gpu_sources_cpu}
   PROPERTIES INCLUDE_DIRECTORIES "${cpp_fbgemm_files_include_directories}")
 
-set(fbgemm_gpu_sources ${fbgemm_gpu_sources_gpu} ${fbgemm_gpu_sources_cpu})
+if(NOT FBGEMM_CPU_ONLY)
+  set(fbgemm_gpu_sources ${fbgemm_gpu_sources_gpu} ${fbgemm_gpu_sources_cpu})
+else()
+  set(fbgemm_gpu_sources ${fbgemm_gpu_sources_cpu})
+endif()
 
 if(USE_ROCM)
   set(abspath_gen_source_files)
@@ -329,7 +367,9 @@ if(USE_CUDA)
                                   ${cpp_asmjit_files} ${cpp_fbgemm_files})
   set_property(TARGET fbgemm_gpu_py PROPERTY CUDA_ARCHITECTURES
                                   "${cuda_architectures}")
-  target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)  
+  if(NOT FBGEMM_CPU_ONLY)
+    target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
+  endif()
   set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
 elseif(USE_ROCM)
   get_hipified_list("${fbgemm_gpu_sources}" fbgemm_gpu_sources)
@@ -341,14 +381,17 @@ elseif(USE_ROCM)
   hip_include_directories("${cpp_fbgemm_files_include_directories}")
   
   hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES} 
-                  HIPCC_OPTIONS ${HIP_CXX_FLAGS})
+                  HIPCC_OPTIONS ${HIP_HCC_FLAGS})
   target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
-  set_property(TARGET fbgemm_gpu_py PROPERTY HIP_ARCHITECTURES ${FBGEMM_ROCM_ARCH})
+  # set_property(TARGET fbgemm_gpu_py PROPERTY HIP_ARCHITECTURES ${FBGEMM_ROCM_ARCH})
 
   # For ROCm5.1
   list (GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
   if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
     target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
+  endif()
+  if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
+    target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
   endif()
 endif()
 

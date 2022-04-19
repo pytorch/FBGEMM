@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -217,7 +217,8 @@ FBGEMM_API void im2col_ref(
 template <
     typename InType = std::uint8_t,
     typename IndexType = std::int64_t,
-    typename OffsetType = std::int32_t>
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 FBGEMM_API bool EmbeddingSpMDM_ref(
     const std::int64_t block_size,
     const std::int64_t output_size,
@@ -228,13 +229,17 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
-    float* out,
+    OutType* out,
     bool is_weight_positional = false,
     bool use_offsets = true,
     std::int64_t output_stride = -1,
-    std::int64_t input_stride = -1);
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
-template <typename IndexType = std::int64_t, typename OffsetType = std::int32_t>
+template <
+    typename IndexType = std::int64_t,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     int bit_rate,
     const std::int64_t block_size,
@@ -246,9 +251,12 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
-    float* out,
+    OutType* out,
     bool is_weight_positional = false,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true);
 
 template <
     typename InType = std::uint8_t,

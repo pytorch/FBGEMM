@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -357,11 +357,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     }
     {% else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
+                o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
     if (o_dtype == SparseType::FP32) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else if (o_dtype == SparseType::FP16) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
+    } else if (o_dtype == SparseType::BF16) {
+        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kBFloat16));
     } else if (o_dtype == SparseType::INT8) {
         output = at::empty({B, int64_t(total_D + T * kINT8QparamsBytes)}, dev_weights.options().dtype(at::kByte));
     }
@@ -382,7 +385,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         lxu_cache_weights.type(),
         output.type(),
         {% endif %}
-        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", ([&] {
+        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
         {% if not nobag %}
         {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
         if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
@@ -464,7 +467,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
             return;
         {% endif %}
-        }));
+        });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;
