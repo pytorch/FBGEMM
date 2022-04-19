@@ -26,8 +26,10 @@ template <typename T>
   std::stringstream ss;
   if (is_same<T, float>::value) {
     ss << " float results ";
-  } else {
+  } else if (is_same<T, uint8_t>::value) {
     ss << " i8 results ";
+  } else {
+    ss << " i16 results ";
   }
   ss << " mismatch at ";
   bool match = true;
@@ -83,5 +85,15 @@ TEST(TransposeTest, TransposeTest) {
 
     transpose_simd(m, n, a_i8.data(), ld_src, b_i8.data(), ld_dst);
     EXPECT_TRUE(compare_tranpose_results(a_i8, b_i8, m, n, ld_src, ld_dst));
+
+    // i16 test
+    vector<uint16_t> a_i16(m * ld_src);
+    vector<uint16_t> b_i16(n * ld_dst);
+    generate(a_i16.begin(), a_i16.end(), [&dist, &generator] {
+      return dist(generator);
+    });
+
+    transpose_simd(m, n, a_i16.data(), ld_src, b_i16.data(), ld_dst);
+    EXPECT_TRUE(compare_tranpose_results(a_i16, b_i16, m, n, ld_src, ld_dst));
   }
 }

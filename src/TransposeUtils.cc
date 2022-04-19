@@ -63,6 +63,14 @@ template void transpose_ref<float>(
     float* dst,
     unsigned ld_dst);
 
+template void transpose_ref<uint16_t>(
+    unsigned M,
+    unsigned N,
+    const uint16_t* src,
+    unsigned ld_src,
+    uint16_t* dst,
+    unsigned ld_dst);
+
 template void transpose_ref<uint8_t>(
     unsigned M,
     unsigned N,
@@ -87,4 +95,11 @@ template FBGEMM_API void transpose_simd<uint8_t>(
     uint8_t* dst,
     unsigned ld_dst);
 
+template FBGEMM_API void transpose_simd<uint16_t>(
+    unsigned M,
+    unsigned N,
+    const uint16_t* src,
+    unsigned ld_src,
+    uint16_t* dst,
+    unsigned ld_dst);
 } // namespace fbgemm
