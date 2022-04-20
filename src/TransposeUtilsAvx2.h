@@ -448,6 +448,268 @@ inline static void transpose_kernel_8x32_avx2(
       _mm256_extract_epi64(h, 3);
 }
 
+static inline void load_with_remainders_i16(
+    const uint16_t* src,
+    unsigned ld_src,
+    __m256i r[],
+    unsigned mrem,
+    unsigned nrem) {
+  if (nrem < 16) {
+    uint16_t local_buffer[16] = {0};
+    __m256i mask_nrem_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[nrem / 2]));
+    unsigned half = nrem % 2;
+    for (unsigned i = 0; i < mrem; ++i) {
+      // mask load
+      r[i] = _mm256_maskload_epi32(
+          reinterpret_cast<const int*>(&src[i * ld_src]), mask_nrem_v);
+      if (half == 1) {
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(&local_buffer[0]), r[i]);
+        local_buffer[nrem - 1] = src[i * ld_src + nrem - 1];
+        r[i] = _mm256_loadu_si256(
+            reinterpret_cast<const __m256i*>(&local_buffer[0]));
+      }
+    }
+  } else {
+    for (unsigned i = 0; i < mrem; ++i) {
+      // normal load
+      r[i] = _mm256_loadu_si256(
+          reinterpret_cast<const __m256i*>(src + i * ld_src));
+    }
+  }
+}
+
+static inline void store_with_remainders_i16(
+    uint16_t* dst,
+    unsigned ld_dst,
+    __m256i u[],
+    unsigned mrem,
+    unsigned nrem) {
+  if (mrem < 8) {
+    uint16_t local_buffer[8] = {0};
+    __m256i mask_mrem_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        internal::avx2_ps_or_epi32_masks[mrem / 2]));
+    unsigned half = mrem % 2;
+    unsigned i = 0;
+    for (; i < nrem; i += 1) {
+      // mask store
+      int reg_idx = i % 8;
+      __m128i d;
+      if (i >= 8) {
+        d = _mm256_extractf128_si256(u[reg_idx], 1);
+      } else {
+        d = _mm256_extractf128_si256(u[reg_idx], 0);
+      }
+      _mm256_maskstore_epi32(
+          reinterpret_cast<int*>(dst + i * ld_dst),
+          mask_mrem_v,
+          _mm256_castsi128_si256(d));
+      if (half == 1) {
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(local_buffer), d);
+        (dst + i * ld_dst)[mrem - 1] = local_buffer[mrem - 1];
+      }
+    }
+
+  } else {
+    unsigned i = 0;
+    for (; i < nrem; i += 1) {
+      // normal store
+      int reg_idx = i % 8;
+      if (i >= 8) {
+        _mm_storeu_si128(
+            reinterpret_cast<__m128i*>(dst + i * ld_dst),
+            _mm256_extractf128_si256(u[reg_idx], 1));
+      } else {
+        _mm_storeu_si128(
+            reinterpret_cast<__m128i*>(dst + i * ld_dst),
+            _mm256_extractf128_si256(u[reg_idx], 0));
+      }
+    }
+  }
+}
+
+template <bool MREM = false, bool NREM = false>
+inline static void transpose_kernel_8x16_avx2(
+    const uint16_t* src,
+    unsigned ld_src,
+    uint16_t* dst,
+    unsigned ld_dst,
+    unsigned mrem = 8,
+    unsigned nrem = 16) {
+  __m256i r[8];
+  // load from src to registers
+  // a : a0 a1 a2 a3 a4 a5 a6 a7 ... a15
+  // b : b0 b1 b2 b3 b4 b5 b6 b7 ... b15
+  // c : c0 c1 c2 c3 c4 c5 c6 c7 ... c15
+  // d : d0 d1 d2 d3 d4 d5 d6 d7 ... d15
+  // e : e0 e1 e2 e3 e4 e5 e6 e7 ... e15
+  // f : f0 f1 f2 f3 f4 f5 f6 f7 ... f15
+  // g : g0 g1 g2 g3 g4 g5 g6 g7 ... g15
+  // h : h0 h1 h2 h3 h4 h5 h6 h7 ... h15
+  if (MREM || NREM) {
+    load_with_remainders_i16(src, ld_src, r, mrem, nrem);
+  } else {
+    r[0] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (0 * ld_src)));
+    r[1] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (1 * ld_src)));
+    r[2] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (2 * ld_src)));
+    r[3] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (3 * ld_src)));
+    r[4] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (4 * ld_src)));
+    r[5] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (5 * ld_src)));
+    r[6] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (6 * ld_src)));
+    r[7] = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>((src) + (7 * ld_src)));
+  }
+  // t0 : a0a1, b0b1, a2a3, b2b3,
+  // a8a9, b8b9, a10a11, b10b11
+
+  // t1 : a4a5, b4b5, a6a7, b6b7,
+  // a12a13, b12b13, a14a15, b14b15
+
+  // t2 : c0c1, d0d1, c2c3, d2d3,
+  // c8c9, d8d9, c10c11, d10d11
+
+  __m256i __t0 = _mm256_unpacklo_epi32(r[0], r[1]);
+  __m256i __t1 = _mm256_unpackhi_epi32(r[0], r[1]);
+  __m256i __t2 = _mm256_unpacklo_epi32(r[2], r[3]);
+  __m256i __t3 = _mm256_unpackhi_epi32(r[2], r[3]);
+  __m256i __t4 = _mm256_unpacklo_epi32(r[4], r[5]);
+  __m256i __t5 = _mm256_unpackhi_epi32(r[4], r[5]);
+  __m256i __t6 = _mm256_unpacklo_epi32(r[6], r[7]);
+  __m256i __t7 = _mm256_unpackhi_epi32(r[6], r[7]);
+
+  // tt0: a0a1, b0b1, c0c1, d0d1,
+  // a9a9, b8b9, c8c9, d8d9
+
+  // tt1: a2a3, b2b3, c2c3, d2d3,
+  // a10a11, b10b11, c10c11, d10d11
+
+  // tt2: a4a5, b4b5, c4c5, d4d5,
+  // a12a13, b12b13, c12c13, d12d13
+
+  // tt3: a6a7, b6b7, c6c7, d6d7,
+  // a14a15, b14b15, c14c15, d14d15
+
+  // tt4: e0e1, f0f1, g0g1, h0h1,
+  // e9e9, f8f9, g8g9, h8h9
+  __m256i __tt0 = _mm256_unpacklo_epi64(__t0, __t2);
+  __m256i __tt1 = _mm256_unpackhi_epi64(__t0, __t2);
+  __m256i __tt2 = _mm256_unpacklo_epi64(__t1, __t3);
+  __m256i __tt3 = _mm256_unpackhi_epi64(__t1, __t3);
+  __m256i __tt4 = _mm256_unpacklo_epi64(__t4, __t6);
+  __m256i __tt5 = _mm256_unpackhi_epi64(__t4, __t6);
+  __m256i __tt6 = _mm256_unpacklo_epi64(__t5, __t7);
+  __m256i __tt7 = _mm256_unpackhi_epi64(__t5, __t7);
+
+  // t0: a0b0, a1b1, c0c1, d0d1,
+  // a8b8, a9b9, c8c9, d8d9
+  __t0 = _mm256_shufflelo_epi16(__tt0, 0xD8);
+  __t1 = _mm256_shufflelo_epi16(__tt1, 0xD8);
+  __t2 = _mm256_shufflelo_epi16(__tt2, 0xD8);
+  __t3 = _mm256_shufflelo_epi16(__tt3, 0xD8);
+  __t4 = _mm256_shufflelo_epi16(__tt4, 0xD8);
+  __t5 = _mm256_shufflelo_epi16(__tt5, 0xD8);
+  __t6 = _mm256_shufflelo_epi16(__tt6, 0xD8);
+  __t7 = _mm256_shufflelo_epi16(__tt7, 0xD8);
+
+  // tt0: a0b0, a1b1, c0d0, c1d1,
+  // a8b8, a9b9, c8d8, c9d9
+  __tt0 = _mm256_shufflehi_epi16(__t0, 0xD8);
+  __tt1 = _mm256_shufflehi_epi16(__t1, 0xD8);
+  __tt2 = _mm256_shufflehi_epi16(__t2, 0xD8);
+  __tt3 = _mm256_shufflehi_epi16(__t3, 0xD8);
+  __tt4 = _mm256_shufflehi_epi16(__t4, 0xD8);
+  __tt5 = _mm256_shufflehi_epi16(__t5, 0xD8);
+  __tt6 = _mm256_shufflehi_epi16(__t6, 0xD8);
+  __tt7 = _mm256_shufflehi_epi16(__t7, 0xD8);
+
+  // t0: a0b0, c0d0, a1b1, c1d1,
+  // a8b8, c8d8, a9b9, c9d9
+  __t0 = _mm256_shuffle_epi32(__tt0, 0xD8);
+  __t1 = _mm256_shuffle_epi32(__tt1, 0xD8);
+  __t2 = _mm256_shuffle_epi32(__tt2, 0xD8);
+  __t3 = _mm256_shuffle_epi32(__tt3, 0xD8);
+  // t4: e0f0, g0h0, e1f1, g1h1,
+  // e8f8, g8h8, e9f9, g9h9
+  __t4 = _mm256_shuffle_epi32(__tt4, 0xD8);
+  __t5 = _mm256_shuffle_epi32(__tt5, 0xD8);
+  __t6 = _mm256_shuffle_epi32(__tt6, 0xD8);
+  __t7 = _mm256_shuffle_epi32(__tt7, 0xD8);
+
+  // r0: a0b0, c0d0, e0f0, g0h0,
+  // a8b8, c8d8, e8f8, g8h8
+  r[0] = _mm256_unpacklo_epi64(__t0, __t4); // 0, 8
+  // r1: a1b1, c1d1, e1f1, g1h1,
+  // a9b9, c9d9, e9f9, g9h9
+  r[1] = _mm256_unpackhi_epi64(__t0, __t4); // 1, 9
+  r[2] = _mm256_unpacklo_epi64(__t1, __t5); // 2, 10
+  r[3] = _mm256_unpackhi_epi64(__t1, __t5); // 3, 11
+  r[4] = _mm256_unpacklo_epi64(__t2, __t6); // 4, 12
+  r[5] = _mm256_unpackhi_epi64(__t2, __t6); // 5, 13
+  r[6] = _mm256_unpacklo_epi64(__t3, __t7); // 6, 14
+  r[7] = _mm256_unpackhi_epi64(__t3, __t7); // 7, 15
+
+  // stores back 16 rows:
+  if (MREM || NREM) {
+    store_with_remainders_i16(dst, ld_dst, r, mrem, nrem);
+  } else {
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>(dst), _mm256_extractf128_si256(r[0], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst),
+        _mm256_extractf128_si256(r[1], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 2),
+        _mm256_extractf128_si256(r[2], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 3),
+        _mm256_extractf128_si256(r[3], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 4),
+        _mm256_extractf128_si256(r[4], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 5),
+        _mm256_extractf128_si256(r[5], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 6),
+        _mm256_extractf128_si256(r[6], 0));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 7),
+        _mm256_extractf128_si256(r[7], 0));
+
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 8),
+        _mm256_extractf128_si256(r[0], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 9),
+        _mm256_extractf128_si256(r[1], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 10),
+        _mm256_extractf128_si256(r[2], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 11),
+        _mm256_extractf128_si256(r[3], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 12),
+        _mm256_extractf128_si256(r[4], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 13),
+        _mm256_extractf128_si256(r[5], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 14),
+        _mm256_extractf128_si256(r[6], 1));
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>((dst) + ld_dst * 15),
+        _mm256_extractf128_si256(r[7], 1));
+  }
+}
+
 // kernel for transposing mxn where m, n <= 8
 // M + (M + 1) / 2 * 2 + (M + 3) / 4 * 4 + 2 * N instructions
 template <unsigned M>

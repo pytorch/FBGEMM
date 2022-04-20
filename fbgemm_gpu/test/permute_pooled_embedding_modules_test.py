@@ -14,6 +14,7 @@ from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
 from hypothesis import HealthCheck, given, settings
 from torch import nn, Tensor
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if getattr(fbgemm_gpu, "open_source", False):
     # pyre-ignore[21]
     from test_utils import cpu_and_maybe_gpu, gpu_unavailable

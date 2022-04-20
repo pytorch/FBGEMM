@@ -67,7 +67,7 @@ class StackedJagged2DToDenseGPUOp
       Tensor lengths,
       const std::vector<int64_t>& offset_per_key,
       const std::vector<int64_t>& max_lengths_per_key) {
-    int32_t total_L = values.size(0);
+    int64_t total_L = values.size(0);
     ctx->saved_data["B"] = lengths.size(1);
     ctx->saved_data["D"] = values.size(1);
     ctx->saved_data["total_L"] = total_L;
@@ -152,6 +152,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "batched_unary_embeddings",
       fbgemm_gpu::lookup_batched_unary_embedding_function);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA(
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
   DISPATCH_TO_CUDA(
@@ -179,4 +180,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_gpu);
   DISPATCH_TO_CUDA(
       "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_gpu);
+  DISPATCH_TO_CUDA(
+      "permute102_baddbmm_permute102",
+      fbgemm_gpu::permute102_baddbmm_permute102_cuda);
+  DISPATCH_TO_CUDA(
+      "permute_sequence_embeddings",
+      fbgemm_gpu::permute_sequence_embeddings_cuda);
 }

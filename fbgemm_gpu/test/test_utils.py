@@ -14,7 +14,6 @@ import os
 from functools import wraps
 import unittest
 
-TEST_WITH_ROCM = os.getenv('FBGEMM_TEST_WITH_ROCM', '0') == '1'
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[np.ndarray], np.ndarray] = np.vectorize(round)
 
@@ -186,15 +185,3 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
 
 def cpu_only() -> st.SearchStrategy[List[torch.device]]:
     return st.sampled_from([torch.device("cpu")])
-
-
-def skipIfRocm(reason="test doesn't currently work on the ROCm stack"):
-    def skipIfRocmDecorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            if TEST_WITH_ROCM:
-                raise unittest.SkipTest(reason)
-            else:
-                fn(*args, **kwargs)
-        return wrapper
-    return skipIfRocmDecorator

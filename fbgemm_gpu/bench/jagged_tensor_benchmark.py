@@ -11,6 +11,7 @@ import torch
 
 logging.basicConfig(level=logging.DEBUG)
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -29,18 +30,27 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--batch-size", default=128)
-@click.option("--embedding-dim", default=128)
-@click.option("--max-len", default=128)
+@click.option("--batch-size", type=int, default=128)
+@click.option("--embedding-dim", type=int, default=128)
+@click.option("--max-len", type=int, default=128)
+@click.option("--elem-type", type=str, default="half")
 def device(
     batch_size: int,
     embedding_dim: int,
     max_len: int,
+    elem_type: str,
 ) -> None:
     lengths = torch.randint(max_len, size=(batch_size,))
     total_lengths = lengths.sum().item()
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-    values_2d = torch.rand(total_lengths, embedding_dim)
+
+    dtype = (
+        torch.float16
+        if elem_type == "half" or elem_type == "float16"
+        else torch.float32
+    )
+
+    values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
 
     if torch.cuda.is_available():
         offsets = offsets.cuda()

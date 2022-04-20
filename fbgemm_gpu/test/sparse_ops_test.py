@@ -9,7 +9,7 @@ import itertools
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union, Callable, Any
 
 import hypothesis.strategies as st
 import numpy as np
@@ -392,27 +392,49 @@ class SparseOpsTest(unittest.TestCase):
             else:
                 assert permuted_weights_cpu is None
 
+    @staticmethod
+    def permute_embeddings_(
+        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+        *args: Any,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if permute_fn == torch.ops.fbgemm.permute_2D_sparse_data:
+            permuted_lengths, permuted_embeddings, _ = permute_fn(*args, None)
+            return permuted_lengths, permuted_embeddings
+        else:
+            return permute_fn(*args)
+
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
+        permute_fn=st.sampled_from(
+            [
+                torch.ops.fbgemm.permute_2D_sparse_data,
+                torch.ops.fbgemm.permute_sequence_embeddings,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_permute_embeddings(self, B: int, T: int, L: int, long_index: bool) -> None:
-        index_dtype = torch.int32 if long_index else torch.int32
+    def test_permute_embeddings(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        long_index: bool,
+        permute_fn: Callable[..., Tuple[torch.Tensor, ...]],
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
         embeddings = torch.rand(lengths.sum().item()).float()
         permute_list = list(range(T))
         random.shuffle(permute_list)
         permute = torch.IntTensor(permute_list)
 
-        (
-            permuted_lengths_cpu,
-            permuted_embeddings_cpu,
-            _,
-        ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, embeddings, None)
+        (permuted_lengths_cpu, permuted_embeddings_cpu) = self.permute_embeddings_(
+            permute_fn, permute, lengths, embeddings
+        )
         (
             permuted_lengths_ref,
             permuted_embeddings_ref,
@@ -422,15 +444,11 @@ class SparseOpsTest(unittest.TestCase):
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
 
         if gpu_available:
-            (
-                permuted_lengths_gpu,
-                permuted_embeddings_gpu,
-                _,
-            ) = torch.ops.fbgemm.permute_2D_sparse_data(
+            (permuted_lengths_gpu, permuted_embeddings_gpu) = self.permute_embeddings_(
+                permute_fn,
                 permute.cuda(),
                 lengths.cuda(),
                 embeddings.cuda(),
-                None,
             )
             torch.testing.assert_close(
                 permuted_embeddings_gpu.cpu(), permuted_embeddings_cpu
@@ -1789,11 +1807,11 @@ class SparseOpsTest(unittest.TestCase):
         # dense -> jagged (op which is being tested)
         if precompute_total_L:
             total_L = values_2d.size(0)
-            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
                 dense, offsets, total_L
             )
         else:
-            (jagged_values, jagged_offsets) = torch.ops.fbgemm.dense_to_jagged(
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
                 dense, offsets
             )
 
@@ -1977,7 +1995,6 @@ class SparseOpsTest(unittest.TestCase):
             ),
         )
 
-    @unittest.skipIf(*gpu_unavailable)
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,
@@ -2017,14 +2034,21 @@ class SparseOpsTest(unittest.TestCase):
             [max_L],
         )  # [B, N, H * D]
 
-        output_ref = torch.bmm(
-            dense.unsqueeze(1),
+        bmm_arg1 = dense.unsqueeze(1)
+        bmm_arg2 = (
             padded_values.reshape(B, max_L, H, D)
             .transpose(1, 2)
-            .reshape(B * H, max_L, D),
-        ).squeeze(
+            .reshape(B * H, max_L, D)
+        )
+        # torch.bmm not implemented for Half on CPU
+        if dtype == torch.half and use_cpu:
+            bmm_arg1 = bmm_arg1.float()
+            bmm_arg2 = bmm_arg2.float()
+        output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
             1
         )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
+        if dtype == torch.half and use_cpu:
+            output_ref = output_ref.half()
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
         )
@@ -2043,6 +2067,43 @@ class SparseOpsTest(unittest.TestCase):
                 offsets,
             ),
         )
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        batch_size=st.just(2),
+        m=st.just(3),
+        k=st.just(4),
+        n=st.just(5),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_permute102_baddbmm_permute102(
+        self,
+        batch_size: int,
+        m: int,
+        k: int,
+        n: int,
+        use_cpu: bool,
+    ) -> None:
+        # baddbmm doesn't support half
+        dtype = torch.float if use_cpu else torch.half
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        A = torch.rand((m, batch_size, k), dtype=dtype, device=device)
+        B = torch.rand((batch_size, k, n), dtype=dtype, device=device)
+        # bias_permute102 = torch.rand(batch_size, 1, n).half().cuda()
+        # bias = bias_permute102.permute(1, 0, 2)
+
+        bias = torch.rand((batch_size, n), dtype=dtype, device=device)
+        bias_permute102 = bias.unsqueeze(1)
+        # bias = bias_short.unsqueeze(0)
+
+        A_permute102 = A.permute(1, 0, 2)
+        C_permute102 = torch.baddbmm(bias_permute102, A_permute102, B)
+        C_ref = C_permute102.permute(1, 0, 2)  # (m, batch_size, n)
+
+        C = torch.ops.fbgemm.permute102_baddbmm_permute102(bias, A, B)
+        torch.testing.assert_close(C.cpu(), C_ref.cpu())
 
 
 if __name__ == "__main__":

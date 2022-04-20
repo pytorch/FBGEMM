@@ -14,6 +14,7 @@ import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
 import torch
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -88,7 +89,7 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tables", default=2)
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
-def main(batch_size, num_tables, num_tasks, repeats):
+def main(batch_size, num_tables, num_tasks, repeats) -> None:
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))
