@@ -2035,14 +2035,21 @@ class SparseOpsTest(unittest.TestCase):
             [max_L],
         )  # [B, N, H * D]
 
-        output_ref = torch.bmm(
-            dense.unsqueeze(1),
+        bmm_arg1 = dense.unsqueeze(1)
+        bmm_arg2 = (
             padded_values.reshape(B, max_L, H, D)
             .transpose(1, 2)
-            .reshape(B * H, max_L, D),
-        ).squeeze(
+            .reshape(B * H, max_L, D)
+        )
+        # torch.bmm not implemented for Half on CPU
+        if dtype == torch.half and use_cpu:
+            bmm_arg1 = bmm_arg1.float()
+            bmm_arg2 = bmm_arg2.float()
+        output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
             1
         )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
+        if dtype == torch.half and use_cpu:
+            output_ref = output_ref.half()
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
         )
