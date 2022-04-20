@@ -266,6 +266,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        assert self.use_cpu or all(
+            loc != EmbeddingLocation.HOST for loc in locations
+        ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert (
                 output_dtype == SparseType.FP32
@@ -1625,6 +1628,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "CPU device requires EmbeddingLocation.HOST for location!"
+        assert self.use_cpu or all(
+            loc != EmbeddingLocation.HOST for loc in locations
+        ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
 
         T_ = len(self.embedding_specs)
         assert T_ > 0
