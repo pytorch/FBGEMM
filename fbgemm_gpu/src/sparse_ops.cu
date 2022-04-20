@@ -2142,7 +2142,7 @@ Tensor permute102_baddbmm_permute102_cuda(
   auto ldc = n * batch_size;
   auto strideC = n;
 
-auto computeType = HIPBLAS_R_32F;
+  auto computeType = HIPBLAS_R_32F;
 
   auto result = hipblasGemmStridedBatchedEx(
       handle,

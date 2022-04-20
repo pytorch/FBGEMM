@@ -385,8 +385,7 @@ elseif(USE_ROCM)
   hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES} 
                   HIPCC_OPTIONS ${HIP_HCC_FLAGS})
   target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
-  # set_property(TARGET fbgemm_gpu_py PROPERTY HIP_ARCHITECTURES ${FBGEMM_ROCM_ARCH})
-
+  
   # For ROCm5.1
   list (GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
   if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
