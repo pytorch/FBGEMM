@@ -26,6 +26,10 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+#ifdef __HIP_PLATFORM_HCC__
+#include <hipblas.h>
+#endif
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -2122,6 +2126,52 @@ Tensor permute102_baddbmm_permute102_cuda(
   // C (m, b, n) = A (m, b, k) * B (b, k, n) ---> row major
   // C (m, b, n) = (B^T (b, k, n) * A^T (m, b, k))^T ---> column major
 
+#ifdef __HIP_PLATFORM_HCC__
+  float alpha = 1.0f;
+  float beta = 1.0f;
+
+  auto Btype = HIPBLAS_R_16F;
+  auto ldb = n;
+  auto strideB = n * k;
+
+  auto Atype = HIPBLAS_R_16F;
+  auto lda = k * batch_size;
+  auto strideA = k;
+
+  auto Ctype = HIPBLAS_R_16F;
+  auto ldc = n * batch_size;
+  auto strideC = n;
+
+auto computeType = HIPBLAS_R_32F;
+
+  auto result = hipblasGemmStridedBatchedEx(
+      handle,
+      HIPBLAS_OP_N,
+      HIPBLAS_OP_N,
+      n,
+      m,
+      k,
+      &alpha,
+      B.data_ptr<at::Half>(),
+      Btype,
+      ldb,
+      strideB,
+      A.data_ptr<at::Half>(),
+      Atype,
+      lda,
+      strideA,
+      &beta,
+      C.data_ptr<at::Half>(),
+      Ctype,
+      ldc,
+      strideC,
+      batch_size,
+      computeType,
+      HIPBLAS_GEMM_DEFAULT);
+  TORCH_CHECK(result == CUBLAS_STATUS_SUCCESS);
+  return C;
+}
+#else
   float alpha = 1.0f;
   float beta = 1.0f;
 
@@ -2166,6 +2216,7 @@ Tensor permute102_baddbmm_permute102_cuda(
   TORCH_CHECK(result == CUBLAS_STATUS_SUCCESS);
   return C;
 }
+#endif
 
 // Kernel for permuting the indices and weights. Used for permutation of
 // table-wise partitioned sequence embeddings
