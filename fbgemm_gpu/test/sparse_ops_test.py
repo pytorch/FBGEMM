@@ -1995,7 +1995,6 @@ class SparseOpsTest(unittest.TestCase):
             ),
         )
 
-    @unittest.skipIf(*gpu_unavailable)
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,
