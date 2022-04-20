@@ -77,8 +77,8 @@ class BoundsCheckMode(enum.IntEnum):
 
 
 class WeightDecayMode(enum.IntEnum):
-    L2 = 0
-    DECOUPLE = 1
+    L2 = 1
+    DECOUPLE = 2
 
 
 RecordCacheMetrics: NamedTuple = NamedTuple(

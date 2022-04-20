@@ -390,7 +390,7 @@ def rowwise_adagrad() -> None:
         auto gy = grad_sum[i].acc.y;
         auto gz = grad_sum[i].acc.z;
         auto gw = grad_sum[i].acc.w;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
@@ -410,10 +410,10 @@ def rowwise_adagrad() -> None:
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -425,7 +425,7 @@ def rowwise_adagrad() -> None:
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             auto grad = grad_buffer[d];
-            if (weight_decay_mode == 0) {
+            if (weight_decay_mode == 1) {
                 // L2 regularization
                 grad += weight_decay * host_weights_data[embedding_begin + d];
             }
@@ -437,10 +437,10 @@ def rowwise_adagrad() -> None:
         at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         at::acc_type<scalar_t, true> correction;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -505,7 +505,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         auto gy = grad_sum[i].acc.y;
         auto gz = grad_sum[i].acc.z;
         auto gw = grad_sum[i].acc.w;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
@@ -525,10 +525,10 @@ def rowwise_adagrad_with_weight_decay() -> None:
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -540,7 +540,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             auto grad = grad_buffer[d];
-            if (weight_decay_mode == 0) {
+            if (weight_decay_mode == 1) {
                 // L2 regularization
                 grad += weight_decay * host_weights_data[embedding_begin + d];
             }
@@ -552,10 +552,10 @@ def rowwise_adagrad_with_weight_decay() -> None:
         at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         at::acc_type<scalar_t, true> correction;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
