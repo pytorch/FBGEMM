@@ -30,7 +30,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_available, gpu_unavailable
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
@@ -1094,7 +1094,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1313,7 +1313,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1862,7 +1862,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1924,7 +1924,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1986,7 +1986,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2048,7 +2048,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2110,7 +2110,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2172,7 +2172,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2699,7 +2699,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2759,7 +2759,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2818,7 +2818,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2872,7 +2872,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3806,7 +3806,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         dtype=st.sampled_from(
             [
                 torch.int64,

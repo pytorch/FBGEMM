@@ -27,7 +27,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, TEST_WITH_ROCM
+    from test_utils import gpu_available
 else:
     from fbgemm_gpu.test.test_utils import gpu_available
 
@@ -134,7 +134,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         pruning_ratio=st.sampled_from([None, 0.0]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -208,7 +208,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
 
     @given(
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
         quantize_type=st.sampled_from(
             [
@@ -298,7 +298,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         pruning_ratio=st.floats(min_value=0.0, max_value=1.0, exclude_max=True),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
