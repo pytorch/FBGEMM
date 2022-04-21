@@ -316,7 +316,7 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check_host.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
-    src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
+    # src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
@@ -385,21 +385,22 @@ elseif(USE_ROCM)
   hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES} 
                   HIPCC_OPTIONS ${HIP_HCC_FLAGS})
   target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
-  
-  # For ROCm5.1
-  list (GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
-  if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
-    target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
-  endif()
-  if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
-    target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
-  endif()
+endif()
+list (GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
+if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
+  target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
+endif()
+if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
+  target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
 endif()
 
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
 target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
 target_include_directories(fbgemm_gpu_py PRIVATE ${TORCH_INCLUDE_DIRS})
+if(USE_CUDA)
+  set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
+endif()
 
 install(TARGETS fbgemm_gpu_py DESTINATION fbgemm_gpu)
 
