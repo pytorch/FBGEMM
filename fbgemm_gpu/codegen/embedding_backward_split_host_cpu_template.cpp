@@ -30,7 +30,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor indice_weights,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype);
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32));
 
 namespace {
 
@@ -55,7 +55,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     double max_gradient,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype) {
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -194,7 +194,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     double max_gradient,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype) {
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,

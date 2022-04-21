@@ -8,7 +8,7 @@
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import jinja2
 
@@ -105,20 +105,20 @@ def tensor_arg(name: str) -> str:
     return f"Tensor {name}"
 
 
-def double_arg(name: str) -> str:
-    return f"double {name}"
+def double_arg(name: str, default: float = 0.0) -> str:
+    return f"double {name} = {default}"
 
 
-def float_arg(name: str) -> str:
-    return f"float {name}"
+def float_arg(name: str, default: float = 0.0) -> str:
+    return f"float {name} = {default}"
 
 
-def int64_arg(name: str) -> str:
-    return f"int64_t {name}"
+def int64_arg(name: str, default: int = 0) -> str:
+    return f"int64_t {name} = {default}"
 
 
-def int_arg(name: str) -> str:
-    return f"int {name}"
+def int_arg(name: str, default: int = 0) -> str:
+    return f"int {name} = {default}"
 
 
 def generate(**kwargs: Any) -> None:
@@ -190,14 +190,16 @@ class Args:
 TENSOR, INT_TENSOR, LONG_TENSOR, INT, FLOAT = range(5)
 
 
-def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
-    def make_kernel_arg(ty: int, name: str) -> str:
+def make_args(
+    arg_spec: List[Union[Tuple[int, str], Tuple[int, str, Union[float, int]]]]
+) -> Dict[str, Any]:
+    def make_kernel_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: acc_cache_tensor_arg,
             INT_TENSOR: int_tensor_arg,
             LONG_TENSOR: long_tensor_arg,
-            INT: int64_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_kernel_arg_constructor(ty: int, name: str) -> str:
@@ -209,13 +211,13 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_cpu_kernel_arg(ty: int, name: str) -> str:
+    def make_cpu_kernel_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
             INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
             LONG_TENSOR: lambda x: long_tensor_arg(x, gpu=False),
-            INT: int64_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_cpu_kernel_arg_constructor(ty: int, name: str) -> str:
@@ -227,88 +229,104 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_function_arg(ty: int, name: str) -> str:
+    def make_function_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: tensor_arg,
             INT_TENSOR: tensor_arg,
             LONG_TENSOR: tensor_arg,
-            INT: int64_arg,
-            FLOAT: double_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: double_arg(x, default=default),
         }[ty](name)
 
-    def make_function_schema_arg(ty: int, name: str) -> str:
+    def make_function_schema_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: tensor_arg,
             INT_TENSOR: tensor_arg,
             LONG_TENSOR: tensor_arg,
-            INT: int_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_ivalue_cast(ty: int) -> str:
         return {INT: "toInt", FLOAT: "toDouble"}[ty]
 
-    def make_args_for_compute_device(split_arg_spec: List[Tuple[int, str]]) -> Args:
+    def make_args_for_compute_device(
+        split_arg_spec: List[Tuple[int, str, Union[int, float]]]
+    ) -> Args:
         return Args(
             split_kernel_args=[
-                make_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+                make_kernel_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_kernel_arg_constructors=[
-                make_kernel_arg_constructor(ty, name) for (ty, name) in split_arg_spec
+                make_kernel_arg_constructor(ty, name)
+                for (ty, name, default) in split_arg_spec
             ],
             split_cpu_kernel_args=[
-                make_cpu_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+                make_cpu_kernel_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_cpu_kernel_arg_constructors=[
                 make_cpu_kernel_arg_constructor(ty, name)
-                for (ty, name) in split_arg_spec
+                for (ty, name, default) in split_arg_spec
             ],
             split_function_args=[
-                make_function_arg(ty, name) for (ty, name) in split_arg_spec
+                make_function_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
-            split_tensors=[name for (ty, name) in arg_spec if ty == TENSOR],
+            split_tensors=[
+                name for (ty, name, default) in augmented_arg_spec if ty == TENSOR
+            ],
             split_saved_tensors=[
                 name
-                for (ty, name) in split_arg_spec
+                for (ty, name, default) in split_arg_spec
                 if ty in (TENSOR, INT_TENSOR, LONG_TENSOR)
             ],
             saved_data=[
-                (name, make_ivalue_cast(ty)) for (ty, name) in arg_spec if ty != TENSOR
+                (name, make_ivalue_cast(ty))
+                for (ty, name, default) in augmented_arg_spec
+                if ty != TENSOR
             ],
-            split_function_arg_names=[name for (ty, name) in split_arg_spec],
+            split_function_arg_names=[name for (ty, name, default) in split_arg_spec],
             split_function_schemas=[
-                make_function_schema_arg(ty, name) for (ty, name) in split_arg_spec
+                make_function_schema_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_variables=["Variable()" for _ in split_arg_spec],
         )
 
+    DEFAULT_ARG_VAL = 0
+    augmented_arg_spec = [
+        item if len(item) == 3 else (*item, DEFAULT_ARG_VAL) for item in arg_spec
+    ]
+
     split_arg_spec = []
-    for (ty, arg) in arg_spec:
+    for (ty, arg, default) in augmented_arg_spec:
         if ty in (FLOAT, INT):
-            split_arg_spec.append((ty, arg))
+            split_arg_spec.append((ty, arg, default))
         else:
             assert ty == TENSOR
             split_arg_spec.extend(
                 [
-                    (TENSOR, f"{arg}_host"),
-                    (INT_TENSOR, f"{arg}_placements"),
-                    (LONG_TENSOR, f"{arg}_offsets"),
+                    (TENSOR, f"{arg}_host", default),
+                    (INT_TENSOR, f"{arg}_placements", default),
+                    (LONG_TENSOR, f"{arg}_offsets", default),
                 ]
             )
     cpu = make_args_for_compute_device(split_arg_spec)
 
     split_arg_spec = []
-    for (ty, arg) in arg_spec:
+    for (ty, arg, default) in augmented_arg_spec:
         if ty in (FLOAT, INT):
-            split_arg_spec.append((ty, arg))
+            split_arg_spec.append((ty, arg, default))
         else:
             assert ty == TENSOR
             split_arg_spec.extend(
                 [
-                    (TENSOR, f"{arg}_dev"),
-                    (TENSOR, f"{arg}_uvm"),
-                    (INT_TENSOR, f"{arg}_placements"),
-                    (LONG_TENSOR, f"{arg}_offsets"),
+                    (TENSOR, f"{arg}_dev", default),
+                    (TENSOR, f"{arg}_uvm", default),
+                    (INT_TENSOR, f"{arg}_placements", default),
+                    (LONG_TENSOR, f"{arg}_offsets", default),
                 ]
             )
     cuda = make_args_for_compute_device(split_arg_spec)
@@ -456,8 +474,8 @@ def rowwise_adagrad() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -478,8 +496,8 @@ def rowwise_adagrad() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -571,8 +589,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -593,8 +611,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
