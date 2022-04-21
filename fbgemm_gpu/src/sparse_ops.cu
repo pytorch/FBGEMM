@@ -26,6 +26,10 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+#ifdef __HIP_PLATFORM_HCC__
+#include <hipblas.h>
+#endif
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -197,26 +201,26 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
@@ -234,26 +238,26 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   // CUB only handles up to INT_MAX elements.
   TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
   auto t_out = at::empty_like(t_in);
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_exclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::ExclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>(),
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>(),
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
@@ -273,26 +277,26 @@ Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   TORCH_CHECK(t_in.dim() == 1);
   auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
   t_out[0].zero_();
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             nullptr,
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
   auto temp_storage = at::empty(
       {static_cast<int64_t>(temp_storage_bytes)},
       t_in.options().dtype(at::kByte));
-  AT_DISPATCH_INTEGRAL_TYPES(
+  AT_DISPATCH_INDEX_TYPES(
       t_in.scalar_type(), "cub_inclusive_sum_wrapper2", [&] {
         AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceScan::InclusiveSum(
             temp_storage.data_ptr(),
             temp_storage_bytes,
-            t_in.data_ptr<scalar_t>(),
-            t_out.data_ptr<scalar_t>() + 1,
+            t_in.data_ptr<index_t>(),
+            t_out.data_ptr<index_t>() + 1,
             t_in.numel(),
             at::cuda::getCurrentCUDAStream()));
       });
@@ -2081,6 +2085,268 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
         });
   }
   return {permuted_lengths, permuted_indices, permuted_weights};
+}
+
+// A: m, batch_size, k
+// B: batch_size, k, n
+// C: m, batch_size, n
+// bias: batch_size, n
+Tensor permute102_baddbmm_permute102_cuda(
+    const Tensor& bias,
+    const Tensor& A,
+    const Tensor& B) {
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(A);
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(B);
+  TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(bias);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(A.get_device());
+
+  TENSORS_ON_SAME_DEVICE(A, B);
+  TENSORS_ON_SAME_DEVICE(A, bias);
+  TENSOR_NDIM_EQUALS(A, 3);
+  TENSOR_NDIM_EQUALS(B, 3);
+
+  const auto m = A.size(0);
+  const auto batch_size = A.size(1);
+  const auto k = A.size(2);
+  const auto n = B.size(2);
+  TORCH_CHECK(B.size(0) == batch_size);
+  TORCH_CHECK(B.size(1) == k);
+  TORCH_CHECK(bias.size(0) == batch_size);
+  TORCH_CHECK(bias.size(1) == n);
+
+  // auto C = at::empty({m, batch_size, n}, A.options());
+  // auto C = at::broadcast_to(bias, {m, batch_size, n}).contiguous();
+  auto C = bias.unsqueeze(0).broadcast_to({m, batch_size, n}).contiguous();
+
+  auto handle = at::cuda::getCurrentCUDABlasHandle();
+  cublasSetStream(handle, c10::cuda::getCurrentCUDAStream());
+
+  // C (m, b, n) = A (m, b, k) * B (b, k, n) ---> row major
+  // C (m, b, n) = (B^T (b, k, n) * A^T (m, b, k))^T ---> column major
+
+#ifdef __HIP_PLATFORM_HCC__
+  float alpha = 1.0f;
+  float beta = 1.0f;
+
+  auto Btype = HIPBLAS_R_16F;
+  auto ldb = n;
+  auto strideB = n * k;
+
+  auto Atype = HIPBLAS_R_16F;
+  auto lda = k * batch_size;
+  auto strideA = k;
+
+  auto Ctype = HIPBLAS_R_16F;
+  auto ldc = n * batch_size;
+  auto strideC = n;
+
+  auto computeType = HIPBLAS_R_32F;
+
+  auto result = hipblasGemmStridedBatchedEx(
+      handle,
+      HIPBLAS_OP_N,
+      HIPBLAS_OP_N,
+      n,
+      m,
+      k,
+      &alpha,
+      B.data_ptr<at::Half>(),
+      Btype,
+      ldb,
+      strideB,
+      A.data_ptr<at::Half>(),
+      Atype,
+      lda,
+      strideA,
+      &beta,
+      C.data_ptr<at::Half>(),
+      Ctype,
+      ldc,
+      strideC,
+      batch_size,
+      computeType,
+      HIPBLAS_GEMM_DEFAULT);
+  TORCH_CHECK(result == CUBLAS_STATUS_SUCCESS);
+  return C;
+}
+#else
+  float alpha = 1.0f;
+  float beta = 1.0f;
+
+  auto Btype = CUDA_R_16F;
+  auto ldb = n;
+  auto strideB = n * k;
+
+  auto Atype = CUDA_R_16F;
+  auto lda = k * batch_size;
+  auto strideA = k;
+
+  auto Ctype = CUDA_R_16F;
+  auto ldc = n * batch_size;
+  auto strideC = n;
+
+  auto computeType = CUBLAS_COMPUTE_32F;
+
+  auto result = cublasGemmStridedBatchedEx(
+      handle,
+      CUBLAS_OP_N,
+      CUBLAS_OP_N,
+      n,
+      m,
+      k,
+      &alpha,
+      B.data_ptr<at::Half>(),
+      Btype,
+      ldb,
+      strideB,
+      A.data_ptr<at::Half>(),
+      Atype,
+      lda,
+      strideA,
+      &beta,
+      C.data_ptr<at::Half>(),
+      Ctype,
+      ldc,
+      strideC,
+      batch_size,
+      computeType,
+      CUBLAS_GEMM_DEFAULT);
+  TORCH_CHECK(result == CUBLAS_STATUS_SUCCESS);
+  return C;
+}
+#endif
+
+// Kernel for permuting the indices and weights. Used for permutation of
+// table-wise partitioned sequence embeddings
+
+template <typename index_t, typename scalar_t>
+__global__ void permute_embeddings_kernel(
+    int32_t len,
+    int32_t T,
+    int32_t B,
+    const scalar_t* __restrict__ embeddings,
+    // bag level permute
+    const int32_t* __restrict__ permute,
+    const index_t* __restrict__ input_offsets,
+    const index_t* __restrict__ output_offsets,
+    scalar_t* __restrict__ permuted_embeddings) {
+  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const int stride = gridDim.x * blockDim.y;
+  for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
+    int32_t b = b_t % B;
+    int32_t t = b_t / B;
+    index_t output_start = output_offsets[b_t];
+    index_t segment_length;
+    if (b_t == B * T - 1) {
+      segment_length = len - output_offsets[b_t];
+    } else {
+      segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
+    }
+    index_t input_start = input_offsets[permute[t] * B + b];
+    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+      permuted_embeddings[output_start + i] = embeddings[input_start + i];
+    }
+  }
+}
+
+std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& embeddings) {
+  TENSOR_ON_CUDA_GPU(permute);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSOR_ON_CUDA_GPU(embeddings);
+
+  TENSORS_ON_SAME_DEVICE(permute, lengths);
+  TENSORS_ON_SAME_DEVICE(permute, embeddings);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(embeddings.get_device());
+
+  TORCH_CHECK(
+      lengths.dim() == 2,
+      "The dimension of lengths tensor should be equal to 2"
+      "to correctly infer number of features and batch size.")
+
+  const auto permute_contig = permute.contiguous();
+  const auto lengths_contig = lengths.contiguous();
+  const auto embeddings_contig = embeddings.contiguous();
+  // the features to permute over can be less or more with or without
+  // repetitions
+  const auto num_output_embeddings = permute.numel();
+  const auto num_embeddings = lengths.size(0);
+  const auto B = lengths.size(1);
+
+  Tensor permuted_lengths;
+  Tensor permuted_embeddings;
+
+  permuted_lengths = at::empty({num_output_embeddings, B}, lengths.options());
+
+  constexpr int32_t threads_1 = 256;
+  const auto blocks_1 =
+      cuda_calc_xblock_count(B * num_output_embeddings, threads_1);
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
+        fbgemm_gpu::permute_2D_lengths_kernel<index_t>
+            <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
+                num_output_embeddings,
+                B,
+                lengths_contig.data_ptr<index_t>(),
+                permute_contig.data_ptr<int32_t>(),
+                permuted_lengths.data_ptr<index_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+
+  // convert lengths to offsets
+  const auto input_offsets =
+      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_contig);
+  const auto output_offsets =
+      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+  int64_t permuted_lengths_sum = embeddings.numel();
+
+  /* TODO: Remove the condition protecting the slow path because even when the
+   * condition below is true permuted_lengths.sum() could still be needed. For
+   * instance if there are three features with indices `[0, 1, 2]`, `permute`
+   * can be `[0, 1, 1]` for which permuted lengths sum would be needed to
+   * create permuted_embeddings and `permuted_lengths_sum = embeddings.numel()
+   * would be incorrect.
+   */
+  if (num_embeddings != num_output_embeddings) {
+    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
+  }
+
+  constexpr int32_t BT_blocks = 32;
+  dim3 threads_2(32, BT_blocks);
+  const auto blocks_2 =
+      cuda_calc_xblock_count(B * num_output_embeddings, BT_blocks);
+  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
+  AT_DISPATCH_INDEX_TYPES(
+      input_offsets.scalar_type(), "permute_embeddings_kernel_1", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND(
+            at::ScalarType::Int,
+            embeddings.scalar_type(),
+            "permute_embeddings_kernel_2",
+            [&] {
+              permute_embeddings_kernel<index_t, scalar_t>
+                  <<<blocks_2,
+                     threads_2,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      permuted_lengths_sum,
+                      num_output_embeddings,
+                      B,
+                      embeddings_contig.data_ptr<scalar_t>(),
+                      permute_contig.data_ptr<int32_t>(),
+                      input_offsets.data_ptr<index_t>(),
+                      output_offsets.data_ptr<index_t>(),
+                      permuted_embeddings.data_ptr<scalar_t>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+
+  return {permuted_lengths, permuted_embeddings};
 }
 
 } // namespace fbgemm_gpu

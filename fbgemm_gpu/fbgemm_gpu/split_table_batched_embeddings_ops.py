@@ -21,6 +21,17 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
 ASSOC = 32 if torch.version.hip is None else 64
+try:
+    # pyre-ignore[21]
+    from fbgemm_gpu import open_source  # noqa: F401
+except Exception:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update_cpu"
+    )
+
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
@@ -63,6 +74,11 @@ class BoundsCheckMode(enum.IntEnum):
     IGNORE = 2
     # No bounds checks.
     NONE = 3
+
+
+class WeightDecayMode(enum.IntEnum):
+    L2 = 0
+    DECOUPLE = 1
 
 
 RecordCacheMetrics: NamedTuple = NamedTuple(
@@ -203,7 +219,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         learning_rate: float = 0.01,
         eps: float = 1.0e-8,  # used by Adagrad, LAMB, and Adam
         momentum: float = 0.9,  # used by LARS-SGD
-        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, and ADAM
+        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad
+        # used by Rowwise Adagrad. LARS-SGD, LAMB and ADAM only supports decoupled weight decay
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
@@ -248,6 +266,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        assert self.use_cpu or all(
+            loc != EmbeddingLocation.HOST for loc in locations
+        ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert (
                 output_dtype == SparseType.FP32
@@ -382,6 +403,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             beta1=beta1,
             beta2=beta2,
             weight_decay=weight_decay,
+            weight_decay_mode=weight_decay_mode.value,
             eta=eta,
             momentum=momentum,
         )
@@ -530,7 +552,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=cache_embedding_dtype,
         )
 
-        logging.debug(
+        logging.info(
             f"Using fused {optimizer} with optimizer_args={self.optimizer_args}"
         )
 
@@ -660,12 +682,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            return invokers.lookup_rowwise_adagrad.invoke(
+            return invokers.lookup_rowwise_adagrad_with_weight_decay.invoke(
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.ROWWISE_ADAGRAD:
             assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            return invokers.lookup_approx_rowwise_adagrad.invoke(
+            return invokers.lookup_approx_rowwise_adagrad_with_weight_decay.invoke(
                 common_args, self.optimizer_args, momentum1
             )
 
@@ -1605,7 +1627,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
-        ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
+        ), "CPU device requires EmbeddingLocation.HOST for location!"
+        assert self.use_cpu or all(
+            loc != EmbeddingLocation.HOST for loc in locations
+        ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
 
         T_ = len(self.embedding_specs)
         assert T_ > 0
@@ -2376,3 +2401,89 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     [mapping for mapping in index_remapping if mapping is not None]
                 ).to(self.current_device)
             )
+
+    def _embedding_inplace_update_per_table(
+        self,
+        update_table_idx: int,
+        update_row_indices: List[int],
+        update_weights: Tensor,
+    ) -> None:
+        row_size = len(update_row_indices)
+        if row_size == 0:
+            return
+        update_row_indices = torch.tensor(
+            update_row_indices,
+            device=self.current_device,
+            dtype=torch.int64,
+        )
+        table_values = self.split_embedding_weights(split_scale_shifts=False)[
+            update_table_idx
+        ]
+        table_values[0].scatter_(
+            dim=0,
+            index=update_row_indices.view(row_size, 1).expand_as(update_weights),
+            src=update_weights,
+        )
+
+    @torch.jit.export
+    def embedding_inplace_update(
+        self,
+        update_table_indices: List[int],
+        update_row_indices: List[List[int]],
+        update_weights: List[Tensor],
+    ) -> None:
+        for i in range(len(update_table_indices)):
+            self._embedding_inplace_update_per_table(
+                update_table_indices[i],
+                update_row_indices[i],
+                update_weights[i],
+            )
+
+    def embedding_inplace_update_internal(
+        self,
+        update_table_indices: List[int],
+        update_row_indices: List[int],
+        update_weights: Tensor,
+    ) -> None:
+        assert len(update_table_indices) == len(update_row_indices)
+        update_offsets = []
+        update_offset = 0
+        for table_idx in update_table_indices:
+            D_bytes = rounded_row_size_in_bytes(
+                self.embedding_specs[table_idx][2],
+                self.embedding_specs[table_idx][3],
+                self.row_alignment,
+            )
+            update_offsets.append(update_offset)
+            update_offset += D_bytes
+        update_offsets.append(update_offset)
+
+        update_table_indices = torch.tensor(
+            update_table_indices,
+            device=self.current_device,
+            dtype=torch.int32,
+        )
+        update_row_indices = torch.tensor(
+            update_row_indices,
+            device=self.current_device,
+            dtype=torch.int32,
+        )
+        update_offsets = torch.tensor(
+            update_offsets,
+            device=self.current_device,
+            dtype=torch.int64,
+        )
+        # Internal function for now
+        torch.ops.fbgemm.emb_inplace_update(
+            dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
+            uvm_weights=self.weights_uvm,
+            weights_placements=self.weights_placements,
+            weights_offsets=self.weights_offsets,
+            weights_tys=self.weights_tys,
+            D_offsets=self.D_offsets,
+            update_weights=update_weights,
+            update_table_indices=update_table_indices,
+            update_row_indices=update_row_indices,
+            update_offsets=update_offsets,
+            row_alignment=self.row_alignment,
+        )

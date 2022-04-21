@@ -187,7 +187,6 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
 def cpu_only() -> st.SearchStrategy[List[torch.device]]:
     return st.sampled_from([torch.device("cpu")])
 
-
 def skipIfRocm(reason="test doesn't currently work on the ROCm stack"):
     def skipIfRocmDecorator(fn):
         @wraps(fn)

@@ -23,14 +23,17 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     RecordCacheMetrics,
     BoundsCheckMode,
+    WeightDecayMode,
+    rounded_row_size_in_bytes,
 )
 
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_available, gpu_unavailable
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
@@ -1094,7 +1097,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1313,7 +1316,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1862,7 +1865,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1924,7 +1927,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -1986,7 +1989,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2048,7 +2051,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2110,7 +2113,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2172,7 +2175,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         exact=st.booleans(),
     )
     @settings(
@@ -2323,6 +2326,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -2461,8 +2465,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             0.9,
             0.01,
         )
-        if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
+        if optimizer == OptimType.EXACT_ADAGRAD:
             optimizer_kwargs["eps"] = eps
+
+        if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["weight_decay"] = weight_decay
+            optimizer_kwargs["weight_decay_mode"] = weight_decay_mode
 
         if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             optimizer_kwargs["eps"] = eps
@@ -2525,25 +2534,42 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # to_dense in GPU is non-deterministic due to atmomics used in
                 # coalescing and floating point non-associativity.
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                if rowwise and not use_cpu and weight_decay_mode == WeightDecayMode.L2:
+                    # We need to skip when using cpu because use_fbgemm (https://fburl.com/code/12131iub)
+                    # is true and the template code (https://fburl.com/code/1kctlup3) is not executed.
+                    dense_cpu_grad += weight_decay * bs[t].weight.cpu()
                 m1_ref = (
                     dense_cpu_grad.pow(2)
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 )
                 torch.testing.assert_close(
-                    m1.float().cpu(), m1_ref.float(), atol=1.0e-4, rtol=1.0e-4
+                    m1.float().index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    m1_ref.float().index_select(dim=0, index=x[t].view(-1).cpu()),
+                    atol=1.0e-4,
+                    rtol=1.0e-4,
                 )
                 weights_new = split_weights[t]
-                weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / (
+                denom = (
                     torch.sqrt(
                         m1_ref if not rowwise else m1_ref.view(m1_ref.numel(), 1)
                     )
                     + eps
                 )
+                if (
+                    rowwise
+                    and not use_cpu
+                    and weight_decay_mode == WeightDecayMode.DECOUPLE
+                ):
+                    weights_ref = bs[t].weight.cpu() - lr * (
+                        dense_cpu_grad / denom + weight_decay * bs[t].weight.cpu()
+                    )
+                else:
+                    weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 # TODO: why is tolerance off here?
                 torch.testing.assert_close(
-                    weights_new.float().cpu(),
-                    weights_ref.float(),
+                    weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=x[t].view(-1).cpu()),
                     atol=1.0e-2,
                     rtol=1.0e-2,
                 )
@@ -2699,7 +2725,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2759,7 +2785,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+            ]
+        ),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2781,6 +2813,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        weight_decay_mode: WeightDecayMode,
     ) -> None:
         self.execute_backward_optimizers_(
             T,
@@ -2794,6 +2827,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
+            weight_decay_mode,
         )
 
     @given(
@@ -2818,7 +2852,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2872,7 +2906,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3806,7 +3840,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans(),
         dtype=st.sampled_from(
             [
                 torch.int64,
@@ -4042,6 +4076,180 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 expected_result,
             )
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=64),
+        log_E=st.integers(min_value=2, max_value=3),
+        N=st.integers(min_value=0, max_value=50),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+            ]
+        ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        test_internal=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_embedding_inplace_update(
+        self,
+        T: int,  # num of embedding tables
+        D: int,  # embedding dim
+        log_E: int,  # embedding table row number
+        N: int,  # num of update rows per table
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+        use_cpu: bool,
+        test_internal: bool,  # test with OSS op or internal customized op
+    ) -> None:
+        D_alignment = max(weights_ty.align_size(), output_dtype.align_size())
+        D = round_up(D, D_alignment)
+        Ds = [
+            round_up(
+                np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                D_alignment,
+            )
+            for _ in range(T)
+        ]
+        E = int(10 ** log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+        row_alignment = 1 if use_cpu else 16
+        current_device = "cpu" if use_cpu else torch.cuda.current_device()
+        location = (
+            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+            if use_cpu
+            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+        )
+
+        weights_ty_list = [weights_ty] * T
+        if open_source:
+            test_internal = False
+
+        # create two embedding bag op with random weights
+        locations = [location] * T
+        op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, W_TY, L)
+                for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
+            ],
+            output_dtype=output_dtype,
+            device=current_device,
+        )
+        op.fill_random_weights()
+        op_ref = (
+            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    ("", E, D, W_TY, L)
+                    for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
+                ],
+                output_dtype=output_dtype,
+                device=current_device,
+            )
+        )
+        op_ref.fill_random_weights()
+
+        # randomly generate update table and row indices
+        update_table_indices = []
+        update_table_indices2 = []
+        update_row_indices = []
+        update_row_indices2 = []
+        for t in range(T):
+            n = np.random.randint(low=0, high=N) if N > 0 else 0
+            if n == 0:
+                continue
+            update_table_indices.append(t)
+            update_row_id_list = random.sample(range(Es[t]), n)
+            update_row_indices.append(update_row_id_list)
+            update_table_indices2.extend([t] * n)
+            update_row_indices2.extend(update_row_id_list)
+
+        # generate update tensor based on weights from "op_ref" embedding table
+        update_weights_list = []
+        ref_split_weights = op_ref.split_embedding_weights(split_scale_shifts=False)
+
+        update_weight_size = sum(
+            [
+                rounded_row_size_in_bytes(
+                    Ds[t],
+                    weights_ty_list[t],
+                    row_alignment,
+                )
+                for t in update_table_indices2
+            ]
+        )
+        update_weights_tensor2 = torch.randint(
+            low=0,
+            high=255,
+            size=(update_weight_size,),
+            dtype=torch.uint8,
+            device=current_device,
+        )
+
+        update_offsets = 0
+        for i in range(len(update_table_indices)):
+            table_idx = update_table_indices[i]
+            (ref_weights, _) = ref_split_weights[table_idx]
+
+            D_bytes = rounded_row_size_in_bytes(
+                Ds[table_idx], weights_ty_list[table_idx], row_alignment
+            )
+
+            update_weights = []
+            for row_idx in update_row_indices[i]:
+                update_weights.append(ref_weights[row_idx].tolist())
+                update_weights_tensor2[
+                    update_offsets : update_offsets + D_bytes
+                ] = ref_weights[row_idx]
+                update_offsets += D_bytes
+
+            update_weights_tensor = torch.tensor(
+                update_weights, device=current_device, dtype=torch.uint8
+            )
+            update_weights_list.append(update_weights_tensor)
+
+        # run inplace update on "op" embedding table
+        if not test_internal:
+            # Test scatter_ based OSS solution
+            op.embedding_inplace_update(
+                update_table_indices,
+                update_row_indices,
+                update_weights_list,
+            )
+        else:
+            # Test customized op
+            op.embedding_inplace_update_internal(
+                update_table_indices2,
+                update_row_indices2,
+                update_weights_tensor2,
+            )
+
+        # verify weights are equal with "op_ref" for the updated rows in "op"
+        split_weights = op.split_embedding_weights(split_scale_shifts=False)
+        for i in range(len(update_table_indices)):
+            t = update_table_indices[i]
+            for r in update_row_indices[i]:
+                (weights, _) = split_weights[t]
+                (ref_weights, _) = ref_split_weights[t]
+                self.assertEqual(weights.size(), ref_weights.size())
+                torch.testing.assert_close(
+                    weights[r],
+                    ref_weights[r],
+                    rtol=1e-2,
+                    atol=1e-2,
+                    equal_nan=True,
+                )
 
 
 if __name__ == "__main__":
