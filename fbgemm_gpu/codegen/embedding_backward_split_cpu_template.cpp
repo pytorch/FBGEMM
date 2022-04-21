@@ -303,7 +303,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
     {% if not dense %}
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {% else %}
     {{ args.split_function_args | join(", ") }}
     {% endif %}

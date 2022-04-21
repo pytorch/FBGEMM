@@ -445,7 +445,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     double max_gradient,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype) {
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_{{ optimizer }}_Op::apply(
       placeholder_autograd_tensor,
