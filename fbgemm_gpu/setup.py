@@ -46,6 +46,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default="fbgemm_gpu",
         help="the name of this output wheel",
     )
+    parser.add_argument(
+        "--nvml_lib_path",
+        type=str,
+        default=None,
+        help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
+        " this in a custom location (through cudatoolkit-dev), provide the path here.",
+    )
     return parser.parse_known_args(argv)
 
 
@@ -148,6 +155,8 @@ def main(argv: List[str]) -> None:
     cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
     if args.cpu_only:
         cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
+    if args.nvml_lib_path:
+        cmake_args.append(f"-DNVML_LIB_PATH={args.nvml_lib_path}")
 
     name = args.package_name
     print("name: ", name)
