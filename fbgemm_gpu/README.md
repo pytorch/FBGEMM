@@ -27,6 +27,15 @@ conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
 conda install scikit-build jinja2 ninja cmake hypothesis
 ```
 
+**If you're planning to build from source** and **don't** have `nvml.h` in your system, you can install it via the command
+below.
+```
+conda install -c conda-forge cudatoolkit-dev
+```
+ Certain operations require this library to be present. Be sure to provide the path to `libnvidia-ml.so` to
+`--nvml_lib_path` if installing from source (e.g. `python setup.py install --nvml_lib_path path_to_libnvidia-ml.so`).
+
+
 ## PIP install
 
 Currently only built with sm70/80 (V100/A100 GPU) wheel supports:

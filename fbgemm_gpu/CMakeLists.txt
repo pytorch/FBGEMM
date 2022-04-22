@@ -221,6 +221,22 @@ set_source_files_properties(
 # Actual static SOURCES
 #
 
+# Ensure NVML_LIB_PATH is empty if it wasn't set and if the
+# default lib path doesn't exist.
+if(NOT NVML_LIB_PATH)
+  set(DEFAULT_NVML_LIB_PATH
+    "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+
+  if(EXISTS ${DEFAULT_NVML_LIB_PATH})
+    message(
+      STATUS
+      "Setting NVML_LIB_PATH: \
+      ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so"
+    )
+    set(NVML_LIB_PATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+  endif()
+endif()
+
 set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_split_cpu.cpp
     codegen/embedding_forward_quantized_host_cpu.cpp
@@ -240,11 +256,16 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check_host.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
-    # src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp)
+
+    if(NVML_LIB_PATH)
+      list(APPEND fbgemm_gpu_sources_cpu
+        src/merge_pooled_embeddings_cpu.cpp
+        src/merge_pooled_embeddings_gpu.cpp)
+    endif()
 endif()
 
 set_source_files_properties(
@@ -292,6 +313,9 @@ endif()
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
 target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
+if(NVML_LIB_PATH)
+  target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
+endif()
 target_include_directories(fbgemm_gpu_py PRIVATE ${TORCH_INCLUDE_DIRS})
 set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
 
