@@ -47,7 +47,7 @@ void _to_dense_representation(
   }
 }
 
-} // namespace
+}  // namespace
 
 using Tensor = at::Tensor;
 
@@ -108,9 +108,9 @@ void _permute_2D_indices_weights_kernel_cpu(
               }
             }
             output_start += permuted_length;
-          } // for each b
-        } // for each t
-      }); // parallel_for T * B
+          }  // for each b
+        }    // for each t
+      });    // parallel_for T * B
 }
 
 // specialization for variable B and T,
@@ -147,7 +147,7 @@ void _permute_1D_indices_weights_kernel_cpu(
             }
           }
         }
-      }); // parallel_for T x B, different B across T
+      });  // parallel_for T x B, different B across T
 }
 
 template <typename index_t>
@@ -373,7 +373,7 @@ void BFloat16QuantizedToFloat_ref(
     for (const auto col : c10::irange(ncols)) {
       uint32_t val_fp32 = static_cast<uint32_t>(
                               reinterpret_cast<const uint16_t*>(input_row)[col])
-          << 16;
+                          << 16;
       reinterpret_cast<uint32_t*>(output_row)[col] = val_fp32;
     }
   }
@@ -390,7 +390,7 @@ at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
   const int32_t output_columns = ncols;
   auto output = at::empty(
       {nrows, output_columns},
-      input.options().dtype(at::kHalf)); // at::kHalf
+      input.options().dtype(at::kHalf));  // at::kHalf
   // input.options().dtype(at::kBFloat16)); // at::kBFloat16
 
   FloatToBFloat16Quantized_ref(
@@ -413,8 +413,8 @@ at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   const int32_t output_columns = ncols;
 
   auto output = at::empty(
-      {nrows, output_columns}, // 4 = sizeof(float)
-      input.options().dtype(at::kFloat)); //
+      {nrows, output_columns},             // 4 = sizeof(float)
+      input.options().dtype(at::kFloat));  //
 
   BFloat16QuantizedToFloat_ref(
       reinterpret_cast<at::BFloat16*>(input.data_ptr<at::Half>()),
@@ -553,7 +553,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
             permuted_lengths.data_ptr<index_t>(),
             input_offsets.data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
-      }); // for each scalar_t
+      });  // for each scalar_t
 
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
@@ -612,9 +612,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
                           nullptr,
                           permuted_lengths.data_ptr<offsets_t>());
                     }
-                  }); // for each weights_t
-            }); // for each indices_t
-      }); // for each offsets_t
+                  });  // for each weights_t
+            });        // for each indices_t
+      });              // for each offsets_t
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
@@ -676,7 +676,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
             permuted_lengths_size,
             permute.data_ptr<int32_t>(),
             permuted_lengths.data_ptr<index_t>());
-      }); // for each scalar_t
+      });  // for each scalar_t
 
   const auto input_offsets = asynchronous_exclusive_cumsum_cpu(lengths);
   const auto output_offsets =
@@ -738,9 +738,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
                           permuted_indices.data_ptr<indices_t>(),
                           nullptr);
                     }
-                  }); // for each weights_t
-            }); // for each indices_t
-      }); // for each offsets_t
+                  });  // for each weights_t
+            });        // for each indices_t
+      });              // for each offsets_t
 
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
@@ -762,7 +762,7 @@ void _expand_into_jagged_permute_cpu_kernel(
             output_permute[output_start + i] = input_start + i;
           }
         }
-      }); // parallel_for T
+      });  // parallel_for T
 }
 
 Tensor expand_into_jagged_permute_cpu(
@@ -1043,7 +1043,7 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_exclusive_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(), "asynchronous_exclusive_cumsum_cpu_kernel", [&] {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->data_ptr<scalar_t>(),
@@ -1058,7 +1058,7 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_inclusive_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(), "asynchronous_inclusive_cumsum_cpu_kernel", [&] {
         scalar_t cumsum = 0;
         const auto* input_ptr = t_in_contig->data_ptr<scalar_t>();
         const auto N = t_in_contig->numel();
@@ -1079,7 +1079,7 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = at::zeros({t_in.numel() + 1}, t_in.options());
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_complete_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(), "asynchronous_complete_cumsum_cpu_kernel", [&] {
         const auto N = t_in_contig->numel();
         const auto last_sum = exclusive_scan_ptrs_cpu(
             N, t_in_contig->data_ptr<scalar_t>(), output.data_ptr<scalar_t>());
@@ -1125,9 +1125,9 @@ Tensor reorder_batched_ad_lengths_cpu(
 
   Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
   AT_DISPATCH_INDEX_TYPES(
-      batch_offsets.type(), "reorder_batched_ad_lengths_cpu_kernel1", [&] {
+      batch_offsets.scalar_type(), "reorder_batched_ad_lengths_cpu_kernel1", [&] {
         AT_DISPATCH_ALL_TYPES(
-            cat_ad_lengths.type(),
+            cat_ad_lengths.scalar_type(),
             "reorder_batched_ad_lengths_cpu_kernel2",
             [&] {
               reorder_batched_ad_lengths_<index_t, scalar_t>(
@@ -1202,7 +1202,7 @@ Tensor reorder_batched_ad_indices_cpu(
       "reorder_batched_ad_indices_cpu_kernel_1",
       [&] {
         AT_DISPATCH_ALL_TYPES(
-            cat_ad_indices.type(),
+            cat_ad_indices.scalar_type(),
             "reorder_batched_ad_indices_cpu_kernel_2",
             [&] {
               reorder_batched_ad_indices_cpu_<index_t, scalar_t>(
@@ -1344,7 +1344,7 @@ void _histogram_binning_calibration_cpu_kernel(
       const auto curr_bin_ctr =
           bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
       calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-          uncalibrated * (1.0 - bin_ctr_weight_value);
+                                      uncalibrated * (1.0 - bin_ctr_weight_value);
     } else {
       calibrated_prediction_data[i] = uncalibrated;
     }
@@ -1369,9 +1369,9 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
-      static_cast<double>(bin_num_examples.numel());
+                      static_cast<double>(bin_num_examples.numel());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cpu", [&] {
+      logit.scalar_type(), "histogram_binning_calibration_cpu", [&] {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
             logit.numel(),
             recalibrate_value,
@@ -1409,8 +1409,8 @@ void _histogram_binning_calibration_by_feature_cpu_kernel(
 
     const int64_t curr_segment_value =
         dense_segment_value_data[i] > num_segments
-        ? 0
-        : std::max(0L, dense_segment_value_data[i] * num_bins);
+            ? 0
+            : std::max(0L, dense_segment_value_data[i] * num_bins);
 
     bin_ids_data[i] = (std::ceil(uncalibrated / step) - 1) + curr_segment_value;
 
@@ -1419,7 +1419,7 @@ void _histogram_binning_calibration_by_feature_cpu_kernel(
       const auto curr_bin_ctr =
           bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
       calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-          uncalibrated * (1.0 - bin_ctr_weight_value);
+                                      uncalibrated * (1.0 - bin_ctr_weight_value);
     } else {
       calibrated_prediction_data[i] = uncalibrated;
     }
@@ -1469,7 +1469,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
         using logit_t = scalar_t;
@@ -1526,8 +1526,8 @@ void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
 
     const int64_t curr_segment_value =
         dense_segment_value_data[i] > num_segments
-        ? 0
-        : std::max(0L, dense_segment_value_data[i] * num_bins);
+            ? 0
+            : std::max(0L, dense_segment_value_data[i] * num_bins);
 
     bin_ids_data[i] = curr_bin_id + curr_segment_value;
 
@@ -1536,7 +1536,7 @@ void _generic_histogram_binning_calibration_by_feature_cpu_kernel(
       const auto curr_bin_ctr =
           bin_num_positives_data[bin_ids_data[i]] / curr_bin_num_examples;
       calibrated_prediction_data[i] = curr_bin_ctr * bin_ctr_weight_value +
-          uncalibrated * (1.0 - bin_ctr_weight_value);
+                                      uncalibrated * (1.0 - bin_ctr_weight_value);
     } else {
       calibrated_prediction_data[i] = uncalibrated;
     }
@@ -1586,7 +1586,7 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
         using logit_t = scalar_t;
@@ -1643,14 +1643,15 @@ Tensor segment_sum_csr_cpu(
   TENSOR_ON_CPU(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cpu", [&] {
-    _segment_sum_csr_cpu_kernel<scalar_t>(
-        csr_seg.numel() - 1,
-        batch_size,
-        csr_seg.data_ptr<int>(),
-        values.data_ptr<scalar_t>(),
-        output.data_ptr<scalar_t>());
-  });
+  AT_DISPATCH_ALL_TYPES(values.scalar_type(),
+                        "_segment_sum_csr_cpu", [&] {
+                          _segment_sum_csr_cpu_kernel<scalar_t>(
+                              csr_seg.numel() - 1,
+                              batch_size,
+                              csr_seg.data_ptr<int>(),
+                              values.data_ptr<scalar_t>(),
+                              output.data_ptr<scalar_t>());
+                        });
   return output;
 }
 
@@ -1674,7 +1675,7 @@ bool should_prune(
 
   const int64_t original_size = data_byte_size * weights.numel();
   return (compressed_idx_overhead_size + lut_after_prune_size) <
-      min_save_ratio * original_size;
+         min_save_ratio * original_size;
 }
 
 // This operator introduces sparsity to a weight matrix by applying
@@ -1812,7 +1813,7 @@ Tensor& lengths_range_out(
           std::iota(
               start,
               start + len,
-              0); // make the third argument the arg of this operator
+              0);  // make the third argument the arg of this operator
         }
       });
 
@@ -1859,9 +1860,9 @@ void _permute_data_kernel_cpu(
               }
             }
             output_start += permuted_length;
-          } // for each b
-        } // for each t
-      }); // parallel_for T * B
+          }  // for each b
+        }    // for each t
+      });    // parallel_for T * B
 }
 
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
@@ -1916,7 +1917,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
             permuted_lengths.data_ptr<index_t>(),
             input_offsets.data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
+      }));  // for each scalar_t
 
   auto permuted_lengths_sum =
       output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
@@ -1957,8 +1958,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
                     nullptr,
                     permuted_lengths.data_ptr<index_t>());
               }
-            })); // for each scalar_t
-      })); // for each index_t
+            }));  // for each scalar_t
+      }));        // for each index_t
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
@@ -2106,9 +2107,9 @@ void _permute_embeddings_kernel_cpu(
                   embeddings[input_start + i];
             }
             output_start += permuted_length;
-          } // for each b
-        } // for each t
-      }); // parallel_for T * B
+          }  // for each b
+        }    // for each t
+      });    // parallel_for T * B
 }
 
 std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
@@ -2155,7 +2156,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
             permuted_lengths.data_ptr<index_t>(),
             input_offsets.data_ptr<index_t>(),
             output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
+      }));  // for each scalar_t
 
   auto permuted_lengths_sum =
       output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
@@ -2175,12 +2176,12 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
                   output_offsets_per_thread_cumsum.data(),
                   permuted_embeddings.data_ptr<scalar_t>(),
                   permuted_lengths.data_ptr<index_t>());
-            })); // for each scalar_t
-      })); // for each index_t
+            }));  // for each scalar_t
+      }));        // for each index_t
   return {permuted_lengths, permuted_embeddings};
 }
 
-} // namespace fbgemm_gpu
+}  // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

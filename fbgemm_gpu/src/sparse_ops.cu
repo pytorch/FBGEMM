@@ -170,7 +170,8 @@ Tensor segment_sum_csr_cuda(
   auto output = at::empty(csr_seg.numel() - 1, values.options());
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cuda", [&] {
+  AT_DISPATCH_ALL_TYPES(values.scalar_type(), 
+  "_segment_sum_csr_cuda", [&] {
     _segment_sum_csr_cuda_kernel<scalar_t>
         <<<num_blocks,
            threads_per_block,
@@ -1525,7 +1526,7 @@ Tensor reorder_batched_ad_lengths_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_lengths.type(), "reorder_batched_ad_lengths_gpu_kernel", [&] {
+      cat_ad_lengths.scalar_type(), "reorder_batched_ad_lengths_gpu_kernel", [&] {
         reorder_batched_ad_lengths_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 cat_ad_lengths
@@ -1618,7 +1619,7 @@ Tensor reorder_batched_ad_indices_gpu(
   const dim3 blocks((B * T + 32 - 1) / 32);
 
   AT_DISPATCH_ALL_TYPES(
-      cat_ad_indices.type(), "reorder_batched_ad_indices_gpu_kernel_1", [&] {
+      cat_ad_indices.scalar_type(), "reorder_batched_ad_indices_gpu_kernel_1", [&] {
         AT_DISPATCH_INDEX_TYPES(
             cat_ad_offsets.scalar_type(),
             "reorder_batched_ad_indices_gpu_kernel_2",
@@ -1703,9 +1704,9 @@ Tensor batched_unary_embeddings_forward_cuda(
   dim3 blocks(cuda_calc_xblock_count(B, threads), T, N);
   auto output = at::empty({N, B, T}, weight.options());
   AT_DISPATCH_INDEX_TYPES(
-      indices.type(), "batched_unary_embeddings_forward_kernel", [&] {
+      indices.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            weight.type(), "batched_unary_embeddings_forward_kernel", [&] {
+            weight.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
               batched_unary_embeddings_forward_kernel<scalar_t>
                   <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                       N,
@@ -1839,9 +1840,9 @@ Tensor batched_unary_embeddings_backward_cuda(
       cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads), N);
   auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
-      indices.type(), "batched_unary_embeddings_backward_kernel", [&] {
+      indices.scalar_type(), "batched_unary_embeddings_backward_kernel", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            grad_output.type(),
+            grad_output.scalar_type(),
             "batched_unary_embeddings_backward_kernel",
             [&] {
               batched_unary_embeddings_backward_kernel<scalar_t>

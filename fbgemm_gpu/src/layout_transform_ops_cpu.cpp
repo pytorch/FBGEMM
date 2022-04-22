@@ -15,7 +15,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 Tensor recat_embedding_grad_output_mixed_D_cpu(
-    const Tensor& grad_output, // [B_local][Sum_T_global(D)]
+    const Tensor& grad_output,  // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
   TORCH_CHECK(grad_output.is_contiguous());
   const auto B_local = grad_output.sizes()[0];
@@ -32,7 +32,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   TORCH_CHECK(B_local * global_dim_sum == grad_output.numel());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", [&] {
+      grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
         at::parallel_for(
@@ -46,8 +46,8 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
                 const scalar_t* src = &go[0][accum_dim_sum[dim]];
                 const auto r_begin = (dim == dim_begin) ? i_begin % B_local : 0;
                 const auto r_end = (dim == dim_end - 1 && i_end % B_local != 0)
-                    ? i_end % B_local
-                    : B_local;
+                                       ? i_end % B_local
+                                       : B_local;
                 for (const auto r : c10::irange(r_begin, r_end)) {
                   memcpy(
                       dst + r * dim_sum,
@@ -61,7 +61,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   return sharded_grad_output;
 }
 
-} // namespace fbgemm_gpu
+}  // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
