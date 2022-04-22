@@ -149,6 +149,8 @@
     switch (_grad_t) {                                                       \
       PRIVATE_CASE_TYPE_CACHE_EMB(                                           \
           at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__) \
+      PRIVATE_CASE_TYPE_CACHE_EMB(                                           \
+          at::ScalarType::Half, _cache_t, _emb_t, at::Half, NAME, __VA_ARGS__) \
       default:                                                               \
         AT_ERROR(                                                            \
             #NAME, " not implemented for grad_t '", toString(_grad_t), "'"); \
