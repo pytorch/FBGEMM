@@ -10,6 +10,20 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename index_t>
+__device__ void adjust_offset_kernel(
+    index_t indices_start,
+    index_t indices_end,
+    index_t num_indices,
+    index_t* offset_acc_start,
+    index_t* offset_acc_end) {
+  indices_start =
+      std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
+  indices_end = std::max(indices_start, std::min(indices_end, num_indices));
+  *offset_acc_start = indices_start;
+  *offset_acc_end = indices_end;
+}
+
+template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
@@ -48,29 +62,31 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
             "batch: %lld, table: %lld, indices_start: %lld, indices_end: %lld,"
             " num_indices: %lld. Setting indices_start and indices_end within "
             "the range.\n",
-            int64_t(b),
-            int64_t(t),
-            int64_t(indices_start),
-            int64_t(indices_end),
-            int64_t(num_indices));
+            static_cast<int64_t>(b),
+            static_cast<int64_t>(t),
+            static_cast<int64_t>(indices_start),
+            static_cast<int64_t>(indices_end),
+            static_cast<int64_t>(num_indices));
       }
-      indices_start = std::max(
-          static_cast<index_t>(0), std::min(indices_start, num_indices));
-      indices_end = std::max(indices_start, std::min(indices_end, num_indices));
-      offsets[t * B + b] = indices_start;
-      offsets[t * B + b + 1] = indices_end;
+      adjust_offset_kernel(
+          indices_start,
+          indices_end,
+          num_indices,
+          &offsets[t * B + b],
+          &offsets[t * B + b + 1]);
     }
   } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-    indices_start =
-        std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
-    indices_end = std::max(indices_start, std::min(indices_end, num_indices));
-    offsets[t * B + b] = indices_start;
-    offsets[t * B + b + 1] = indices_end;
+    adjust_offset_kernel(
+        indices_start,
+        indices_end,
+        num_indices,
+        &offsets[t * B + b],
+        &offsets[t * B + b + 1]);
   }
 
   auto L = indices_end - indices_start;
-  for (index_t i = (index_t)threadIdx.x; i < L;
-       i += (index_t)fbgemm_gpu::kWarpSize) {
+  for (index_t i = static_cast<index_t>(threadIdx.x); i < L;
+       i += static_cast<index_t>(fbgemm_gpu::kWarpSize)) {
     auto idx = indices[indices_start + i];
     if (idx == -1) {
       // -1 indicates pruned rows.
@@ -84,13 +100,14 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
       if (idx < 0 || idx >= num_rows) {
         if (gpuAtomicIncrement(&warning[0]) == 0) {
           printf(
-              "EmbeddingBoundsCheck: (at least one) Out of bounds access for batch: %lld, table: %lld, bag element: %lld, idx: %lld, num_rows: %lld, indices_start: %lld, T: %d, B: %d, b_t: %d. Setting idx to zero.\n",
-              int64_t(b),
-              int64_t(t),
-              int64_t(i),
-              int64_t(idx),
+              "EmbeddingBoundsCheck: (at least one) Out of bounds access for batch: %lld, table: %lld, bag element: %lld, idx: %lld, num_rows: %lld, indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. Setting idx to zero.\n",
+              static_cast<int64_t>(b),
+              static_cast<int64_t>(t),
+              static_cast<int64_t>(i),
+              static_cast<int64_t>(idx),
               num_rows,
-              int64_t(indices_start),
+              static_cast<int64_t>(indices_start),
+              static_cast<int64_t>(indices_end),
               T,
               B,
               b_t);
@@ -103,18 +120,43 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
       }
     }
   }
+
+  if (bounds_check_mode == BoundsCheckMode::FATAL) {
+    CUDA_KERNEL_ASSERT(indices.size(0) == offsets[B * T]);
+  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    if (indices.size(0) != offsets[B * T]) {
+      if (gpuAtomicIncrement(&warning[0]) == 0) {
+        printf(
+            "EmbeddingBoundsCheck: the last element in offsets is incorrect for "
+            "total batch size B: %lld, total table num T: %lld, "
+            " last element in offsets: %lld, indices size: %lld. "
+            " Setting the last element in offsets to be indices size.\n",
+            static_cast<int64_t>(B),
+            static_cast<int64_t>(T),
+            static_cast<int64_t>(offsets[B * T]),
+            static_cast<int64_t>(indices.size(0)));
+      }
+      offsets[B * T] = indices.size(0);
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+    if (indices.size(0) != offsets[B * T]) {
+      offsets[B * T] = indices.size(0);
+    }
+  }
 }
 
 void bounds_check_indices_cuda(
-    Tensor rows_per_table,
-    Tensor indices,
-    Tensor offsets,
+    Tensor& rows_per_table,
+    Tensor& indices,
+    Tensor& offsets,
     int64_t bounds_check_mode_,
-    Tensor warning) {
+    Tensor& warning,
+    c10::optional<Tensor> weights) {
   TENSOR_ON_CUDA_GPU(rows_per_table);
   TENSOR_ON_CUDA_GPU(indices);
   TENSOR_ON_CUDA_GPU(offsets);
   TENSOR_ON_CUDA_GPU(warning);
+  TENSOR_EMPTY_OR_ON_CUDA_GPU(weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
@@ -128,6 +170,42 @@ void bounds_check_indices_cuda(
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
   }
+
+  if (bounds_check_mode == BoundsCheckMode::FATAL) {
+    TORCH_CHECK(offsets.size(0) == B * T + 1);
+    if (weights.has_value()) {
+      TORCH_CHECK(weights.value().size(0) == indices.size(0));
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    if (offsets.size(0) != B * T + 1) {
+      printf(
+          "EmbeddingBoundsCheck: offsets size is incorrect for "
+          "total batch size B: %ld, total table num T: %ld, "
+          " offsets size: %ld. Setting offsets size to be B * T + 1.\n",
+          static_cast<int64_t>(B),
+          static_cast<int64_t>(T),
+          static_cast<int64_t>(offsets.size(0)));
+      offsets = offsets.slice(0, 0, B * T + 1);
+    }
+    if (weights.has_value()) {
+      if (weights.value().size(0) != indices.size(0)) {
+        printf(
+            "The size of weights are not consistent with indices. "
+            "Changing the weights to the same size as indices with all element 1.");
+        weights = at::ones(indices.sizes(), weights.value().options());
+      }
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+    if (offsets.size(0) != B * T + 1) {
+      offsets = offsets.slice(0, 0, B * T + 1);
+    }
+    if (weights.has_value()) {
+      if (weights.value().size(0) != indices.size(0)) {
+        weights = at::ones(indices.sizes(), weights.value().options());
+      }
+    }
+  }
+
   constexpr size_t kNumThreads = 256;
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
