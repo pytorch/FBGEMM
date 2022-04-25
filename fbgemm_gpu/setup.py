@@ -32,6 +32,16 @@ def get_nightly_version():
     return f"{today.year}.{today.month}.{today.day}"
 
 
+def get_cxx11_abi():
+    try:
+        import torch
+
+        value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
+    except ImportError:
+        value = 0
+    return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
+
+
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
     parser.add_argument(
@@ -153,6 +163,7 @@ def main(argv: List[str]) -> None:
     os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
 
     cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
+    cmake_args.append(get_cxx11_abi())
     if args.cpu_only:
         cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
     if args.nvml_lib_path:
