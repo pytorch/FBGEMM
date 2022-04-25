@@ -33,6 +33,14 @@ find_package(PythonExtensions REQUIRED)
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)
 
+if(DEFINED GLIBCXX_USE_CXX11_ABI)
+  if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
+    set(CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
+    message("${CMAKE_CXX_FLAGS}")
+  endif()
+endif()
+
 #
 # Toch Cuda Extensions are normally compiled with the flags below. However we
 # disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
