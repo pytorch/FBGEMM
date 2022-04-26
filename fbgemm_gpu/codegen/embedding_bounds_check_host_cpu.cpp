@@ -53,23 +53,21 @@ void bounds_check_indices_cpu(
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();
 
+    TORCH_CHECK(
+        offsets.size(0) == B * T + 1,
+        "offsets size " + std::to_string(offsets.size(0)) +
+            " is not equal to B (" + std::to_string(B) + ") * T (" +
+            std::to_string(T) + ") + 1");
+    if (weights.has_value()) {
+      TORCH_CHECK(
+          weights.value().size(0) == num_indices,
+          "weights size " + std::to_string(weights.value().size(0)) +
+              " is not equal to indices size " + std::to_string(num_indices));
+    }
+
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      TORCH_CHECK(offsets.size(0) == B * T + 1);
       TORCH_CHECK(num_indices == offsets_acc[B * T]);
-      if (weights.has_value()) {
-        TORCH_CHECK(weights.value().size(0) == num_indices);
-      }
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-      if (offsets.size(0) != B * T + 1) {
-        if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
-          LOG(ERROR) << "The offsets size is incorrect for "
-                     << "total batch size B: " << B
-                     << ", total table num T: " << T
-                     << ", offsets size: " << offsets.size(0)
-                     << ". Setting offsets size to be B * T + 1.";
-        }
-        offsets = offsets.slice(0, 0, B * T + 1);
-      }
       if (num_indices != offsets_acc[B * T]) {
         if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
           LOG(ERROR)
@@ -81,27 +79,9 @@ void bounds_check_indices_cpu(
         }
         offsets_acc[B * T] = num_indices;
       }
-      if (weights.has_value()) {
-        if (weights.value().size(0) != num_indices) {
-          if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
-            LOG(ERROR)
-                << "The size of weights are not consistent with indices. "
-                << "Changing the weights to the same size as indices with all element 1.";
-          }
-          weights = at::ones({num_indices}, weights.value().options());
-        }
-      }
     } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-      if (offsets.size(0) != B * T + 1) {
-        offsets = offsets.slice(0, 0, B * T + 1);
-      }
       if (num_indices != offsets_acc[B * T]) {
         offsets_acc[B * T] = num_indices;
-      }
-      if (weights.has_value()) {
-        if (weights.value().size(0) != num_indices) {
-          weights = at::ones(num_indices, weights.value().options());
-        }
       }
     }
 
