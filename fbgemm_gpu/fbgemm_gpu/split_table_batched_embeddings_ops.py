@@ -352,17 +352,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cacheable=True,
             precision=weights_precision,
         )
-        table_embedding_dtype = torch.float32
-        if weights_precision == SparseType.FP16:
-            table_embedding_dtype = torch.float16
-        elif weights_precision == SparseType.INT8:
-            table_embedding_dtype = torch.uint8
+        table_embedding_dtype = weights_precision.as_dtype()
 
         self._apply_split(
             weight_split,
             prefix="weights",
-            # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param but
-            #  got `Type[typing.Union[torch.float16, torch.float32, torch.uint8]]`.
+            # pyre-fixme[6]: For 3rd param expected `Type[Type[_dtype]]` but got
+            #  `Type[_dtype]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
         )
