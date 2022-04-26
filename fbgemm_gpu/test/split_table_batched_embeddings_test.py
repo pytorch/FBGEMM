@@ -3890,6 +3890,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if weighted:
                 weights = weights.cuda()
         indices_copy = indices.clone()
+        offsets_copy = offsets.clone()
         torch.ops.fbgemm.bounds_check_indices(
             rows_per_table, indices, offsets, bounds_check_mode, warning, weights
         )
@@ -3920,6 +3921,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # test offsets bound errors
         indices = indices_copy.clone()
+        offsets = offsets_copy.clone()
         if offsets.numel() > 0:
             offsets[0] = -100
         if offsets.numel() > 1:
@@ -3948,52 +3950,45 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                         weights,
                     )
 
-        # test offsets.size(0) ! = B * T + 1 case
-        indices = indices_copy.clone()
-        offsets = torch.cat(
-            (
-                offsets,
-                torch.tensor(
-                    [indices.numel()], dtype=offsets.dtype, device=offsets.device
+        # test offsets.size(0) ! = B * T + 1 case. Here we test with T >= 2 case.
+        # If T == 1, we will always get the even division.
+        if T >= 2:
+            indices = indices_copy.clone()
+            offsets = offsets_copy.clone()
+            offsets = torch.cat(
+                (
+                    offsets,
+                    torch.tensor(
+                        [indices.numel()] * (T - 1),
+                        dtype=offsets.dtype,
+                        device=offsets.device,
+                    ),
                 ),
-            ),
-            dim=0,
-        )
-        if bounds_check_mode != BoundsCheckMode.FATAL:
-            torch.ops.fbgemm.bounds_check_indices(
-                rows_per_table, indices, offsets, bounds_check_mode, warning, weights
+                dim=0,
             )
-        else:
-            if use_cpu:
-                with self.assertRaises(RuntimeError):
-                    torch.ops.fbgemm.bounds_check_indices(
-                        rows_per_table,
-                        indices,
-                        offsets,
-                        bounds_check_mode,
-                        warning,
-                        weights,
-                    )
+            with self.assertRaises(RuntimeError):
+                torch.ops.fbgemm.bounds_check_indices(
+                    rows_per_table,
+                    indices,
+                    offsets,
+                    bounds_check_mode,
+                    warning,
+                    weights,
+                )
 
         # test weights.size(0) != indices.size(0) case
         weights = torch.rand(
             (indices.size(0) + 1,), dtype=torch.float, device=indices.device
         )
-        if bounds_check_mode != BoundsCheckMode.FATAL:
+        with self.assertRaises(RuntimeError):
             torch.ops.fbgemm.bounds_check_indices(
-                rows_per_table, indices, offsets, bounds_check_mode, warning, weights
+                rows_per_table,
+                indices,
+                offsets,
+                bounds_check_mode,
+                warning,
+                weights,
             )
-        else:
-            if use_cpu:
-                with self.assertRaises(RuntimeError):
-                    torch.ops.fbgemm.bounds_check_indices(
-                        rows_per_table,
-                        indices,
-                        offsets,
-                        bounds_check_mode,
-                        warning,
-                        weights,
-                    )
 
     def test_pickle(self) -> None:
         tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
