@@ -172,39 +172,16 @@ void bounds_check_indices_cuda(
   }
   int64_t num_indices = indices.size(0);
 
-  if (bounds_check_mode == BoundsCheckMode::FATAL) {
-    TORCH_CHECK(offsets.size(0) == B * T + 1);
-    if (weights.has_value()) {
-      TORCH_CHECK(weights.value().size(0) == num_indices);
-    }
-  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-    if (offsets.size(0) != B * T + 1) {
-      printf(
-          "EmbeddingBoundsCheck: offsets size is incorrect for "
-          "total batch size B: %ld, total table num T: %ld, "
-          " offsets size: %ld. Setting offsets size to be B * T + 1.\n",
-          static_cast<int64_t>(B),
-          static_cast<int64_t>(T),
-          static_cast<int64_t>(offsets.size(0)));
-      offsets = offsets.slice(0, 0, B * T + 1);
-    }
-    if (weights.has_value()) {
-      if (weights.value().size(0) != num_indices) {
-        printf(
-            "The size of weights are not consistent with indices. "
-            "Changing the weights to the same size as indices with all element 1.");
-        weights = at::ones({num_indices}, weights.value().options());
-      }
-    }
-  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-    if (offsets.size(0) != B * T + 1) {
-      offsets = offsets.slice(0, 0, B * T + 1);
-    }
-    if (weights.has_value()) {
-      if (weights.value().size(0) != num_indices) {
-        weights = at::ones({num_indices}, weights.value().options());
-      }
-    }
+  TORCH_CHECK(
+      offsets.size(0) == B * T + 1,
+      "offsets size " + std::to_string(offsets.size(0)) +
+          " is not equal to B (" + std::to_string(B) + ") * T (" +
+          std::to_string(T) + ") + 1");
+  if (weights.has_value()) {
+    TORCH_CHECK(
+        weights.value().size(0) == num_indices,
+        "weights size " + std::to_string(weights.value().size(0)) +
+            " is not equal to indices size " + std::to_string(num_indices));
   }
 
   constexpr size_t kNumThreads = 256;
