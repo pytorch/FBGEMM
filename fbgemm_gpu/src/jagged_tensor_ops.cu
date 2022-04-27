@@ -428,8 +428,9 @@ at::Tensor jagged_to_padded_dense_forward(
   Tensor padded_values_view =
       values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
 
-  AT_DISPATCH_ALL_TYPES_AND(
+  AT_DISPATCH_ALL_TYPES_AND2(
       at::ScalarType::Half,
+      at::ScalarType::BFloat16,
       values.scalar_type(),
       "jagged_to_padded_dense",
       [&] {
@@ -461,7 +462,9 @@ at::Tensor jagged_to_padded_dense_backward(
   auto grad_values =
       at::zeros({max_lengths[0], D}, grad_padded_values.options());
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
       grad_padded_values.scalar_type(),
       "jagged_2d_to_dense_backward_kernel",
       [&] {
@@ -904,7 +907,9 @@ class BatchedDenseVecJagged2DMulGPUOp
 
       AT_DISPATCH_INDEX_TYPES(
           a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
                 a_values.scalar_type(),
                 "dense_vec_jagged_2d_bmm_kernel_2",
                 [&] {
@@ -963,7 +968,9 @@ class BatchedDenseVecJagged2DMulGPUOp
           a_offsets.scalar_type(),
           "dense_vec_jagged_2d_bmm_baackward_kernel_1",
           [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
                 grad_outputs[0].scalar_type(),
                 "dense_vec_jagged_2d_bmm_baackward_kernel_2",
                 [&] {

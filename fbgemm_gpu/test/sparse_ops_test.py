@@ -1836,6 +1836,7 @@ class SparseOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
         padding_value=st.sampled_from([0, -1e-8]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1845,8 +1846,12 @@ class SparseOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         padding_value: float,
+        dtype: torch.dtype,
         use_cpu: bool,
     ) -> None:
+        # CPU doesn't support bfloat16
+        assume(not use_cpu or dtype != torch.bfloat16)
+
         # Testing with a basic crafted example.
         # dense representation is
         # [[[[0, 1], [ 0,  0], [0, 0]],
@@ -2006,7 +2011,7 @@ class SparseOpsTest(unittest.TestCase):
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     def test_batched_dense_vec_jagged_2d_mul(
@@ -2019,6 +2024,9 @@ class SparseOpsTest(unittest.TestCase):
         use_cpu: bool,
     ) -> None:
         assume(H == 1 or B != 0)
+        # CPU doesn't support bfloat16
+        assume(not use_cpu or dtype != torch.bfloat16)
+
         device = torch.device("cpu" if use_cpu else "cuda")
         torch.backends.cuda.matmul.allow_tf32 = False
 
