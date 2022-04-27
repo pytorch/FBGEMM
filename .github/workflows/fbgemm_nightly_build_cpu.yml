@@ -4,13 +4,13 @@
 name: Push CPU Binary Nightly
 
 on:
-  # # For debugging, enable push/pull_request
-  # [push, pull_request]
-  # run every day at 10:45 AM
-  schedule:
-    - cron:  '45 10 * * *'
-  # or manually trigger it
-  workflow_dispatch:
+  # For debugging, enable push/pull_request
+  [push, pull_request]
+  # # run every day at 10:45 AM
+  # schedule:
+  #   - cron:  '45 10 * * *'
+  # # or manually trigger it
+  # workflow_dispatch:
 
 jobs:
   # build, test, and upload to GHA on cpu hosts
@@ -105,11 +105,12 @@ jobs:
           --python-tag=${{ matrix.python-tag }} \
           --cpu_only \
           --plat-name=manylinux1_x86_64
+        ls -lt dist
     - name: Upload wheel as GHA artifact
       uses: actions/upload-artifact@v2
       with:
         name: fbgemm_gpu_nightly_cpu_${{ matrix.python-version }}_${{ matrix.cuda-tag }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_nightly_cpu-*.whl
+        path: fbgemm_gpu/dist/fbgemm_gpu*.whl
 
     - name: Install Dependencies
       shell: bash
@@ -128,7 +129,7 @@ jobs:
     - name: Install FBGEMM_GPU Nightly (CPU version)
       run: |
         conda run -n build_binary \
-          python -m pip install fbgemm_gpu/dist/fbgemm_gpu_nightly_cpu-*.whl
+          python -m pip install fbgemm_gpu/dist/fbgemm_gpu*.whl
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
@@ -156,4 +157,4 @@ jobs:
             --username __token__ \
             --password "$PYPI_TOKEN" \
             --skip-existing \
-            fbgemm_gpu/dist/fbgemm_gpu_nightly_cpu-*.whl
+            fbgemm_gpu/dist/fbgemm_gpu*.whl
