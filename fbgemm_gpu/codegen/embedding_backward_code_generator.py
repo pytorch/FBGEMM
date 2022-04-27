@@ -621,6 +621,174 @@ def rowwise_adagrad_with_weight_decay() -> None:
     )
 
 
+def rowwise_adagrad_with_counter() -> None:
+    split_weight_update = """
+        weight_new.acc.x = (exp_reg_correction * weight_new.acc.x - adjusted_multiplier * grad.acc.x);
+        weight_new.acc.y = (exp_reg_correction * weight_new.acc.y - adjusted_multiplier * grad.acc.y);
+        weight_new.acc.z = (exp_reg_correction * weight_new.acc.z - adjusted_multiplier * grad.acc.z);
+        weight_new.acc.w = (exp_reg_correction * weight_new.acc.w - adjusted_multiplier * grad.acc.w);
+    """
+    split_precomputation = """
+    at::acc_type<cache_t, true> freq = 1.0;
+    at::acc_type<cache_t, true> l2_wd = 0.0;
+    if (counter_halflife > 0 && threadIdx.x == 0) {
+        // if id occurs multiple times in a batch, iter_delta=1
+        const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+        prev_iter[idx] = iter * 1.0;
+        const auto counter_log_rho = logf(2.0) / counter_halflife;
+        row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
+        freq = counter_halflife / row_counter[idx];
+        if (weight_decay_mode == 1) {
+            // L2 regularization
+            l2_wd = 1.0;
+        }
+    }
+    freq = __shfl_sync(0xFFFFFFFF, freq, 0);
+    l2_wd = __shfl_sync(0xFFFFFFFF, l2_wd, 0);
+
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+
+    #pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        auto gx = grad_sum[i].acc.x + l2_wd * freq * weight_decay * weight.acc.x;
+        auto gy = grad_sum[i].acc.y + l2_wd * freq * weight_decay * weight.acc.y;
+        auto gz = grad_sum[i].acc.z + l2_wd * freq * weight_decay * weight.acc.z;
+        auto gw = grad_sum[i].acc.w + l2_wd * freq * weight_decay * weight.acc.w;
+        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+    }
+
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+
+    at::acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> adjusted_multiplier;
+    at::acc_type<cache_t, true> exp_reg_correction;
+    at::acc_type<cache_t, true> tail_id_threshold_val = tail_id_threshold;
+    if (is_tail_id_thresh_ratio == 1){
+        tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
+    }
+    if (threadIdx.x == 0) {
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+
+        adjusted_multiplier = multiplier;
+        if ( learning_rate_mode >=0 ) {
+            if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
+
+                if (row_counter[idx] > tail_id_threshold_val) {
+                    if ( learning_rate_mode == 0 ) {
+                        adjusted_multiplier = multiplier * max(min(powf(max_counter/(row_counter[idx] + 1.0), adjustment_ub), 10.0), 1.0);
+                    } else if ( learning_rate_mode == 1 ) {
+                        adjusted_multiplier = multiplier * min(max(powf((row_counter[idx] + 1.0)/max_counter, adjustment_ub), 0.1), 1.0);
+                    } else if (learning_rate_mode == 2) {
+                        adjusted_multiplier = learning_rate / (sqrtf(adjustment_ub*row_counter[idx]) + eps);
+                    }
+                }
+            }
+        }
+
+        exp_reg_correction = 1.0;
+        if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
+            if (weight_decay_mode == 2) {
+                // Decoupled weight decay
+                exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
+            } else if (weight_decay_mode == 1) {
+                // L2 regularization (coupled wd)
+                exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
+            }
+        }
+    }
+    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
+    adjusted_multiplier = __shfl_sync(0xFFFFFFFF, adjusted_multiplier, 0);
+    exp_reg_correction = __shfl_sync(0xFFFFFFFF, exp_reg_correction, 0);
+    """
+    split_weight_update_cpu = """
+        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
+        for (int64_t d = 0; d < D; ++d) {
+            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
+        }
+        auto g_avg_square = g_local_sum_square / D;
+        auto offset_idx = momentum1_offsets_data[feature_begin] + idx;
+        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[offset_idx] + g_avg_square;
+        momentum1_host[offset_idx] = new_sum_square_grads;
+        at::acc_type<grad_t, true> multiplier;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        const auto iter_delta = iter * 1.0 - prev_iter_host[offset_idx];
+        prev_iter_host[offset_idx] = iter * 1.0;
+        const auto exp_reg = 1.0 / (weight_decay * multiplier + 1.0);
+        const auto exp_reg_correction = powf(exp_reg, iter_delta);
+        for (int64_t d = 0; d < D; ++d) {
+            const auto weight = host_weights_data[embedding_begin + d];
+            host_weights_data[embedding_begin + d] = exp_reg_correction * weight - exp_reg * multiplier * grad_buffer[d];
+        }
+    """
+
+    generate(
+        optimizer="rowwise_adagrad_with_counter",
+        args=make_args(
+            [
+                (TENSOR, "momentum1"),
+                (TENSOR, "prev_iter"),
+                (TENSOR, "row_counter"),
+                (FLOAT, "eps"),
+                (FLOAT, "learning_rate"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "iter"),
+                (INT, "counter_halflife", -1),
+                (INT, "adjustment_iter", -1),
+                (FLOAT, "adjustment_ub", 1.0),
+                (INT, "learning_rate_mode", -1),
+                (INT, "weight_decay_mode", 1),
+                (INT, "grad_sum_decay", -1),
+                (FLOAT, "max_counter"),
+                (FLOAT, "tail_id_threshold", 0.0),
+                (INT, "is_tail_id_thresh_ratio", 0),
+            ]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+    approx_split_weight_update = """
+      // dummy computation to avoid unused variable warning
+      weight_new.fma_(grad, -multiplier);
+      assert(false); // approx rowwise AdaGrad is not supported on GPU
+    """
+
+    generate(
+        optimizer="approx_rowwise_adagrad_with_counter",
+        args=make_args(
+            [
+                (TENSOR, "momentum1"),
+                (TENSOR, "prev_iter"),
+                (TENSOR, "row_counter"),
+                (FLOAT, "eps"),
+                (FLOAT, "learning_rate"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "iter"),
+                (INT, "counter_halflife", -1),
+                (INT, "adjustment_iter", -1),
+                (FLOAT, "adjustment_ub", 1.0),
+                (INT, "learning_rate_mode", -1),
+                (INT, "weight_decay_mode", 1),
+                (INT, "grad_sum_decay", -1),
+                (FLOAT, "max_counter"),
+                (FLOAT, "tail_id_threshold", 0.0),
+                (INT, "is_tail_id_thresh_ratio", 0),
+            ]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=approx_split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+
 def rowwise_weighted_adagrad() -> None:
     split_weight_update = """
       weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
@@ -1135,6 +1303,7 @@ def emb_codegen(
     partial_rowwise_lamb()
     rowwise_adagrad()
     rowwise_adagrad_with_weight_decay()
+    rowwise_adagrad_with_counter()
     rowwise_weighted_adagrad()
     sgd()
 

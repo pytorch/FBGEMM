@@ -64,6 +64,7 @@ set(OPTIMIZERS
     adam
     approx_rowwise_adagrad
     approx_rowwise_adagrad_with_weight_decay
+    approx_rowwise_adagrad_with_counter
     approx_sgd
     lamb
     lars_sgd
@@ -71,6 +72,7 @@ set(OPTIMIZERS
     partial_rowwise_lamb
     rowwise_adagrad
     rowwise_adagrad_with_weight_decay
+    rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
 
