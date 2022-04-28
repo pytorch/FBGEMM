@@ -142,6 +142,14 @@ inline bool torch_tensor_empty_or_on_cpu_check(
   TENSOR_ON_CUDA_GPU(x);                     \
   TENSOR_CONTIGUOUS(x)
 
+#define TENSOR_NDIM_IS_GE(ten, dims)         \
+  TORCH_CHECK(                               \
+      (ten).dim() >= (dims),                 \
+      "Tensor '" #ten "' must have >=" #dims \
+      " dimension(s). "                      \
+      "Found ",                              \
+      (ten).ndimension())
+
 /// Determine an appropriate CUDA block count along the x axis
 ///
 /// When launching CUDA kernels the number of blocks B is often calculated

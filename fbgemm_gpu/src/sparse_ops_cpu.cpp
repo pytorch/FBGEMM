@@ -14,6 +14,7 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -2180,6 +2181,270 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
   return {permuted_lengths, permuted_embeddings};
 }
 
+/// Map N dim tensor to N+1 dim based on lengths tensor.
+/// Sequences that are shorter than the longest sequence are padded with zeros.
+/// @param t_in         N dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// output.
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @param pad_minf     Padding number in the packed segments. Use true to pad
+/// -infinity,
+///                     otherwise pad zeros
+/// @param return_presence_mask bool whether to return presence mask, false by
+/// default
+/// @return (packed_tensor, presence_mask)
+///            packed_tensor        N + 1 dim Tensor where dim(1) is the max
+///            length, dim(0)
+///                                 is the batch size.
+///            presence_mask        2 dim boolean tensor, false where
+///            packed_tensor is padded,
+///                                 true otherwise.
+std::tuple<Tensor, c10::optional<Tensor>> pack_segments_forward_cpu(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  TENSOR_NDIM_IS_GE(t_in, 1);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      t_in.dtype() == at::ScalarType::Float ||
+          t_in.dtype() == at::ScalarType::Double,
+      "t_in must be of type float or double");
+  TORCH_CHECK(
+      max_length > 0 || max_length == -1,
+      "max_length must be a positive number, or -1 to indicate auto-detection");
+
+  const auto t_in_cont = t_in.expect_contiguous();
+
+  Tensor packed_tensor;
+  c10::optional<Tensor> presence_mask;
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "pack_segments_cpu", ([&]() {
+        const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+        int64_t max_length_found = 0;
+        int64_t total_length = 0;
+        for (const auto i : c10::irange(lengths.sizes()[0])) {
+          max_length_found =
+              std::max(max_length_found, static_cast<int64_t>(lengths_data[i]));
+          total_length += lengths_data[i];
+        }
+
+        if (max_length != -1) {
+          max_length_found = max_length;
+        }
+
+        // Total lengths must be the same as data.dims(0)
+        TORCH_CHECK(
+            t_in_cont->sizes()[0] == total_length,
+            "PackSegments requires that the sum of the lengths (",
+            total_length,
+            ") "
+            "is equal to the first t_in_cont dimension (",
+            t_in_cont->sizes()[0],
+            ")");
+
+        // Shape of output is batch_size x max_len x ...
+        auto shape = t_in_cont->sizes().vec(); // Get copy of current shape
+        shape[0] = max_length_found; // Set first element to max_len
+        shape.insert(
+            shape.begin(), lengths.numel()); // Insert batch size at beginning
+        if (pad_minf) {
+          // Downcasting double infinity to float should still give infinity
+          packed_tensor = at::full(
+              shape,
+              -std::numeric_limits<double>::infinity(),
+              t_in_cont->options());
+        } else {
+          packed_tensor = at::zeros(shape, t_in_cont->options());
+        }
+
+        bool* presence_mask_data = nullptr;
+        if (return_presence_mask) {
+          // Shape of presence is batch_size x max_len
+          presence_mask =
+              at::zeros({lengths.numel(), max_length_found}, at::kBool);
+          presence_mask_data = presence_mask->data_ptr<bool>();
+        }
+
+        if (t_in_cont->sizes()[0] == 0) {
+          return; // Return empty output (with the proper shape)
+        }
+
+        AT_DISPATCH_FLOATING_TYPES(
+            t_in_cont->scalar_type(), "pack_segments_cpu-packing", ([&]() {
+              const auto sizes =
+                  t_in_cont->sizes().slice(1, t_in_cont->sizes().size() - 1);
+              const auto block_size = c10::multiply_integers(sizes);
+              const auto block_bytesize = t_in_cont->itemsize() * block_size;
+              const auto* const data_ptr = t_in_cont->data_ptr<scalar_t>();
+              auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+              int64_t start = 0;
+              for (const auto i : c10::irange(lengths.sizes()[0])) {
+                const auto len = std::min(
+                    static_cast<int64_t>(lengths_data[i]), max_length_found);
+                std::memcpy(
+                    out_data + block_size * max_length_found * i, // dst
+                    data_ptr + block_size * start, // src
+                    len * block_bytesize);
+                if (return_presence_mask) {
+                  std::fill(
+                      presence_mask_data + max_length_found * i,
+                      presence_mask_data + max_length_found * i + len,
+                      true);
+                }
+                start += lengths_data[i];
+              }
+            }));
+      }));
+
+  return {packed_tensor, presence_mask};
+}
+
+/// Map N+1 dim tensor to N dim based on lengths tensor
+/// Sequences that are shorter than the longest sequence are padded with zeros.
+/// @param data         N+1 dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// input.
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @return unpacked_tensor N-dimensional tensor
+Tensor unpack_segments_forward_cpu(
+    const Tensor& data,
+    const Tensor& lengths,
+    const int64_t max_length) {
+  TENSOR_NDIM_IS_GE(data, 2);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      data.sizes()[0] == lengths.sizes()[0],
+      "LENGTHS and DATA must match in dimension 0");
+  TORCH_CHECK(
+      data.dtype() == at::ScalarType::Float ||
+          data.dtype() == at::ScalarType::Double,
+      "data must be of type float or double");
+  if (max_length != -1) {
+    TORCH_CHECK(
+        max_length == data.sizes()[1],
+        "max_length should be equal to the second dimension of the packed segments");
+  }
+
+  Tensor unpacked_tensor; // The output tensor
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "unpack_segments_cpu", ([&]() {
+        const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+        int64_t total_length = 0;
+        if (max_length == -1) {
+          total_length = std::accumulate(
+              lengths_data,
+              lengths_data + lengths.sizes()[0],
+              static_cast<int64_t>(0));
+        } else {
+          for (const auto i : c10::irange(lengths.sizes()[0])) {
+            total_length +=
+                std::min(static_cast<int64_t>(lengths_data[i]), max_length);
+          }
+        }
+
+        // Create output tensor of appropriate dimensions
+        auto shape = data.sizes().vec();
+        shape.erase(shape.begin());
+        shape[0] = total_length;
+        unpacked_tensor = at::empty(shape, data.options());
+
+        if (!(data.sizes()[0] &&
+              data.sizes()[1])) { // TODO: What does this mean?
+          return;
+        }
+
+        AT_DISPATCH_FLOATING_TYPES(
+            data.scalar_type(), "unpack_segments_cpu-unpacking", ([&]() {
+              const auto sizes = data.sizes().slice(2, data.sizes().size() - 2);
+              const auto block_size = c10::multiply_integers(sizes);
+              const auto block_bytesize = data.itemsize() * block_size;
+              const auto* const data_ptr = data.data_ptr<scalar_t>();
+              auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
+
+              int64_t start = 0;
+              for (const auto i : c10::irange(lengths.sizes()[0])) {
+                int64_t len = lengths_data[i];
+                if (max_length != -1) {
+                  len = std::min(
+                      static_cast<int64_t>(lengths_data[i]), max_length);
+                }
+                std::memcpy(
+                    out_data + block_size * start, // dst
+                    data_ptr + block_size * data.sizes()[1] * i, // src
+                    len * block_bytesize);
+                start += len;
+              }
+            }));
+      }));
+
+  return unpacked_tensor;
+}
+
+class PackSegmentsFunction
+    : public torch::autograd::Function<PackSegmentsFunction> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      const int64_t max_length,
+      const bool pad_minf,
+      const bool return_presence_mask) {
+    ctx->saved_data["max_length"] = max_length;
+    ctx->save_for_backward({lengths});
+
+    // Run the forward pass.
+    const auto& res = pack_segments_forward_cpu(
+        t_in, lengths, max_length, pad_minf, return_presence_mask);
+    int num_ouputs = return_presence_mask ? 2 : 1;
+    torch::autograd::variable_list outputs(num_ouputs);
+    if (return_presence_mask) {
+      outputs[1] = std::get<1>(res).value();
+    }
+    outputs[0] = std::get<0>(res);
+    return outputs;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+    grad_inputs[0] = unpack_segments_forward_cpu(grad, lengths, max_length);
+    return grad_inputs;
+  }
+};
+
+std::tuple<Tensor, c10::optional<Tensor>> pack_segments_cpu(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  const auto& res = PackSegmentsFunction::apply(
+      t_in, lengths, max_length, pad_minf, return_presence_mask);
+  c10::optional<Tensor> presence_mask;
+  if (return_presence_mask) {
+    presence_mask = res[1];
+  }
+  return {res[0], presence_mask};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -2226,6 +2491,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
+  m.def(
+      "pack_segments(Tensor t_in, Tensor lengths, int max_length=-1, bool pad_minf=False, bool return_presence_mask=False) -> (Tensor packed_segments, Tensor? presence_mask)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2285,4 +2552,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cpu);
+  DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
 }
