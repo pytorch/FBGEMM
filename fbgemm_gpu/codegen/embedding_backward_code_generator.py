@@ -643,8 +643,8 @@ def rowwise_adagrad_with_counter() -> None:
             l2_wd = 1.0;
         }
     }
-    freq = __shfl_sync(0xFFFFFFFF, freq, 0);
-    l2_wd = __shfl_sync(0xFFFFFFFF, l2_wd, 0);
+    freq = shfl_sync(freq, 0);
+    l2_wd = shfl_sync(l2_wd, 0);
 
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
 
@@ -703,9 +703,9 @@ def rowwise_adagrad_with_counter() -> None:
             }
         }
     }
-    multiplier = __shfl_sync(0xFFFFFFFF, multiplier, 0);
-    adjusted_multiplier = __shfl_sync(0xFFFFFFFF, adjusted_multiplier, 0);
-    exp_reg_correction = __shfl_sync(0xFFFFFFFF, exp_reg_correction, 0);
+    multiplier = shfl_sync(multiplier, 0);
+    adjusted_multiplier = shfl_sync(adjusted_multiplier, 0);
+    exp_reg_correction = shfl_sync(exp_reg_correction, 0);
     """
     split_weight_update_cpu = """
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
