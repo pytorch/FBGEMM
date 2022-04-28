@@ -274,7 +274,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 output_dtype == SparseType.FP32
                 or output_dtype == SparseType.FP16
                 or output_dtype == SparseType.BF16
-            ), "Fused pooled embedding quantization only supported for cuda."
+            ), "Fused pooled embedding quantization only supported for cuda and pooled embeddings."
 
         if device is not None:
             self.current_device: torch.device = device
