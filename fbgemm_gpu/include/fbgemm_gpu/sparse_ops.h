@@ -528,4 +528,23 @@ std::tuple<at::Tensor, c10::optional<at::Tensor>> pack_segments_cpu(
     const bool pad_minf,
     const bool return_presence_mask);
 
+std::tuple<at::Tensor, c10::optional<at::Tensor>> pack_segments_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+std::tuple<at::Tensor, c10::optional<at::Tensor>> pack_segments_forward_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+at::Tensor unpack_segments_forward_cuda(
+    const at::Tensor& data,
+    const at::Tensor& lengths,
+    int64_t max_length);
+
 } // namespace fbgemm_gpu
