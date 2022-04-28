@@ -115,6 +115,12 @@ void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, size_t size) {
   }
 }
 
+void FloatRelu_ref(const float* src, float* dst, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    dst[i] = std::max(src[i], 0.0f);
+  }
+}
+
 void requantize_u8acc32_ref(
     int M,
     int N,
