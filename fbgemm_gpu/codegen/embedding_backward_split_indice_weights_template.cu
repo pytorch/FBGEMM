@@ -223,10 +223,10 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     {% else %}
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     {% endif %}
-        dev_weights.type(),
+        dev_weights.scalar_type(),
         {% if not dense %}
-        grad_output.type(),
-        lxu_cache_weights.type(),
+        grad_output.scalar_type(),
+        lxu_cache_weights.scalar_type(),
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
