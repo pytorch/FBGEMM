@@ -76,7 +76,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   const auto bin_num_examples_packed = bin_num_examples.contiguous();
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cuda", [&] {
+      logit.scalar_type(), "histogram_binning_calibration_cuda", [&] {
         histogram_binning_calibration_kernel<scalar_t>
             <<<fbgemm_gpu::div_round_up(logit.numel(), kMaxThreads),
                kMaxThreads,
@@ -230,7 +230,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   const auto bin_num_examples_packed = bin_num_examples.contiguous();
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "histogram_binning_calibration_by_feature_cuda_wrapper",
       [&] {
         using logit_t = scalar_t;
@@ -390,7 +390,7 @@ generic_histogram_binning_calibration_by_feature_cuda(
   const auto bin_num_positives_packed = bin_num_positives.contiguous();
   const auto bin_boundaries_packed = bin_boundaries.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "generic_histogram_binning_calibration_by_feature_cuda_wrapper",
       [&] {
         using logit_t = scalar_t;

@@ -32,7 +32,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   TORCH_CHECK(B_local * global_dim_sum == grad_output.numel());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      grad_output.type(), "recat_embedding_gradients", [&] {
+      grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
         at::parallel_for(
