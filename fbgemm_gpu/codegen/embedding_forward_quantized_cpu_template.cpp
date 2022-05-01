@@ -145,13 +145,11 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
-    if (o_dtype == SparseType::FP32) {
-        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat).pinned_memory(pinned_memory));
-    } else if (o_dtype == SparseType::FP16) {
-        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf).pinned_memory(pinned_memory));
-    } else if (o_dtype == SparseType::INT8) {
-        output = at::empty({B, total_D + T * kINT8QparamsBytes}, dev_weights.options().dtype(at::kByte).pinned_memory(pinned_memory));
+    int64_t total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+        total_adjusted_D += T * kINT8QparamsBytes;
     }
+    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
 
     if (B == 0) {
         return output;
