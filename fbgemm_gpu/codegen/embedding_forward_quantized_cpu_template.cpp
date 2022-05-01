@@ -162,7 +162,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
-    DISPATCH_OUTPUT_TYPES(output.type(), "intn_split_embedding_codegen_forward_kernel", [&] {
+    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding_codegen_forward_kernel", [&] {
         auto* output_acc = output.data_ptr<output_t>();
         {% if weighted %}
         const float* indice_weights_acc = indice_weights.data_ptr<float>();
