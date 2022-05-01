@@ -267,6 +267,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
+    src/permute_pooled_embedding_ops_split_gpu.cpp
+    src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp)
@@ -287,6 +289,7 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
     src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
+    src/permute_pooled_embedding_ops_split.cu
     src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu
     src/split_embeddings_utils.cu)
 
