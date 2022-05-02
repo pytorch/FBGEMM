@@ -20,17 +20,6 @@ from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-except Exception:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update"
-    )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update_cpu"
-    )
-
 ASSOC = 32
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
