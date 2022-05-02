@@ -633,21 +633,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
     {% if not nobag %}
-    if (o_dtype == SparseType::FP32) {
-        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
-    } else if (o_dtype == SparseType::FP16) {
-        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kHalf));
-    } else if (o_dtype == SparseType::INT8) {
-        output = at::empty({B, total_D + T * kINT8QparamsBytes}, dev_weights.options().dtype(at::kByte));
+    int64_t total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+        total_adjusted_D += T * kINT8QparamsBytes;
     }
+    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
     {% else %}
-    if (o_dtype == SparseType::FP32) {
-        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
-    } else if (o_dtype == SparseType::FP16) {
-        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kHalf));
-    } else if (o_dtype == SparseType::INT8) {
-        output = at::empty({total_L, D + kINT8QparamsBytes}, dev_weights.options().dtype(at::kByte));
+    int64_t adjusted_D = D;
+    if (o_dtype == SparseType::INT8) {
+        adjusted_D += T * kINT8QparamsBytes;
     }
+    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+
     {% endif %}
 
     if (B == 0) {

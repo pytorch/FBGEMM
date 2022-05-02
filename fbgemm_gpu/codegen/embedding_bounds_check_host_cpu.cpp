@@ -15,12 +15,29 @@ using Tensor = at::Tensor;
 
 namespace {
 
+template <typename index_t>
+void adjust_offset_cpu(
+    index_t& indices_start,
+    index_t& indices_end,
+    int64_t num_indices,
+    index_t* offsets_acc_start,
+    index_t* offsets_acc_end) {
+  indices_start =
+      std::max(0L, std::min(static_cast<int64_t>(indices_start), num_indices));
+  indices_end = std::max(
+      static_cast<int64_t>(indices_start),
+      std::min(static_cast<int64_t>(indices_end), num_indices));
+  *offsets_acc_start = indices_start;
+  *offsets_acc_end = indices_end;
+}
+
 void bounds_check_indices_cpu(
-    Tensor rows_per_table,
-    Tensor indices,
-    Tensor offsets,
+    Tensor& rows_per_table,
+    Tensor& indices,
+    Tensor& offsets,
     int64_t bounds_check_mode_,
-    Tensor warning) {
+    Tensor& warning,
+    c10::optional<Tensor> weights) {
   auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
@@ -35,6 +52,39 @@ void bounds_check_indices_cpu(
     auto offsets_acc = offsets.accessor<index_t, 1>();
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();
+
+    TORCH_CHECK(
+        offsets.size(0) == B * T + 1,
+        "offsets size " + std::to_string(offsets.size(0)) +
+            " is not equal to B (" + std::to_string(B) + ") * T (" +
+            std::to_string(T) + ") + 1");
+    if (weights.has_value()) {
+      TORCH_CHECK(
+          weights.value().size(0) == num_indices,
+          "weights size " + std::to_string(weights.value().size(0)) +
+              " is not equal to indices size " + std::to_string(num_indices));
+    }
+
+    if (bounds_check_mode == BoundsCheckMode::FATAL) {
+      TORCH_CHECK(num_indices == offsets_acc[B * T]);
+    } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      if (num_indices != offsets_acc[B * T]) {
+        if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+          LOG(ERROR)
+              << "The last element in offsets is incorrect for "
+              << "total batch size B: " << B << ", total table num T: " << T
+              << ", last element in offsets: " << offsets_acc[B * T]
+              << ", indices size: " << num_indices
+              << ". Setting the last element in offsets to be indices size.";
+        }
+        offsets_acc[B * T] = num_indices;
+      }
+    } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+      if (num_indices != offsets_acc[B * T]) {
+        offsets_acc[B * T] = num_indices;
+      }
+    }
+
     for (auto t = 0; t < T; ++t) {
       auto num_rows = rows_per_table_acc[t];
       for (auto b = 0; b < B; ++b) {
@@ -55,22 +105,20 @@ void bounds_check_indices_cpu(
                   << ", num_indices: " << num_indices
                   << ". Setting indices_start and indices_end within the range";
             }
-            indices_start = std::max(
-                0L, std::min(static_cast<int64_t>(indices_start), num_indices));
-            indices_end = std::max(
-                static_cast<int64_t>(indices_start),
-                std::min(static_cast<int64_t>(indices_end), num_indices));
-            offsets_acc[t * B + b] = indices_start;
-            offsets_acc[t * B + b + 1] = indices_end;
+            adjust_offset_cpu(
+                indices_start,
+                indices_end,
+                num_indices,
+                &offsets_acc[t * B + b],
+                &offsets_acc[t * B + b + 1]);
           }
         } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-          indices_start = std::max(
-              0L, std::min(static_cast<int64_t>(indices_start), num_indices));
-          indices_end = std::max(
-              static_cast<int64_t>(indices_start),
-              std::min(static_cast<int64_t>(indices_end), num_indices));
-          offsets_acc[t * B + b] = indices_start;
-          offsets_acc[t * B + b + 1] = indices_end;
+          adjust_offset_cpu(
+              indices_start,
+              indices_end,
+              num_indices,
+              &offsets_acc[t * B + b],
+              &offsets_acc[t * B + b + 1]);
         }
 
         auto L = indices_end - indices_start;
@@ -110,7 +158,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
-      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None) -> ()");
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }
 
@@ -118,6 +166,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
-      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(a!) offsets, int bounds_check_mode, Tensor(a!) warning) -> ()");
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None) -> ()");
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }

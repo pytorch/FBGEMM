@@ -8,7 +8,8 @@
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import jinja2
 
 args: argparse.Namespace
@@ -104,20 +105,20 @@ def tensor_arg(name: str) -> str:
     return f"Tensor {name}"
 
 
-def double_arg(name: str) -> str:
-    return f"double {name}"
+def double_arg(name: str, default: float = 0.0) -> str:
+    return f"double {name} = {default}"
 
 
-def float_arg(name: str) -> str:
-    return f"float {name}"
+def float_arg(name: str, default: float = 0.0) -> str:
+    return f"float {name} = {default}"
 
 
-def int64_arg(name: str) -> str:
-    return f"int64_t {name}"
+def int64_arg(name: str, default: int = 0) -> str:
+    return f"int64_t {name} = {default}"
 
 
-def int_arg(name: str) -> str:
-    return f"int {name}"
+def int_arg(name: str, default: int = 0) -> str:
+    return f"int {name} = {default}"
 
 
 def generate(**kwargs: Any) -> None:
@@ -189,14 +190,16 @@ class Args:
 TENSOR, INT_TENSOR, LONG_TENSOR, INT, FLOAT = range(5)
 
 
-def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
-    def make_kernel_arg(ty: int, name: str) -> str:
+def make_args(
+    arg_spec: List[Union[Tuple[int, str], Tuple[int, str, Union[float, int]]]]
+) -> Dict[str, Any]:
+    def make_kernel_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: acc_cache_tensor_arg,
             INT_TENSOR: int_tensor_arg,
             LONG_TENSOR: long_tensor_arg,
-            INT: int64_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_kernel_arg_constructor(ty: int, name: str) -> str:
@@ -208,13 +211,13 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_cpu_kernel_arg(ty: int, name: str) -> str:
+    def make_cpu_kernel_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
             INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
             LONG_TENSOR: lambda x: long_tensor_arg(x, gpu=False),
-            INT: int64_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_cpu_kernel_arg_constructor(ty: int, name: str) -> str:
@@ -226,88 +229,104 @@ def make_args(arg_spec: List[Tuple[int, str]]) -> Dict[str, Any]:
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_function_arg(ty: int, name: str) -> str:
+    def make_function_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: tensor_arg,
             INT_TENSOR: tensor_arg,
             LONG_TENSOR: tensor_arg,
-            INT: int64_arg,
-            FLOAT: double_arg,
+            INT: lambda x: int64_arg(x, default=int(default)),
+            FLOAT: lambda x: double_arg(x, default=default),
         }[ty](name)
 
-    def make_function_schema_arg(ty: int, name: str) -> str:
+    def make_function_schema_arg(ty: int, name: str, default: Union[int, float]) -> str:
         return {
             TENSOR: tensor_arg,
             INT_TENSOR: tensor_arg,
             LONG_TENSOR: tensor_arg,
-            INT: int_arg,
-            FLOAT: float_arg,
+            INT: lambda x: int_arg(x, default=int(default)),
+            FLOAT: lambda x: float_arg(x, default=default),
         }[ty](name)
 
     def make_ivalue_cast(ty: int) -> str:
         return {INT: "toInt", FLOAT: "toDouble"}[ty]
 
-    def make_args_for_compute_device(split_arg_spec: List[Tuple[int, str]]) -> Args:
+    def make_args_for_compute_device(
+        split_arg_spec: List[Tuple[int, str, Union[int, float]]]
+    ) -> Args:
         return Args(
             split_kernel_args=[
-                make_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+                make_kernel_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_kernel_arg_constructors=[
-                make_kernel_arg_constructor(ty, name) for (ty, name) in split_arg_spec
+                make_kernel_arg_constructor(ty, name)
+                for (ty, name, default) in split_arg_spec
             ],
             split_cpu_kernel_args=[
-                make_cpu_kernel_arg(ty, name) for (ty, name) in split_arg_spec
+                make_cpu_kernel_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_cpu_kernel_arg_constructors=[
                 make_cpu_kernel_arg_constructor(ty, name)
-                for (ty, name) in split_arg_spec
+                for (ty, name, default) in split_arg_spec
             ],
             split_function_args=[
-                make_function_arg(ty, name) for (ty, name) in split_arg_spec
+                make_function_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
-            split_tensors=[name for (ty, name) in arg_spec if ty == TENSOR],
+            split_tensors=[
+                name for (ty, name, default) in augmented_arg_spec if ty == TENSOR
+            ],
             split_saved_tensors=[
                 name
-                for (ty, name) in split_arg_spec
+                for (ty, name, default) in split_arg_spec
                 if ty in (TENSOR, INT_TENSOR, LONG_TENSOR)
             ],
             saved_data=[
-                (name, make_ivalue_cast(ty)) for (ty, name) in arg_spec if ty != TENSOR
+                (name, make_ivalue_cast(ty))
+                for (ty, name, default) in augmented_arg_spec
+                if ty != TENSOR
             ],
-            split_function_arg_names=[name for (ty, name) in split_arg_spec],
+            split_function_arg_names=[name for (ty, name, default) in split_arg_spec],
             split_function_schemas=[
-                make_function_schema_arg(ty, name) for (ty, name) in split_arg_spec
+                make_function_schema_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
             ],
             split_variables=["Variable()" for _ in split_arg_spec],
         )
 
+    DEFAULT_ARG_VAL = 0
+    augmented_arg_spec = [
+        item if len(item) == 3 else (*item, DEFAULT_ARG_VAL) for item in arg_spec
+    ]
+
     split_arg_spec = []
-    for (ty, arg) in arg_spec:
+    for (ty, arg, default) in augmented_arg_spec:
         if ty in (FLOAT, INT):
-            split_arg_spec.append((ty, arg))
+            split_arg_spec.append((ty, arg, default))
         else:
             assert ty == TENSOR
             split_arg_spec.extend(
                 [
-                    (TENSOR, f"{arg}_host"),
-                    (INT_TENSOR, f"{arg}_placements"),
-                    (LONG_TENSOR, f"{arg}_offsets"),
+                    (TENSOR, f"{arg}_host", default),
+                    (INT_TENSOR, f"{arg}_placements", default),
+                    (LONG_TENSOR, f"{arg}_offsets", default),
                 ]
             )
     cpu = make_args_for_compute_device(split_arg_spec)
 
     split_arg_spec = []
-    for (ty, arg) in arg_spec:
+    for (ty, arg, default) in augmented_arg_spec:
         if ty in (FLOAT, INT):
-            split_arg_spec.append((ty, arg))
+            split_arg_spec.append((ty, arg, default))
         else:
             assert ty == TENSOR
             split_arg_spec.extend(
                 [
-                    (TENSOR, f"{arg}_dev"),
-                    (TENSOR, f"{arg}_uvm"),
-                    (INT_TENSOR, f"{arg}_placements"),
-                    (LONG_TENSOR, f"{arg}_offsets"),
+                    (TENSOR, f"{arg}_dev", default),
+                    (TENSOR, f"{arg}_uvm", default),
+                    (INT_TENSOR, f"{arg}_placements", default),
+                    (LONG_TENSOR, f"{arg}_offsets", default),
                 ]
             )
     cuda = make_args_for_compute_device(split_arg_spec)
@@ -389,7 +408,7 @@ def rowwise_adagrad() -> None:
         auto gy = grad_sum[i].acc.y;
         auto gz = grad_sum[i].acc.z;
         auto gw = grad_sum[i].acc.w;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
@@ -409,10 +428,10 @@ def rowwise_adagrad() -> None:
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -424,7 +443,7 @@ def rowwise_adagrad() -> None:
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             auto grad = grad_buffer[d];
-            if (weight_decay_mode == 0) {
+            if (weight_decay_mode == 1) {
                 // L2 regularization
                 grad += weight_decay * host_weights_data[embedding_begin + d];
             }
@@ -435,11 +454,11 @@ def rowwise_adagrad() -> None:
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
         at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        at::acc_type<scalar_t, true> correction;
-        if (weight_decay_mode == 0) {
+        at::acc_type<grad_t, true> correction;
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -455,8 +474,8 @@ def rowwise_adagrad() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -477,8 +496,8 @@ def rowwise_adagrad() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -504,7 +523,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         auto gy = grad_sum[i].acc.y;
         auto gz = grad_sum[i].acc.z;
         auto gw = grad_sum[i].acc.w;
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
@@ -524,10 +543,10 @@ def rowwise_adagrad_with_weight_decay() -> None:
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        if (weight_decay_mode == 0) {
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -539,7 +558,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             auto grad = grad_buffer[d];
-            if (weight_decay_mode == 0) {
+            if (weight_decay_mode == 1) {
                 // L2 regularization
                 grad += weight_decay * host_weights_data[embedding_begin + d];
             }
@@ -550,11 +569,11 @@ def rowwise_adagrad_with_weight_decay() -> None:
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
         at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        at::acc_type<scalar_t, true> correction;
-        if (weight_decay_mode == 0) {
+        at::acc_type<grad_t, true> correction;
+        if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 1) {
+        } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         }
@@ -570,8 +589,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -592,8 +611,176 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (TENSOR, "momentum1"),
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "weight_decay_mode"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "weight_decay_mode", 1),
+            ]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=approx_split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+
+def rowwise_adagrad_with_counter() -> None:
+    split_weight_update = """
+        weight_new.acc.x = (exp_reg_correction * weight_new.acc.x - adjusted_multiplier * grad.acc.x);
+        weight_new.acc.y = (exp_reg_correction * weight_new.acc.y - adjusted_multiplier * grad.acc.y);
+        weight_new.acc.z = (exp_reg_correction * weight_new.acc.z - adjusted_multiplier * grad.acc.z);
+        weight_new.acc.w = (exp_reg_correction * weight_new.acc.w - adjusted_multiplier * grad.acc.w);
+    """
+    split_precomputation = """
+    at::acc_type<cache_t, true> freq = 1.0;
+    at::acc_type<cache_t, true> l2_wd = 0.0;
+    if (counter_halflife > 0 && threadIdx.x == 0) {
+        // if id occurs multiple times in a batch, iter_delta=1
+        const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+        prev_iter[idx] = iter * 1.0;
+        const auto counter_log_rho = logf(2.0) / counter_halflife;
+        row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
+        freq = counter_halflife / row_counter[idx];
+        if (weight_decay_mode == 1) {
+            // L2 regularization
+            l2_wd = 1.0;
+        }
+    }
+    freq = shfl_sync(freq, 0);
+    l2_wd = shfl_sync(l2_wd, 0);
+
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+
+    #pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        ++i) {
+        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        auto gx = grad_sum[i].acc.x + l2_wd * freq * weight_decay * weight.acc.x;
+        auto gy = grad_sum[i].acc.y + l2_wd * freq * weight_decay * weight.acc.y;
+        auto gz = grad_sum[i].acc.z + l2_wd * freq * weight_decay * weight.acc.z;
+        auto gw = grad_sum[i].acc.w + l2_wd * freq * weight_decay * weight.acc.w;
+        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+    }
+
+    const at::acc_type<cache_t, true> g_avg_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+
+    at::acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> adjusted_multiplier;
+    at::acc_type<cache_t, true> exp_reg_correction;
+    at::acc_type<cache_t, true> tail_id_threshold_val = tail_id_threshold;
+    if (is_tail_id_thresh_ratio == 1){
+        tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
+    }
+    if (threadIdx.x == 0) {
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
+        momentum1[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+
+        adjusted_multiplier = multiplier;
+        if ( learning_rate_mode >=0 ) {
+            if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
+
+                if (row_counter[idx] > tail_id_threshold_val) {
+                    if ( learning_rate_mode == 0 ) {
+                        adjusted_multiplier = multiplier * max(min(powf(max_counter/(row_counter[idx] + 1.0), adjustment_ub), 10.0), 1.0);
+                    } else if ( learning_rate_mode == 1 ) {
+                        adjusted_multiplier = multiplier * min(max(powf((row_counter[idx] + 1.0)/max_counter, adjustment_ub), 0.1), 1.0);
+                    } else if (learning_rate_mode == 2) {
+                        adjusted_multiplier = learning_rate / (sqrtf(adjustment_ub*row_counter[idx]) + eps);
+                    }
+                }
+            }
+        }
+
+        exp_reg_correction = 1.0;
+        if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
+            if (weight_decay_mode == 2) {
+                // Decoupled weight decay
+                exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
+            } else if (weight_decay_mode == 1) {
+                // L2 regularization (coupled wd)
+                exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
+            }
+        }
+    }
+    multiplier = shfl_sync(multiplier, 0);
+    adjusted_multiplier = shfl_sync(adjusted_multiplier, 0);
+    exp_reg_correction = shfl_sync(exp_reg_correction, 0);
+    """
+    split_weight_update_cpu = """
+        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
+        for (int64_t d = 0; d < D; ++d) {
+            g_local_sum_square += grad_buffer[d] * grad_buffer[d];
+        }
+        auto g_avg_square = g_local_sum_square / D;
+        auto offset_idx = momentum1_offsets_data[feature_begin] + idx;
+        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[offset_idx] + g_avg_square;
+        momentum1_host[offset_idx] = new_sum_square_grads;
+        at::acc_type<grad_t, true> multiplier;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        const auto iter_delta = iter * 1.0 - prev_iter_host[offset_idx];
+        prev_iter_host[offset_idx] = iter * 1.0;
+        const auto exp_reg = 1.0 / (weight_decay * multiplier + 1.0);
+        const auto exp_reg_correction = powf(exp_reg, iter_delta);
+        for (int64_t d = 0; d < D; ++d) {
+            const auto weight = host_weights_data[embedding_begin + d];
+            host_weights_data[embedding_begin + d] = exp_reg_correction * weight - exp_reg * multiplier * grad_buffer[d];
+        }
+    """
+
+    generate(
+        optimizer="rowwise_adagrad_with_counter",
+        args=make_args(
+            [
+                (TENSOR, "momentum1"),
+                (TENSOR, "prev_iter"),
+                (TENSOR, "row_counter"),
+                (FLOAT, "eps"),
+                (FLOAT, "learning_rate"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "iter"),
+                (INT, "counter_halflife", -1),
+                (INT, "adjustment_iter", -1),
+                (FLOAT, "adjustment_ub", 1.0),
+                (INT, "learning_rate_mode", -1),
+                (INT, "weight_decay_mode", 1),
+                (INT, "grad_sum_decay", -1),
+                (FLOAT, "max_counter"),
+                (FLOAT, "tail_id_threshold", 0.0),
+                (INT, "is_tail_id_thresh_ratio", 0),
+            ]
+        ),
+        split_precomputation=split_precomputation,
+        split_weight_update=split_weight_update,
+        split_weight_update_cpu=split_weight_update_cpu,
+    )
+
+    approx_split_weight_update = """
+      // dummy computation to avoid unused variable warning
+      weight_new.fma_(grad, -multiplier);
+      assert(false); // approx rowwise AdaGrad is not supported on GPU
+    """
+
+    generate(
+        optimizer="approx_rowwise_adagrad_with_counter",
+        args=make_args(
+            [
+                (TENSOR, "momentum1"),
+                (TENSOR, "prev_iter"),
+                (TENSOR, "row_counter"),
+                (FLOAT, "eps"),
+                (FLOAT, "learning_rate"),
+                (FLOAT, "weight_decay", 0.0),
+                (INT, "iter"),
+                (INT, "counter_halflife", -1),
+                (INT, "adjustment_iter", -1),
+                (FLOAT, "adjustment_ub", 1.0),
+                (INT, "learning_rate_mode", -1),
+                (INT, "weight_decay_mode", 1),
+                (INT, "grad_sum_decay", -1),
+                (FLOAT, "max_counter"),
+                (FLOAT, "tail_id_threshold", 0.0),
+                (INT, "is_tail_id_thresh_ratio", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -640,15 +827,15 @@ def rowwise_weighted_adagrad() -> None:
     """
     split_weight_update_cpu = """
         // weight_decay not supported for cpu version
-        at::acc_type<scalar_t, true> g_local_sum_square = 0.0;
+        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
             g_local_sum_square += grad_buffer[d] * grad_buffer[d];
         }
         auto g_avg_square = g_local_sum_square / D;
-        at::acc_type<scalar_t, true> lambda = sqrtf(iter + 1);
-        at::acc_type<scalar_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + lambda * g_avg_square;
+        at::acc_type<grad_t, true> lambda = sqrtf(iter + 1);
+        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + lambda * g_avg_square;
         momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
-        at::acc_type<scalar_t, true> multiplier;
+        at::acc_type<grad_t, true> multiplier;
         multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] -= grad_buffer[d] * multiplier;
@@ -1116,6 +1303,7 @@ def emb_codegen(
     partial_rowwise_lamb()
     rowwise_adagrad()
     rowwise_adagrad_with_weight_decay()
+    rowwise_adagrad_with_counter()
     rowwise_weighted_adagrad()
     sgd()
 

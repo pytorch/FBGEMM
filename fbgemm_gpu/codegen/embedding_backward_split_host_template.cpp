@@ -113,6 +113,7 @@ Tensor split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     Tensor lxu_cache_locations,
+    int64_t output_dtype,
     int64_t unused);
 
 void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
@@ -140,9 +141,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
   static torch::autograd::variable_list forward(
     torch::autograd::AutogradContext* ctx,
     Tensor placeholder_autograd_tensor,
-    {% if not nobag %}
     int64_t output_dtype,
-    {% endif %}
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
@@ -213,6 +212,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
       indices,
       offsets,
       lxu_cache_locations,
+      output_dtype,
       0)};
     {% endif %}
   }
@@ -401,6 +401,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
         {{ args.split_function_arg_names | join(", ") }});
     return {
         Tensor(), // placeholder autograd tensor
+        Variable(), // output_dtype
         Tensor(), // dev_weights
         Variable(), // uvm_weights
         Variable(), // lxu_cache_weights
@@ -444,10 +445,11 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     double max_gradient,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype) {
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_{{ optimizer }}_Op::apply(
       placeholder_autograd_tensor,
+      output_dtype,
       dev_weights,
       uvm_weights,
       lxu_cache_weights,

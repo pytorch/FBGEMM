@@ -13,14 +13,14 @@
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"
-#include "fbgemm_gpu/permute_pooled_embedding_ops.h"
+#include "fbgemm_gpu/permute_pooled_embedding_ops_split.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-Tensor permute_pooled_embs_gpu(
+Tensor permute_pooled_embs_split_gpu(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
@@ -63,7 +63,7 @@ Tensor permute_pooled_embs_gpu(
       (B + max_grid_dim_y - 1) / max_grid_dim_y);
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      pooled_embs_contiguous.scalar_type(), "permute_pooled_embeddings", [&] {
+      pooled_embs_contiguous.type(), "permute_pooled_embeddings", [&] {
         permute_pooled_embs_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 pooled_embs_contiguous.data_ptr<scalar_t>(),

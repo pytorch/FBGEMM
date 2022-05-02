@@ -1043,7 +1043,9 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_exclusive_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(),
+      "asynchronous_exclusive_cumsum_cpu_kernel",
+      [&] {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->data_ptr<scalar_t>(),
@@ -1058,7 +1060,9 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_inclusive_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(),
+      "asynchronous_inclusive_cumsum_cpu_kernel",
+      [&] {
         scalar_t cumsum = 0;
         const auto* input_ptr = t_in_contig->data_ptr<scalar_t>();
         const auto N = t_in_contig->numel();
@@ -1079,7 +1083,9 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = at::zeros({t_in.numel() + 1}, t_in.options());
   AT_DISPATCH_ALL_TYPES(
-      t_in_contig->type(), "asynchronous_complete_cumsum_cpu_kernel", [&] {
+      t_in_contig->scalar_type(),
+      "asynchronous_complete_cumsum_cpu_kernel",
+      [&] {
         const auto N = t_in_contig->numel();
         const auto last_sum = exclusive_scan_ptrs_cpu(
             N, t_in_contig->data_ptr<scalar_t>(), output.data_ptr<scalar_t>());
@@ -1125,9 +1131,11 @@ Tensor reorder_batched_ad_lengths_cpu(
 
   Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
   AT_DISPATCH_INDEX_TYPES(
-      batch_offsets.type(), "reorder_batched_ad_lengths_cpu_kernel1", [&] {
+      batch_offsets.scalar_type(),
+      "reorder_batched_ad_lengths_cpu_kernel1",
+      [&] {
         AT_DISPATCH_ALL_TYPES(
-            cat_ad_lengths.type(),
+            cat_ad_lengths.scalar_type(),
             "reorder_batched_ad_lengths_cpu_kernel2",
             [&] {
               reorder_batched_ad_lengths_<index_t, scalar_t>(
@@ -1202,7 +1210,7 @@ Tensor reorder_batched_ad_indices_cpu(
       "reorder_batched_ad_indices_cpu_kernel_1",
       [&] {
         AT_DISPATCH_ALL_TYPES(
-            cat_ad_indices.type(),
+            cat_ad_indices.scalar_type(),
             "reorder_batched_ad_indices_cpu_kernel_2",
             [&] {
               reorder_batched_ad_indices_cpu_<index_t, scalar_t>(
@@ -1371,7 +1379,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(), "histogram_binning_calibration_cpu", [&] {
+      logit.scalar_type(), "histogram_binning_calibration_cpu", [&] {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
             logit.numel(),
             recalibrate_value,
@@ -1469,7 +1477,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
         using logit_t = scalar_t;
@@ -1586,7 +1594,7 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.type(),
+      logit.scalar_type(),
       "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
         using logit_t = scalar_t;
@@ -1643,7 +1651,7 @@ Tensor segment_sum_csr_cpu(
   TENSOR_ON_CPU(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
-  AT_DISPATCH_ALL_TYPES(values.type(), "_segment_sum_csr_cpu", [&] {
+  AT_DISPATCH_ALL_TYPES(values.scalar_type(), "_segment_sum_csr_cpu", [&] {
     _segment_sum_csr_cpu_kernel<scalar_t>(
         csr_seg.numel() - 1,
         batch_size,

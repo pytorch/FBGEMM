@@ -303,7 +303,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
     {% if not dense %}
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {% else %}
     {{ args.split_function_args | join(", ") }}
     {% endif %}
@@ -344,31 +344,35 @@ void split_embedding_backward_exact_cpu_dense_kernel(
 
   grad_output = grad_output.contiguous();
 
+
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
-        // TODO: respect output_dtype
-        using grad_t = float;
-        split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
-            grad_output,
-            host_weights,
-            weights_offsets_data,
-            D_offsets_data,
-            hash_size_cumsum,
-            indices,
-            offsets,
-            pooling_mode,
-            indice_weights,
-            num_tables,
-            B,
-            table_to_feature_offset,
-            {% if "momentum1_offsets" in args.split_function_arg_names %}
-            momentum1_offsets_data,
-            {% endif %}
-            {% if "momentum2_offsets" in args.split_function_arg_names %}
-            momentum2_offsets_data,
-            {% endif %}
-            {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
-      });
+      grad_output.scalar_type(),
+      "split_embedding_backward_exact_cpu_outer", [&]() {
+        using grad_t = scalar_t;
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+          host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
+            split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
+                grad_output,
+                host_weights,
+                weights_offsets_data,
+                D_offsets_data,
+                hash_size_cumsum,
+                indices,
+                offsets,
+                pooling_mode,
+                indice_weights,
+                num_tables,
+                B,
+                table_to_feature_offset,
+                {% if "momentum1_offsets" in args.split_function_arg_names %}
+                momentum1_offsets_data,
+                {% endif %}
+                {% if "momentum2_offsets" in args.split_function_arg_names %}
+                momentum2_offsets_data,
+                {% endif %}
+                {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
+          });
+    });
 
   return;
 
