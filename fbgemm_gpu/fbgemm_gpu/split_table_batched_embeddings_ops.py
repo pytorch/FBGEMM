@@ -667,12 +667,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            return invokers.lookup_rowwise_adagrad_with_weight_decay.invoke(
+            return invokers.lookup_rowwise_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.ROWWISE_ADAGRAD:
             assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            return invokers.lookup_approx_rowwise_adagrad_with_weight_decay.invoke(
+            return invokers.lookup_approx_rowwise_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
 
