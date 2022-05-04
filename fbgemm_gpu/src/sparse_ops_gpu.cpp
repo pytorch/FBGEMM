@@ -17,6 +17,50 @@
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+// Custom PackSegments operator that is based on the Caffe2 PackSegments and
+// UnpackSegments.
+// Needed this to support backward pass.
+class PackSegments : public torch::autograd::Function<PackSegments> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      const int64_t max_length,
+      const bool pad_minf,
+      const bool return_presence_mask) {
+    ctx->saved_data["max_length"] = max_length;
+    ctx->save_for_backward({lengths});
+
+    // Run the forward pass.
+    const auto& res = pack_segments_forward_cuda(
+        t_in, lengths, max_length, pad_minf, return_presence_mask);
+
+    int num_ouputs = return_presence_mask ? 2 : 1;
+    torch::autograd::variable_list outputs(num_ouputs);
+    if (return_presence_mask) {
+      outputs[1] = std::get<1>(res).value();
+    }
+    outputs[0] = std::get<0>(res);
+    return outputs;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+    grad_inputs[0] = unpack_segments_forward_cuda(grad, lengths, max_length);
+    return grad_inputs;
+  }
+};
 
 class LookupFunctionBatchedUnaryEmbeddingOp
     : public torch::autograd::Function<LookupFunctionBatchedUnaryEmbeddingOp> {
@@ -117,6 +161,21 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
       values, lengths, offset_per_key, max_lengths_per_key);
 }
 
+std::tuple<Tensor, c10::optional<Tensor>> pack_segments_cuda(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  const auto& res = PackSegments::apply(
+      t_in, lengths, max_length, pad_minf, return_presence_mask);
+  c10::optional<Tensor> presence_mask;
+  if (return_presence_mask) {
+    presence_mask = res[1];
+  }
+  return {res[0], presence_mask};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -186,4 +245,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cuda);
+  DISPATCH_TO_CUDA("pack_segments", fbgemm_gpu::pack_segments_cuda);
 }
