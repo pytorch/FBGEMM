@@ -9,12 +9,17 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+#include <ATen/cuda/ThrustAllocator.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include <thrust/system/cuda/detail/par.h>
+#include <thrust/system/cuda/detail/reduce.h>
 #include <torch/library.h>
+#include "caffe2/core/common_gpu.h"
 
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
@@ -2302,6 +2307,312 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
       });
 
   return {permuted_lengths, permuted_embeddings};
+}
+
+template <typename Length_T, typename Data_T>
+__global__ void pack_segments_cuda_kernel(
+    const Data_T* const data_ptr,
+    const int64_t data_size_0,
+    const Length_T* const lengths_ptr,
+    const Length_T* const lengths_cum_sum,
+    const Length_T max_length,
+    const int64_t num_seq,
+    const int64_t cell_size,
+    const Data_T padding,
+    bool* const presence_ptr,
+    Data_T* const out_ptr) {
+  // PackSegments requires that the sum of the lengths is equal to the first
+  //  dimension of data
+  CUDA_KERNEL_ASSERT(
+      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1]);
+
+  CUDA_1D_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
+    const auto seq = (i / cell_size) / max_length;
+    const auto cell = (i / cell_size) % max_length;
+    const auto offset = i % cell_size;
+    if (presence_ptr && offset == 0) {
+      presence_ptr[i / cell_size] = cell < lengths_ptr[seq];
+    }
+    if (cell >= lengths_ptr[seq]) {
+      out_ptr[i] = padding;
+    } else {
+      const auto idx = (lengths_cum_sum[seq] + cell) * cell_size + offset;
+      out_ptr[i] = data_ptr[idx];
+    }
+  }
+}
+
+/// Map N dim tensor to N+1 dim based on lengths tensor.
+/// Sequences that are shorter than the longest sequence are padded with
+/// zeros.
+/// @param t_in         N dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// output.
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @param pad_minf     Padding number in the packed segments. Use true to pad
+/// -infinity,
+///                     otherwise pad zeros
+/// @param return_presence_mask bool whether to return presence mask, false by
+/// default
+/// @return (packed_tensor, presence_mask)
+///            packed_tensor        N + 1 dim Tensor where dim(1) is the max
+///            length, dim(0)
+///                                 is the batch size.
+///            presence_mask        2 dim boolean tensor, false where
+///            packed_tensor is padded,
+///                                 true otherwise.
+std::tuple<Tensor, c10::optional<Tensor>> pack_segments_forward_cuda(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  TENSOR_ON_CUDA_GPU(t_in);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSOR_NDIM_IS_GE(t_in, 1);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      t_in.dtype() == at::ScalarType::Float ||
+          t_in.dtype() == at::ScalarType::Double,
+      "t_in must be of type float or double");
+  TORCH_CHECK(
+      max_length > 0 || max_length == -1,
+      "max_length must be a positive number, or -1 to indicate auto-detection");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(t_in.get_device());
+
+  const auto t_in_c = t_in.contiguous();
+
+  Tensor packed_tensor;
+  c10::optional<Tensor> presence_mask;
+
+  const auto stream = at::cuda::getCurrentCUDAStream();
+  at::cuda::ThrustAllocator allocator;
+  auto policy = thrust::cuda::par(allocator).on(stream);
+
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+    int64_t max_length_found;
+    if (max_length != -1) {
+      max_length_found = max_length;
+    } else {
+      max_length_found = thrust::reduce(
+          policy,
+          lengths_data,
+          lengths_data + lengths.size(0),
+          static_cast<int64_t>(0),
+          thrust::maximum<index_t>());
+
+      const int64_t total_length = thrust::reduce(
+          policy,
+          lengths_data,
+          lengths_data + lengths.size(0),
+          static_cast<int64_t>(0),
+          thrust::plus<index_t>());
+
+      // Total lengths must be the same as data.dims(0)
+      TORCH_CHECK(
+          t_in_c.size(0) == total_length,
+          "PackSegments requires that the sum of the lengths (",
+          total_length,
+          ") "
+          "is equal to the first t_in_c dimension (",
+          t_in_c.size(0),
+          ")");
+    }
+
+    // Shape of output is batch_size x max_len x ...
+    auto shape = t_in_c.sizes().vec(); // Get copy of current shape
+    shape[0] = max_length_found; // Set first element to max_len
+    shape.insert(
+        shape.begin(), lengths.numel()); // Insert batch size at beginning
+    if (pad_minf) {
+      // Downcasting double infinity to float should still give infinity
+      packed_tensor = at::full(
+          shape, -std::numeric_limits<double>::infinity(), t_in_c.options());
+    } else {
+      packed_tensor = at::zeros(shape, t_in_c.options());
+    }
+
+    bool* presence_mask_data = nullptr;
+    if (return_presence_mask) {
+      // Shape of presence is batch_size x max_len
+      presence_mask = at::zeros(
+          {lengths.numel(), max_length_found},
+          t_in_c.options().dtype(at::kBool));
+      presence_mask_data = presence_mask->data_ptr<bool>();
+    }
+
+    if (t_in_c.size(0) == 0 || lengths.size(0) == 0) {
+      return; // Return empty output (with the proper shape)
+    }
+
+    auto lengths_prefix_sum =
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+    auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        t_in_c.scalar_type(),
+        "pack_segments_cuda-packing",
+        [&] {
+          const auto* const data_ptr = t_in_c.data_ptr<scalar_t>();
+          auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+          const auto num_seq = lengths.size(0);
+          const auto cell_size = t_in_c.numel() / t_in_c.size(0);
+          pack_segments_cuda_kernel<index_t, scalar_t>
+              <<<cuda_calc_xblock_count(
+                     num_seq * max_length_found * cell_size, 128),
+                 128,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  data_ptr,
+                  t_in_c.size(0),
+                  lengths_data,
+                  lps_data,
+                  max_length_found,
+                  num_seq,
+                  cell_size,
+                  pad_minf ? -std::numeric_limits<scalar_t>::infinity()
+                           : static_cast<scalar_t>(0),
+                  presence_mask_data,
+                  out_data);
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+  });
+
+  return {packed_tensor, presence_mask};
+}
+
+template <typename Length_T, typename Data_T>
+__global__ void unpack_segments_cuda_kernel(
+    const Data_T* const data_ptr,
+    const Length_T* const lengths_ptr,
+    const Length_T* const lengths_cum_sum,
+    const Length_T max_length,
+    const int64_t num_seq,
+    const int64_t cell_size,
+    Data_T* const out_ptr) {
+  CUDA_1D_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
+    const auto seq = (i / cell_size) / max_length;
+    const auto cell = (i / cell_size) % max_length;
+    const auto offset = i % cell_size;
+    if (cell < lengths_ptr[seq]) {
+      const auto idx = (lengths_cum_sum[seq] + cell) * cell_size + offset;
+      out_ptr[idx] = data_ptr[i];
+    }
+  }
+}
+
+/// Map N+1 dim tensor to N dim based on lengths tensor
+/// Sequences that are shorter than the longest sequence are padded with
+/// zeros.
+/// @param data         N+1 dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// input.
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @return unpacked_tensor N-dimensional tensor
+Tensor unpack_segments_forward_cuda(
+    const Tensor& data,
+    const Tensor& lengths,
+    int64_t max_length) {
+  TENSOR_ON_CUDA_GPU(data);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSOR_NDIM_IS_GE(data, 2);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      data.size(0) == lengths.size(0),
+      "LENGTHS and DATA must match in dimension 0");
+  TORCH_CHECK(
+      data.dtype() == at::ScalarType::Float ||
+          data.dtype() == at::ScalarType::Double,
+      "data must be of type float or double");
+  if (max_length != -1) {
+    TORCH_CHECK(
+        max_length == data.size(1),
+        "max_length should be equal to the second dimension of the packed segments");
+  }
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(data.get_device());
+
+  Tensor unpacked_tensor; // The output tensor
+
+  const auto stream = at::cuda::getCurrentCUDAStream();
+  at::cuda::ThrustAllocator allocator;
+  auto policy = thrust::cuda::par(allocator).on(stream);
+
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "unpack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+    const int64_t total_length = thrust::reduce(
+        policy,
+        lengths_data,
+        lengths_data + lengths.size(0),
+        static_cast<int64_t>(0),
+        thrust::plus<index_t>());
+
+    // Create output tensor of appropriate dimensions
+    auto shape = data.sizes().vec();
+    shape.erase(shape.begin());
+    shape[0] = total_length;
+    unpacked_tensor = at::empty(shape, data.options());
+
+    if (!(data.size(0) && data.size(1))) { // TODO: What does this mean?
+      return;
+    }
+
+    if (max_length == -1) {
+      max_length = thrust::reduce(
+          policy,
+          lengths_data,
+          lengths_data + lengths.size(0),
+          static_cast<int64_t>(0),
+          thrust::maximum<index_t>());
+    }
+
+    auto lengths_prefix_sum = at::empty({lengths.size(0)}, lengths.options());
+    auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
+    thrust::exclusive_scan(
+        policy,
+        lengths_data,
+        lengths_data + lengths.size(0),
+        lps_data,
+        static_cast<int64_t>(0));
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        data.scalar_type(),
+        "unpack_segments_cuda-unpacking",
+        [&] {
+          const auto num_seq = lengths.size(0);
+          const auto cell_size = data.numel() / (data.size(0) * data.size(1));
+          const auto* const data_ptr = data.data_ptr<scalar_t>();
+          auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
+
+          unpack_segments_cuda_kernel<index_t, scalar_t>
+              <<<cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+                 128,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  data_ptr,
+                  lengths_data,
+                  lps_data,
+                  max_length,
+                  num_seq,
+                  cell_size,
+                  out_data);
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+  });
+
+  return unpacked_tensor;
 }
 
 } // namespace fbgemm_gpu
