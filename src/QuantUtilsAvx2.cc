@@ -2147,7 +2147,11 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
+#ifdef __FMA__
+      __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
+#else
       __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
+#endif
       if (std::is_same<OutputType, float>()) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);
