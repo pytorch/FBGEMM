@@ -8,6 +8,8 @@
 import enum
 from typing import Dict
 
+import torch
+
 
 @enum.unique
 class EmbOptimType(enum.Enum):
@@ -69,6 +71,33 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 3,
             SparseType.INT2.value: 4,
             SparseType.BF16.value: 5,
+        }[self.value]
+
+    @staticmethod
+    def from_dtype(dtype: torch.dtype) -> "SparseType":
+        if dtype == torch.float32:
+            return SparseType("fp32")
+        elif dtype == torch.float16:
+            return SparseType("fp16")
+        elif dtype == torch.int8 or dtype == torch.uint8:
+            return SparseType("int8")
+        elif dtype == torch.quint4x2:
+            return SparseType("int4")
+        elif dtype == torch.quint2x4:
+            return SparseType("int2")
+        elif dtype == torch.bfloat16:
+            return SparseType("bf16")
+        else:
+            raise ValueError(f"Unsupported sparse dtype: {dtype}")
+
+    def as_dtype(self) -> torch.dtype:
+        return {
+            SparseType.FP32.value: torch.float32,
+            SparseType.FP16.value: torch.float16,
+            SparseType.INT8.value: torch.uint8,
+            SparseType.INT4.value: torch.quint4x2,
+            SparseType.INT2.value: torch.quint2x4,
+            SparseType.BF16.value: torch.bfloat16,
         }[self.value]
 
     def bit_rate(self) -> int:
