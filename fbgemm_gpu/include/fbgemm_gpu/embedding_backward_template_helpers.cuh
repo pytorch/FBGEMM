@@ -10,9 +10,17 @@
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
+#if !defined(NEW_GENERATOR_PATH)
+#include <ATen/CUDAGeneratorImpl.h>
+#else
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#endif
 #include <c10/cuda/CUDAGuard.h>
+#if !defined(NEW_ATOMIC_PATH)
+#include <THC/THCAtomics.cuh>
+#else
 #include <ATen/cuda/Atomic.cuh>
+#endif
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 #include <cuda.h>

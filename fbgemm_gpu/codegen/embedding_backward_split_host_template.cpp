@@ -186,7 +186,6 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
     {% endfor %}
-
     {% if not nobag %}
 #ifdef __HIP_PLATFORM_HCC__
     constexpr int32_t BT_block_size = 64;

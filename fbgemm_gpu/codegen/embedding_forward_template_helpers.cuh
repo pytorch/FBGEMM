@@ -10,7 +10,11 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#if !defined(NEW_ATOMIC_PATH)
+#include <THC/THCAtomics.cuh>
+#else
 #include <ATen/cuda/Atomic.cuh>
+#endif
 
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"

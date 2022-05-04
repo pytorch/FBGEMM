@@ -15,9 +15,93 @@
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
-// FIXME: Enable merge_pooled_embeddings for HIP.
-// AMD GPUs don't seem to have nvml equivalent library support.
-#ifndef __HIP_PLATFORM_HCC__
+#ifdef __HIP_PLATFORM_HCC__
+#include "rocm_smi/rocm_smi.h"
+#include "hip/hip_runtime.h"
+
+#include <algorithm>
+
+#include "fbgemm_gpu/merge_pooled_embeddings.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
+
+using Tensor = at::Tensor;
+
+#define RSMI_CHECK(fn)                  \
+  do {                                  \
+    rsmi_status_t ret = (fn);            \
+    TORCH_CHECK((ret) == RSMI_STATUS_SUCCESS); \
+  } while (0)
+
+#define RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE 16
+
+using Node = int64_t;
+using Links = int64_t;
+template <typename T>
+using AdjacencyMatrix = std::function<T(Node, Node)>;
+
+namespace {
+
+AdjacencyMatrix<Links> get_nvlink_matrix() {
+  auto world_size = at::cuda::getNumGPUs();
+  RSMI_CHECK(rsmi_init(0));
+
+  // Note that ROCm_SMI uses a different numbering method to ROCm runtime,
+  // so we need to learn the mapping by using the bus ID.
+  uint32_t device_count;
+  RSMI_CHECK(rsmi_num_monitor_devices(&device_count));
+
+  std::unordered_map<Node, uint32_t> rocm_device_to_rsmi_device;
+
+  for (const auto i : c10::irange(device_count)) {
+    uint64_t pci_info;
+    RSMI_CHECK(rsmi_dev_pci_id_get(i, &pci_info));
+    uint64_t domain, bus, device, function;
+    domain = (pci_info >> 32) & 0xffffffff;
+    bus = (pci_info >> 8) & 0xff;
+    device = (pci_info >> 3) & 0x1f;
+    function = pci_info & 0x7;
+    // Different form CUDA, we do not get the PCI BUS ID as a char* and we need to reconstruct it.
+    char pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+    sprintf(pci_bus_id_str, "%04X:%02X:%02X.%0X", domain, bus, device, function);
+
+    std::array<char, RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
+    std::copy(
+        &pci_bus_id_str[0],
+        &pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE],
+        pci_bus_id.data());
+    int32_t node = 0;
+    auto err = hipDeviceGetByPCIBusId(&node, pci_bus_id.data());
+    if (err == hipSuccess) {
+      rocm_device_to_rsmi_device.insert({node, i});
+    } else {
+      // flush the last error - this can occur when e.g. we set
+      // HIP_VISIBLE_DEVICES to a subset of the available GPUs in the system.
+      hipGetLastError();
+    }
+  }
+
+  std::vector<Links> links(world_size * world_size);
+  for (const auto i : c10::irange(world_size)) {
+    auto src_rsmi_device = rocm_device_to_rsmi_device.find(i);
+    if (src_rsmi_device != rocm_device_to_rsmi_device.end()){
+      for (const auto j : c10::irange(world_size)) {
+        auto dst_rsmi_device = rocm_device_to_rsmi_device.find(j);
+        if (dst_rsmi_device != rocm_device_to_rsmi_device.end()){
+          bool is_active;
+          RSMI_CHECK(rsmi_is_P2P_accessible(src_rsmi_device->second, dst_rsmi_device->second, &is_active));
+          if (is_active) {
+            links[i * world_size + j] += 1;
+          }
+        }
+      }
+    }
+  }
+  RSMI_CHECK(rsmi_shut_down());
+  return [=](Node i, Node j) { return links[i * world_size + j]; };
+}
+} // namespace
+
+#else  // CUDA
 #include <nvml.h>
 
 #include <algorithm>
@@ -106,7 +190,9 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 
   return [=](Node i, Node j) { return links[i * world_size + j]; };
 }
-
+} // namespace
+#endif
+namespace {
 // Hilariously unoptimized, but algorithmic correctness matters more here, and
 // we only do it once.
 AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
@@ -421,4 +507,3 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
 }
-#endif

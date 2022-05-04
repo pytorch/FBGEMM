@@ -1377,6 +1377,7 @@ void compressed_indices_remap(
 
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
+#ifndef __HIP_PLATFORM_HCC__
     if (weights == nullptr) {
       internal::compressed_indices_remap_avx512<IndexType, false>(
           offsets_len,
@@ -1398,6 +1399,7 @@ void compressed_indices_remap(
           out_offsets,
           out_weights);
     }
+#endif
   } else {
     compressed_indices_remap_ref<IndexType>(
         offsets_len,

@@ -33,7 +33,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
@@ -1130,7 +1130,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1349,7 +1349,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.just(SparseType.FP32),
     )
@@ -1909,7 +1909,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -1974,7 +1974,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2039,7 +2039,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2104,7 +2104,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2169,7 +2169,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2234,7 +2234,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2787,7 +2787,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2847,7 +2847,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if torch.cuda.is_available() else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         weight_decay_mode=st.sampled_from(
             [
                 WeightDecayMode.L2,
@@ -2914,7 +2914,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2968,7 +2968,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3532,7 +3532,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=5),
         B=st.integers(min_value=1, max_value=8),
         L=st.integers(min_value=0, max_value=8),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         use_cpu_hashtable=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
     )
@@ -3902,7 +3902,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         weighted=st.booleans(),
         dtype=st.sampled_from(
             [
@@ -4139,6 +4139,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Testing all miss.
         linear_cache_indices_0 = torch.tensor(
             [32, 33, 34, 35, 36, 100, 1000, 1725]
+        ).cuda() if ASSOC == 32 else torch.tensor(
+            [64, 65, 66, 67, 68, 100, 1000, 1725]
         ).cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_0, lxu_cache_state_gpu, max_index
@@ -4220,7 +4222,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
             ]
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
         test_internal=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)

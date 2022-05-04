@@ -625,7 +625,11 @@ template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(T val) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+#ifdef __HIP_PLATFORM_HCC__
+    val += __shfl_xor(val, mask);
+#else
     val += shfl_xor(val, mask);
+#endif
   }
   return val;
 }
@@ -1212,6 +1216,9 @@ DEVICE_INLINE float_16 make_zero_float_16() {
 
 __forceinline__ __device__ __half2
 hfma2(const __half2 a, const __half2 b, const __half2 c) {
+#ifdef __HIP_PLATFORM_HCC__
+  return __hfma2(a, b, c);
+#else
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
   return __hfma2(a, b, c);
 #else
@@ -1223,13 +1230,18 @@ hfma2(const __half2 a, const __half2 b, const __half2 c) {
   fc.y = fa.y * fb.y + fc.y;
   return __float22half2_rn(fc);
 #endif
+#endif
 }
 
 __forceinline__ __device__ half hmul(half a, half b) {
+#ifdef __HIP_PLATFORM_HCC__
+  return __hmul(a, b);
+#else
 #if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
   return __hmul(a, b);
 #else
   return __float2half(__half2float(a) * __half2float(b));
+#endif
 #endif
 }
 
@@ -2210,5 +2222,12 @@ DEVICE_INLINE float float16_min(float_16 val) {
 
 #undef min
 #undef max
+
+#ifdef __HIP_PLATFORM_HCC__
+__device__ int __any_sync(uint64_t mask, int predicate) {
+  uint64_t predicate_bit_pattern = __ballot(predicate);
+  return (predicate_bit_pattern & mask) > 0;  
+}
+#endif
 
 } // namespace fbgemm_gpu

@@ -15,15 +15,23 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#if !defined(NEW_GENERATOR_PATH)
+#include <ATen/CUDAGeneratorImpl.h>
+#else
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#endif
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#if !defined(NEW_ATOMIC_PATH)
+#include <THC/THCAtomics.cuh>
+#else
 #include <ATen/cuda/Atomic.cuh>
+#endif
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <limits>
 #include <mutex>
@@ -438,8 +446,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
   // FIXME: __any_sync with mask isn't supported by HIP yet.
   // See https://fburl.com/fvy7j0lq for the similar context.
   // assert false here with https://fburl.com/pfm7enw2
-  assert(false);
-  if (!__any(found)) {
+  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
   if (!__any_sync(0xFFFFFFFF, found)) {
 #endif
@@ -1167,8 +1174,7 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
   // FIXME: __any_sync with mask isn't supported by HIP yet.
   // See https://fburl.com/fvy7j0lq for the similar context.
   // assert false here with https://fburl.com/pfm7enw2
-  assert(false);
-  if (!__any(found)) {
+  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
   if (!__any_sync(0xFFFFFFFF, found)) {
 #endif

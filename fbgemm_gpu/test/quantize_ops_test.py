@@ -26,6 +26,7 @@ try:
         fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
         gpu_available,
+        skipIfRocm,
         gpu_unavailable,
     )
 except Exception:
@@ -869,6 +870,40 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             )
             # compare quantized data
             torch.testing.assert_allclose(dequantized_data_gpu.cpu(), dequantized_data)
+
+
+class TestDenseMLPQuantizationConversion(unittest.TestCase):
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @skipIfRocm
+    @given(
+        nrows=st.integers(min_value=0, max_value=100),
+        ncols=st.integers(min_value=0, max_value=100),
+    )
+    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_quantize_op(self, nrows: int, ncols: int) -> None:
+        ebits = 8
+        mbits = 7
+        bias = 127
+        max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+        min_pos = 2 ** (1 - bias - mbits)
+        bounding_box_size = 16
+        print("MSFP parameters", bounding_box_size, ebits, mbits, bias)
+        input_data = torch.rand(nrows, ncols).float()
+        quantized_data = torch.ops.fb.FloatToMSFPQuantized(
+            input_data.cuda(),
+            bounding_box_size,
+            ebits,
+            mbits,
+            bias,
+            min_pos,
+            max_pos,
+        )
+        dequantized_data = torch.ops.fb.MSFPQuantizedToFloat(
+            quantized_data.cuda(), ebits, mbits, bias
+        )
+        torch.testing.assert_allclose(
+            dequantized_data.cpu(), input_data, rtol=1, atol=0
+        )
 
 
 if __name__ == "__main__":

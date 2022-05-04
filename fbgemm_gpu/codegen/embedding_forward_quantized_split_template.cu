@@ -483,7 +483,11 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
 
     uint32_t subwarp_id = threadIdx.x / 4;
     uint32_t subwarp_tid = threadIdx.x % 4;
+#ifdef __HIP_PLATFORM_HCC__
+    uint64_t subwarp_mask = static_cast<uint64_t>(0xF) << (4 * subwarp_id);
+#else
     uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
+#endif
     for (int32_t l_start = 0; l_start + subwarp_id < L; l_start += kWarpSize / 4) {
         int32_t idx = indices[indices_start + l_start + subwarp_id];
         uint32_t slot_start = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
@@ -505,14 +509,13 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
             // FIXME: __any_sync with mask isn't supported by HIP yet.
             // See https://fburl.com/fvy7j0lq for the similar context.
             // assert false here with https://fburl.com/pfm7enw2
-            assert(false);
-            if (__any(found)) {
+            if (__any_sync(subwarp_mask, found)) {
 #else
             if (__any_sync(subwarp_mask, found)) {
 #endif
                 break;
 #ifdef __HIP_PLATFORM_HCC__
-            } else if (__any(empty)) {
+            } else if (__any_sync(subwarp_mask, empty)) {
 #else
             } else if (__any_sync(subwarp_mask, empty)) {
 #endif

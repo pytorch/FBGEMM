@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -15,9 +15,11 @@ namespace fbgemm_gpu {
 
 #define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                                \
   struct fbgemm_gpu_enum_tag_##module_name {};                                 \
-  extern template enum_registration<struct fbgemm_gpu_enum_tag_##module_name>* \
+  template <> enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*     \
       enum_registration<                                                       \
-          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;
+          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;        \
+  extern template class enum_registration<                                     \
+      struct fbgemm_gpu_enum_tag_##module_name>;
 
 #define FBGEMM_GPU_ENUM_TAG(module_name) \
   struct fbgemm_gpu_enum_tag_##module_name

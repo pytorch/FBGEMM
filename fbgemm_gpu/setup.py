@@ -142,10 +142,11 @@ def main(argv: List[str]) -> None:
             print(
                 "CUDA CUB directory environment variable not set.  Using default CUB location."
             )
-
-            cuda_version = torch.version.cuda.split(".")
-
-            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+            if not torch.version.cuda is None:
+                cuda_version = torch.version.cuda.split(".")
+                cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+            else:
+                cuda_home = False
 
             if cuda_home:
                 print(f"Using CUDA = {cuda_home}")
