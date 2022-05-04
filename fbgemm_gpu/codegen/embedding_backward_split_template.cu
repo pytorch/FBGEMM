@@ -833,12 +833,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     {% if not dense %}
     DISPATCH_EMB_GRAD_CACHE_TYPES(
-        dev_weights.type(),
-        grad_output.type(),
-        lxu_cache_weights.type(),
+        dev_weights.scalar_type(),
+        grad_output.scalar_type(),
+        lxu_cache_weights.scalar_type(),
     {% else %}
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        dev_weights.type(),
+        dev_weights.scalar_type(),
     {% endif %}
         "split_embedding_backward_{{ optimizer }}_exact_kernel",
         [&] {

@@ -101,7 +101,7 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
     bool stochastic_rounding,
     {% endif %}
     {{args.split_function_args | join(", ")}},
-    int64_t output_dtype
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
 ) {
   int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);

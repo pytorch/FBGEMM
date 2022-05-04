@@ -54,6 +54,14 @@ if(USE_CUDA)
   message("Building for cuda_architectures = \"${cuda_architectures}\"")
   message("${message_line}")
 
+if(DEFINED GLIBCXX_USE_CXX11_ABI)
+  if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
+    set(CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
+    message("${CMAKE_CXX_FLAGS}")
+  endif()
+endif()
+
 #
 # Toch Cuda Extensions are normally compiled with the flags below. However we
 # disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
@@ -112,6 +120,7 @@ set(OPTIMIZERS
     adam
     approx_rowwise_adagrad
     approx_rowwise_adagrad_with_weight_decay
+    approx_rowwise_adagrad_with_counter
     approx_sgd
     lamb
     lars_sgd
@@ -119,6 +128,7 @@ set(OPTIMIZERS
     partial_rowwise_lamb
     rowwise_adagrad
     rowwise_adagrad_with_weight_decay
+    rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
 
@@ -297,6 +307,22 @@ set_source_files_properties(
 # Actual static SOURCES
 #
 
+# Ensure NVML_LIB_PATH is empty if it wasn't set and if the
+# default lib path doesn't exist.
+if(NOT NVML_LIB_PATH)
+  set(DEFAULT_NVML_LIB_PATH
+    "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+
+  if(EXISTS ${DEFAULT_NVML_LIB_PATH})
+    message(
+      STATUS
+      "Setting NVML_LIB_PATH: \
+      ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so"
+    )
+    set(NVML_LIB_PATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+  endif()
+endif()
+
 set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_split_cpu.cpp
     codegen/embedding_forward_quantized_host_cpu.cpp
@@ -316,11 +342,18 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check_host.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
-    # src/merge_pooled_embeddings_cpu.cpp src/merge_pooled_embeddings_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
+    src/permute_pooled_embedding_ops_split_gpu.cpp
+    src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp)
+
+    if(NVML_LIB_PATH)
+      list(APPEND fbgemm_gpu_sources_cpu
+        src/merge_pooled_embeddings_cpu.cpp
+        src/merge_pooled_embeddings_gpu.cpp)
+    endif()
 endif()
 
 set(fbgemm_gpu_sources_cpu_option "-mavx;-mf16c;-mfma;-mavx2")
@@ -335,6 +368,7 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check.cu src/cumem_utils.cu
     src/histogram_binning_calibration_ops.cu src/jagged_tensor_ops.cu
     src/layout_transform_ops.cu src/permute_pooled_embedding_ops.cu
+    src/permute_pooled_embedding_ops_split.cu
     src/quantize_ops.cu src/sparse_ops.cu src/split_embeddings_cache_cuda.cu
     src/split_embeddings_utils.cu)
 
@@ -397,6 +431,9 @@ endif()
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
 target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
+if(NVML_LIB_PATH)
+  target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
+endif()
 target_include_directories(fbgemm_gpu_py PRIVATE ${TORCH_INCLUDE_DIRS})
 if(USE_CUDA)
   set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)

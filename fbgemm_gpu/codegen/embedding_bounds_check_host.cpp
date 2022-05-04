@@ -15,11 +15,12 @@
 using Tensor = at::Tensor;
 
 void bounds_check_indices_cuda(
-    Tensor rows_per_table,
-    Tensor indices,
-    Tensor offsets,
+    Tensor& rows_per_table,
+    Tensor& indices,
+    Tensor& offsets,
     int64_t bounds_check_mode,
-    Tensor warning);
+    Tensor& warning,
+    c10::optional<Tensor> weights);
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
