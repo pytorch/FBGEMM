@@ -41,14 +41,14 @@ template <int NUM_JAGGED_DIM, typename index_t>
 DEVICE_INLINE bool walk_down_tensor_storage_tree_(
     int& offset,
     const int flattened_jagged_idx,
-    const int64_t* jagged_dims,
-    const std::array<index_t*, NUM_JAGGED_DIM>& x_offsets) {
+    const StackArray<int64_t>& jagged_dims,
+    const StackArray<index_t*>& x_offsets) {
   // compute coorindates
   int jagged_coords[NUM_JAGGED_DIM];
   int j_temp = flattened_jagged_idx;
 #pragma unroll
   for (int d = NUM_JAGGED_DIM - 1; d >= 0; --d) {
-    const int jagged_size = jagged_dims[d];
+    const int jagged_size = jagged_dims.vals[d];
     jagged_coords[d] = j_temp % jagged_size;
     j_temp /= jagged_size;
   }
@@ -57,8 +57,8 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
   bool is_zero = false;
 #pragma unroll
   for (int d = 0; d < NUM_JAGGED_DIM; ++d) {
-    const int begin = x_offsets[d][offset];
-    const int end = x_offsets[d][offset + 1];
+    const int begin = x_offsets.vals[d][offset];
+    const int end = x_offsets.vals[d][offset + 1];
     if (jagged_coords[d] >= end - begin) {
       is_zero = true;
       break;
@@ -87,10 +87,10 @@ __global__
 __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
-    const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
+    StackArray<index_t*> x_offsets,
     const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
     at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
-    const int64_t* jagged_dims,
+    StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
   const int outer_dense_size = y.size(0);
@@ -138,7 +138,7 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
   }
 }
 
-std::tuple<dim3, dim3, Tensor> check_shape_and_partition_(
+std::tuple<dim3, dim3, StackArray<int64_t>> check_shape_and_partition_(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     const Tensor& dense_tensor) {
@@ -165,17 +165,14 @@ std::tuple<dim3, dim3, Tensor> check_shape_and_partition_(
   const dim3 blocks(
       div_round_up(outer_dense_size * jagged_folded_size, threads_y));
 
+  StackArray<int64_t> jagged_dims_tensor;
   const int num_jagged_dim = dense_tensor.dim() - 2;
-  Tensor jagged_dims_tensor = at::empty(
-      {num_jagged_dim},
-      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
-  memcpy(
-      jagged_dims_tensor.data_ptr<int64_t>(),
+  TORCH_CHECK(num_jagged_dim <= kStackArrayMaxDims);
+  jagged_dims_tensor.ndim = num_jagged_dim;
+  std::memcpy(
+      &(jagged_dims_tensor.vals[0]),
       dense_tensor.sizes().data() + 1,
       num_jagged_dim * sizeof(int64_t));
-  jagged_dims_tensor =
-      jagged_dims_tensor.to(offsets[0].device(), /*non_blocking=*/true);
-
   return {dim3(threads_x, threads_y), blocks, jagged_dims_tensor};
 }
 
@@ -205,7 +202,7 @@ void jagged_dense_elementwise_dense_output_(
   }
 
   dim3 threads, blocks;
-  Tensor jagged_dims_tensor;
+  StackArray<int64_t> jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, y);
 
@@ -215,11 +212,14 @@ void jagged_dense_elementwise_dense_output_(
 
 #define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                \
   {                                                                           \
-    Tensor x_offsets_contig[num_jagged_dim];                                  \
-    std::array<index_t*, NUM_JAGGED_DIM> x_offset_ptrs;                       \
+    std::vector<Tensor> x_offsets_contig;                                     \
+    x_offsets_contig.resize(num_jagged_dim);                                  \
+    StackArray<index_t*> x_offset_ptrs;                                       \
+    x_offset_ptrs.ndim = num_jagged_dim;                                      \
     for (int d = 0; d < num_jagged_dim; ++d) {                                \
       x_offsets_contig[d] = x_offsets[d].contiguous();                        \
-      x_offset_ptrs[d] = x_offsets_contig[d].template data_ptr<index_t>();    \
+      x_offset_ptrs.vals[d] =                                                 \
+          x_offsets_contig[d].template data_ptr<index_t>();                   \
     }                                                                         \
     jagged_dense_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>    \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
@@ -229,7 +229,7 @@ void jagged_dense_elementwise_dense_output_(
                 .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
             output_reshaped                                                   \
                 .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
-            jagged_dims_tensor.data_ptr<int64_t>(),                           \
+            jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
   }
@@ -258,12 +258,12 @@ __global__
 __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
-    const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
-    const std::array<int, NUM_JAGGED_DIM> x_offsets_sizes,
+    StackArray<index_t*> x_offsets,
+    StackArray<int64_t> x_offsets_sizes,
     const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
     at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         output_values,
-    const int64_t* jagged_dims,
+    StackArray<int64_t> jagged_dims,
     F f) {
   const int inner_dense_size = y.size(2);
   const int nnz = x_values.size(0);
@@ -278,13 +278,13 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
 #pragma unroll
     for (int d = NUM_JAGGED_DIM - 1; d >= 0; --d) {
       // Binary search the first that is bigger than offset
-      int count = x_offsets_sizes[d] - 1;
+      int count = x_offsets_sizes.vals[d] - 1;
       int first = 1;
       while (count > 0) {
         int idx = first;
         int step = count / 2;
         idx += step;
-        if (x_offsets[d][idx] <= offset_temp) {
+        if (x_offsets.vals[d][idx] <= offset_temp) {
           first = ++idx;
           count -= step + 1;
         } else {
@@ -293,13 +293,13 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
       }
 
       --first;
-      int coord = offset_temp - x_offsets[d][first];
-      if (coord >= jagged_dims[d]) {
+      int coord = offset_temp - x_offsets.vals[d][first];
+      if (coord >= jagged_dims.vals[d]) {
         truncated = true;
         break;
       }
       jidx += coord * dim_prod;
-      dim_prod *= jagged_dims[d];
+      dim_prod *= jagged_dims.vals[d];
       offset_temp = first;
     }
 
@@ -357,7 +357,7 @@ void jagged_dense_elementwise_jagged_output_(
   }
 
   dim3 threads, blocks;
-  Tensor jagged_dims_tensor;
+  StackArray<int64_t> jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, y);
   // Patch up blocks.x because we're using different parallelization from other
@@ -369,13 +369,17 @@ void jagged_dense_elementwise_jagged_output_(
 
 #define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                \
   {                                                                           \
-    Tensor x_offsets_contig[num_jagged_dim];                                  \
-    std::array<index_t*, NUM_JAGGED_DIM> x_offset_ptrs;                       \
-    std::array<int, NUM_JAGGED_DIM> x_offset_sizes;                           \
+    std::vector<Tensor> x_offsets_contig;                                     \
+    x_offsets_contig.resize(num_jagged_dim);                                  \
+    StackArray<index_t*> x_offset_ptrs;                                       \
+    x_offset_ptrs.ndim = num_jagged_dim;                                      \
+    StackArray<int64_t> x_offset_sizes;                                       \
+    x_offset_sizes.ndim = num_jagged_dim;                                     \
     for (int d = 0; d < num_jagged_dim; ++d) {                                \
       x_offsets_contig[d] = x_offsets[d].contiguous();                        \
-      x_offset_ptrs[d] = x_offsets_contig[d].template data_ptr<index_t>();    \
-      x_offset_sizes[d] = x_offsets[d].numel();                               \
+      x_offset_ptrs.vals[d] =                                                 \
+          x_offsets_contig[d].template data_ptr<index_t>();                   \
+      x_offset_sizes.vals[d] = x_offsets[d].numel();                          \
     }                                                                         \
     jagged_dense_elementwise_jagged_output_kernel_<NUM_JAGGED_DIM, index_t>   \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
@@ -386,7 +390,7 @@ void jagged_dense_elementwise_jagged_output_(
                 .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
             output_values                                                     \
                 .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),     \
-            jagged_dims_tensor.data_ptr<int64_t>(),                           \
+            jagged_dims_tensor,                                               \
             f);                                                               \
   }
 
@@ -649,11 +653,11 @@ __global__
 __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
-    const std::array<index_t*, NUM_JAGGED_DIM> x_offsets,
+    StackArray<index_t*> x_offsets,
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         y_values,
     at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
-    const int64_t* jagged_dims,
+    StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
   const int outer_dense_size = output.size(0);
@@ -712,7 +716,7 @@ void jagged_jagged_elementwise_dense_output_(
   }
 
   dim3 threads, blocks;
-  Tensor jagged_dims_tensor;
+  StackArray<int64_t> jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
       check_shape_and_partition_(x_values, x_offsets, output);
 
@@ -721,11 +725,14 @@ void jagged_jagged_elementwise_dense_output_(
 
 #define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                \
   {                                                                           \
-    Tensor x_offsets_contig[num_jagged_dim];                                  \
-    std::array<index_t*, NUM_JAGGED_DIM> x_offset_ptrs;                       \
+    std::vector<Tensor> x_offsets_contig;                                     \
+    x_offsets_contig.resize(num_jagged_dim);                                  \
+    StackArray<index_t*> x_offset_ptrs;                                       \
+    x_offset_ptrs.ndim = num_jagged_dim;                                      \
     for (int d = 0; d < num_jagged_dim; ++d) {                                \
       x_offsets_contig[d] = x_offsets[d].contiguous();                        \
-      x_offset_ptrs[d] = x_offsets_contig[d].template data_ptr<index_t>();    \
+      x_offset_ptrs.vals[d] =                                                 \
+          x_offsets_contig[d].template data_ptr<index_t>();                   \
     }                                                                         \
     jagged_jagged_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>   \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
@@ -734,7 +741,7 @@ void jagged_jagged_elementwise_dense_output_(
             y_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
             output_reshaped                                                   \
                 .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
-            jagged_dims_tensor.data_ptr<int64_t>(),                           \
+            jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
   }

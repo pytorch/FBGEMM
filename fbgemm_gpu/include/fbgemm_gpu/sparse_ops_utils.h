@@ -293,6 +293,16 @@ constexpr uint32_t cuda_calc_block_count(
       cuda_calc_xblock_count(num_items, threads_per_block), max_blocks);
 }
 
+// A wrapper class for passing dynamically sized dimension information (e.g.
+// tensor.dims()) from the host to device.
+constexpr size_t kStackArrayMaxDims = 5;
+
+template <typename T>
+struct StackArray {
+  T vals[kStackArrayMaxDims];
+  size_t ndim;
+};
+
 // Used in jagged_tensor_ops.cu and jagged_tensor_ops_cpu.cpp
 // Passing lambda exp argument by value instead of by reference to avoid
 // "internal compiler error: in maybe_undo_parenthesized_ref" error for specific
