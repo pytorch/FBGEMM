@@ -107,6 +107,7 @@ jobs:
           --python-tag=${{ matrix.python-tag }} \
           --cpu_only \
           --plat-name=manylinux1_x86_64
+        ls -lt dist/*.whl
     - name: Upload wheel as GHA artifact
       uses: actions/upload-artifact@v2
       with:
@@ -158,4 +159,5 @@ jobs:
             --username __token__ \
             --password "$PYPI_TOKEN" \
             --skip-existing \
+            --verbose \
             fbgemm_gpu/dist/fbgemm_gpu_cpu-*.whl
