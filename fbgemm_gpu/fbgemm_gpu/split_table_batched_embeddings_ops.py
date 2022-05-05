@@ -599,6 +599,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
@@ -1972,6 +1973,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
