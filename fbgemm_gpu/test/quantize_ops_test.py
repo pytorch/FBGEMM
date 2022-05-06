@@ -729,7 +729,7 @@ class TestDenseMLPQuantizationConversion(unittest.TestCase):
         bounding_box_size = 16
         print("MSFP parameters", bounding_box_size, ebits, mbits, bias)
         input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToMSFPQuantized(
+        quantized_data = torch.ops.fbgemm.FloatToMSFPQuantized(
             input_data.cuda(),
             bounding_box_size,
             ebits,
@@ -738,7 +738,7 @@ class TestDenseMLPQuantizationConversion(unittest.TestCase):
             min_pos,
             max_pos,
         )
-        dequantized_data = torch.ops.fb.MSFPQuantizedToFloat(
+        dequantized_data = torch.ops.fbgemm.MSFPQuantizedToFloat(
             quantized_data.cuda(), ebits, mbits, bias
         )
         torch.testing.assert_close(dequantized_data.cpu(), input_data, rtol=1, atol=0)
