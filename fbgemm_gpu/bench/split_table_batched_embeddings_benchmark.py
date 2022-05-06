@@ -1066,6 +1066,8 @@ def benchmark_cpu_requests(
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cpu(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1085,6 +1087,8 @@ def nbit_cpu(  # noqa C901
     requests_data_file: Optional[str],
     tables: Optional[str],
     output_dtype: SparseType,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1108,6 +1112,8 @@ def nbit_cpu(  # noqa C901
         device="cpu",
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
         output_dtype=output_dtype,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cpu()
     emb.fill_random_weights()
 
@@ -1189,6 +1195,8 @@ def nbit_cpu(  # noqa C901
 @click.option("--run-reference", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1218,6 +1226,8 @@ def nbit_device(  # noqa C901
     run_reference: bool,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1278,6 +1288,8 @@ def nbit_device(  # noqa C901
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
         pooling_mode=pooling_mode,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
 
@@ -1453,6 +1465,8 @@ def nbit_device(  # noqa C901
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1474,6 +1488,8 @@ def nbit_uvm(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1520,6 +1536,8 @@ def nbit_uvm(
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1536,6 +1554,8 @@ def nbit_uvm(
                 for d in Ds[T_uvm:]
             ],
             output_dtype=output_dtype,
+            fp8_exponent_bits=fp8_exponent_bits,
+            fp8_exponent_bias=fp8_exponent_bias,
         ).cuda()
         emb_gpu.fill_random_weights()
 
@@ -1558,6 +1578,8 @@ def nbit_uvm(
             cache_load_factor=cache_load_factor,
             cache_algorithm=cache_alg,
             enforce_hbm=enforce_hbm,
+            fp8_exponent_bits=fp8_exponent_bits,
+            fp8_exponent_bias=fp8_exponent_bias,
         ).cuda()
         emb_mixed.fill_random_weights()
 
@@ -1730,6 +1752,8 @@ def nbit_uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1747,6 +1771,8 @@ def nbit_cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
     enforce_hbm: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1778,6 +1804,8 @@ def nbit_cache(  # noqa C901
         ],
         output_dtype=output_dtype,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_nc.fill_random_weights()
 
@@ -1796,6 +1824,8 @@ def nbit_cache(  # noqa C901
         cache_algorithm=cache_alg,
         output_dtype=output_dtype,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
 
@@ -2150,6 +2180,8 @@ def bounds_check_indices(  # noqa C901
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--iters", type=int, default=100)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def emb_inplace_update(  # noqa C901
     num_tables: int,
     embedding_dim: int,
@@ -2158,6 +2190,8 @@ def emb_inplace_update(  # noqa C901
     weights_precision: SparseType,
     output_dtype: SparseType,
     iters: int,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     if open_source:
         logging.warning(
@@ -2202,6 +2236,8 @@ def emb_inplace_update(  # noqa C901
         embedding_specs=embedding_specs,
         output_dtype=output_dtype,
         device=torch.cuda.current_device(),
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     )
     # Initilize the random weights for int nbit table split embedding bag
     op.fill_random_weights()

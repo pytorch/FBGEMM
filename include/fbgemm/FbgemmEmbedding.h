@@ -163,6 +163,34 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     std::int64_t input_stride = -1,
     bool scale_bias_last = true);
 
+/**
+ * @param output_stride If -1, output_stride is same as block_size
+ * @param input_stride in Bytes. If -1, input_stride is same as
+ *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
+ * @param exponent_bits is the number of exponent bits in the FP8 encode
+ *                      (normally 4 or 5)
+ * @param exponent_bias is subtracted from the exponent to obtain the actual
+ *                      exponent for the floating-point number
+ */
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    std::uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMFP8WithStrides(
+    const std::int64_t block_size,
+    bool normalize_by_lengths,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    int exponent_bits = 4,
+    int exponent_bias = 7);
+
 template <
     typename InType,
     typename IndexType,

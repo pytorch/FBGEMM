@@ -116,7 +116,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     Tensor indice_weights,
     {% endif %}
     int64_t output_dtype,
-    int64_t unused
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias
 ) {
     TENSOR_ON_CPU(dev_weights);
     TENSOR_ON_CPU(uvm_weights);
@@ -242,6 +243,26 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         index_size,
                         num_rows,
                         reinterpret_cast<const float16*>(weights),
+                        indices_acc + *offsets_begin_ptr,
+                        offsets_begin_ptr,
+                        indice_weights_ptr,
+                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                } else if (weight_ty == SparseType::FP8) {
+                    assert(fp8_exponent_bits > 0 && fp8_exponent_bias > 0);
+                    auto kernel = fbgemm::GenerateEmbeddingSpMDMFP8WithStrides<index_t, index_t, fbgemm_out_t>(
+                        D,
+                        normalize_by_lengths,
+                        /*is_weight_positional=*/false,
+                        /*use_offsets=*/true,
+                        /*output_stride=*/total_D,
+                        /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        /*exponent_bits=*/fp8_exponent_bits,
+                        /*exponent_bias=*/fp8_exponent_bias);
+                    success = kernel(
+                        B,
+                        index_size,
+                        num_rows,
+                        weights,
                         indices_acc + *offsets_begin_ptr,
                         offsets_begin_ptr,
                         indice_weights_ptr,

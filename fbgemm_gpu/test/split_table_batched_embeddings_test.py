@@ -18,6 +18,7 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     OptimType,
     SparseType,
@@ -64,6 +65,7 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.FP8,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
@@ -3057,6 +3059,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     [
                         SparseType.FP32,
                         SparseType.FP16,
+                        SparseType.FP8,
                         SparseType.INT8,
                         SparseType.INT4,
                         SparseType.INT2,
@@ -3123,6 +3126,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
 
+        # Fix exponent bias to 7 for now (TODO: Randomize it from a range of integers)
+        if SparseType.FP8 in weights_ty_list:
+            fp8_config = FP8QuantizationConfig(random.choice([4, 5]), 7)
+            has_fp8_weight = True
+        else:
+            has_fp8_weight = False
+
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
@@ -3146,6 +3156,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
+            fp8_exponent_bits=fp8_config.get("exponent_bits")
+            if has_fp8_weight
+            else None,
+            fp8_exponent_bias=fp8_config.get("exponent_bias")
+            if has_fp8_weight
+            else None,
         )
         # Initilize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
@@ -3237,6 +3253,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     np.float32
                 )
                 bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
+
+            elif weights_ty_list[t] == SparseType.FP8:
+                # Quantize FP32 to HPF8
+                comps = torch.ops.fbgemm.FloatToHFP8Quantized(
+                    bs[t].weight.detach().float(),
+                    fp8_config.get("exponent_bits"),
+                    fp8_config.get("exponent_bias"),
+                    fp8_config.get("max_position"),
+                )
+                weights.copy_(comps)
+
+                # Dequantize HPF8 to FP32
+                comps = torch.ops.fbgemm.HFP8QuantizedToFloat(
+                    comps,
+                    fp8_config.get("exponent_bits"),
+                    fp8_config.get("exponent_bias"),
+                )
+                bs[t].weight.data.copy_(comps)
 
             elif weights_ty_list[t] == SparseType.FP16:
                 comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)

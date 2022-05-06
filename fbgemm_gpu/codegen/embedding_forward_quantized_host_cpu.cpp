@@ -33,7 +33,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     int64_t pooling_mode,
     int64_t row_alignment,
     int64_t output_dtype,
-    int64_t unused);
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
@@ -49,7 +50,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     int64_t row_alignment,
     Tensor indice_weights,
     int64_t output_dtype,
-    int64_t unused);
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
 
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
@@ -73,7 +75,10 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         lxu_cache_weights, // Not used, to match cache interface for CUDA op
     c10::optional<Tensor>
         lxu_cache_locations, // Not used, to match cache interface for CUDA op
-    c10::optional<int64_t> row_alignment) {
+    c10::optional<int64_t> row_alignment,
+    c10::optional<int64_t> max_float8_D,
+    c10::optional<int64_t> fp8_exponent_bits,
+    c10::optional<int64_t> fp8_exponent_bias) {
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
@@ -88,7 +93,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         pooling_mode,
         row_alignment ? *row_alignment : 1,
         output_dtype,
-        0);
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       dev_weights,
@@ -104,7 +110,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       row_alignment ? *row_alignment : 1,
       *indice_weights,
       output_dtype,
-      0);
+      fp8_exponent_bits ? *fp8_exponent_bits : -1,
+      fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
 
 void pruned_hashmap_insert_unweighted_cpu(
@@ -128,7 +135,7 @@ Tensor pruned_array_lookup_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor");
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);

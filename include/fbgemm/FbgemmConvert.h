@@ -160,4 +160,24 @@ FBGEMM_API void RoundToFloat16(
     bool clamp = false,
     bool clamp_denorms = false);
 
+/**
+ * @brief Quantize float32 to float8. The code is a copy of float_to_hfp8() in
+ * fbgemm_gpu/quantize_ops_utils.h
+ */
+FBGEMM_API void FloatToFloat8_ref(
+    const float input,
+    uint8_t* output,
+    int exponent_bits,
+    int exponent_bias);
+
+/**
+ * @brief Dequantize float8 to float32. The code is a copy of hf8_to_float() in
+ * fbgemm_gpu/quantize_ops_utils.h
+ */
+FBGEMM_API void Float8ToFloat_ref(
+    const uint8_t input,
+    float* output,
+    int exponent_bits,
+    int exponent_bias);
+
 } // namespace fbgemm

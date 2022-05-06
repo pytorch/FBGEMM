@@ -19,7 +19,8 @@ enum class SparseType : uint8_t {
   INT4 = 3,
   INT2 = 4,
   BF16 = 5,
-  INVALID = 6,
+  FP8 = 6,
+  INVALID = 7,
 };
 
 enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };
@@ -99,6 +100,9 @@ unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
   }
   if (weight_ty == SparseType::FP16) {
     return dim * 2;
+  }
+  if (weight_ty == SparseType::FP8) {
+    return dim;
   }
   if (weight_ty == SparseType::INT8) {
     return dim + 4;

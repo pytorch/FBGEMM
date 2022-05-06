@@ -14,7 +14,10 @@ from typing import Optional, Tuple
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    SparseType,
+    QuantizationConfig,
+)
 from torch import Tensor, nn
 
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
@@ -25,11 +28,13 @@ class SplitEmbInferenceConverter:
         quantize_type: SparseType,
         pruning_ratio: Optional[float],
         use_array_for_index_remapping: bool = True,
+        quantization_config: Optional[QuantizationConfig] = None,
     ):
         self.quantize_type = quantize_type
         # TODO(yingz): Change the pruning ratio to per-table settings.
         self.pruning_ratio = pruning_ratio
         self.use_array_for_index_remapping = use_array_for_index_remapping
+        self.quantization_config = quantization_config
 
     def convert_model(self, model: torch.nn.Module) -> nn.Module:
         self._process_split_embs(model)
@@ -72,6 +77,12 @@ class SplitEmbInferenceConverter:
             weights, indicators, threshold, torch.int32
         )
 
+    def _get_quantization_config(self, name):
+        quantization_config = self.quantization_config
+        if quantization_config is None:
+            raise RuntimeError("quantization_config must be set for FP8 weight")
+        return quantization_config.get(name)
+
     def _quantize_embs(
         self, weight: Tensor, weight_ty: SparseType
     ) -> Tuple[Tensor, Optional[Tensor]]:
@@ -90,6 +101,16 @@ class SplitEmbInferenceConverter:
                 q_weight.cpu().numpy().view(np.uint8)
             ).contiguous()
             return (res_weight, None)
+
+        elif weight_ty == SparseType.FP8:
+            # Output tensor is already in uint8
+            q_weight = torch.ops.fbgemm.FloatToHFP8Quantized(
+                weight.float(),
+                self._get_quantization_config("exponent_bits"),
+                self._get_quantization_config("exponent_bias"),
+                self._get_quantization_config("max_position"),
+            )
+            return (q_weight, None)
 
         elif weight_ty == SparseType.INT8:
             q_weight = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(weight)
@@ -164,6 +185,8 @@ class SplitEmbInferenceConverter:
                     # Try to quantize embeddings.
                     weight_lists.append(self._quantize_embs(pruned_weight, weight_ty))
 
+                is_fp8_weight = self.quantize_type == SparseType.FP8
+
                 q_child = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=new_embedding_specs,
                     index_remapping=index_remapping_list
@@ -173,6 +196,12 @@ class SplitEmbInferenceConverter:
                     device="cpu" if use_cpu else torch.cuda.current_device(),
                     weight_lists=weight_lists,
                     use_array_for_index_remapping=self.use_array_for_index_remapping,
+                    fp8_exponent_bits=self._get_quantization_config("exponent_bits")
+                    if is_fp8_weight
+                    else None,
+                    fp8_exponent_bias=self._get_quantization_config("exponent_bias")
+                    if is_fp8_weight
+                    else None,
                 )
                 setattr(model, name, q_child)
             else:
