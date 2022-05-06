@@ -1236,13 +1236,16 @@ def forward_quantized() -> None:
     class elem_type:
         enum_name: str
         cpp_type_name: str
+        primitive_type: str
+        bit_width: int
 
     type_map = {
-        32: elem_type("FP32", "float"),
-        16: elem_type("FP16", "__half2"),
-        8: elem_type("INT8", "uint32_t"),
-        4: elem_type("INT4", "uint32_t"),
-        2: elem_type("INT2", "uint32_t"),
+        "FP32": elem_type("FP32", "float", "FP", 32),
+        "FP16": elem_type("FP16", "__half2", "FP", 16),
+        "FP8": elem_type("FP8", "uint32_t", "FP", 8),
+        "INT8": elem_type("INT8", "uint32_t", "INT", 8),
+        "INT4": elem_type("INT4", "uint32_t", "INT", 4),
+        "INT2": elem_type("INT2", "uint32_t", "INT", 2),
     }
 
     template = env.get_template("embedding_forward_quantized_split_template.cu")

@@ -35,7 +35,9 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
-    int64_t unused);
+    int64_t max_float8_D,
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor dev_weights,
@@ -58,7 +60,9 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
-    int64_t unused);
+    int64_t max_float8_D,
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
 
 Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
@@ -78,7 +82,9 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
-    int64_t unused);
+    int64_t max_float8_D,
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
 
 Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor dev_weights,
@@ -100,10 +106,18 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     int64_t output_dtype,
     c10::optional<Tensor> lxu_cache_weights,
     c10::optional<Tensor> lxu_cache_locations,
-    c10::optional<int64_t> row_alignment) {
+    c10::optional<int64_t> row_alignment,
+    c10::optional<int64_t> max_float8_D,
+    c10::optional<int64_t> fp8_exponent_bits,
+    c10::optional<int64_t> fp8_exponent_bias) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
-        max_int2_D, max_int4_D, max_int8_D, max_float16_D, max_float32_D};
+        max_int2_D,
+        max_int4_D,
+        max_int8_D,
+        max_float8_D ? *max_float8_D : 0,
+        max_float16_D,
+        max_float32_D};
     int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
         dev_weights,
@@ -123,7 +137,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
-        0);
+        max_float8_D ? *max_float8_D : 0,
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
@@ -146,7 +162,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
-        0);
+        max_float8_D ? *max_float8_D : 0,
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cuda(
       dev_weights,
@@ -169,7 +187,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       output_dtype,
       lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
       lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
-      0);
+      max_float8_D ? *max_float8_D : 0,
+      fp8_exponent_bits ? *fp8_exponent_bits : -1,
+      fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
 
 Tensor pruned_hashmap_lookup_unweighted_cuda(

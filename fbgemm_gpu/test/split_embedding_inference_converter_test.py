@@ -9,6 +9,7 @@
 
 import logging
 import math
+import random
 import unittest
 from typing import Optional, Tuple
 
@@ -17,7 +18,11 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    SparseType,
+    QuantizationConfig,
+    FP8QuantizationConfig,
+)
 from fbgemm_gpu.split_embedding_inference_converter import SplitEmbInferenceConverter
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
 from hypothesis import Verbosity, given, settings
@@ -130,6 +135,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.FP8,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
@@ -162,6 +168,8 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
         sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)
 
+        quantization_config = QuantizationConfig()
+
         # Fake quantize to make the original weight in FP32 all be exactly
         # representable by INT8 row-wise quantized values
         if quantize_type == quantize_type.INT8:
@@ -184,6 +192,22 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                         bit_rate=quantize_type.bit_rate(),
                     )
                 )
+        elif quantize_type == SparseType.FP8:
+            quantization_config = FP8QuantizationConfig(random.choice([4, 5]), 7)
+
+            for t in range(T):
+                sparse_arch.emb_module.split_embedding_weights()[t].data.copy_(
+                    torch.ops.fbgemm.HFP8QuantizedToFloat(
+                        torch.ops.fbgemm.FloatToHFP8Quantized(
+                            sparse_arch.emb_module.split_embedding_weights()[t].data,
+                            quantization_config.get("exponent_bits"),
+                            quantization_config.get("exponent_bias"),
+                            quantization_config.get("max_position"),
+                        ),
+                        quantization_config.get("exponent_bits"),
+                        quantization_config.get("exponent_bias"),
+                    )
+                )
 
         emb_out = sparse_arch(indices, offsets)  # B, T, D
 
@@ -191,6 +215,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         split_emb_infer_converter = SplitEmbInferenceConverter(
             quantize_type=quantize_type,
             pruning_ratio=pruning_ratio,
+            quantization_config=quantization_config,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         assert (
