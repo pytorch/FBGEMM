@@ -324,6 +324,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, float max_pos) -> Tensor");
   m.def(
       "HFP8QuantizedToFloat(Tensor input, int ebits, int exponent_bias) -> Tensor");
+  m.def(
+      "FloatToMSFPQuantized(Tensor input, int bounding_box_size, int ebits, int mbits, int bias, float min_pos, float max_pos) -> Tensor");
+  m.def(
+      "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

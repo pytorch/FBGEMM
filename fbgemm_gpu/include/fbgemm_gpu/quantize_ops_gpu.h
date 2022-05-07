@@ -21,4 +21,19 @@ at::Tensor _hfp8_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,
     const int64_t exponent_bias);
+
+at::Tensor _float_to_msfp_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos);
+
+at::Tensor _msfp_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias);
 } // namespace fbgemm_gpu
