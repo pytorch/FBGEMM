@@ -7,7 +7,6 @@
 // Copyright 2004-present Facebook. All Rights Reserved.
 #include <torch/library.h>
 
-#include "fbgemm_gpu/quantize_ops_gpu.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -19,17 +18,29 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "HalfToFused8BitRowwiseQuantized",
       fbgemm_gpu::_half_to_fused8bitrowwise_gpu);
   DISPATCH_TO_CUDA(
+      "FloatOrHalfToFused8BitRowwiseQuantized",
+      fbgemm_gpu::_float_or_half_to_fused8bitrowwise_gpu);
+  DISPATCH_TO_CUDA(
       "Fused8BitRowwiseQuantizedToFloat",
       fbgemm_gpu::_fused8bitrowwise_to_float_gpu);
-  DISPATCH_TO_CUDA(
-      "Fused8BitRowwiseQuantizedToFloatMixedDim",
-      fbgemm_gpu::_fused8bitrowwise_to_float_mixed_dim_gpu);
   DISPATCH_TO_CUDA(
       "Fused8BitRowwiseQuantizedToHalf",
       fbgemm_gpu::_fused8bitrowwise_to_half_gpu);
   DISPATCH_TO_CUDA(
+      "Fused8BitRowwiseQuantizedToFloatOrHalf",
+      fbgemm_gpu::_fused8bitrowwise_to_float_or_half_gpu);
+  DISPATCH_TO_CUDA(
+      "Fused8BitRowwiseQuantizedToFloatMixedDim",
+      fbgemm_gpu::_fused8bitrowwise_to_float_mixed_dim_gpu);
+  DISPATCH_TO_CUDA(
       "FloatToFusedNBitRowwiseQuantizedSBHalf",
       fbgemm_gpu::_float_to_fusednbitrowwise_gpu);
+  DISPATCH_TO_CUDA(
+      "HalfToFusedNBitRowwiseQuantizedSBHalf",
+      fbgemm_gpu::_half_to_fusednbitrowwise_gpu);
+  DISPATCH_TO_CUDA(
+      "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf",
+      fbgemm_gpu::_float_or_half_to_fusednbitrowwise_gpu);
   DISPATCH_TO_CUDA(
       "FusedNBitRowwiseQuantizedSBHalfToFloat",
       fbgemm_gpu::_fusednbitrowwise_to_float_gpu);
@@ -37,8 +48,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "FusedNBitRowwiseQuantizedSBHalfToHalf",
       fbgemm_gpu::_fusednbitrowwise_to_half_gpu);
   DISPATCH_TO_CUDA(
-      "HalfToFusedNBitRowwiseQuantizedSBHalf",
-      fbgemm_gpu::_half_to_fusednbitrowwise_gpu);
+      "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
+      fbgemm_gpu::_fusednbitrowwise_to_float_or_half_gpu);
   DISPATCH_TO_CUDA("FloatToHFP8Quantized", fbgemm_gpu::_float_to_hfp8_gpu);
   DISPATCH_TO_CUDA("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_gpu);
   DISPATCH_TO_CUDA("FloatToMSFPQuantized", fbgemm_gpu::_float_to_msfp_gpu);
