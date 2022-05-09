@@ -15,11 +15,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
-#if !defined(NEW_GENERATOR_PATH)
-#include <ATen/CUDAGeneratorImpl.h>
-#else
 #include <ATen/cuda/CUDAGeneratorImpl.h>
-#endif
 #include <ATen/TensorUtils.h>
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -27,11 +23,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#if !defined(NEW_ATOMIC_PATH)
-#include <THC/THCAtomics.cuh>
-#else
 #include <ATen/cuda/Atomic.cuh>
-#endif
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 #include <limits>
 #include <mutex>

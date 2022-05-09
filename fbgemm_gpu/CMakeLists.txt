@@ -41,18 +41,11 @@ else()
     LANGUAGES CXX C CUDA)
 endif()
 
-if(USE_CUDA)
-  set(default_cuda_architectures 60 61 70 75 80)
-  set(cuda_architectures_doc
-      "CUDA architectures to build for. Default is ${default_cuda_architectures}")
-  set(cuda_architectures
-      "${default_cuda_architectures}"
-      CACHE STRING "${cuda_architectures_doc}")
+find_package(Torch REQUIRED)
+find_package(PythonExtensions REQUIRED)
 
-  message("${message_line}")
-  message("fbgemm_gpu:")
-  message("Building for cuda_architectures = \"${cuda_architectures}\"")
-  message("${message_line}")
+set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(THIRDPARTY ${FBGEMM}/third_party)
 
 if(DEFINED GLIBCXX_USE_CXX11_ABI)
   if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
@@ -68,48 +61,23 @@ endif()
 # constructor exists to convert from "int" to "__half" errors in
 # gen_embedding_forward_quantized_split_[un]weighted_codegen_cuda.cu
 #
-  set(TORCH_CUDA_OPTIONS
-      --expt-relaxed-constexpr
-      -D__CUDA_NO_HALF_OPERATORS__
-      # -D__CUDA_NO_HALF_CONVERSIONS__
-      -D__CUDA_NO_BFLOAT16_CONVERSIONS__
-      -D__CUDA_NO_HALF2_OPERATORS__)
-endif()
 
-find_package(Torch REQUIRED)
-find_package(PythonExtensions REQUIRED)
+set(TORCH_CUDA_OPTIONS
+    --expt-relaxed-constexpr
+    -D__CUDA_NO_HALF_OPERATORS__
+    # -D__CUDA_NO_HALF_CONVERSIONS__
+    -D__CUDA_NO_BFLOAT16_CONVERSIONS__
+    -D__CUDA_NO_HALF2_OPERATORS__)
 
-set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
-set(THIRDPARTY ${FBGEMM}/third_party)
 
 if(USE_ROCM)
-  if(NOT DEFINED ENV{PYTORCH_ROCM_ARCH})
-    SET(FBGEMM_ROCM_ARCH gfx900;gfx906;gfx908;gfx90a)
-  else()
-    SET(FBGEMM_ROCM_ARCH $ENV{PYTORCH_ROCM_ARCH})
-  endif()
-
   list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" "${THIRDPARTY}/hipify_torch/cmake")
   include(Hip)
-  if(NOT FBGEMM_HAVE_HIP)
-    message(FATAL_ERROR "Not able to find HIP installation.")
-  endif()  
   include(Hipify)
-  list (APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm)
-  set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
-  
-  find_package(rocBLAS REQUIRED)
-  find_package(hipFFT REQUIRED)
-  find_package(hipRAND REQUIRED)
-  find_package(rocRAND REQUIRED)
-  find_package(hipSPARSE REQUIRED)
-  find_package(OpenMP REQUIRED)
-  find_package(rocPRIM REQUIRED)
-  
+
   message("${message_line}")
   message(STATUS "hip found ${ROCM_FOUND}")
 endif()
-
 
 #
 # GENERATED CUDA, CPP and Python code
@@ -197,31 +165,18 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_gpu.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
 )
 
-if(USE_CUDA)
-  add_custom_command(
-    OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files} 
-           ${gen_gpu_host_source_files} ${gen_python_files}
+if(USE_ROCM)
+	execute_process(
     COMMAND
-      "${PYTHON_EXECUTABLE}"
-      "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-      "--opensource"
-    DEPENDS "${codegen_dependencies}")
-
-    set_source_files_properties(
-      ${gen_cpu_source_files} PROPERTIES COMPILE_OPTIONS
-                              "-mavx2;-mf16c;-mfma;-fopenmp")
-elseif(USE_ROCM)
-  execute_process(
-        COMMAND
-        "${PYTHON_EXECUTABLE}"
-        "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-        "--opensource")
+    "${PYTHON_EXECUTABLE}"
+    "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
+    "--opensource"
+		DEPENDS "${codegen_dependencies}")
 
   set(header_include_dir
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -229,11 +184,20 @@ elseif(USE_ROCM)
   ${CMAKE_CURRENT_SOURCE_DIR}
   )
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR ${header_include_dir})
-
-  set_source_files_properties(
-      ${gen_cpu_source_files} PROPERTIES COMPILE_OPTIONS
-                              "-mavx2;-mf16c;-mfma")
+else()
+	add_custom_command(
+	  OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
+			 ${gen_gpu_host_source_files} ${gen_python_files}
+	  COMMAND
+		"${PYTHON_EXECUTABLE}"
+		"${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
+		"--opensource"
+	  DEPENDS "${codegen_dependencies}")
 endif()
+
+set_source_files_properties(
+  ${gen_cpu_source_files} PROPERTIES COMPILE_OPTIONS
+                                     "-mavx2;-mf16c;-mfma;-fopenmp")
 
 set_source_files_properties(
   ${gen_cpu_source_files}
@@ -285,14 +249,18 @@ set(cpp_fbgemm_files_avx2 "../src/EmbeddingSpMDMAvx2.cc"
 set_source_files_properties(${cpp_fbgemm_files_avx2}
                             PROPERTIES COMPILE_OPTIONS "-mavx2;-mf16c;-mfma")
 
-set(cpp_fbgemm_files ${cpp_fbgemm_files_normal} ${cpp_fbgemm_files_avx2})
 set(cpp_fbgemm_files_avx512 "../src/EmbeddingSpMDMAvx512.cc")
-if(USE_CUDA)
-  set_source_files_properties(
-    ${cpp_fbgemm_files_avx512}
-    PROPERTIES COMPILE_OPTIONS
-              "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
-  list(APPEND cpp_fbgemm_files ${cpp_fbgemm_files_avx512})
+
+set_source_files_properties(
+  ${cpp_fbgemm_files_avx512}
+  PROPERTIES COMPILE_OPTIONS
+             "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
+
+if(USE_ROCM)
+  set(cpp_fbgemm_files ${cpp_fbgemm_files_normal} ${cpp_fbgemm_files_avx2})
+else()
+  set(cpp_fbgemm_files ${cpp_fbgemm_files_normal} ${cpp_fbgemm_files_avx2}
+                      ${cpp_fbgemm_files_avx512})
 endif()
 
 set(cpp_fbgemm_files_include_directories
@@ -356,12 +324,9 @@ if(NOT FBGEMM_CPU_ONLY)
     endif()
 endif()
 
-set(fbgemm_gpu_sources_cpu_option "-mavx;-mf16c;-mfma;-mavx2")
-if(USE_CUDA)
-  set_source_files_properties(
-    ${fbgemm_gpu_sources_cpu} PROPERTIES COMPILE_OPTIONS
-                                        "${fbgemm_gpu_sources_cpu_option};-fopenmp")
-endif()
+set_source_files_properties(
+  ${fbgemm_gpu_sources_cpu} PROPERTIES COMPILE_OPTIONS
+                                       "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu
@@ -398,16 +363,11 @@ if(USE_ROCM)
   endforeach()
 endif()
 
-if(USE_CUDA)
-  add_library(fbgemm_gpu_py MODULE ${fbgemm_gpu_sources} ${gen_source_files}
-                                  ${cpp_asmjit_files} ${cpp_fbgemm_files})
-  set_property(TARGET fbgemm_gpu_py PROPERTY CUDA_ARCHITECTURES
-                                  "${cuda_architectures}")
-  if(NOT FBGEMM_CPU_ONLY)
-    target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
-  endif()
-  set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
-elseif(USE_ROCM)
+#
+# MODULE
+#
+
+if(USE_ROCM)
   get_hipified_list("${fbgemm_gpu_sources}" fbgemm_gpu_sources)
   get_hipified_list("${abspath_gen_source_files}" abspath_gen_source_files)
   get_hipified_list("${cpp_fbgemm_files}" cpp_fbgemm_files)
@@ -415,17 +375,26 @@ elseif(USE_ROCM)
   set(FBGEMM_ALL_HIP_FILES ${fbgemm_gpu_sources} ${abspath_gen_source_files} ${cpp_fbgemm_files})
   set_source_files_properties(${FBGEMM_ALL_HIP_FILES} PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
   hip_include_directories("${cpp_fbgemm_files_include_directories}")
-  
-  hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES} 
+
+  hip_add_library(fbgemm_gpu_py SHARED ${cpp_asmjit_files} ${FBGEMM_ALL_HIP_FILES} ${FBGEMM_HIP_HCC_LIBRARIES}
                   HIPCC_OPTIONS ${HIP_HCC_FLAGS})
   target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
-endif()
-list (GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
-if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
-  target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
-endif()
-if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
-  target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
+  list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
+  # if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
+  #   target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
+  # endif()
+  # if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
+  #   target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
+  # endif()
+else()
+  add_library(fbgemm_gpu_py MODULE ${fbgemm_gpu_sources} ${gen_source_files}
+                                  ${cpp_asmjit_files} ${cpp_fbgemm_files})
+  set_property(TARGET fbgemm_gpu_py PROPERTY CUDA_ARCHITECTURES
+                                  "${cuda_architectures}")
+
+  if(NOT FBGEMM_CPU_ONLY)
+    target_compile_definitions(fbgemm_gpu_py PRIVATE FBGEMM_CUB_USE_NAMESPACE)
+  endif()
 endif()
 
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")

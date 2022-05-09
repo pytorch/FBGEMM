@@ -94,6 +94,12 @@ set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
 ADD_DEFINITIONS(-DNDEBUG)
 ADD_DEFINITIONS(-DUSE_ROCM)
 
+IF(NOT DEFINED ENV{PYTORCH_ROCM_ARCH})
+  SET(FBGEMM_ROCM_ARCH gfx900;gfx906;gfx908;gfx90a)
+ELSE()
+  SET(FBGEMM_ROCM_ARCH $ENV{PYTORCH_ROCM_ARCH})
+ENDIF()
+
 # Find the HIP Package
 find_package(HIP)
 
@@ -106,6 +112,15 @@ IF(HIP_FOUND)
     set(hip_library_name hip_hcc)
   endif()
   message("HIP library name: ${hip_library_name}")
+
+  find_package(hip REQUIRED)
+  find_package(rocBLAS REQUIRED)
+  find_package(hipFFT REQUIRED)
+  find_package(hipRAND REQUIRED)
+  find_package(rocRAND REQUIRED)
+  find_package(hipSPARSE REQUIRED)
+  find_package(OpenMP REQUIRED)
+  find_package(rocPRIM REQUIRED)
 
   set(CMAKE_HCC_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
   set(CMAKE_HCC_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
@@ -145,9 +160,6 @@ IF(HIP_FOUND)
   set(hipcub_DIR ${HIPCUB_PATH}/lib/cmake/hipcub)
   set(rocthrust_DIR ${ROCTHRUST_PATH}/lib/cmake/rocthrust)
   set(ROCclr_DIR ${ROCM_PATH}/rocclr/lib/cmake/rocclr)
-
-  find_package(hip REQUIRED)
-
   set(ROCRAND_INCLUDE ${ROCRAND_PATH}/include)
   set(ROCM_SMI_INCLUDE ${ROCM_PATH}/rocm_smi/include)
 
@@ -156,4 +168,9 @@ IF(HIP_FOUND)
 
   hip_include_directories(${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
 
+  list (APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm)
+  set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
+
+ELSE()
+  message(FATAL_ERROR "Not able to find HIP installation.")
 ENDIF()
