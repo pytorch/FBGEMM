@@ -434,6 +434,9 @@ def rowwise_adagrad() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
     }
     multiplier = shfl_sync(multiplier, 0);
@@ -461,6 +464,9 @@ def rowwise_adagrad() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] = correction * host_weights_data[embedding_begin + d] - grad_buffer[d] * multiplier;
@@ -549,6 +555,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
     }
     multiplier = shfl_sync(multiplier, 0);
@@ -576,6 +585,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] = correction * host_weights_data[embedding_begin + d] - grad_buffer[d] * multiplier;
