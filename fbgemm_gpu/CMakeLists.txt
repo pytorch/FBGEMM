@@ -198,7 +198,6 @@ endif()
 set_source_files_properties(
   ${gen_cpu_source_files} PROPERTIES COMPILE_OPTIONS
                                      "-mavx2;-mf16c;-mfma;-fopenmp")
-
 set_source_files_properties(
   ${gen_cpu_source_files}
   PROPERTIES
