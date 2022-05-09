@@ -500,6 +500,15 @@ Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<at::Half>(input);
 }
 
+Tensor _float_or_half_to_fused8bitrowwise_gpu(const Tensor& input) {
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      input.scalar_type(),
+      "float_or_half_to_fused8bitrowwise_cuda_kernel",
+      [&] { output = _float_to_fused8bitrowwise_gpu_t<scalar_t>(input); });
+  return output;
+}
+
 template <typename output_t>
 Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   TENSOR_ON_CUDA_GPU(input);
@@ -567,6 +576,26 @@ at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
 
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
+}
+
+at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t output_dtype) {
+  Tensor output;
+
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      output = _fused8bitrowwise_to_float_gpu_t<float>(input);
+      break;
+    case SparseType::FP16:
+      output = _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
+      break;
+    default:
+      TORCH_CHECK(false);
+  }
+
+  return output;
 }
 
 at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
@@ -694,6 +723,19 @@ at::Tensor _half_to_fusednbitrowwise_gpu(
   return _float_to_fusednbitrowwise_gpu_t<at::Half>(input, bit_rate);
 }
 
+Tensor _float_or_half_to_fusednbitrowwise_gpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      input.scalar_type(),
+      "float_or_half_to_fusednbitrowwise_cuda_kernel",
+      [&] {
+        output = _float_to_fusednbitrowwise_gpu_t<scalar_t>(input, bit_rate);
+      });
+  return output;
+}
+
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_gpu_t(
     const Tensor& input,
@@ -763,6 +805,27 @@ at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+}
+
+at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate,
+    const int64_t output_dtype) {
+  Tensor output;
+
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      output = _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
+      break;
+    case SparseType::FP16:
+      output = _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+      break;
+    default:
+      TORCH_CHECK(false);
+  }
+
+  return output;
 }
 
 at::Tensor _float_to_hfp8_gpu(
