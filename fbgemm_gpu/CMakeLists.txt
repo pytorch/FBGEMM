@@ -165,6 +165,7 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_gpu.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
@@ -179,10 +180,10 @@ if(USE_ROCM)
 		DEPENDS "${codegen_dependencies}")
 
   set(header_include_dir
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  )
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_SOURCE_DIR})
+
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR ${header_include_dir})
 else()
 	add_custom_command(
@@ -379,12 +380,6 @@ if(USE_ROCM)
                   HIPCC_OPTIONS ${HIP_HCC_FLAGS})
   target_include_directories(fbgemm_gpu_py PUBLIC ${FBGEMM_HIP_INCLUDE} ${ROCRAND_INCLUDE} ${ROCM_SMI_INCLUDE})
   list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
-  # if(EXISTS "${TORCH_PATH}/ATen/cuda/CUDAGeneratorImpl.h")
-  #   target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_GENERATOR_PATH)
-  # endif()
-  # if(EXISTS "${TORCH_PATH}/ATen/cuda/Atomic.cuh")
-  #   target_compile_definitions(fbgemm_gpu_py PRIVATE NEW_ATOMIC_PATH)
-  # endif()
 else()
   add_library(fbgemm_gpu_py MODULE ${fbgemm_gpu_sources} ${gen_source_files}
                                   ${cpp_asmjit_files} ${cpp_fbgemm_files})
