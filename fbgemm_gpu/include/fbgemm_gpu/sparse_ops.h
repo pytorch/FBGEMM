@@ -574,4 +574,20 @@ at::Tensor pack_segments_cpu(
     const at::Tensor& lengths,
     const int64_t max_length);
 
+at::Tensor pack_segments_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length);
+
+at::Tensor pack_segments_forward_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length);
+
+at::Tensor pack_segments_backward_cuda(
+    const at::Tensor& data,
+    const at::Tensor& lengths,
+    int64_t total_length,
+    int64_t max_length);
+
 } // namespace fbgemm_gpu
