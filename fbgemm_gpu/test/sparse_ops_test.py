@@ -2194,6 +2194,17 @@ class SparseOpsTest(unittest.TestCase):
         # CPU backward
         packed_tensor.backward(grad_cpu)
 
+        if gpu_available:
+            packed_cuda = torch.ops.fbgemm.pack_segments(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+
+            # GPU backward
+            packed_cuda.backward(grad_cpu.cuda())
+
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         n=st.integers(2, 10),
@@ -2229,6 +2240,14 @@ class SparseOpsTest(unittest.TestCase):
             max_length=max_length,
         )
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+        if gpu_available:
+            packed_cuda = torch.ops.fbgemm.pack_segments(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
 
 
 if __name__ == "__main__":
