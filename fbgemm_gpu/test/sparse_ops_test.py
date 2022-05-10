@@ -79,6 +79,22 @@ def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int)
     )
 
 
+def get_n_rand_num_summing_to_k(n: int, k: int) -> np.ndarray:
+    """Get a list of `n` integers which collectively sum to `k`, drawn
+    uniformly from the set of all such lists.
+
+    Args:
+        n - The number of integers in the result list
+        k - The value they should sum to
+    """
+    # There are a lot of ways to do this wrong, probably including
+    # the ones you've just thought of. I think the following does
+    # it correctly, though.
+    if n == 0:
+        return np.array([])
+    return np.random.multinomial(k, np.ones(n) / n, size=1)[0]
+
+
 class SparseOpsTest(unittest.TestCase):
     @staticmethod
     def permute_indices_ref_(
@@ -2112,6 +2128,107 @@ class SparseOpsTest(unittest.TestCase):
 
         C = torch.ops.fbgemm.permute102_baddbmm_permute102(bias, A, B)
         torch.testing.assert_close(C.cpu(), C_ref.cpu())
+
+    def _pack_segments_ref(
+        self,
+        lengths: torch.Tensor,
+        tensor: torch.Tensor,
+        max_length: Optional[int] = None,
+    ) -> np.ndarray:
+        lengths = lengths.numpy()
+        sections = np.split(tensor, np.cumsum(lengths))
+        max_length = np.max(lengths, initial=0) if max_length is None else max_length
+        padded_arrs = []
+        for arr in sections[:-1]:  # Last section is always a blank
+            arr = arr[: min(max_length, len(arr)), ...]
+            padded_arr = np.pad(
+                arr,
+                [(0, max(max_length - arr.shape[0], 0))]
+                + ([(0, 0)] * (len(arr.shape) - 1)),
+                constant_values=0,
+            )
+            padded_arrs.append(padded_arr)
+
+        if len(padded_arrs) == 0:
+            padded_arrs = torch.empty((0, 0) + tuple(tensor.shape[1:]))
+        else:
+            padded_arrs = torch.Tensor(np.stack(padded_arrs))
+
+        return padded_arrs
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        n=st.integers(2, 10),
+        k=st.integers(2, 10),
+        batch_size=st.integers(1, 30),
+        divisions=st.integers(1, 10),
+    )
+    @settings(deadline=None)
+    def test_pack_segments(
+        self,
+        n: int,
+        k: int,
+        batch_size: int,
+        divisions: int,
+    ) -> None:
+        input_raw = np.random.rand(batch_size, n, k)
+        input_data = torch.tensor(input_raw, dtype=torch.float32, requires_grad=True)
+        lengths = torch.tensor(
+            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+        )
+        max_length = lengths.max().item()
+
+        packed_tensor = torch.ops.fbgemm.pack_segments(
+            t_in=input_data, lengths=lengths, max_length=max_length
+        )
+
+        packed_ref = self._pack_segments_ref(lengths, input_raw)
+
+        self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+        grad_cpu = torch.tensor(
+            np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
+                np.float32
+            )
+        )
+        # CPU backward
+        packed_tensor.backward(grad_cpu)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        n=st.integers(2, 10),
+        k=st.integers(2, 10),
+        batch_size=st.integers(1, 30),
+        divisions=st.integers(1, 10),
+        max_length=st.integers(1, 20),
+    )
+    @settings(deadline=None)
+    def test_pack_segments_smaller_max_len(
+        self,
+        n: int,
+        k: int,
+        batch_size: int,
+        divisions: int,
+        max_length: int,
+    ) -> None:
+        input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=torch.float32)
+        lengths = torch.tensor(
+            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+        )
+
+        packed_tensor = torch.ops.fbgemm.pack_segments(
+            t_in=input_data,
+            lengths=lengths,
+            max_length=max_length,
+        )
+        self.assertEqual(packed_tensor.shape, (divisions, max_length, n, k))
+
+        packed_ref = self._pack_segments_ref(
+            lengths,
+            input_data,
+            max_length=max_length,
+        )
+        self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
 
 if __name__ == "__main__":
