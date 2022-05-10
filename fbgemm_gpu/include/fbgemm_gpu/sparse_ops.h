@@ -569,11 +569,9 @@ std::tuple<at::Tensor, at::Tensor> permute_sequence_embeddings_cuda(
     const at::Tensor& lengths,
     const at::Tensor& embeddings);
 
-std::tuple<at::Tensor, c10::optional<at::Tensor>> pack_segments_cpu(
+at::Tensor pack_segments_cpu(
     const at::Tensor& t_in,
     const at::Tensor& lengths,
-    const int64_t max_length,
-    const bool pad_minf,
-    const bool return_presence_mask);
+    const int64_t max_length);
 
 } // namespace fbgemm_gpu
