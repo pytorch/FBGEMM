@@ -388,17 +388,7 @@ Tensor uvm_to_cpu_clone(Tensor t) {
 }
 
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
-#ifdef __HIP_PLATFORM_HCC__
-// FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
-FBGEMM_GPU_ENUM_REGISTER_START(uvm, hipMemoryAdvise){
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetReadMostly),
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetReadMostly),
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetPreferredLocation),
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetPreferredLocation),
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetAccessedBy),
-    FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetAccessedBy),
-} FBGEMM_GPU_ENUM_REGISTER_END
-#else
+
 FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetReadMostly),
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetReadMostly),
@@ -407,6 +397,5 @@ FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemoryAdvise){
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseSetAccessedBy),
     FBGEMM_GPU_ENUM_ITEM(cudaMemAdviseUnsetAccessedBy),
 } FBGEMM_GPU_ENUM_REGISTER_END
-#endif
 
 } // namespace fbgemm_gpu

@@ -172,12 +172,12 @@ set(codegen_dependencies
 )
 
 if(USE_ROCM)
-	execute_process(
+  execute_process(
     COMMAND
     "${PYTHON_EXECUTABLE}"
     "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
     "--opensource"
-		DEPENDS "${codegen_dependencies}")
+    DEPENDS "${codegen_dependencies}")
 
   set(header_include_dir
       ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -186,14 +186,14 @@ if(USE_ROCM)
 
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR ${header_include_dir})
 else()
-	add_custom_command(
-	  OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
-			 ${gen_gpu_host_source_files} ${gen_python_files}
-	  COMMAND
-		"${PYTHON_EXECUTABLE}"
-		"${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-		"--opensource"
-	  DEPENDS "${codegen_dependencies}")
+  add_custom_command(
+    OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
+       ${gen_gpu_host_source_files} ${gen_python_files}
+    COMMAND
+    "${PYTHON_EXECUTABLE}"
+    "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
+    "--opensource"
+    DEPENDS "${codegen_dependencies}")
 endif()
 
 set_source_files_properties(

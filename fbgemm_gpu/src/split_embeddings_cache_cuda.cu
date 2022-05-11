@@ -435,9 +435,6 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
   }
 
 #ifdef __HIP_PLATFORM_HCC__
-  // FIXME: __any_sync with mask isn't supported by HIP yet.
-  // See https://fburl.com/fvy7j0lq for the similar context.
-  // assert false here with https://fburl.com/pfm7enw2
   if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
   if (!__any_sync(0xFFFFFFFF, found)) {
@@ -1163,9 +1160,6 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
   }
 
 #ifdef __HIP_PLATFORM_HCC__
-  // FIXME: __any_sync with mask isn't supported by HIP yet.
-  // See https://fburl.com/fvy7j0lq for the similar context.
-  // assert false here with https://fburl.com/pfm7enw2
   if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
   if (!__any_sync(0xFFFFFFFF, found)) {

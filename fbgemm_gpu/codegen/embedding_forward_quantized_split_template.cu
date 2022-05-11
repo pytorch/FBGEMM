@@ -505,20 +505,9 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
                 found = true;
                 dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
             }
-#ifdef __HIP_PLATFORM_HCC__
-            // FIXME: __any_sync with mask isn't supported by HIP yet.
-            // See https://fburl.com/fvy7j0lq for the similar context.
-            // assert false here with https://fburl.com/pfm7enw2
             if (__any_sync(subwarp_mask, found)) {
-#else
-            if (__any_sync(subwarp_mask, found)) {
-#endif
                 break;
-#ifdef __HIP_PLATFORM_HCC__
             } else if (__any_sync(subwarp_mask, empty)) {
-#else
-            } else if (__any_sync(subwarp_mask, empty)) {
-#endif
                 dense_indices[indices_start + l_start + subwarp_id] = -1;
                 break;
             }
