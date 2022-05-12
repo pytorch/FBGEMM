@@ -398,9 +398,7 @@ if(NVML_LIB_PATH)
   target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
 endif()
 target_include_directories(fbgemm_gpu_py PRIVATE ${TORCH_INCLUDE_DIRS})
-if(USE_CUDA)
-  set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
-endif()
+set_property(TARGET fbgemm_gpu_py PROPERTY CXX_STANDARD 17)
 
 install(TARGETS fbgemm_gpu_py DESTINATION fbgemm_gpu)
 
