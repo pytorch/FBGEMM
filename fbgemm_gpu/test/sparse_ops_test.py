@@ -2249,6 +2249,57 @@ class SparseOpsTest(unittest.TestCase):
             )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
 
+    # pyre-ignore [56]
+    @given(
+        N=st.integers(0, 32),
+        shape=st.lists(st.integers(0, 32), min_size=0, max_size=2),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        consecutive_indices=st.booleans(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_index_select_dim0(
+        self,
+        N: int,
+        shape: List[int],
+        dtype: torch.dtype,
+        use_cpu: bool,
+        consecutive_indices: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        U = random.randint(0, N + 1)
+        if consecutive_indices:
+            start = np.random.randint(0, U)
+            length = np.random.randint(1, U - start + 1)
+            indices = list(range(start, start + length))
+            np_arr = np.array(indices)
+            for _ in range(N - U):
+                indices.append(np.random.randint(start, start + length))
+                np_arr = np.array(indices)
+                np.random.shuffle(np_arr)
+            indices = torch.from_numpy(np_arr).to(torch.int).to(device)
+            kwargs = {
+                "consecutive_range_start": start,
+                "consecutive_range_length": length,
+            }
+        else:
+            indices = torch.randint(U, (N,), device=device)
+            kwargs = {}
+        input = torch.rand((U,) + tuple(shape), dtype=dtype, device=device)
+
+        output_ref = torch.ops.fbgemm.index_select_dim0(input, indices, **kwargs)
+        output = torch.index_select(input, 0, indices)
+
+        torch.testing.assert_close(output, output_ref)
+
+        torch.autograd.gradcheck(
+            torch.ops.fbgemm.index_select_dim0,
+            (
+                input.clone().detach().double().requires_grad_(True),
+                indices,
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
