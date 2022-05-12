@@ -1982,7 +1982,7 @@ def hashtable(  # noqa C901
     )
     hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
 
-    assert hash_table.numel() * 4 < 2 ** 32
+    assert hash_table.numel() * 4 < 2**32
     # initialize
     hash_table[:, :] = -1
     torch.ops.fbgemm.pruned_hashmap_insert(

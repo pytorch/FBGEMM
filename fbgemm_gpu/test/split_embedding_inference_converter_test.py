@@ -157,7 +157,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         pruning_ratio: Optional[float],
         use_cpu: bool,
     ) -> None:
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         Es = [E] * T
         D_alignment = 8 if not quantize_type == SparseType.INT2 else 16
         D = div_round_up(D, D_alignment)
@@ -337,7 +337,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         D_alignment = 8
         D = div_round_up(D, D_alignment)
         sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)

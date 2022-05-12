@@ -40,8 +40,8 @@ def cli() -> None:
 @settings(max_examples=10, deadline=None)
 # pyre-ignore
 @given(
-    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
-    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
+    num_columns=st.sampled_from([2**n for n in range(4, 10)]),
+    num_rows=st.sampled_from([2**n for n in range(4, 10)]),
 )
 def bench(
     flush_gpu_cache_size_mb: int,
