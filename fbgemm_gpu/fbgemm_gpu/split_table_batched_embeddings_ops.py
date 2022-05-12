@@ -1253,7 +1253,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
@@ -2171,7 +2171,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
