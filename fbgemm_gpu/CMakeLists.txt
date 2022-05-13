@@ -10,17 +10,13 @@ if(SKBUILD)
   message("The project is built using scikit-build")
 endif()
 
-if(EXISTS "/usr/bin/nvidia-smi")
-  message("NVIDIA GPU detected.")
-  option(USE_CUDA "Use CUDA" ON)
-  option(USE_ROCM "Use ROCm" OFF)
-elseif(EXISTS "/opt/rocm/bin/rocm-smi")
+option(USE_CUDA "Use CUDA" ON)
+option(USE_ROCM "Use ROCm" OFF)
+
+if((EXISTS "/bin/hipcc") AND NOT(EXISTS "/bin/nvcc"))
   message("AMD GPU detected.")
-  option(USE_CUDA "Use CUDA" OFF)
-  option(USE_ROCM "Use ROCm" ON)
-else()
-  message("Unable to detect GPU vendor")
-  message(FATAL_ERROR "")
+  SET(USE_CUDA OFF)
+  SET(USE_ROCM ON)
 endif()
 
 if(FBGEMM_CPU_ONLY)
@@ -28,6 +24,7 @@ if(FBGEMM_CPU_ONLY)
 endif()
 
 message("${message_line}")
+message(STATUS "USE_ROCM ${USE_ROCM}")
 
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(

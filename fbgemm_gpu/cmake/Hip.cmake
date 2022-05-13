@@ -172,5 +172,5 @@ IF(HIP_FOUND)
   set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
 
 ELSE()
-  message(FATAL_ERROR "Not able to find HIP installation.")
+  message("Not able to find HIP installation.")
 ENDIF()
