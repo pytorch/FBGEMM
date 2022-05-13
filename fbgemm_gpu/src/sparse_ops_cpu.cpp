@@ -2369,6 +2369,16 @@ Tensor pack_segments_cpu(
   return res[0];
 }
 
+namespace {
+Tensor index_select_dim0(
+    const Tensor& input,
+    const Tensor& indices,
+    c10::optional<int64_t> /*consecutive_range_start*/,
+    c10::optional<int64_t> /*consecutive_range_length*/) {
+  return at::index_select(input, 0, indices);
+}
+} // namespace
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -2416,6 +2426,23 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
   m.def("pack_segments(Tensor t_in, Tensor lengths, int max_length) -> Tensor");
+  // A specialization of at::index_select for selecting dim 0
+  //
+  // The consecutive_range_start and consecutive_range_length arguments are for
+  // the special case where indices are selected from a consecutive range
+  // [consecutive_range_start, consecutive_range_start +
+  // consecutive_range_length).
+  //
+  // For the consecutive indices range case, we can skip the unique indices
+  // computation step in the backward operation because we can infer them from
+  // the consecutive indices range.  This assumption saves computation as well
+  // as a host-device synchronization that occurs in the unique operation of
+  // Torch.
+  //
+  // If indices are not selected from a consecutive range, we perform the
+  // unique indices computation step in the backward operation.
+  m.def(
+      "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2476,4 +2503,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
+  DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
 }

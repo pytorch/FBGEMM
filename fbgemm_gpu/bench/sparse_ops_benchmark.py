@@ -3,11 +3,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import functools
 import logging
 import random
 
 import click
 import fbgemm_gpu
+import numpy as np
 import torch
 
 logging.basicConfig(level=logging.DEBUG)
@@ -67,6 +69,55 @@ def device(
         + output.numel() * output.element_size()
     )
     logging.info(f"expand_into_jagged_permute {time} sec {num_bytes / time / 1e9} GB/s")
+
+
+@cli.command()
+@click.option("--row-size", default=25600)
+@click.option("--batch-size", default=4096)
+@click.option("--unique-batch-size", default=1024)
+@click.option("--input-precision", type=str, default="fp32")
+def batch_reuse_index_select_device(
+    row_size: int, batch_size: int, unique_batch_size: int, input_precision: str
+) -> None:
+    # A function for generating indices in batch_reuse
+    # pyre-fixme[11]: Annotation `array` is not defined as a type.
+    def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
+        inverse_index = list(range(curr_size))
+        np_arr = np.array(inverse_index)
+        for _ in range(final_size - curr_size):
+            inverse_index.append(np.random.randint(0, curr_size))
+            np_arr = np.array(inverse_index)
+            np.random.shuffle(np_arr)
+        return np_arr
+
+    dtype = torch.float
+    if input_precision == "fp32":
+        dtype = torch.float
+    elif input_precision == "fp16":
+        dtype = torch.half
+    else:
+        raise RuntimeError(f"Does not support data type {input_precision}")
+
+    indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
+
+    input = torch.rand(unique_batch_size, row_size, dtype=dtype, device="cuda")
+    input.requires_grad = True
+    num_bytes = 2 * batch_size * row_size * input.element_size()
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.index_select_dim0, (input, indices, 0, unique_batch_size)
+    )
+    logging.info(
+        f"index_select_dim0 forward: {dtype}, {num_bytes} bytes read/write, {time * 1e3} ms, {num_bytes / time / 1e9} GB/s"
+    )
+
+    grad = torch.rand_like(output, dtype=dtype, device="cuda")
+    num_bytes = (input.numel() + output.numel()) * input.element_size()
+    time, _ = benchmark_torch_function(
+        functools.partial(output.backward, retain_graph=True), (grad,)
+    )
+    logging.info(
+        f"index_select_dim0 backward: {dtype}, {num_bytes} bytes read/write, {time * 1e3} ms, {num_bytes / time / 1e9} GB/s"
+    )
 
 
 if __name__ == "__main__":

@@ -590,4 +590,19 @@ at::Tensor pack_segments_backward_cuda(
     int64_t total_length,
     int64_t max_length);
 
+at::Tensor index_select_with_sorted_indices_cuda(
+    const at::Tensor& input,
+    const at::Tensor& sorted_indices,
+    const at::Tensor& orig_indices,
+    const int consecutive_range_start,
+    const int consecutive_range_length);
+
+at::Tensor index_add_with_unique_indices_cuda(
+    const at::Tensor& grad_output,
+    const at::Tensor& sorted_indices,
+    const at::Tensor& orig_indices,
+    std::vector<int64_t>& input_shape,
+    const int consecutive_range_start,
+    const int consecutive_range_length);
+
 } // namespace fbgemm_gpu
