@@ -1623,12 +1623,12 @@ def nbit_uvm(
     if T_gpu > 0:
         nparams_byte = sum(w.numel() for (w, _) in emb_mixed.split_embedding_weights())
         logging.info(
-            f"{weights_precision} Embedding tables: {E * T + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
+            f"{weights_precision} Embedding tables: {E * T_gpu + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
             f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
         )
         logging.info(
             f"Accessed weights per batch: {B * (T * L + T_uvm * L_uvm)} rows, "
-            f"{B * (T * L * sum(Ds[T_uvm:]) + T_uvm * L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
+            f"{B * (L * sum(Ds[T_uvm:]) + L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
         )
 
     time_per_iter = benchmark_requests(
