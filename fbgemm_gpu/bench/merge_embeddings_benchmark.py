@@ -26,6 +26,11 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
+    )
+
 
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
