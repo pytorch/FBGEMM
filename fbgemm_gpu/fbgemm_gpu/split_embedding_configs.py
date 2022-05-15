@@ -6,7 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import enum
-from typing import Dict, Any
+from typing import Any, Dict
 
 import torch
 

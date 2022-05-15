@@ -16,9 +16,8 @@ from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
-from fbgemm_gpu.split_embedding_configs import SparseType
-from torch import Tensor, nn
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from torch import nn, Tensor
 
 ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without

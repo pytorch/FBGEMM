@@ -19,15 +19,15 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, gpu_available
+    from test_utils import gpu_available, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
 if gpu_available:
     # pyre-ignore[21]
     from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
-from hypothesis import Verbosity, given, settings
+from hypothesis import given, settings, Verbosity
 
 MAX_EXAMPLES = 40
 

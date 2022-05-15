@@ -11,7 +11,7 @@ from typing import Tuple
 import fbgemm_gpu
 import torch
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
-from hypothesis import HealthCheck, given, settings
+from hypothesis import given, HealthCheck, settings
 from torch import nn, Tensor
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.

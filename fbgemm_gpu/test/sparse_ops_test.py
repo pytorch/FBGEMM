@@ -9,12 +9,12 @@ import itertools
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional, Tuple, Type, Union, Callable, Any
+from typing import Any, Callable, List, Optional, Tuple, Type, Union
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import Verbosity, assume, given, settings
+from hypothesis import assume, given, settings, Verbosity
 
 try:
     # pyre-ignore[21]

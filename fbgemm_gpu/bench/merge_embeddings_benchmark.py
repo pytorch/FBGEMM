@@ -9,7 +9,7 @@
 
 import logging
 import signal
-from typing import Tuple, List
+from typing import List, Tuple
 
 import click
 import fbgemm_gpu
@@ -33,12 +33,12 @@ else:
 
 
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    SparseType,
     BoundsCheckMode,
-    IntNBitTableBatchedEmbeddingBagsCodegen,
     EmbeddingLocation,
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+    SparseType,
 )
-from torch.profiler import ProfilerActivity, profile
+from torch.profiler import profile, ProfilerActivity
 
 
 def get_gpu_device(gpu_num) -> torch.device:

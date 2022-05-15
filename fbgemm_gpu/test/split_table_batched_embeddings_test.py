@@ -20,12 +20,12 @@ import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    OptimType,
-    SparseType,
-    RecordCacheMetrics,
     BoundsCheckMode,
-    WeightDecayMode,
+    OptimType,
+    RecordCacheMetrics,
     rounded_row_size_in_bytes,
+    SparseType,
+    WeightDecayMode,
 )
 
 
@@ -42,7 +42,7 @@ else:
         TEST_WITH_ROCM,
     )
 
-from hypothesis import HealthCheck, Verbosity, assume, given, settings
+from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from hypothesis.strategies import composite
 from torch import Tensor
 
