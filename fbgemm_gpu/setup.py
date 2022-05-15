@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 from datetime import date
-from typing import Optional, List
+from typing import List, Optional
 
 import torch
 from skbuild import setup

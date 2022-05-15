@@ -19,13 +19,13 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import (
-    SparseType,
-    QuantizationConfig,
     FP8QuantizationConfig,
+    QuantizationConfig,
+    SparseType,
 )
 from fbgemm_gpu.split_embedding_inference_converter import SplitEmbInferenceConverter
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
-from hypothesis import Verbosity, given, settings
+from hypothesis import given, settings, Verbosity
 from torch import nn
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.

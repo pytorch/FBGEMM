@@ -17,7 +17,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     EmbeddingLocation,
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
-from torch import Tensor, nn
+from torch import nn, Tensor
 
 logging.basicConfig(level=logging.DEBUG)
 

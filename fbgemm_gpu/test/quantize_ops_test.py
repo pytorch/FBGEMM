@@ -5,14 +5,14 @@
 
 import random
 import unittest
-from ctypes import POINTER, c_float, c_int32, cast, pointer
-from typing import Tuple, Dict
+from ctypes import c_float, c_int32, cast, POINTER, pointer
+from typing import Dict, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from hypothesis import HealthCheck, given, assume, settings
+from hypothesis import assume, given, HealthCheck, settings
 from torch import Tensor
 
 
@@ -20,24 +20,24 @@ try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
     from test_utils import (  # pyre-ignore[21]
-        fused_rowwise_8bit_quantize_reference,
-        fused_rowwise_8bit_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
         gpu_available,
-        skipIfRocm,
         gpu_unavailable,
+        skipIfRocm,
     )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     from fbgemm_gpu.test.test_utils import (
-        fused_rowwise_8bit_quantize_reference,
-        fused_rowwise_8bit_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
     )

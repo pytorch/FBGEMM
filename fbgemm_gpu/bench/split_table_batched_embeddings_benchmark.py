@@ -32,12 +32,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     ComputeDevice,
     DenseTableBatchedEmbeddingBagsCodegen,
     EmbeddingLocation,
-    OptimType,
-    SparseType,
-    SplitTableBatchedEmbeddingBagsCodegen,
     IntNBitTableBatchedEmbeddingBagsCodegen,
+    OptimType,
     PoolingMode,
     rounded_row_size_in_bytes,
+    SparseType,
+    SplitTableBatchedEmbeddingBagsCodegen,
 )
 from numpy.random import default_rng
 from torch import Tensor
