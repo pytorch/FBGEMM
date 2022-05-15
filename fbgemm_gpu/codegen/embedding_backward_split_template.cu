@@ -767,9 +767,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     int shared_kb = max_shared_bytes >> 10;
     // V100: 64 KB; A100: 96 KB.
+#ifndef __HIP_PLATFORM_HCC__
     // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
     int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
     TORCH_CHECK(used_shared_kb > 0);
+#else
+    // MI100 has independent shared mem and L1
+    int used_shared_kb = shared_kb;
+#endif
     int used_shared_bytes = used_shared_kb << 10;
 
     Tensor linear_indices, linear_indices_sorted;

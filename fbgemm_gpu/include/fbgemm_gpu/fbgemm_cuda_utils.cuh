@@ -1216,7 +1216,8 @@ DEVICE_INLINE float_16 make_zero_float_16() {
 
 __forceinline__ __device__ __half2
 hfma2(const __half2 a, const __half2 b, const __half2 c) {
-#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+#if (__CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610) || \
+    defined(__HIP_PLATFORM_HCC__)
   return __hfma2(a, b, c);
 #else
   float2 fa, fb, fc;
@@ -1230,7 +1231,8 @@ hfma2(const __half2 a, const __half2 b, const __half2 c) {
 }
 
 __forceinline__ __device__ half hmul(half a, half b) {
-#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+#if (__CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610) || \
+    defined(__HIP_PLATFORM_HCC__)
   return __hmul(a, b);
 #else
   return __float2half(__half2float(a) * __half2float(b));
@@ -2399,5 +2401,15 @@ DEVICE_INLINE float float16_min(float_16 val) {
 
 #undef min
 #undef max
+
+// ROCm does not natively support __any_sync(). Using __ballot()
+// (https://rocmdocs.amd.com/en/latest/Programming_Guides/Kernel_language.html)
+// to implement __any_sync(). Note: the "warp-size" of AMD GPU is 64.
+#ifdef __HIP_PLATFORM_HCC__
+__device__ int __any_sync(uint64_t mask, int predicate) {
+  uint64_t predicate_bit_pattern = __ballot(predicate);
+  return (predicate_bit_pattern & mask) > 0;
+}
+#endif
 
 } // namespace fbgemm_gpu

@@ -26,6 +26,7 @@ try:
         fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
         gpu_available,
+        skipIfRocm,
         gpu_unavailable,
     )
 except Exception:
