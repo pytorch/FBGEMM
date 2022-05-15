@@ -20,7 +20,7 @@ from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch import Tensor, nn
 
-ASSOC = 32
+ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
