@@ -91,6 +91,7 @@ def cli() -> None:
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
@@ -112,6 +113,7 @@ def device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     weighted_num_requires_grad: Optional[int],
+    bounds_check_mode: int,
     flush_gpu_cache_size_mb: int,
     dense: bool,
     output_dtype: SparseType,
@@ -188,6 +190,7 @@ def device(  # noqa C901
             weights_precision=weights_precision,
             stochastic_rounding=stoc,
             output_dtype=output_dtype,
+            bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         )
     emb = emb.to(get_device())
 
@@ -845,8 +848,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--pooling", type=str, default="sum")
-@click.option("--weighted-num-requires-grad", type=int, default=None)
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
 @click.option("--pruning-ratio", type=float, default=None)
 @click.option("--load-factor", default=0.75)
 @click.option("--use-array-for-index-remapping", is_flag=True, default=True)
@@ -876,7 +878,6 @@ def nbit_device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     pooling: str,
-    weighted_num_requires_grad: Optional[int],
     bounds_check_mode: int,
     pruning_ratio: Optional[float],
     load_factor: float,
