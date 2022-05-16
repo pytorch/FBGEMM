@@ -857,9 +857,7 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
         self, precision: str, batch_size: int, k: int, n: int
     ) -> None:
         if precision == "BF16":
-            input_data = torch.tensor(
-                np.random.rand(n, k).astype(np.float32), dtype=torch.float32
-            )
+            input_data = torch.rand((n, k), dtype=torch.float32)
             quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
             dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
             torch.testing.assert_allclose(
