@@ -30,6 +30,12 @@
 #include <hipblas.h>
 #endif
 
+#ifdef __HIP_PLATFORM_HCC__
+#define LDG(ptr) (*(ptr))
+#else
+#define LDG(ptr) (__ldg(ptr))
+#endif
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -1680,7 +1686,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
   int32_t L = indices_end - indices_start;
   at::acc_type<scalar_t, true> sum = 0.0;
   for (int32_t l = 0; l < L; ++l) {
-    auto idx = __ldg(&indices[indices_start + l]);
+    auto idx = LDG(&indices[indices_start + l]);
     sum += weight[n * sum_E + table_offset + idx + 0];
   }
   output[(n * B + b) * T + t] = sum;
@@ -2591,11 +2597,11 @@ __launch_bounds__(kMaxThreads) void index_select_2d_with_sorted_indices_kernel(
          col += blockDim.x * UNROLL_FACTOR) {
 #pragma unroll
       for (int i = 0; i < UNROLL_FACTOR; i++) {
-        output[dst_idx][col + i] = __ldg(&input[src_idx][col + i]);
+        output[dst_idx][col + i] = LDG(&input[src_idx][col + i]);
       }
     }
     for (; col < D; ++col) {
-      output[dst_idx][col] = __ldg(&input[src_idx][col]);
+      output[dst_idx][col] = LDG(&input[src_idx][col]);
     }
   }
 }
@@ -2642,11 +2648,11 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
          col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
 #pragma unroll
       for (int j = 0; j < UNROLL_FACTOR; j++) {
-        sum[i + j] += __ldg(&out_grad[src_idx][col + j]);
+        sum[i + j] += LDG(&out_grad[src_idx][col + j]);
       }
     }
     if (has_remainder) {
-      sum_remainder += __ldg(&out_grad[src_idx][rounded_D + threadIdx.x]);
+      sum_remainder += LDG(&out_grad[src_idx][rounded_D + threadIdx.x]);
     }
   } // for each row
 
