@@ -189,6 +189,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
+                auto total_size = (tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t];
                 size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
                 const index_t* offsets_begin_ptr = offsets_acc + t * B;
 
@@ -207,6 +208,20 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                 {% if weighted %}
                 indice_weights_ptr = indice_weights_acc + *offsets_begin_ptr;
                 {% endif %}
+                auto current_idx_start = indices_acc + *offsets_begin_ptr;
+                // LOG(INFO) << "[xrc] table "<< t << " info: " << index_size << ", " << num_rows;
+                // for (index_t i = 0; i < index_size; ++i) {
+                //     LOG(INFO) << "[xrc] "<< t  << " " << current_idx_start[i] << ", " << indice_weights_ptr[i] << ", " << num_rows;
+                // }
+                // // Try to dereference;
+                // for (int64_t j = 0; j < total_size; ++j) {
+                //     auto test = weights_acc + (weights_offsets_acc[t]+j);
+                //     if (test == nullptr) {
+                //         LOG(INFO) << "is null: " << t << " " << j;
+                //     } else {
+                //         auto deref = *test;
+                //     }
+                // }
                 if (weight_ty == SparseType::FP32) {
                     auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
                         D,
@@ -333,6 +348,7 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         num_rows,
                         /*allow_minus_one=*/true);
                 }
+                // LOG(INFO) << "table " << t << " succeeds";
             }
             return;
         });

@@ -96,6 +96,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
+
+  // LOG(INFO) << "[xrc] index length: " << indices.numel() << " offsets length"
+  //           << offsets[-2] << " " << offsets[-1];
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       dev_weights,
       uvm_weights,
