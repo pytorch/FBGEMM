@@ -39,7 +39,7 @@ enum class BoundsCheckMode : uint8_t {
   IGNORE = 2,
 };
 
-at::ScalarType getScalarType(SparseType dtype) {
+C10_UNUSED C10_ALWAYS_INLINE at::ScalarType getScalarType(SparseType dtype) {
   switch (dtype) {
     case SparseType::FP32:
       return at::kFloat;
@@ -58,7 +58,7 @@ at::ScalarType getScalarType(SparseType dtype) {
   }
 };
 
-SparseType getSparseType(at::ScalarType dtype) {
+C10_UNUSED C10_ALWAYS_INLINE SparseType getSparseType(at::ScalarType dtype) {
   switch (dtype) {
     case at::kFloat:
       return SparseType::FP32;
