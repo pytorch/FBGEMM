@@ -265,7 +265,7 @@ int64_t uvm_get_guard_index(Tensor& t) {
 }
 } // namespace
 
-void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
+void uvm_cuda_mem_advise(Tensor t, int64_t cuda_memory_advise) {
   // Call cudaMemAdvise on vm tensor
   // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
   // namespace) for valid values and interface stub.
@@ -289,7 +289,7 @@ void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise) {
   AT_CUDA_CHECK(cudaMemAdvise(
       ptr,
       size_bytes,
-      static_cast<enum cudaMemoryAdvise>(cudaMemoryAdvise),
+      static_cast<enum cudaMemoryAdvise>(cuda_memory_advise),
       hint_device));
   return;
 }
