@@ -19,6 +19,7 @@
 #include "hip/hip_runtime.h"
 #include "rocm_smi/rocm_smi.h"
 
+#include <inttypes.h>
 #include <algorithm>
 
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
@@ -64,7 +65,12 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
     // to reconstruct it.
     char pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
     sprintf(
-        pci_bus_id_str, "%04X:%02X:%02X.%0X", domain, bus, device, function);
+        pci_bus_id_str,
+        "%04" PRIu64 ":%02" PRIu64 ":%02" PRIu64 ".%0" PRIu64,
+        domain,
+        bus,
+        device,
+        function);
 
     std::array<char, RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
     std::copy(
