@@ -2251,8 +2251,8 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        N=st.integers(0, 32),
-        shape=st.lists(st.integers(0, 32), min_size=0, max_size=2),
+        N=st.integers(1, 32),
+        shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
         dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         consecutive_indices=st.booleans(),
@@ -2292,13 +2292,11 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
-        torch.autograd.gradcheck(
-            torch.ops.fbgemm.index_select_dim0,
-            (
-                input.clone().detach().double().requires_grad_(True),
-                indices,
-            ),
-        )
+        gradcheck_args = [input.clone().detach().double().requires_grad_(True), indices]
+        for k in kwargs:
+            gradcheck_args.append(kwargs[k])
+
+        torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
 
 
 if __name__ == "__main__":
