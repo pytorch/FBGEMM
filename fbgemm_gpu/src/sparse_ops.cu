@@ -2675,21 +2675,23 @@ __global__
 __launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
     index_t* input,
     int64_t* output,
-    const int size) {
+    index_t start_input,
+    const int input_size) {
   const int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-  if (i >= size) {
+  if (i >= input_size) {
     return;
   }
   // Atomic could become a bottleneck if frequencies are very skew
-  atomicAdd(&output[input[i]], 1);
+  atomicAdd(&output[input[i] - start_input], 1);
 }
 
 void compute_frequency_sequence(
     const Tensor& input,
     Tensor& output,
-    const int size) {
-  output = at::zeros({size}, input.options().dtype(at::kLong));
+    const int start_input,
+    const int output_size) {
+  output = at::zeros({output_size}, input.options().dtype(at::kLong));
 
   AT_DISPATCH_INDEX_TYPES(
       input.scalar_type(), "compute_frequency_sequence_kernel_1", [&] {
@@ -2698,7 +2700,10 @@ void compute_frequency_sequence(
                kWarpSize,
                0,
                at::cuda::getCurrentCUDAStream()>>>(
-                input.data_ptr<index_t>(), output.data_ptr<int64_t>(), size);
+                input.data_ptr<index_t>(),
+                output.data_ptr<int64_t>(),
+                start_input,
+                input.numel());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 }
@@ -2815,7 +2820,10 @@ Tensor index_add_with_unique_indices_cuda(
                 // consecutive_range_length
                 num_unique_indices = consecutive_range_length;
                 compute_frequency_sequence(
-                    sorted_indices, offsets, num_unique_indices);
+                    sorted_indices,
+                    offsets,
+                    consecutive_range_start,
+                    num_unique_indices);
                 offsets = offsets.cumsum(0);
               } else {
                 Tensor unique_count;
