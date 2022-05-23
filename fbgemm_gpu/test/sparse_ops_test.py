@@ -169,7 +169,7 @@ class SparseOpsTest(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         T=st.integers(min_value=10, max_value=20),
-        W=st.integers(min_value=8, max_value=128),
+        W=st.integers(min_value=8, max_value=64),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_expand_into_jagged_permute(
@@ -177,7 +177,7 @@ class SparseOpsTest(unittest.TestCase):
         T: int,
         W: int,
     ) -> None:
-        length_per_w = [random.randint(10000, 20000) for i in range(W)]
+        length_per_w = [random.randint(5000, 10000) for i in range(W)]
         length_1d = list(
             itertools.chain.from_iterable(itertools.repeat(x, T) for x in length_per_w)
         )
