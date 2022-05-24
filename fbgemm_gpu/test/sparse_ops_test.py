@@ -2092,43 +2092,6 @@ class SparseOpsTest(unittest.TestCase):
             ),
         )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(
-        batch_size=st.just(2),
-        m=st.just(3),
-        k=st.just(4),
-        n=st.just(5),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_permute102_baddbmm_permute102(
-        self,
-        batch_size: int,
-        m: int,
-        k: int,
-        n: int,
-        use_cpu: bool,
-    ) -> None:
-        # baddbmm doesn't support half
-        dtype = torch.float if use_cpu else torch.half
-        device = torch.device("cpu" if use_cpu else "cuda")
-
-        A = torch.rand((m, batch_size, k), dtype=dtype, device=device)
-        B = torch.rand((batch_size, k, n), dtype=dtype, device=device)
-        # bias_permute102 = torch.rand(batch_size, 1, n).half().cuda()
-        # bias = bias_permute102.permute(1, 0, 2)
-
-        bias = torch.rand((batch_size, n), dtype=dtype, device=device)
-        bias_permute102 = bias.unsqueeze(1)
-        # bias = bias_short.unsqueeze(0)
-
-        A_permute102 = A.permute(1, 0, 2)
-        C_permute102 = torch.baddbmm(bias_permute102, A_permute102, B)
-        C_ref = C_permute102.permute(1, 0, 2)  # (m, batch_size, n)
-
-        C = torch.ops.fbgemm.permute102_baddbmm_permute102(bias, A, B)
-        torch.testing.assert_close(C.cpu(), C_ref.cpu())
-
     def _pack_segments_ref(
         self,
         lengths: torch.Tensor,
