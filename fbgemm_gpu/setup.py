@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 from datetime import date
-from typing import Optional, List
+from typing import List, Optional
 
 import torch
 from skbuild import setup
@@ -142,7 +142,7 @@ def main(argv: List[str]) -> None:
             print(
                 "CUDA CUB directory environment variable not set.  Using default CUB location."
             )
-            if not torch.version.cuda is None:
+            if torch.version.cuda is not None:
                 cuda_version = torch.version.cuda.split(".")
                 cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
             else:

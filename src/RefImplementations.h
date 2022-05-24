@@ -259,6 +259,28 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     bool scale_bias_last = true);
 
 template <
+    typename IndexType = std::int64_t,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+bool EmbeddingSpMDMFP8_ref(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights,
+    bool normalize_by_lengths,
+    OutType* out,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    int64_t output_stride = -1,
+    int64_t input_stride = -1,
+    int exponent_bits = 4,
+    int exponent_bias = 7);
+
+template <
     typename InType = std::uint8_t,
     typename IndexType = std::int64_t,
     typename OffsetType = std::int32_t>

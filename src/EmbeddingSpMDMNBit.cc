@@ -601,6 +601,9 @@ GenEmbeddingSpMDMNBitLookup<
             }
             a->jne(ValidIndexLabel);
             a->add(indices, static_cast<asmjit::Imm>(sizeof(indxType)));
+            if (has_weight) {
+              a->add(weights, static_cast<asmjit::Imm>(sizeof(float)));
+            }
             a->jmp(LoopDataIndexBegin);
             a->bind(ValidIndexLabel);
           }

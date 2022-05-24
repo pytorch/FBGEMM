@@ -9,12 +9,12 @@ import itertools
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional, Tuple, Type, Union, Callable, Any
+from typing import Any, Callable, List, Optional, Tuple, Type, Union
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import Verbosity, assume, given, settings
+from hypothesis import assume, given, settings, Verbosity
 
 try:
     # pyre-ignore[21]
@@ -77,6 +77,22 @@ def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int)
         values=values,
         size=dims,
     )
+
+
+def get_n_rand_num_summing_to_k(n: int, k: int) -> np.ndarray:
+    """Get a list of `n` integers which collectively sum to `k`, drawn
+    uniformly from the set of all such lists.
+
+    Args:
+        n - The number of integers in the result list
+        k - The value they should sum to
+    """
+    # There are a lot of ways to do this wrong, probably including
+    # the ones you've just thought of. I think the following does
+    # it correctly, though.
+    if n == 0:
+        return np.array([])
+    return np.random.multinomial(k, np.ones(n) / n, size=1)[0]
 
 
 class SparseOpsTest(unittest.TestCase):
@@ -153,7 +169,7 @@ class SparseOpsTest(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         T=st.integers(min_value=10, max_value=20),
-        W=st.integers(min_value=8, max_value=128),
+        W=st.integers(min_value=8, max_value=64),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_expand_into_jagged_permute(
@@ -161,7 +177,7 @@ class SparseOpsTest(unittest.TestCase):
         T: int,
         W: int,
     ) -> None:
-        length_per_w = [random.randint(10000, 20000) for i in range(W)]
+        length_per_w = [random.randint(5000, 10000) for i in range(W)]
         length_1d = list(
             itertools.chain.from_iterable(itertools.repeat(x, T) for x in length_per_w)
         )
@@ -2112,6 +2128,175 @@ class SparseOpsTest(unittest.TestCase):
 
         C = torch.ops.fbgemm.permute102_baddbmm_permute102(bias, A, B)
         torch.testing.assert_close(C.cpu(), C_ref.cpu())
+
+    def _pack_segments_ref(
+        self,
+        lengths: torch.Tensor,
+        tensor: torch.Tensor,
+        max_length: Optional[int] = None,
+    ) -> np.ndarray:
+        lengths = lengths.numpy()
+        sections = np.split(tensor, np.cumsum(lengths))
+        max_length = np.max(lengths, initial=0) if max_length is None else max_length
+        padded_arrs = []
+        for arr in sections[:-1]:  # Last section is always a blank
+            arr = arr[: min(max_length, len(arr)), ...]
+            padded_arr = np.pad(
+                arr,
+                [(0, max(max_length - arr.shape[0], 0))]
+                + ([(0, 0)] * (len(arr.shape) - 1)),
+                constant_values=0,
+            )
+            padded_arrs.append(padded_arr)
+
+        if len(padded_arrs) == 0:
+            padded_arrs = torch.empty((0, 0) + tuple(tensor.shape[1:]))
+        else:
+            padded_arrs = torch.Tensor(np.stack(padded_arrs))
+
+        return padded_arrs
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        n=st.integers(2, 10),
+        k=st.integers(2, 10),
+        batch_size=st.integers(1, 30),
+        divisions=st.integers(1, 10),
+    )
+    @settings(deadline=None)
+    def test_pack_segments(
+        self,
+        n: int,
+        k: int,
+        batch_size: int,
+        divisions: int,
+    ) -> None:
+        input_raw = np.random.rand(batch_size, n, k)
+        input_data = torch.tensor(input_raw, dtype=torch.float32, requires_grad=True)
+        lengths = torch.tensor(
+            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+        )
+        max_length = lengths.max().item()
+
+        packed_tensor = torch.ops.fbgemm.pack_segments(
+            t_in=input_data, lengths=lengths, max_length=max_length
+        )
+
+        packed_ref = self._pack_segments_ref(lengths, input_raw)
+
+        self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+        grad_cpu = torch.tensor(
+            np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
+                np.float32
+            )
+        )
+        # CPU backward
+        packed_tensor.backward(grad_cpu)
+
+        if gpu_available:
+            packed_cuda = torch.ops.fbgemm.pack_segments(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+
+            # GPU backward
+            packed_cuda.backward(grad_cpu.cuda())
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        n=st.integers(2, 10),
+        k=st.integers(2, 10),
+        batch_size=st.integers(1, 30),
+        divisions=st.integers(1, 10),
+        max_length=st.integers(1, 20),
+    )
+    @settings(deadline=None)
+    def test_pack_segments_smaller_max_len(
+        self,
+        n: int,
+        k: int,
+        batch_size: int,
+        divisions: int,
+        max_length: int,
+    ) -> None:
+        input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=torch.float32)
+        lengths = torch.tensor(
+            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+        )
+
+        packed_tensor = torch.ops.fbgemm.pack_segments(
+            t_in=input_data,
+            lengths=lengths,
+            max_length=max_length,
+        )
+        self.assertEqual(packed_tensor.shape, (divisions, max_length, n, k))
+
+        packed_ref = self._pack_segments_ref(
+            lengths,
+            input_data,
+            max_length=max_length,
+        )
+        self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+        if gpu_available:
+            packed_cuda = torch.ops.fbgemm.pack_segments(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+
+    # pyre-ignore [56]
+    @given(
+        N=st.integers(1, 32),
+        shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        consecutive_indices=st.booleans(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_index_select_dim0(
+        self,
+        N: int,
+        shape: List[int],
+        dtype: torch.dtype,
+        use_cpu: bool,
+        consecutive_indices: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        U = random.randint(0, N + 1)
+        if consecutive_indices:
+            start = np.random.randint(0, U)
+            length = np.random.randint(1, U - start + 1)
+            indices = list(range(start, start + length))
+            np_arr = np.array(indices)
+            for _ in range(N - U):
+                indices.append(np.random.randint(start, start + length))
+                np_arr = np.array(indices)
+                np.random.shuffle(np_arr)
+            indices = torch.from_numpy(np_arr).to(torch.int).to(device)
+            kwargs = {
+                "consecutive_range_start": start,
+                "consecutive_range_length": length,
+            }
+        else:
+            indices = torch.randint(U, (N,), device=device)
+            kwargs = {}
+        input = torch.rand((U,) + tuple(shape), dtype=dtype, device=device)
+
+        output_ref = torch.ops.fbgemm.index_select_dim0(input, indices, **kwargs)
+        output = torch.index_select(input, 0, indices)
+
+        torch.testing.assert_close(output, output_ref)
+
+        gradcheck_args = [input.clone().detach().double().requires_grad_(True), indices]
+        for k in kwargs:
+            gradcheck_args.append(kwargs[k])
+
+        torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
 
 
 if __name__ == "__main__":

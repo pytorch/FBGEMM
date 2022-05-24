@@ -174,8 +174,8 @@ void lxu_cache_flush_cuda(
   dim3 blocks(div_round_up(S, kMaxThreads / tx));
 
   DISPATCH_EMB_CACHE_TYPES(
-      uvm_weights.type(),
-      lxu_cache_weights.type(),
+      uvm_weights.scalar_type(),
+      lxu_cache_weights.scalar_type(),
       "lxu_cache_flush_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;
@@ -717,8 +717,8 @@ void lru_cache_insert_cuda(
   int32_t N = cache_set_sorted_unique_indices.numel();
 
   DISPATCH_EMB_CACHE_TYPES(
-      weights.type(),
-      lxu_cache_weights.type(),
+      weights.scalar_type(),
+      lxu_cache_weights.scalar_type(),
       "lru_cache_insert_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;
@@ -1452,8 +1452,8 @@ void lfu_cache_insert_cuda(
   int32_t N = cache_set_sorted_unique_indices.numel();
 
   DISPATCH_EMB_CACHE_TYPES(
-      weights.type(),
-      lxu_cache_weights.type(),
+      weights.scalar_type(),
+      lxu_cache_weights.scalar_type(),
       "lfu_cache_insert_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;

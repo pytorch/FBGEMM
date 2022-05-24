@@ -158,16 +158,50 @@ permute_1D_sparse_data_cpu(
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _half_to_fused8bitrowwise_gpu(const at::Tensor& input);
+at::Tensor _float_or_half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
+at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t output_dtype);
 at::Tensor float_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
+at::Tensor float_or_half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
+at::Tensor fused8bitrowwise_to_float_or_half_cpu(
+    const at::Tensor& input,
+    const int64_t output_dtype);
 at::Tensor _float_to_bfloat16_gpu(const at::Tensor&);
 at::Tensor _bfloat16_to_float_gpu(const at::Tensor&);
 at::Tensor _float_to_bfloat16_cpu(const at::Tensor&);
 at::Tensor _bfloat16_to_float_cpu(const at::Tensor&);
+
+at::Tensor _float_to_hfp8_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t exponent_bias,
+    const double max_pos);
+
+at::Tensor _hfp8_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t exponent_bias);
+
+at::Tensor _float_to_msfp_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos);
+
+at::Tensor _msfp_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias);
 
 at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
@@ -179,12 +213,19 @@ at::Tensor _float_to_fusednbitrowwise_gpu(
 at::Tensor _half_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
+at::Tensor _float_or_half_to_fusednbitrowwise_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
 at::Tensor _fusednbitrowwise_to_float_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
 at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate);
+at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate,
+    const int64_t output_dtype);
 at::Tensor& _fused8bitrowwise_to_float_cpu_out(
     at::Tensor& output,
     const at::Tensor& input);
@@ -197,12 +238,19 @@ at::Tensor float_to_fusednbitrowwise_cpu(
 at::Tensor half_to_fusednbitrowwise_cpu(
     const at::Tensor& input,
     const int64_t bit_rate);
+at::Tensor float_or_half_to_fusednbitrowwise_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate);
 at::Tensor fusednbitrowwise_to_float_cpu(
     const at::Tensor& input,
     const int64_t bit_rate);
 at::Tensor fusednbitrowwise_to_half_cpu(
     const at::Tensor& input,
     const int64_t bit_rate);
+at::Tensor fusednbitrowwise_to_float_or_half_cpu(
+    const at::Tensor& input,
+    const int64_t bit_rate,
+    const int64_t output_dtype);
 
 at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
@@ -521,11 +569,40 @@ std::tuple<at::Tensor, at::Tensor> permute_sequence_embeddings_cuda(
     const at::Tensor& lengths,
     const at::Tensor& embeddings);
 
-std::tuple<at::Tensor, c10::optional<at::Tensor>> pack_segments_cpu(
+at::Tensor pack_segments_cpu(
     const at::Tensor& t_in,
     const at::Tensor& lengths,
-    const int64_t max_length,
-    const bool pad_minf,
-    const bool return_presence_mask);
+    const int64_t max_length);
+
+at::Tensor pack_segments_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length);
+
+at::Tensor pack_segments_forward_cuda(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    const int64_t max_length);
+
+at::Tensor pack_segments_backward_cuda(
+    const at::Tensor& data,
+    const at::Tensor& lengths,
+    int64_t total_length,
+    int64_t max_length);
+
+at::Tensor index_select_with_sorted_indices_cuda(
+    const at::Tensor& input,
+    const at::Tensor& sorted_indices,
+    const at::Tensor& orig_indices,
+    const int consecutive_range_start,
+    const int consecutive_range_length);
+
+at::Tensor index_add_with_unique_indices_cuda(
+    const at::Tensor& grad_output,
+    const at::Tensor& sorted_indices,
+    const at::Tensor& orig_indices,
+    std::vector<int64_t>& input_shape,
+    const int consecutive_range_start,
+    const int consecutive_range_length);
 
 } // namespace fbgemm_gpu

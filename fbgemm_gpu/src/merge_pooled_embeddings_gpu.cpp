@@ -16,9 +16,10 @@
 #include <torch/library.h>
 
 #ifdef __HIP_PLATFORM_HCC__
-#include "rocm_smi/rocm_smi.h"
 #include "hip/hip_runtime.h"
+#include "rocm_smi/rocm_smi.h"
 
+#include <inttypes.h>
 #include <algorithm>
 
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
@@ -26,9 +27,9 @@
 
 using Tensor = at::Tensor;
 
-#define RSMI_CHECK(fn)                  \
-  do {                                  \
-    rsmi_status_t ret = (fn);            \
+#define RSMI_CHECK(fn)                         \
+  do {                                         \
+    rsmi_status_t ret = (fn);                  \
     TORCH_CHECK((ret) == RSMI_STATUS_SUCCESS); \
   } while (0)
 
@@ -60,9 +61,16 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
     bus = (pci_info >> 8) & 0xff;
     device = (pci_info >> 3) & 0x1f;
     function = pci_info & 0x7;
-    // Different form CUDA, we do not get the PCI BUS ID as a char* and we need to reconstruct it.
+    // Different form CUDA, we do not get the PCI BUS ID as a char* and we need
+    // to reconstruct it.
     char pci_bus_id_str[RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
-    sprintf(pci_bus_id_str, "%04X:%02X:%02X.%0X", domain, bus, device, function);
+    sprintf(
+        pci_bus_id_str,
+        "%04" PRIu64 ":%02" PRIu64 ":%02" PRIu64 ".%0" PRIu64,
+        domain,
+        bus,
+        device,
+        function);
 
     std::array<char, RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE> pci_bus_id;
     std::copy(
@@ -83,12 +91,13 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
   std::vector<Links> links(world_size * world_size);
   for (const auto i : c10::irange(world_size)) {
     auto src_rsmi_device = rocm_device_to_rsmi_device.find(i);
-    if (src_rsmi_device != rocm_device_to_rsmi_device.end()){
+    if (src_rsmi_device != rocm_device_to_rsmi_device.end()) {
       for (const auto j : c10::irange(world_size)) {
         auto dst_rsmi_device = rocm_device_to_rsmi_device.find(j);
-        if (dst_rsmi_device != rocm_device_to_rsmi_device.end()){
+        if (dst_rsmi_device != rocm_device_to_rsmi_device.end()) {
           bool is_active;
-          RSMI_CHECK(rsmi_is_P2P_accessible(src_rsmi_device->second, dst_rsmi_device->second, &is_active));
+          RSMI_CHECK(rsmi_is_P2P_accessible(
+              src_rsmi_device->second, dst_rsmi_device->second, &is_active));
           if (is_active) {
             links[i * world_size + j] += 1;
           }
@@ -101,7 +110,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 }
 } // namespace
 
-#else  // CUDA
+#else // CUDA
 #include <nvml.h>
 
 #include <algorithm>

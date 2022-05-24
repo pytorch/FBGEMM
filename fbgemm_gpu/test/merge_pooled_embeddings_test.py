@@ -11,7 +11,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from hypothesis import Verbosity, given, settings
+from hypothesis import given, settings, Verbosity
 
 
 try:
