@@ -95,9 +95,9 @@ void split_embedding_backward_exact_cpu_kernel(
         table_to_feature_offset + t,
         hash_size);
   }
-  // sort based csr2csc handles segment_ids differently
-  bool is_csr2csc_sort = batched_cscs[0].weights == nullptr;
 
+  // sort based csr2csc handles segment_ids differently
+  bool is_csr2csc_sort = true;
   for (int t = 0; t < num_tables; ++t) {
     int feature_begin = table_to_feature_offset[t];
 

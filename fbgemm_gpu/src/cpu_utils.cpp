@@ -173,4 +173,19 @@ template std::pair<int64_t*, int*> radix_sort_parallel(
     int64_t elements_count,
     int64_t max_value);
 
+template std::pair<int*, std::pair<int, double>*> radix_sort_parallel(
+    int* inp_key_buf,
+    std::pair<int, double>* inp_value_buf,
+    int* tmp_key_buf,
+    std::pair<int, double>* tmp_value_buf,
+    int64_t elements_count,
+    int64_t max_value);
+
+template std::pair<int*, std::pair<int, float>*> radix_sort_parallel(
+    int* inp_key_buf,
+    std::pair<int, float>* inp_value_buf,
+    int* tmp_key_buf,
+    std::pair<int, float>* tmp_value_buf,
+    int64_t elements_count,
+    int64_t max_value);
 } // namespace fbgemm_gpu
