@@ -33,21 +33,7 @@ def cli() -> None:
     pass
 
 
-<<<<<<< HEAD
-@cli.command()
-@click.option("--flush-gpu-cache-size-mb", default=0)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=2)
-@settings(max_examples=10, deadline=None)
-# pyre-ignore
-@given(
-    num_columns=st.sampled_from([2**n for n in range(4, 10)]),
-    num_rows=st.sampled_from([2**n for n in range(4, 10)]),
-)
-def bench(
-=======
 def bench_impl(
->>>>>>> 33c5e06... update
     flush_gpu_cache_size_mb: int,
     iters: int,
     num_columns: int,
