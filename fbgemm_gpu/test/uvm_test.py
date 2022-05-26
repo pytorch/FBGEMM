@@ -19,13 +19,16 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
 else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
 if gpu_available:
-    # pyre-ignore[21]
-    from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
+    if torch.version.hip:
+        # pyre-ignore[21]
+        from fbgemm_gpu.uvm import cudaMemAdvise, hipMemoryAdvise, cudaMemPrefetchAsync
+    else:
+        from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
 from hypothesis import given, settings, Verbosity
 
@@ -78,8 +81,12 @@ class UvmTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_enum(self) -> None:
         # pyre-ignore[16]
-        assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
+        if torch.version.hip:
+            assert hipMemoryAdvise.hipMemAdviseSetAccessedBy.value == 5
+        else:
+            assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -123,6 +130,7 @@ class UvmTest(unittest.TestCase):
 
         torch.cuda.synchronize(torch.device("cuda:0"))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable or torch.cuda.device_count() < 2)
     @given(
         sizes=st.lists(
@@ -154,6 +162,7 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(second_t)
         assert second_t.device == device_prototype.device
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -183,6 +192,7 @@ class UvmTest(unittest.TestCase):
             assert torch.ops.fbgemm.is_uvm_tensor(uvm_slice)
             assert torch.ops.fbgemm.uvm_storage(cpu_slice)
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
