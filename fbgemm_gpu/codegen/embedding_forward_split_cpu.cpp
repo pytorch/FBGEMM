@@ -318,11 +318,12 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
 
 namespace internal {
 
-template <typename scalar_t>
-void batched_csr2csc(
+namespace {
+
+template <typename scalar_t, bool IS_VALUE_PAIR>
+void batched_csr2csc_template_(
     BatchedHyperCompressedSparseColumn& batched_csc,
     int B,
-    // TODO: use accessor for the following 3 parameters
     const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
     const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
     const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
@@ -343,8 +344,7 @@ void batched_csr2csc(
   batched_csc.row_indices =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
   bool has_weights = batched_csr_weights.data() != nullptr;
-  if (has_weights ||
-      static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
+  if (IS_VALUE_PAIR) {
     batched_csc.weights = static_cast<float*>(
         fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
@@ -357,18 +357,19 @@ void batched_csr2csc(
       batched_csr_offsets[table_to_feature_offset[t] * B];
   int num_non_empty_segments = 0;
 
+  using pair_t = std::pair<int, scalar_t>;
+  using value_t = typename std::conditional<IS_VALUE_PAIR, pair_t, int>::type;
+
   batched_csc.column_segment_ids =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
   int* tmpBufKeys =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-  std::pair<int, scalar_t>* tmpBufValues =
-      static_cast<std::pair<int, scalar_t>*>(fbgemm::fbgemmAlignedAlloc(
-          64, NS * sizeof(std::pair<int, scalar_t>)));
+  value_t* tmpBufValues = static_cast<value_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t)));
   int* tmpBuf1Keys =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
-  std::pair<int, scalar_t>* tmpBuf1Values =
-      static_cast<std::pair<int, scalar_t>*>(fbgemm::fbgemmAlignedAlloc(
-          64, NS * sizeof(std::pair<int, scalar_t>)));
+  value_t* tmpBuf1Values = static_cast<value_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t)));
 
   const auto FBo = batched_csr_offsets[table_to_feature_offset[t] * B];
   for (int feature = table_to_feature_offset[t];
@@ -390,15 +391,20 @@ void batched_csr2csc(
 
       for (int64_t p = pool_begin; p < pool_end; ++p) {
         tmpBufKeys[p - FBo] = batched_csr_indices[p];
-        tmpBufValues[p - FBo] = std::make_pair(
-            FBs + b,
-            scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
+
+        if (IS_VALUE_PAIR) {
+          reinterpret_cast<pair_t*>(tmpBufValues)[p - FBo] = std::make_pair(
+              FBs + b,
+              scale_factor * (has_weights ? batched_csr_weights[p] : 1.0f));
+        } else {
+          reinterpret_cast<int*>(tmpBufValues)[p - FBo] = FBs + b;
+        }
       }
     }
   }
 
   int* sorted_col_row_index_keys = nullptr;
-  std::pair<int, scalar_t>* sorted_col_row_index_values = nullptr;
+  value_t* sorted_col_row_index_values = nullptr;
 
   std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
       fbgemm_gpu::radix_sort_parallel(
@@ -427,8 +433,9 @@ void batched_csr2csc(
       }
     }
     num_uniq[0][0] += 1;
-    for (int i = 1; i < max_thds; i++)
+    for (int i = 1; i < max_thds; i++) {
       num_uniq[i][0] += num_uniq[i - 1][0];
+    }
     U = num_uniq[max_thds - 1][0];
   }
 
@@ -437,12 +444,20 @@ void batched_csr2csc(
   batched_csc.column_segment_indices =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(int)));
   batched_csc.column_segment_ptr[0] = 0;
-  batched_csc.row_indices[0] = sorted_col_row_index_values[0].first % B;
-  if (batched_csc.weights) {
-    batched_csc.weights[0] = sorted_col_row_index_values[0].second;
+  const pair_t* sorted_col_row_index_values_pair =
+      reinterpret_cast<const pair_t*>(sorted_col_row_index_values);
+  const int* sorted_col_row_index_values_int =
+      reinterpret_cast<const int*>(sorted_col_row_index_values);
+  if (IS_VALUE_PAIR) {
+    batched_csc.row_indices[0] = sorted_col_row_index_values_pair[0].first % B;
+    batched_csc.weights[0] = sorted_col_row_index_values_pair[0].second;
+    batched_csc.column_segment_ids[0] =
+        sorted_col_row_index_values_pair[0].first / B;
+  } else {
+    batched_csc.row_indices[0] = sorted_col_row_index_values_int[0] % B;
+    batched_csc.column_segment_ids[0] = sorted_col_row_index_values_int[0] / B;
   }
   batched_csc.column_segment_indices[0] = sorted_col_row_index_keys[0];
-  batched_csc.column_segment_ids[0] = sorted_col_row_index_values[0].first / B;
 
 #pragma omp parallel
   {
@@ -455,22 +470,34 @@ void batched_csr2csc(
         (tid == 0 ? batched_csc.column_segment_ptr + 1
                   : batched_csc.column_segment_ptr + num_uniq[tid - 1][0]);
 
+    if (!IS_VALUE_PAIR && !is_shared_table) {
+      // For non shared table, no need for computing modulo.
+      // As an optimization, pointer swap instead of copying.
+#pragma omp master
+      std::swap(
+          batched_csc.row_indices,
+          *reinterpret_cast<int**>(
+              sorted_col_row_index_values == tmpBufValues ? &tmpBufValues
+                                                          : &tmpBuf1Values));
+    } else {
 #ifdef FBCODE_CAFFE2
-    libdivide::divider<int> divisor(B);
+      libdivide::divider<int> divisor(B);
 #endif
 
 #pragma omp for schedule(static)
-    for (int i = 1; i < NS; ++i) {
-      int v = sorted_col_row_index_values[i].first;
+      for (int i = 1; i < NS; ++i) {
+        int v = IS_VALUE_PAIR ? sorted_col_row_index_values_pair[i].first
+                              : sorted_col_row_index_values_int[i];
 #ifdef FBCODE_CAFFE2
-      int q = v / divisor;
+        int q = v / divisor;
 #else
-      int q = v / B;
+        int q = v / B;
 #endif
-      batched_csc.column_segment_ids[i] = q;
-      batched_csc.row_indices[i] = v - q * B;
-      if (batched_csc.weights) {
-        batched_csc.weights[i] = sorted_col_row_index_values[i].second;
+        batched_csc.column_segment_ids[i] = q;
+        batched_csc.row_indices[i] = v - q * B;
+        if (IS_VALUE_PAIR) {
+          batched_csc.weights[i] = sorted_col_row_index_values_pair[i].second;
+        }
       }
     }
 
@@ -501,6 +528,68 @@ void batched_csr2csc(
   fbgemm::fbgemmAlignedFree(tmpBuf1Values);
 
   assert(column_ptr_curr == nnz);
+}
+
+#define INSTANTIATE_BATCHED_CSR2CSC(SCALAR_T)                     \
+  template void batched_csr2csc_template_<SCALAR_T, true>(        \
+      BatchedHyperCompressedSparseColumn & batched_csc,           \
+      int B,                                                      \
+      const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,  \
+      const at::TensorAccessor<int64_t, 1>& batched_csr_indices,  \
+      const at::TensorAccessor<SCALAR_T, 1>& batched_csr_weights, \
+      int64_t pooling_mode,                                       \
+      const int* table_to_feature_offset,                         \
+      int64_t num_embeddings);                                    \
+                                                                  \
+  template void batched_csr2csc_template_<SCALAR_T, false>(       \
+      BatchedHyperCompressedSparseColumn & batched_csc,           \
+      int B,                                                      \
+      const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,  \
+      const at::TensorAccessor<int64_t, 1>& batched_csr_indices,  \
+      const at::TensorAccessor<SCALAR_T, 1>& batched_csr_weights, \
+      int64_t pooling_mode,                                       \
+      const int* table_to_feature_offset,                         \
+      int64_t num_embeddings);
+
+INSTANTIATE_BATCHED_CSR2CSC(float)
+INSTANTIATE_BATCHED_CSR2CSC(double)
+#undef INSTANTIATE_BATCHED_CSR2CSC
+
+} // namespace
+
+template <typename scalar_t>
+void batched_csr2csc(
+    BatchedHyperCompressedSparseColumn& batched_csc,
+    int B,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
+    const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
+    int64_t pooling_mode,
+    const int* table_to_feature_offset,
+    int64_t num_embeddings) {
+  bool has_weights = batched_csr_weights.data() != nullptr;
+  if (has_weights ||
+      static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
+    batched_csr2csc_template_<scalar_t, /*IS_VALUE_PAIR=*/true>(
+        batched_csc,
+        B,
+        batched_csr_offsets,
+        batched_csr_indices,
+        batched_csr_weights,
+        pooling_mode,
+        table_to_feature_offset,
+        num_embeddings);
+  } else {
+    batched_csr2csc_template_<scalar_t, /*IS_VALUE_PAIR=*/false>(
+        batched_csc,
+        B,
+        batched_csr_offsets,
+        batched_csr_indices,
+        batched_csr_weights,
+        pooling_mode,
+        table_to_feature_offset,
+        num_embeddings);
+  }
 }
 
 template void batched_csr2csc<float>(
