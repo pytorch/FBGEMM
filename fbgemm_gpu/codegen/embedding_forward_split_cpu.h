@@ -32,26 +32,21 @@ at::Tensor split_embedding_codegen_grad_indice_weights_cpu(
     at::Tensor feature_requires_grad);
 
 namespace internal {
-// A batch of compressed sparse row but each sparse matrix is hyper sparse
+// A compressed sparse column but each sparse matrix is hyper sparse
 // meaning there can be many columns without any non-zeros.
-struct BatchedHyperCompressedSparseColumn {
-  int num_tables; // # of matrices (or tables)
-  // pointers to the beginning of each table in column_ptr (length T + 1)
-  int* table_ptr = nullptr;
+struct HyperCompressedSparseColumn {
+  int num_non_zero_columns;
   // pointers to the beginning of each column segment in row_indices
-  // (length table_ptr[T] + 1)
+  // (length num_non_zero_columns + 1)
   // For a shared table, a column can have multiple segments, each for a
   // feature sharing the table. In this case, the segments will have the
   // same column_segment_indices but different column_segment_ids.
   int* column_segment_ptr = nullptr;
-  int* column_segment_indices = nullptr; // length table_ptr[T]
-  int* column_segment_ids = nullptr; // length table_ptr[T]
-  int* row_indices = nullptr; // length column_ptr[table_ptr[T]]
-  float* weights = nullptr; // length column_ptr[table_ptr[T]]
-  ~BatchedHyperCompressedSparseColumn() {
-    if (table_ptr) {
-      fbgemm::fbgemmAlignedFree(table_ptr);
-    }
+  int* column_segment_indices = nullptr; // length num_non_zero_columns
+  int* column_segment_ids = nullptr; // length num_non_zero_columns
+  int* row_indices = nullptr; // length column_ptr[num_non_zero_columns]
+  float* weights = nullptr; // length column_ptr[num_non_zero_columns]
+  ~HyperCompressedSparseColumn() {
     if (column_segment_ptr) {
       fbgemm::fbgemmAlignedFree(column_segment_ptr);
       fbgemm::fbgemmAlignedFree(column_segment_indices);
@@ -65,12 +60,12 @@ struct BatchedHyperCompressedSparseColumn {
 };
 
 template <typename scalar_t>
-void batched_csr2csc(
-    BatchedHyperCompressedSparseColumn& batched_csc,
+void csr2csc(
+    HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<int64_t, 1>& batched_csr_offsets,
-    const at::TensorAccessor<int64_t, 1>& batched_csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& batched_csr_weights,
+    const at::TensorAccessor<int64_t, 1>& csr_offsets,
+    const at::TensorAccessor<int64_t, 1>& csr_indices,
+    const at::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings);
