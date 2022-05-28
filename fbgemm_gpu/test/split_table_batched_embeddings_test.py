@@ -229,7 +229,25 @@ def quantize_embs(
         raise RuntimeError("Unsupported SparseType: {}".format(weight_ty))
 
 
+SKIP_ALL_TESTS = False
+
+
+def SkipAllTests() -> None:
+    global SKIP_ALL_TESTS
+    SKIP_ALL_TESTS = True
+
+
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
+    op: torch.nn.Module = torch.nn.Module()
+    output: Tensor = Tensor()
+    indices: Tensor = Tensor()
+    offsets: Tensor = Tensor()
+    xw: Tensor = Tensor()
+
+    def setUp(self) -> None:
+        if SKIP_ALL_TESTS:
+            self.skipTest("")
+
     def execute_forward_(
         self,
         T: int,
@@ -3349,6 +3367,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 if not weighted
                 else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
             )
+
+        self.op = cc
+        self.output = fc2
+        self.indices = indices
+        self.offsets = offsets
+        self.xw = xw
 
         if do_pooling and B == 0:
             self.assertEqual(fc2.size(), (0, cc.total_D))

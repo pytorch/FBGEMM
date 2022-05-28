@@ -31,6 +31,7 @@ enum class PlacementType : uint8_t {
   MANAGED = 1,
   MANAGED_CACHING = 2,
   HOST = 3,
+  HOST_FAR = 4,
 };
 
 enum class BoundsCheckMode : uint8_t {
@@ -79,6 +80,31 @@ SparseType getSparseType(at::ScalarType dtype) {
       return SparseType::INVALID;
   }
 };
+
+using int_nbit_split_embedding_codegen_forward_far_cpu_type = at::Tensor (*)(
+    at::Tensor /*dev_weights*/,
+    at::Tensor /*uvm_weights*/,
+    at::Tensor /*weights_placements*/,
+    at::Tensor /*weights_offsets*/,
+    at::Tensor /*weights_tys*/,
+    at::Tensor /*D_offsets*/,
+    int64_t /*total_D*/,
+    int64_t /* max_int2_D */,
+    int64_t /* max_int4_D */,
+    int64_t /* max_int8_D */,
+    int64_t /* max_float16_D */,
+    int64_t /* max_float32_D */,
+    at::Tensor /*indices*/,
+    at::Tensor /*offsets*/,
+    int64_t /*pooling_mode*/,
+    c10::optional<at::Tensor> /*per_sample_weights*/,
+    int64_t /*output_dtype*/,
+    c10::optional<at::Tensor> /*lxu_cache_weights*/,
+    c10::optional<at::Tensor> /*lxu_cache_locations*/,
+    c10::optional<int64_t> /*row_alignment*/,
+    c10::optional<int64_t> /*max_float8_D*/,
+    c10::optional<int64_t> /*fp8_exponent_bits*/,
+    c10::optional<int64_t> /*fp8_exponent_bias*/);
 
 } // namespace
 

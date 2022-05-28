@@ -35,6 +35,7 @@ class EmbeddingLocation(enum.IntEnum):
     MANAGED = 1
     MANAGED_CACHING = 2
     HOST = 3
+    HOST_FAR = 4
 
 
 class ComputeDevice(enum.IntEnum):

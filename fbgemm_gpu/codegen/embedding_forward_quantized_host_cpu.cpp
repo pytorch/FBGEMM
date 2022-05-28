@@ -16,7 +16,10 @@
 #endif
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
+#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+
+#include <utility>
 
 using Tensor = at::Tensor;
 
@@ -53,6 +56,9 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias);
 
+int_nbit_split_embedding_codegen_forward_far_cpu_type
+    int_nbit_split_embedding_codegen_forward_far_cpu = nullptr;
+
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
     Tensor uvm_weights, // to match the interface of CUDA op using UVM
@@ -79,6 +85,38 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     c10::optional<int64_t> max_float8_D,
     c10::optional<int64_t> fp8_exponent_bits,
     c10::optional<int64_t> fp8_exponent_bias) {
+  if (weights_placements.numel() > 0 &&
+      weights_placements.data_ptr<int32_t>()[0] ==
+          static_cast<std::underlying_type_t<PlacementType>>(
+              PlacementType::HOST_FAR)) {
+    TORCH_INTERNAL_ASSERT(
+        int_nbit_split_embedding_codegen_forward_far_cpu != nullptr);
+    return int_nbit_split_embedding_codegen_forward_far_cpu(
+        dev_weights,
+        uvm_weights,
+        weights_placements,
+        weights_offsets,
+        weights_tys,
+        D_offsets,
+        total_D,
+        max_int2_D,
+        max_int4_D,
+        max_int8_D,
+        max_float16_D,
+        max_float32_D,
+        indices,
+        offsets,
+        pooling_mode,
+        indice_weights,
+        output_dtype,
+        lxu_cache_weights,
+        lxu_cache_locations,
+        row_alignment,
+        max_float8_D,
+        fp8_exponent_bits,
+        fp8_exponent_bias);
+  }
+
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,
@@ -113,6 +151,10 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
+
+static_assert(std::is_same_v<
+              decltype(&int_nbit_split_embedding_codegen_lookup_function_cpu),
+              int_nbit_split_embedding_codegen_forward_far_cpu_type>);
 
 void pruned_hashmap_insert_unweighted_cpu(
     Tensor indices,
