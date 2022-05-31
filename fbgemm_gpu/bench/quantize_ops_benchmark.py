@@ -33,17 +33,7 @@ def cli() -> None:
     pass
 
 
-@cli.command()
-@click.option("--flush-gpu-cache-size-mb", default=0)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=2)
-@settings(max_examples=10, deadline=None)
-# pyre-ignore
-@given(
-    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
-    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
-)
-def bench(
+def bench_impl(
     flush_gpu_cache_size_mb: int,
     iters: int,
     num_columns: int,
@@ -136,6 +126,40 @@ def bench(
     logging.info(f"-------------- ncols={num_columns}, nrows={num_rows}-------------")
     for k, t_time in average_time.items():
         logging.info(f"{k} time per iter: {t_time * 1.0e6:.0f}us")
+
+
+@settings(max_examples=10, deadline=None)
+# pyre-ignore
+@given(
+    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
+    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
+)
+def bench_spectrum(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    num_columns: int,
+    num_rows: int,
+    warmup_runs: int,
+) -> None:
+        bench_impl(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, num_columns=num_columns, num_rows=num_rows, warmup_runs=warmup_runs)
+
+@cli.command()
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--iters", default=100)
+@click.option("--num-columns", default=-1)
+@click.option("--num-rows", default=-1)
+@click.option("--warmup-runs", default=2)
+def bench(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    num_columns: int,
+    num_rows: int,
+    warmup_runs: int,
+) -> None:
+    if num_columns == -1 or num_rows == -1:
+        bench_spectrum(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, warmup_runs=warmup_runs)
+    else:
+        bench_impl(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, num_columns=num_columns, num_rows=num_rows, warmup_runs=warmup_runs)
 
 
 @cli.command()

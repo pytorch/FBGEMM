@@ -36,7 +36,7 @@ Tensor uvm_to_device(Tensor t, Tensor prototype);
 
 // Call cudaMemAdvise on UVM Storage. The hint enum is generated in Python
 // (fbgemm,uvm) using data returned from C++ op.
-void uvm_cuda_mem_advise(Tensor t, int64_t cudaMemoryAdvise);
+void uvm_cuda_mem_advise(Tensor t, int64_t cuda_memory_advise);
 
 // Call cudaMemPrefetchAsync on UVM Storage
 void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t);

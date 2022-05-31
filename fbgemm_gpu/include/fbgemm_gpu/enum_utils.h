@@ -25,6 +25,7 @@ namespace fbgemm_gpu {
   struct fbgemm_gpu_enum_tag_##module_name
 
 #define FBGEMM_GPU_ENUM_GLOGAL(module_name)                                    \
+  template class enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)>;          \
   template <>                                                                  \
   enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)>*                         \
       enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)>::registration_list = \

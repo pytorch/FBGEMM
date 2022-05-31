@@ -16,9 +16,8 @@ from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
-from fbgemm_gpu.split_embedding_configs import SparseType
-from torch import Tensor, nn
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from torch import nn, Tensor
 
 ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without
@@ -599,6 +598,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
@@ -1252,7 +1252,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
@@ -1485,6 +1485,7 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     r = {
         SparseType.FP32.value: dim * 4,
         SparseType.FP16.value: dim * 2,
+        SparseType.FP8.value: dim,
         SparseType.INT8.value: dim + 4,
         SparseType.INT4.value: dim // 2 + 4,
         SparseType.INT2.value: dim // 4 + 4,
@@ -1567,6 +1568,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
         row_alignment: Optional[int] = None,
+        fp8_exponent_bits: Optional[int] = None,
+        fp8_exponent_bias: Optional[int] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1648,6 +1651,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.max_int2_D: int = max_ty_D(SparseType.INT2)
         self.max_int4_D: int = max_ty_D(SparseType.INT4)
         self.max_int8_D: int = max_ty_D(SparseType.INT8)
+        self.max_float8_D: int = max_ty_D(SparseType.FP8)
         self.max_float16_D: int = max_ty_D(SparseType.FP16)
         self.max_float32_D: int = max_ty_D(SparseType.FP32)
 
@@ -1782,6 +1786,22 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets,
             cache_reserved_memory,
         )
+
+        if self.max_float8_D > 0:
+            default_config = SparseType.FP8.default_config()
+            self.fp8_exponent_bits: int = (
+                default_config.get("exponent_bits")
+                if fp8_exponent_bits is None
+                else fp8_exponent_bits
+            )
+            self.fp8_exponent_bias: int = (
+                default_config.get("exponent_bias")
+                if fp8_exponent_bias is None
+                else fp8_exponent_bias
+            )
+        else:
+            self.fp8_exponent_bits = -1
+            self.fp8_exponent_bias = -1
 
     @torch.jit.export
     def get_cache_miss_counter(self) -> Tensor:
@@ -1972,6 +1992,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
@@ -1997,6 +2018,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
             row_alignment=self.row_alignment,
+            max_float8_D=self.max_float8_D,
+            fp8_exponent_bits=self.fp8_exponent_bits,
+            fp8_exponent_bias=self.fp8_exponent_bias,
         )
 
     def _apply_split(
@@ -2146,7 +2170,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
@@ -2258,7 +2282,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         )
                     )
                 else:
-                    assert weight_ty == SparseType.FP16 or weight_ty == SparseType.FP32
+                    assert (
+                        weight_ty == SparseType.FP8
+                        or weight_ty == SparseType.FP16
+                        or weight_ty == SparseType.FP32
+                    )
                     splits.append(
                         (
                             weights_shifts,
