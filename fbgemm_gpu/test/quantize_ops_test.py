@@ -690,7 +690,7 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
             dequantized_data_gpu = torch.ops.fbgemm.HFP8QuantizedToFloat(
                 quantized_data_gpu, ebits, exponent_bias
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 dequantized_data_gpu.cpu(), reference_data, rtol=rtol, atol=atol
             )
 
@@ -860,7 +860,7 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
             input_data = torch.rand((n, k), dtype=torch.float32)
             quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
             dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 dequantized_data, input_data, rtol=1e-2, atol=1e-2
             )
 
@@ -927,7 +927,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
         ref_bfloat16 = f(input_data.numpy())
         f = np.vectorize(lambda x: bfloat_dequantize(x))
         ref_fp32 = torch.from_numpy(f(ref_bfloat16)).float()
-        torch.testing.assert_allclose(dequantized_data, ref_fp32)
+        torch.testing.assert_close(dequantized_data, ref_fp32)
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
@@ -938,7 +938,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
                 quantized_data_gpu
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), ref_fp32)
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), ref_fp32)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -965,7 +965,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
                 quantized_data_gpu
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), dequantized_data)
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), dequantized_data)
 
 
 if __name__ == "__main__":

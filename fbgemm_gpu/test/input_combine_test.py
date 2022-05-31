@@ -204,7 +204,7 @@ class InputCombineTest(unittest.TestCase):
             indices_list, offsets_list, per_sample_weights, batch_size
         )
         for i, j in zip(outputs, ref_outputs):
-            torch.testing.assert_allclose(i, j)
+            torch.testing.assert_close(i, j)
         self.assertTrue(outputs[0].dtype == torch.int32)
         self.assertTrue(outputs[1].dtype == torch.int32)
 
@@ -219,7 +219,7 @@ class InputCombineTest(unittest.TestCase):
             indices_list, offsets_list, empty_per_sample_weights, batch_size
         )
         for i, j in zip(outputs[:-1], ref_outputs[:-1]):
-            torch.testing.assert_allclose(i, j)
+            torch.testing.assert_close(i, j)
             self.assertTrue(j.dtype == torch.int32)
 
         self.assertTrue(outputs[0].dtype == torch.int32)
