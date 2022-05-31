@@ -208,7 +208,7 @@ class SparseOpsTest(unittest.TestCase):
         output_permute_ref_tensor = torch.tensor(output_permute_ref)
 
         # assert cpu and gpu ops
-        torch.testing.assert_allclose(output_permute_cpu, output_permute_ref_tensor)
+        torch.testing.assert_close(output_permute_cpu, output_permute_ref_tensor)
         if gpu_available:
             # gpu op
             output_permute_gpu = torch.ops.fbgemm.expand_into_jagged_permute(
@@ -217,7 +217,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_offsets_1d_tensor.cuda(),
                 offsets_1d[-1],
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 output_permute_gpu.cpu(), output_permute_ref_tensor
             )
 
@@ -816,12 +816,12 @@ class SparseOpsTest(unittest.TestCase):
         ) = torch.ops.fbgemm.bucketize_sparse_features(
             lengths, indices, bucketize_pos, 2, weights
         )
-        torch.testing.assert_allclose(new_lengths_cpu, new_lengths_ref, 0, 0)
-        torch.testing.assert_allclose(new_indices_cpu, new_indices_ref, 0, 0)
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
         if has_weight:
-            torch.testing.assert_allclose(new_weights_cpu, new_weights_ref)
+            torch.testing.assert_close(new_weights_cpu, new_weights_ref)
         if bucketize_pos:
-            torch.testing.assert_allclose(new_pos_cpu, new_pos_ref)
+            torch.testing.assert_close(new_pos_cpu, new_pos_ref)
         if gpu_available:
             (
                 new_lengths_gpu,
@@ -835,12 +835,16 @@ class SparseOpsTest(unittest.TestCase):
                 2,
                 weights.cuda() if has_weight else None,
             )
-            torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
-            torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+            )
             if has_weight:
-                torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_cpu)
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
             if bucketize_pos:
-                torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_cpu)
+                torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -1837,14 +1841,14 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         # verify forward
-        torch.testing.assert_allclose(dense, dense2)
+        torch.testing.assert_close(dense, dense2)
 
         # verify backward
         dense.retain_grad()
         ref_output_values = jagged_values.clone().detach().requires_grad_(True)
         ref_values = dense.clone().detach().requires_grad_(True)
         jagged_values.backward(ref_output_values)
-        torch.testing.assert_allclose(dense.grad, ref_values)
+        torch.testing.assert_close(dense.grad, ref_values)
 
     # pyre-ignore [56]
     @given(
