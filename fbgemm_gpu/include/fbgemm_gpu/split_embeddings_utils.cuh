@@ -133,6 +133,23 @@ transpose_embedding_input(
     at::Tensor offsets,
     bool nobag = false);
 
+/**
+ * Move the unparameterized function to here. reduce the size of the library
+ * file
+ */
+__global__
+    __launch_bounds__(fbgemm_gpu::kMaxThreads) void split_embedding_backward_codegen_find_long_segments(
+
+        const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+            sorted_linear_indices_num_runs,
+        const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+            sorted_linear_indices_run_lengths,
+        at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+            long_run_ids,
+        at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+            num_long_run_ids,
+        int32_t max_segment_length_per_warp);
+
 // Use these functions instead of directly calling cub functions
 // to reduce code size and compilation time.
 // Arguments are the same as cub::DeviceRadixSort::SortPairs

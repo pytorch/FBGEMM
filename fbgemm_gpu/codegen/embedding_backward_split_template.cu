@@ -18,64 +18,6 @@ constexpr size_t kBackwardMaxThreads = 512;
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-__global__ __launch_bounds__(kMaxThreads) void
-split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_num_runs,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run_lengths,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        long_run_ids,
-    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        num_long_run_ids,
-    int32_t max_segment_length_per_warp) {
-  const int32_t num_runs = sorted_linear_indices_num_runs[0];
-  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs; run_id += blockDim.x * gridDim.x) {
-    if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
-        auto long_run_idx = gpuAtomicIncrement(&num_long_run_ids[0]);
-        long_run_ids[long_run_idx] = run_id;
-    }
-  }
-}
-
-template <typename grad_t>
-__global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
-    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
-        grad_output,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
-        grad_output_mean) {
-  int32_t B = grad_output.size(0);
-  int32_t T = D_offsets.size(0) - 1;
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-
-  if (b_t >= B * T) {
-    return;
-  }
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  int64_t indices_start = offsets[t * B + b];
-  int64_t indices_end = offsets[t * B + b + 1];
-  int32_t L = indices_end - indices_start;
-
-  if (L != 0) {
-    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
-      grad_out_vec.mul_(1.0 / L);
-      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
-    }
-  } else {
-    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
-      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
-    }
-  }
-}
-
 {% for nobag in [True, False] %}
 {% if not nobag or not weighted %}
 template <
@@ -219,6 +161,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         }
         // do shared memory reduction only if we used multiple blocks.
         if (SL > SL_per_warp) {
+
             struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> smem;
             Vec4T<at::acc_type<cache_t, true>>* shared_grad_sums = smem.getPointer();
 
@@ -948,7 +891,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
             auto long_run_ids = at::empty_like(sorted_linear_indices_run_lengths);
             auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kLong));
-            split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments<<<
+            split_embedding_backward_codegen_find_long_segments<<<
                 div_round_up(sorted_linear_indices_run_lengths.numel(), kMaxThreads),
                 kMaxThreads,
                 0,
