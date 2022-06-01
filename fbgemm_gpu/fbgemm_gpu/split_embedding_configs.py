@@ -27,6 +27,7 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_ADAM = "partial_row_wise_adam"
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
+    SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
     EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"
 
