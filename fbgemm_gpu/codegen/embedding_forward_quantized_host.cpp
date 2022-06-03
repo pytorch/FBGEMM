@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,

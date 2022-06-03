@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,
