@@ -17,6 +17,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 namespace {
 template <typename scalar_t, typename grad_t>

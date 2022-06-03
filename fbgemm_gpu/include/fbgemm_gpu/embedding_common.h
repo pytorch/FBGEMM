@@ -9,7 +9,7 @@
 #include <c10/macros/Macros.h>
 #include <cstdint>
 
-namespace {
+namespace fbgemm_gpu {
 
 // Keep in sync with split_embedding_configs.py:SparseType
 enum class SparseType : uint8_t {
@@ -39,7 +39,7 @@ enum class BoundsCheckMode : uint8_t {
   IGNORE = 2,
 };
 
-at::ScalarType getScalarType(SparseType dtype) {
+inline at::ScalarType getScalarType(SparseType dtype) {
   switch (dtype) {
     case SparseType::FP32:
       return at::kFloat;
@@ -58,7 +58,7 @@ at::ScalarType getScalarType(SparseType dtype) {
   }
 };
 
-SparseType getSparseType(at::ScalarType dtype) {
+inline SparseType getSparseType(at::ScalarType dtype) {
   switch (dtype) {
     case at::kFloat:
       return SparseType::FP32;
@@ -80,7 +80,7 @@ SparseType getSparseType(at::ScalarType dtype) {
   }
 };
 
-} // namespace
+} // namespace fbgemm_gpu
 
 namespace nbit {
 
@@ -94,23 +94,23 @@ div_round_up(uint32_t a, uint32_t b) {
 }
 
 C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t
-unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
-  if (weight_ty == SparseType::FP32) {
+unpadded_row_size_in_bytes(int32_t dim, fbgemm_gpu::SparseType weight_ty) {
+  if (weight_ty == fbgemm_gpu::SparseType::FP32) {
     return dim * 4;
   }
-  if (weight_ty == SparseType::FP16) {
+  if (weight_ty == fbgemm_gpu::SparseType::FP16) {
     return dim * 2;
   }
-  if (weight_ty == SparseType::FP8) {
+  if (weight_ty == fbgemm_gpu::SparseType::FP8) {
     return dim;
   }
-  if (weight_ty == SparseType::INT8) {
+  if (weight_ty == fbgemm_gpu::SparseType::INT8) {
     return dim + 4;
   }
-  if (weight_ty == SparseType::INT4) {
+  if (weight_ty == fbgemm_gpu::SparseType::INT4) {
     return dim / 2 + 4;
   }
-  if (weight_ty == SparseType::INT2) {
+  if (weight_ty == fbgemm_gpu::SparseType::INT2) {
     return dim / 4 + 4;
   }
   return 0;
@@ -118,7 +118,7 @@ unpadded_row_size_in_bytes(int32_t dim, SparseType weight_ty) {
 
 C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t padded_row_size_in_bytes(
     int32_t dim,
-    SparseType weight_ty,
+    fbgemm_gpu::SparseType weight_ty,
     int32_t row_alignment) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty);
   return round_up(r, row_alignment);

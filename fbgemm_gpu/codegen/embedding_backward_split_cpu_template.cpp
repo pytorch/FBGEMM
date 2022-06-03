@@ -19,6 +19,7 @@
 #include "fbgemm_gpu/cpu_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 namespace internal {
 template <typename T>

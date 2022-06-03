@@ -19,6 +19,8 @@
 #include <immintrin.h>
 #include <emmintrin.h>
 
+using namespace fbgemm_gpu;
+
 namespace {
 
 using Tensor = at::Tensor;

@@ -20,6 +20,7 @@
 #include <ATen/AccumulateType.h>
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 template <typename weights_t, typename ind_weights_t, typename output_t>
 void split_embedding_forward_cpu_kernel(

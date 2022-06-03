@@ -13,6 +13,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 Tensor split_embedding_backward_codegen_dense_cpu(
     Tensor grad_output,
