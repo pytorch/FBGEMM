@@ -2020,6 +2020,84 @@ class SparseOpsTest(unittest.TestCase):
             ),
         )
 
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_dense_dense_elementwise_add_jagged_output(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        use_cpu: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        # create a jagged tensor and then densify
+        y_0 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        y_1 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        output_ref = x_padded + y_0 + y_1
+        (
+            output,
+            output_offsets,
+        ) = torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+            x_values, x_offsets, y_0, y_1
+        )
+        output = self._to_padded_dense(output, output_offsets, max_lengths)
+
+        torch.testing.assert_close(output, output_ref)
+
+        # pyre-fixme[2]: Parameter must be annotated.
+        def add_jagged_output_func(*args) -> torch.Tensor:
+            return torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                *args
+            )[0]
+
+        f = add_jagged_output_func
+
+        torch.autograd.gradcheck(
+            f,
+            (
+                x_values.double().requires_grad_(True),
+                x_offsets,
+                y_0.double().requires_grad_(True),
+                y_1.double().requires_grad_(True),
+            ),
+        )
+
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,
