@@ -189,17 +189,18 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
             int8_t*,
             int32_t*,
             int,
-            int>(asmjit::CallConv::kIdHost),
+            int>(asmjit::CallConvId::kHost),
         a->environment());
 
     asmjit::FuncFrame frame;
     frame.init(func);
     frame.setDirtyRegs(
-        x86::Reg::kGroupVec,
+        asmjit::RegGroup::kVec,
         asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
             asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
     frame.setDirtyRegs(
-        x86::Reg::kGroupGp, asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
+        asmjit::RegGroup::kGp,
+        asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
     asmjit::FuncArgsAssignment args(&func);
     args.assignAll(buffer_A, buffer_B, B_pf, CBase, kSize, ldcReg);

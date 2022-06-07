@@ -194,7 +194,7 @@ set_source_files_properties(
   ${gen_cpu_source_files}
   PROPERTIES
     INCLUDE_DIRECTORIES
-    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
+    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include;${THIRDPARTY}/asmjit/src"
 )
 
 set_source_files_properties(
