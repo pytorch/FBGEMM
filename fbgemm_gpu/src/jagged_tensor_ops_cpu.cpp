@@ -562,6 +562,25 @@ jagged_dense_elementwise_add_jagged_output(
   return {sum_values, x_offsets};
 }
 
+// output = x + y where x is jagged, y is dense, and output is jagged
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_0,
+    const Tensor& y_1) {
+  // Convert to jagged
+  auto jagged_values_0 =
+      DenseToJaggedCPUOp::apply(y_0, x_offsets, c10::optional<int64_t>())[0];
+  auto jagged_values_1 =
+      DenseToJaggedCPUOp::apply(y_1, x_offsets, c10::optional<int64_t>())[0];
+
+  // Add jagged_values + x_values -> sum_values
+  auto sum_values = x_values + jagged_values_0 + jagged_values_1;
+
+  return {sum_values, x_offsets};
+}
+
 template <
     int NUM_JAGGED_DIM,
     bool NO_INNER_DENSE,
@@ -969,6 +988,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // output offsets is same as x_offsets)
   m.def(
       "jagged_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
+  m.def(
+      "jagged_dense_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> (Tensor, Tensor[])");
   // jagged * dense -> jagged (its offsets is same as x_offsets)
   m.def(
       "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
@@ -987,6 +1008,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
+  DISPATCH_TO_CPU(
+      "jagged_dense_dense_elementwise_add_jagged_output",
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CPU(
