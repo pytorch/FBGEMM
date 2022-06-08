@@ -143,6 +143,11 @@ cd ../bench
 python split_table_batched_embeddings_benchmark.py
 ```
 
+To run the tests and benchmarks on a GPU-capable device in CPU-only mode use CUDA_VISIBLE_DEVICES=-1
+```
+CUDA_VISIBLE_DEVICES=-1 python split_table_batched_embeddings_test.py
+```
+
 ## How FBGEMM_GPU works
 For a high-level overview, design philosophy and brief descriptions of various
 parts of FBGEMM_GPU please see our Wiki (work in progress).
