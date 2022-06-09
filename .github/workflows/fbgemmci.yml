@@ -273,7 +273,7 @@ jobs:
         sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
         sudo apt-get install -y hipify-clang || true
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        audo apt-get clean
+        sudo apt-get clean
         # Install pytorch 1.11 as required by fbgemm_gpu
         pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
         pip cache purge
