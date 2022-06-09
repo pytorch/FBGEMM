@@ -279,7 +279,7 @@ jobs:
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
         # Install pytorch 1.11 as required by fbgemm_gpu
-        pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
+        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
 
     - name: Checkout submodules
       shell: bash
@@ -292,18 +292,18 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        python setup.py build develop
+        python3 setup.py build develop
 
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
         cd fbgemm_gpu
         cd test
-        python input_combine_test.py
-        python quantize_ops_test.py
-        python sparse_ops_test.py
-        python -c "import fbgemm_gpu"
-        python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+        python3 input_combine_test.py
+        python3 quantize_ops_test.py
+        python3 sparse_ops_test.py
+        python3 -c "import fbgemm_gpu"
+        python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}
