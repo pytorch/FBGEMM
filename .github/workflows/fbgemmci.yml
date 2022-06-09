@@ -248,6 +248,57 @@ jobs:
         python -c "import fbgemm_gpu"
         python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
+  build_amd_gpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install ROCm
+      shell: bash
+      run: |
+        wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
+        amdgpu-install -y --usecase=hiplibsdk,rocm
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev unzip jp intel-mkl-full sshpass sshfsnetcat locales libnuma-dev
+        sudo apt-get install -y hipify-clang || true
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+        # Install pytorch 1.11 as required by fbgemm_gpu
+        pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
+
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        git submodule sync
+        git submodule update --init --recursive
+
+    - name: Build fbgemm_gpu
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        python setup.py build develop
+
+    - name: Test fbgemm_gpu installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python input_combine_test.py
+        python quantize_ops_test.py
+        python sparse_ops_test.py
+        python -c "import fbgemm_gpu"
+        python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+
   build_cpu_only:
     runs-on: ${{ matrix.os }}
     strategy:
