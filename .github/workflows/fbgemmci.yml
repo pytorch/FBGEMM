@@ -255,6 +255,9 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
+    - name: Free space
+      run: sudo rm -rf /usr/local/android /usr/share/dotnet /usr/local/share/boost /opt/ghc /usr/local/share/chrom* /usr/share/swift /usr/local/julia* /usr/local/lib/android
+
     - uses: actions/checkout@v2
 
     - name: Install ROCm
@@ -264,7 +267,7 @@ jobs:
         export DEBIAN_FRONTEND=noninteractive
         sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
         amdgpu-install -y --usecase=hiplibsdk,rocm
-        rm amdgpu-install_22.10.1.50101-1_all.deb
+        sudo rm amdgpu-install_22.10.1.50101-1_all.deb
 
     - name: Install dependencies
       shell: bash
@@ -274,6 +277,7 @@ jobs:
         sudo apt-get install -y hipify-clang || true
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
+        pip cache purge
         # Install pytorch 1.11 as required by fbgemm_gpu
         pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
         pip cache purge
