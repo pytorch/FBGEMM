@@ -269,7 +269,7 @@ jobs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev unzip jp intel-mkl-full sshpass sshfsnetcat locales libnuma-dev
+        sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev unzip jp intel-mkl-full locales libnuma-dev
         sudo apt-get install -y hipify-clang || true
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         # Install pytorch 1.11 as required by fbgemm_gpu
