@@ -291,6 +291,7 @@ jobs:
     - name: Build fbgemm_gpu
       shell: bash
       run: |
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
         cd fbgemm_gpu
         python3 setup.py build develop
 
