@@ -213,6 +213,8 @@ IF(HIP_FOUND)
     set(rocprim_DIR ${ROCPRIM_PATH}/lib/cmake/rocprim)
     set(hipcub_DIR ${HIPCUB_PATH}/lib/cmake/hipcub)
     set(rocthrust_DIR ${ROCTHRUST_PATH}/lib/cmake/rocthrust)
+    set(ROCRAND_INCLUDE ${ROCRAND_PATH}/include)
+    set(ROCM_SMI_INCLUDE ${ROCM_PATH}/rocm_smi/include)
   endif()
 
   find_package(hip REQUIRED)
