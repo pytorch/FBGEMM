@@ -298,9 +298,10 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
       }
     }
@@ -322,10 +323,13 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-        const uindex_t new_idx = idx % blk_size;
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
+        const uindex_t new_idx = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx % blk_size
+            : idx / my_size;
         const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
         new_indices_data[pos] = new_idx;
         if (sequence) {
