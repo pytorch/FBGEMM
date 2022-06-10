@@ -1541,7 +1541,7 @@ def nbit_construct_split_state(
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP16/INT8/INT4/INT2 supports
+    Inference version, with FP16/FP8/INT8/INT4/INT2 supports
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
