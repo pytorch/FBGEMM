@@ -39,11 +39,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       TORCH_FN(uvm_mem_advice_dont_fork));
 
   m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
-
-#ifndef __HIP_PLATFORM_HCC__
-  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
-#endif
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -69,11 +65,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       TORCH_FN(uvm_mem_advice_dont_fork));
 
   m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
-
-#ifndef __HIP_PLATFORM_HCC__
-  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
-#endif
 }
 
 } // namespace fbgemm_gpu
