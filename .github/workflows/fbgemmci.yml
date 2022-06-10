@@ -293,7 +293,8 @@ jobs:
       run: |
         sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
         cd fbgemm_gpu
-        python3 setup.py build develop
+        export PYTORCH_ROCM_ARCH="gfx90a"
+        sudo python3 setup.py build develop
 
     - name: Test fbgemm_gpu installation
       shell: bash
