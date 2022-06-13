@@ -471,19 +471,18 @@ class SparseOpsTest(unittest.TestCase):
             )
             torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
 
-    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_long_indices(
-        self,
-        long_indices: bool,
+        self, long_indices: bool, use_cpu: bool
     ) -> None:
         bucketize_pos = False
         sequence = False
-        index_type = torch.long
+        index_type = torch.long if long_indices else torch.int
 
         # 3 GPUs
         my_size = 3
@@ -525,23 +524,44 @@ class SparseOpsTest(unittest.TestCase):
             )
 
         (
-            new_lengths_gpu,
-            new_indices_gpu,
-            new_weights_gpu,
-            new_pos_gpu,
-            unbucketize_permute_gpu,
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute_cpu,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda(),
-            indices.cuda(),
+            lengths,
+            indices,
             bucketize_pos,
             sequence,
-            block_sizes.cuda(),
+            block_sizes,
             my_size,
             None,
         )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref)
 
-        torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
-        torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+        if not use_cpu:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                None,
+            )
+
+            torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
+            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+            torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_cpu)
+            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
     # pyre-ignore [56]
     @given(
