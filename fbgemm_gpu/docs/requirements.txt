@@ -1,12 +1,5 @@
 sphinx
-#torch
-conda install pytorch cudatoolkit==11.3 -c pytorch-nightly
-conda install scikit-build jinja2 ninja cmake hypothesis
-cd FBGEMM/fbgemm_gpu
-git submodule sync
-git submodule update --init --recursive
-export CUDA_BIN_PATH=/usr/local/cuda-11.3/
-export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
-python setup.py install
+torch
+scikit-build jinja2 ninja cmake hypothesis
 # PyTorch Theme
 -e git+https://github.com/pytorch/pytorch_sphinx_theme.git#egg=pytorch_sphinx_theme
