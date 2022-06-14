@@ -1,5 +1,9 @@
 sphinx
 torch
-scikit-build jinja2 ninja cmake hypothesis
+scikit-build
+jinja2
+ninja
+cmake
+hypothesis
 # PyTorch Theme
 -e git+https://github.com/pytorch/pytorch_sphinx_theme.git#egg=pytorch_sphinx_theme
