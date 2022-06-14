@@ -18,8 +18,8 @@ import sys
 
 import pytorch_sphinx_theme
 
-sys.path.insert(0, os.path.abspath("../../../fbgemm_gpu"))
-
+sys.path.insert(0, os.path.abspath("../../../"))
+print(sys.executable)
 # -- Project information -----------------------------------------------------
 
 project = "fbgemm"
