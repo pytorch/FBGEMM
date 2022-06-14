@@ -1292,7 +1292,7 @@ def nbit_uvm(
             f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
         )
         logging.info(
-            f"Accessed weights per batch: {B * (T * L + T_uvm * L_uvm)} rows, "
+            f"Accessed weights per batch: {B * (T_gpu * L + T_uvm * L_uvm)} rows, "
             f"{B * (L * sum(Ds[T_uvm:]) + L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
         )
 

@@ -369,6 +369,7 @@ def benchmark_pipelined_requests(
     func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
+    check_median: bool = False,
 ) -> Tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
@@ -394,7 +395,7 @@ def benchmark_pipelined_requests(
         func2(indices, offsets, indices_weights)
         end_event[1].record()
     torch.cuda.synchronize()
-    return (
+    avg_time = (
         sum(
             start_event[0].elapsed_time(end_event[0]) * 1.0e-3
             for start_event, end_event in zip(start_events, end_events)
@@ -406,3 +407,14 @@ def benchmark_pipelined_requests(
         )
         / len(requests),
     )
+    median_time = (
+        statistics.median(
+            start_event[0].elapsed_time(end_event[0]) * 1.0e-3
+            for start_event, end_event in zip(start_events, end_events)
+        ),
+        statistics.median(
+            start_event[1].elapsed_time(end_event[1]) * 1.0e-3
+            for start_event, end_event in zip(start_events, end_events)
+        ),
+    )
+    return median_time if check_median else avg_time

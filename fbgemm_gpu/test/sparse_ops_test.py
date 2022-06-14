@@ -208,7 +208,7 @@ class SparseOpsTest(unittest.TestCase):
         output_permute_ref_tensor = torch.tensor(output_permute_ref)
 
         # assert cpu and gpu ops
-        torch.testing.assert_allclose(output_permute_cpu, output_permute_ref_tensor)
+        torch.testing.assert_close(output_permute_cpu, output_permute_ref_tensor)
         if gpu_available:
             # gpu op
             output_permute_gpu = torch.ops.fbgemm.expand_into_jagged_permute(
@@ -217,7 +217,7 @@ class SparseOpsTest(unittest.TestCase):
                 permuted_offsets_1d_tensor.cuda(),
                 offsets_1d[-1],
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 output_permute_gpu.cpu(), output_permute_ref_tensor
             )
 
@@ -471,19 +471,18 @@ class SparseOpsTest(unittest.TestCase):
             )
             torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
 
-    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_long_indices(
-        self,
-        long_indices: bool,
+        self, long_indices: bool, use_cpu: bool
     ) -> None:
         bucketize_pos = False
         sequence = False
-        index_type = torch.long
+        index_type = torch.long if long_indices else torch.int
 
         # 3 GPUs
         my_size = 3
@@ -525,23 +524,44 @@ class SparseOpsTest(unittest.TestCase):
             )
 
         (
-            new_lengths_gpu,
-            new_indices_gpu,
-            new_weights_gpu,
-            new_pos_gpu,
-            unbucketize_permute_gpu,
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute_cpu,
         ) = torch.ops.fbgemm.block_bucketize_sparse_features(
-            lengths.cuda(),
-            indices.cuda(),
+            lengths,
+            indices,
             bucketize_pos,
             sequence,
-            block_sizes.cuda(),
+            block_sizes,
             my_size,
             None,
         )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref)
 
-        torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
-        torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+        if not use_cpu:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                None,
+            )
+
+            torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
+            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+            torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_cpu)
+            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
     # pyre-ignore [56]
     @given(
@@ -816,12 +836,12 @@ class SparseOpsTest(unittest.TestCase):
         ) = torch.ops.fbgemm.bucketize_sparse_features(
             lengths, indices, bucketize_pos, 2, weights
         )
-        torch.testing.assert_allclose(new_lengths_cpu, new_lengths_ref, 0, 0)
-        torch.testing.assert_allclose(new_indices_cpu, new_indices_ref, 0, 0)
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
         if has_weight:
-            torch.testing.assert_allclose(new_weights_cpu, new_weights_ref)
+            torch.testing.assert_close(new_weights_cpu, new_weights_ref)
         if bucketize_pos:
-            torch.testing.assert_allclose(new_pos_cpu, new_pos_ref)
+            torch.testing.assert_close(new_pos_cpu, new_pos_ref)
         if gpu_available:
             (
                 new_lengths_gpu,
@@ -835,12 +855,16 @@ class SparseOpsTest(unittest.TestCase):
                 2,
                 weights.cuda() if has_weight else None,
             )
-            torch.testing.assert_allclose(new_lengths_gpu.cpu(), new_lengths_ref, 0, 0)
-            torch.testing.assert_allclose(new_indices_gpu.cpu(), new_indices_ref, 0, 0)
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+            )
             if has_weight:
-                torch.testing.assert_allclose(new_weights_gpu.cpu(), new_weights_cpu)
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
             if bucketize_pos:
-                torch.testing.assert_allclose(new_pos_gpu.cpu(), new_pos_cpu)
+                torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -1837,14 +1861,14 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         # verify forward
-        torch.testing.assert_allclose(dense, dense2)
+        torch.testing.assert_close(dense, dense2)
 
         # verify backward
         dense.retain_grad()
         ref_output_values = jagged_values.clone().detach().requires_grad_(True)
         ref_values = dense.clone().detach().requires_grad_(True)
         jagged_values.backward(ref_output_values)
-        torch.testing.assert_allclose(dense.grad, ref_values)
+        torch.testing.assert_close(dense.grad, ref_values)
 
     # pyre-ignore [56]
     @given(
@@ -2013,6 +2037,84 @@ class SparseOpsTest(unittest.TestCase):
                 x_values.double().requires_grad_(True),
                 x_offsets,
                 y.double().requires_grad_(True),
+            ),
+        )
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_dense_dense_elementwise_add_jagged_output(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        use_cpu: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        # create a jagged tensor and then densify
+        y_0 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        y_1 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        output_ref = x_padded + y_0 + y_1
+        (
+            output,
+            output_offsets,
+        ) = torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+            x_values, x_offsets, y_0, y_1
+        )
+        output = self._to_padded_dense(output, output_offsets, max_lengths)
+
+        torch.testing.assert_close(output, output_ref)
+
+        # pyre-fixme[2]: Parameter must be annotated.
+        def add_jagged_output_func(*args) -> torch.Tensor:
+            return torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+                *args
+            )[0]
+
+        f = add_jagged_output_func
+
+        torch.autograd.gradcheck(
+            f,
+            (
+                x_values.double().requires_grad_(True),
+                x_offsets,
+                y_0.double().requires_grad_(True),
+                y_1.double().requires_grad_(True),
             ),
         )
 

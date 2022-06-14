@@ -255,17 +255,18 @@ Tensor jagged_dense_elementwise_dense_output_(
 
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
 __global__
-__launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kernel_(
+__launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output_kernel_(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     StackArray<index_t*> x_offsets,
     StackArray<int64_t> x_offsets_sizes,
-    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
+    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_0,
+    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_1,
     at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         output_values,
     StackArray<int64_t> jagged_dims,
     F f) {
-  const int inner_dense_size = y.size(2);
+  const int inner_dense_size = y_0.size(2);
   const int nnz = x_values.size(0);
 
   const int offset_begin = blockIdx.x * blockDim.y + threadIdx.y;
@@ -309,24 +310,30 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_jagged_output_kerne
       for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
         output_values[offset][2 * iidx] =
-            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
+            f(x_values[offset][2 * iidx],
+              y_0[oidx][jidx][2 * iidx],
+              y_1[oidx][jidx][2 * iidx]);
         output_values[offset][2 * iidx + 1] =
-            f(x_values[offset][2 * iidx + 1], y[oidx][jidx][2 * iidx + 1]);
+            f(x_values[offset][2 * iidx + 1],
+              y_0[oidx][jidx][2 * iidx + 1],
+              y_1[oidx][jidx][2 * iidx + 1]);
       }
       if (iidx * 2 + 1 == inner_dense_size) {
         output_values[offset][2 * iidx] =
-            f(x_values[offset][2 * iidx], y[oidx][jidx][2 * iidx]);
+            f(x_values[offset][2 * iidx],
+              y_0[oidx][jidx][2 * iidx],
+              y_1[oidx][jidx][2 * iidx]);
       }
     } else {
       int iidx;
       for (iidx = threadIdx.x; iidx * 2 + 1 < inner_dense_size;
            iidx += blockDim.x) {
-        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0);
+        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0, 0);
         output_values[offset][2 * iidx + 1] =
-            f(x_values[offset][2 * iidx + 1], 0);
+            f(x_values[offset][2 * iidx + 1], 0, 0);
       }
       if (iidx * 2 + 1 == inner_dense_size) {
-        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0);
+        output_values[offset][2 * iidx] = f(x_values[offset][2 * iidx], 0, 0);
       }
     }
   }
@@ -367,31 +374,102 @@ void jagged_dense_elementwise_jagged_output_(
   // Canonicalize y to 3D, collapsing jagged dimensions.
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
 
-#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                \
-  {                                                                           \
-    std::vector<Tensor> x_offsets_contig;                                     \
-    x_offsets_contig.resize(num_jagged_dim);                                  \
-    StackArray<index_t*> x_offset_ptrs;                                       \
-    x_offset_ptrs.ndim = num_jagged_dim;                                      \
-    StackArray<int64_t> x_offset_sizes;                                       \
-    x_offset_sizes.ndim = num_jagged_dim;                                     \
-    for (int d = 0; d < num_jagged_dim; ++d) {                                \
-      x_offsets_contig[d] = x_offsets[d].contiguous();                        \
-      x_offset_ptrs.vals[d] =                                                 \
-          x_offsets_contig[d].template data_ptr<index_t>();                   \
-      x_offset_sizes.vals[d] = x_offsets[d].numel();                          \
-    }                                                                         \
-    jagged_dense_elementwise_jagged_output_kernel_<NUM_JAGGED_DIM, index_t>   \
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
-            x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
-            x_offset_ptrs,                                                    \
-            x_offset_sizes,                                                   \
-            y_reshaped                                                        \
-                .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
-            output_values                                                     \
-                .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),     \
-            jagged_dims_tensor,                                               \
-            f);                                                               \
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                 \
+  {                                                                            \
+    std::vector<Tensor> x_offsets_contig;                                      \
+    x_offsets_contig.resize(num_jagged_dim);                                   \
+    StackArray<index_t*> x_offset_ptrs;                                        \
+    x_offset_ptrs.ndim = num_jagged_dim;                                       \
+    StackArray<int64_t> x_offset_sizes;                                        \
+    x_offset_sizes.ndim = num_jagged_dim;                                      \
+    for (int d = 0; d < num_jagged_dim; ++d) {                                 \
+      x_offsets_contig[d] = x_offsets[d].contiguous();                         \
+      x_offset_ptrs.vals[d] =                                                  \
+          x_offsets_contig[d].template data_ptr<index_t>();                    \
+      x_offset_sizes.vals[d] = x_offsets[d].numel();                           \
+    }                                                                          \
+    jagged_dense_dense_elementwise_jagged_output_kernel_<                      \
+        NUM_JAGGED_DIM,                                                        \
+        index_t><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(    \
+        x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),      \
+        x_offset_ptrs,                                                         \
+        x_offset_sizes,                                                        \
+        y_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),    \
+        y_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),    \
+        output_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
+        jagged_dims_tensor,                                                    \
+        [f_ = f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)       \
+            -> scalar_t { return f_(x, y); });                                 \
+  }
+
+  JAGGED_TENSOR_DISPATCH_DIMS();
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+#undef INVOKE_KERNEL_WITH_DIM
+}
+
+template <typename scalar_t, typename F>
+void jagged_dense_dense_elementwise_jagged_output_(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_0,
+    const Tensor& y_1,
+    const Tensor& output_values,
+    F f) {
+  TENSOR_ON_CUDA_GPU(x_values);
+  for (auto& x_offset : x_offsets) {
+    TENSOR_ON_CUDA_GPU(x_offset);
+  }
+
+  const int num_jagged_dim = y_0.dim() - 2;
+  TORCH_CHECK(
+      x_offsets.size() == static_cast<size_t>(num_jagged_dim),
+      "x_offsets.size(), ",
+      x_offsets.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
+
+  if (y_0.numel() == 0 || x_values.numel() == 0) {
+    return;
+  }
+
+  dim3 threads, blocks;
+  StackArray<int64_t> jagged_dims_tensor;
+  std::tie(threads, blocks, jagged_dims_tensor) =
+      check_shape_and_partition_(x_values, x_offsets, y_0);
+  // Patch up blocks.x because we're using different parallelization from other
+  // jagged kernels.
+  blocks.x = div_round_up(x_values.size(0), threads.y);
+
+  // Canonicalize y to 3D, collapsing jagged dimensions.
+  const Tensor y_0_reshaped = y_0.view({y_0.size(0), -1, y_0.size(-1)});
+  const Tensor y_1_reshaped = y_1.view({y_1.size(0), -1, y_1.size(-1)});
+
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                 \
+  {                                                                            \
+    std::vector<Tensor> x_offsets_contig;                                      \
+    x_offsets_contig.resize(num_jagged_dim);                                   \
+    StackArray<index_t*> x_offset_ptrs;                                        \
+    x_offset_ptrs.ndim = num_jagged_dim;                                       \
+    StackArray<int64_t> x_offset_sizes;                                        \
+    x_offset_sizes.ndim = num_jagged_dim;                                      \
+    for (int d = 0; d < num_jagged_dim; ++d) {                                 \
+      x_offsets_contig[d] = x_offsets[d].contiguous();                         \
+      x_offset_ptrs.vals[d] =                                                  \
+          x_offsets_contig[d].template data_ptr<index_t>();                    \
+      x_offset_sizes.vals[d] = x_offsets[d].numel();                           \
+    }                                                                          \
+    jagged_dense_dense_elementwise_jagged_output_kernel_<                      \
+        NUM_JAGGED_DIM,                                                        \
+        index_t><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(    \
+        x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),      \
+        x_offset_ptrs,                                                         \
+        x_offset_sizes,                                                        \
+        y_0_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),  \
+        y_1_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),  \
+        output_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
+        jagged_dims_tensor,                                                    \
+        f);                                                                    \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();
@@ -619,6 +697,68 @@ class DenseToJaggedGPUOp
   }
 };
 
+class JaggedDenseDenseAddJaggedOutputGPUOp
+    : public torch::autograd::Function<JaggedDenseDenseAddJaggedOutputGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& offsets,
+      const Tensor& dense_0,
+      const Tensor& dense_1) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["dense_shape"] = dense_0.sizes();
+
+    TORCH_CHECK(dense_0.sizes() == dense_1.sizes());
+    auto output = at::empty_like(x_values);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(dense_0.get_device());
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(),
+        "agged_dense_dense_elementwise_jagged_output_forward",
+        [&] {
+          jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              offsets,
+              dense_0,
+              dense_1,
+              output,
+              [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                  -> scalar_t { return x + y_0 + y_1; });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor dense_values_grad_0 = jagged_to_padded_dense(
+        grad_outputs[0],
+        offsets,
+        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        /*padding_value=*/0);
+    TORCH_CHECK(dense_values_grad_0.sizes() == dense_shape);
+
+    Tensor dense_values_grad_1 = dense_values_grad_0;
+
+    return {
+        grad_outputs[0],
+        torch::autograd::Variable(), // offsets
+        dense_values_grad_0,
+        dense_values_grad_1};
+  }
+};
+
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
@@ -638,6 +778,20 @@ jagged_dense_elementwise_add_jagged_output(
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values;
+
+  return {sum_values, x_offsets};
+}
+
+// output = x + y_0 + y_1 where x is jagged, y_0 and y_1 are dense, and output
+// is jagged
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_0,
+    const Tensor& y_1) {
+  auto sum_values = JaggedDenseDenseAddJaggedOutputGPUOp::apply(
+      x_values, x_offsets, y_0, y_1)[0];
 
   return {sum_values, x_offsets};
 }
@@ -752,16 +906,89 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
+class JaggedDenseMulGPUOp
+    : public torch::autograd::Function<JaggedDenseMulGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const Tensor& y,
+      const std::vector<Tensor>& x_offsets) {
+    std::vector<Tensor> tensors_to_save;
+    tensors_to_save.push_back(x_values);
+    tensors_to_save.insert(
+        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
+    tensors_to_save.push_back(y);
+    ctx->save_for_backward(tensors_to_save);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(x_values.get_device());
+
+    Tensor output = at::empty_like(x_values);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              x_offsets,
+              y,
+              output,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const Tensor x_values = ctx->get_saved_variables().front();
+    std::vector<Tensor> x_offsets;
+    for (int i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+      x_offsets.push_back(ctx->get_saved_variables()[i]);
+    }
+    Tensor y = ctx->get_saved_variables().back();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor x_values_grad = at::empty_like(grad_outputs[0]);
+    Tensor y_grad = at::empty_like(y);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              y,
+              x_values_grad,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+
+          jagged_jagged_elementwise_dense_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              x_values,
+              y_grad,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+        });
+
+    return {x_values_grad, y_grad, torch::autograd::Variable()};
+  }
+};
+
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
   // Convert to jagged
-  auto jagged_values =
-      DenseToJaggedGPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
-
-  // Multiply x_values * jagged_values -> prod_values
-  auto prod_values = x_values * jagged_values;
+  auto prod_values = JaggedDenseMulGPUOp::apply(x_values, y, x_offsets)[0];
 
   return {prod_values, x_offsets};
 }
@@ -1228,6 +1455,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
+  DISPATCH_TO_CUDA(
+      "jagged_dense_dense_elementwise_add_jagged_output",
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CUDA(
