@@ -26,6 +26,9 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu);
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
+  m.def("new_managed_tensor_experimental(Tensor self, int[] sizes) -> Tensor");
+  DISPATCH_TO_CUDA(
+      "new_managed_tensor_experimental", new_managed_tensor_experimental);
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
@@ -52,6 +55,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu);
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
+  m.def("new_managed_tensor_experimental(Tensor self, int[] sizes) -> Tensor");
+  DISPATCH_TO_CUDA(
+      "new_managed_tensor_experimental", new_managed_tensor_experimental);
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
