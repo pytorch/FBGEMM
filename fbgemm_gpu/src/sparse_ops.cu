@@ -2267,6 +2267,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
+  // wrapper for permute_2D_sparse_data_cuda, kept for BC
   TENSOR_ON_CUDA_GPU(permute);
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(embeddings);
@@ -2282,81 +2283,24 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.")
 
-  const auto permute_contig = permute.contiguous();
-  const auto lengths_contig = lengths.contiguous();
-  const auto embeddings_contig = embeddings.contiguous();
-  // the features to permute over can be less or more with or without
-  // repetitions
-  const auto num_output_embeddings = permute.numel();
-  const auto num_embeddings = lengths.size(0);
-  const auto B = lengths.size(1);
-
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
+  c10::optional<Tensor> weights_dummy;
+  c10::optional<int64_t> permuted_lengths_sum_dummy;
 
-  permuted_lengths = at::empty({num_output_embeddings, B}, lengths.options());
+  const auto T = permute.numel();
+  const auto B = lengths.size(1);
 
-  constexpr int32_t threads_1 = 256;
-  const auto blocks_1 =
-      cuda_calc_xblock_count(B * num_output_embeddings, threads_1);
-  AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
-        fbgemm_gpu::permute_2D_lengths_kernel<index_t>
-            <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
-                num_output_embeddings,
-                B,
-                lengths_contig.data_ptr<index_t>(),
-                permute_contig.data_ptr<int32_t>(),
-                permuted_lengths.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+  permuted_lengths = at::empty({T, B}, lengths.options());
 
-  // convert lengths to offsets
-  const auto input_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_contig);
-  const auto output_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
-  int64_t permuted_lengths_sum = embeddings.numel();
-
-  /* TODO: Remove the condition protecting the slow path because even when the
-   * condition below is true permuted_lengths.sum() could still be needed. For
-   * instance if there are three features with indices `[0, 1, 2]`, `permute`
-   * can be `[0, 1, 1]` for which permuted lengths sum would be needed to
-   * create permuted_embeddings and `permuted_lengths_sum = embeddings.numel()
-   * would be incorrect.
-   */
-  if (num_embeddings != num_output_embeddings) {
-    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
-  }
-
-  constexpr int32_t BT_blocks = 32;
-  dim3 threads_2(32, BT_blocks);
-  const auto blocks_2 =
-      cuda_calc_xblock_count(B * num_output_embeddings, BT_blocks);
-  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
-  AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_embeddings_kernel_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND(
-            at::ScalarType::Int,
-            embeddings.scalar_type(),
-            "permute_embeddings_kernel_2",
-            [&] {
-              permute_embeddings_kernel<index_t, scalar_t>
-                  <<<blocks_2,
-                     threads_2,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      permuted_lengths_sum,
-                      num_output_embeddings,
-                      B,
-                      embeddings_contig.data_ptr<scalar_t>(),
-                      permute_contig.data_ptr<int32_t>(),
-                      input_offsets.data_ptr<index_t>(),
-                      output_offsets.data_ptr<index_t>(),
-                      permuted_embeddings.data_ptr<scalar_t>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
-            });
-      });
+  // ignore the third element in the tuple
+  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+      fbgemm_gpu::permute_2D_sparse_data_cuda(
+          permute,
+          lengths,
+          embeddings,
+          weights_dummy,
+          permuted_lengths_sum_dummy);
 
   return {permuted_lengths, permuted_embeddings};
 }

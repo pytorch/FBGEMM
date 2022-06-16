@@ -2105,6 +2105,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
+  // wrapper for permute_2D_sparse_data_cpu, kept for BC
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(embeddings);
@@ -2114,59 +2115,25 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.");
 
-  const auto permute_contig = permute.expect_contiguous();
-  const auto lengths_contig = lengths.expect_contiguous();
-  const auto embeddings_contig = embeddings.expect_contiguous();
-  // the features to permute over can be less or more with or without
-  // repetitions
-  const auto num_output_features = permute.numel();
-  const auto B = lengths.sizes()[1];
-
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
+  c10::optional<Tensor> weights_dummy;
+  c10::optional<int64_t> permuted_lengths_sum_dummy;
 
-  permuted_lengths = at::empty({num_output_features, B}, lengths.options());
+  const auto T = permute.numel();
+  const auto B = lengths.size(1);
 
-  const auto lengths_size = lengths.numel();
-  auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
+  permuted_lengths = at::empty({T, B}, lengths.options());
 
-  int num_threads = at::get_num_threads();
-  std::vector<int64_t> output_offsets_per_thread_cumsum(
-      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+  // ignore the third element in the tuple
+  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+      fbgemm_gpu::permute_2D_sparse_data_cpu(
+          permute,
+          lengths,
+          embeddings,
+          weights_dummy,
+          permuted_lengths_sum_dummy);
 
-  AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_lengths_cpu_kernel", ([&] {
-        _permute_lengths_cpu_kernel(
-            num_output_features,
-            B,
-            lengths_contig->data_ptr<index_t>(),
-            lengths_size,
-            permute.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>(),
-            input_offsets.data_ptr<index_t>(),
-            output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
-
-  auto permuted_lengths_sum =
-      output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
-  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
-  AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_embeddings_kernel_1", ([&] {
-        AT_DISPATCH_FLOATING_TYPES(
-            embeddings.scalar_type(), "permute_embeddings_kernel_2", ([&] {
-              permuted_embeddings =
-                  at::empty(permuted_lengths_sum, embeddings.options());
-              _permute_embeddings_kernel_cpu<index_t, scalar_t>(
-                  num_output_features,
-                  B,
-                  embeddings_contig->data_ptr<scalar_t>(),
-                  permute_contig->data_ptr<int32_t>(),
-                  input_offsets.data_ptr<index_t>(),
-                  output_offsets_per_thread_cumsum.data(),
-                  permuted_embeddings.data_ptr<scalar_t>(),
-                  permuted_lengths.data_ptr<index_t>());
-            })); // for each scalar_t
-      })); // for each index_t
   return {permuted_lengths, permuted_embeddings};
 }
 
