@@ -13,12 +13,13 @@
 
 namespace fbgemm_gpu {
 
-#define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                                \
-  struct fbgemm_gpu_enum_tag_##module_name {};                                 \
-  template <> enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*     \
-      enum_registration<                                                       \
-          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;        \
-  extern template class enum_registration<                                     \
+#define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                         \
+  struct fbgemm_gpu_enum_tag_##module_name {};                          \
+  template <>                                                           \
+  enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*          \
+      enum_registration<                                                \
+          struct fbgemm_gpu_enum_tag_##module_name>::registration_list; \
+  extern template class enum_registration<                              \
       struct fbgemm_gpu_enum_tag_##module_name>;
 
 #define FBGEMM_GPU_ENUM_TAG(module_name) \
@@ -33,7 +34,7 @@ namespace fbgemm_gpu {
 
 // To work around (escape from) hipify_torch, the names of the idendifiers
 // are decoposed to `prefix` and `enum_name`.
-#define FBGEMM_GPU_ENUM_REGISTER_START(module_name, prefix, enum_name)                           \
+#define FBGEMM_GPU_ENUM_REGISTER_START(module_name, prefix, enum_name)     \
   enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)> fbgemm_fpu_enum_reg_ \
       ## prefix ## enum_name( #prefix #enum_name,
 

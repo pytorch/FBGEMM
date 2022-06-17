@@ -358,12 +358,30 @@ Tensor uvm_to_cpu_clone(Tensor t) {
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
 
 FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemory, Advise){
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseSetReadMostly, cudaMemAdviseSetReadMostly),
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseUnsetReadMostly, cudaMemAdviseUnsetReadMostly),
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseSetPreferredLocation, cudaMemAdviseSetPreferredLocation),
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseUnsetPreferredLocation, cudaMemAdviseUnsetPreferredLocation),
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseSetAccessedBy, cudaMemAdviseSetAccessedBy),
-    FBGEMM_GPU_ENUM_ITEM(cudaMem, AdviseUnsetAccessedBy, cudaMemAdviseUnsetAccessedBy),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseSetReadMostly,
+        cudaMemAdviseSetReadMostly),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseUnsetReadMostly,
+        cudaMemAdviseUnsetReadMostly),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseSetPreferredLocation,
+        cudaMemAdviseSetPreferredLocation),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseUnsetPreferredLocation,
+        cudaMemAdviseUnsetPreferredLocation),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseSetAccessedBy,
+        cudaMemAdviseSetAccessedBy),
+    FBGEMM_GPU_ENUM_ITEM(
+        cudaMem,
+        AdviseUnsetAccessedBy,
+        cudaMemAdviseUnsetAccessedBy),
 } FBGEMM_GPU_ENUM_REGISTER_END
 
 } // namespace fbgemm_gpu

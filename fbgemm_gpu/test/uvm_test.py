@@ -21,7 +21,7 @@ if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, gpu_unavailable, skipIfRocm
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 if gpu_available:
     # pyre-ignore[21]

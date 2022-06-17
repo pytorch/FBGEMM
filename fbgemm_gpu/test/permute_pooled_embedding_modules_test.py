@@ -92,6 +92,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         output.sum().backward()
 
         # check grads for fc1 when permuted, equals to fc2 weights times input_sum
+        # pyre-fixme[16]: Optional type has no attribute `view`.
         permute_res = net.permute_pooled_embeddings(net.fc1.weight.grad.view(1, 10))
         permute_ref = input_sum * net.fc2.weight
         torch.testing.assert_close(permute_res, permute_ref, rtol=1e-03, atol=1e-03)

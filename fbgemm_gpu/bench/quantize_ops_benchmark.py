@@ -131,8 +131,8 @@ def bench_impl(
 @settings(max_examples=10, deadline=None)
 # pyre-ignore
 @given(
-    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
-    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
+    num_columns=st.sampled_from([2**n for n in range(4, 10)]),
+    num_rows=st.sampled_from([2**n for n in range(4, 10)]),
 )
 def bench_spectrum(
     flush_gpu_cache_size_mb: int,
@@ -141,7 +141,14 @@ def bench_spectrum(
     num_rows: int,
     warmup_runs: int,
 ) -> None:
-        bench_impl(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, num_columns=num_columns, num_rows=num_rows, warmup_runs=warmup_runs)
+    bench_impl(
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        iters=iters,
+        num_columns=num_columns,
+        num_rows=num_rows,
+        warmup_runs=warmup_runs,
+    )
+
 
 @cli.command()
 @click.option("--flush-gpu-cache-size-mb", default=0)
@@ -157,9 +164,19 @@ def bench(
     warmup_runs: int,
 ) -> None:
     if num_columns == -1 or num_rows == -1:
-        bench_spectrum(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, warmup_runs=warmup_runs)
+        bench_spectrum(
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            warmup_runs=warmup_runs,
+        )
     else:
-        bench_impl(flush_gpu_cache_size_mb=flush_gpu_cache_size_mb, iters=iters, num_columns=num_columns, num_rows=num_rows, warmup_runs=warmup_runs)
+        bench_impl(
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            num_columns=num_columns,
+            num_rows=num_rows,
+            warmup_runs=warmup_runs,
+        )
 
 
 @cli.command()
