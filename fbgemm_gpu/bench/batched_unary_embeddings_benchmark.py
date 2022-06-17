@@ -131,6 +131,7 @@ def main(batch_size, num_tables, num_tasks, repeats) -> None:
         d_weight_ref.append(emb.weight.grad)
     d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, -1)
     d_weight = unary_emb.weight.grad
+    # pyre-fixme[16]: Optional type has no attribute `squeeze`.
     torch.testing.assert_close(d_weight_ref, d_weight.squeeze())
 
     # A100 40MB L2 cache

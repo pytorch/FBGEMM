@@ -50,6 +50,7 @@ def device(
         else torch.float32
     )
 
+    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
     values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
 
     if torch.cuda.is_available():
@@ -68,6 +69,8 @@ def device(
     )
     logging.info(f"jagged_2d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
 
+    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
     values_1d = torch.rand(total_lengths)
     if torch.cuda.is_available():
         values_1d = values_1d.cuda()
