@@ -249,7 +249,7 @@ jobs:
         python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   build_amd_gpu:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ rocm }}
     strategy:
       matrix:
         os: [ubuntu-latest]
