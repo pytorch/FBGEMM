@@ -19,7 +19,6 @@ import sys
 import pytorch_sphinx_theme
 
 sys.path.insert(0, os.path.abspath("../../../"))
-print(sys.executable)
 # -- Project information -----------------------------------------------------
 
 project = "fbgemm"
@@ -36,6 +35,7 @@ release = "0.1.2"
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = ['sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
     'sphinx.ext.todo',
@@ -45,6 +45,8 @@ extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
 ]
+
+autosummary_generate = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
