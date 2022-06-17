@@ -254,6 +254,8 @@ class SparseOpsTest(unittest.TestCase):
         else:
             lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
 
+        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+        #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
         weights = torch.rand(lengths.sum().item()).float() if has_weight else None
         indices = torch.randint(
             low=1,
@@ -298,6 +300,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_ref,
             permuted_indices_ref,
             permuted_weights_ref,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
         ) = self.permute_indices_ref_(lengths, indices, weights, permute.long(), is_1D)
         torch.testing.assert_close(permuted_indices_cpu, permuted_indices_ref)
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
@@ -316,6 +319,7 @@ class SparseOpsTest(unittest.TestCase):
                     permute.cuda(),
                     lengths.cuda(),
                     indices.cuda(),
+                    # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                     weights.cuda() if has_weight else None,
                     None,
                 )
@@ -354,6 +358,8 @@ class SparseOpsTest(unittest.TestCase):
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+        #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
         weights = torch.rand(lengths.sum().item()).float() if has_weight else None
         indices = torch.randint(
             low=1,
@@ -380,6 +386,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_ref,
             permuted_indices_ref,
             permuted_weights_ref,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
         ) = self.permute_indices_ref_(lengths, indices, weights, permute.long())
         torch.testing.assert_close(permuted_indices_cpu, permuted_indices_ref)
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
@@ -397,6 +404,7 @@ class SparseOpsTest(unittest.TestCase):
                 permute.cuda(),
                 lengths.cuda(),
                 indices.cuda(),
+                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights.cuda() if has_weight else None,
             )
             torch.testing.assert_close(permuted_indices_gpu.cpu(), permuted_indices_cpu)
@@ -443,6 +451,8 @@ class SparseOpsTest(unittest.TestCase):
     ) -> None:
         index_dtype = torch.int64 if long_index else torch.int32
         lengths = torch.randint(low=1, high=L, size=(T, B)).type(index_dtype)
+        # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+        #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
         embeddings = torch.rand(lengths.sum().item()).float()
         permute_list = list(range(T))
         random.shuffle(permute_list)
@@ -455,6 +465,7 @@ class SparseOpsTest(unittest.TestCase):
             permuted_lengths_ref,
             permuted_embeddings_ref,
             _,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
         ) = self.permute_indices_ref_(lengths, embeddings, None, permute.long())
         torch.testing.assert_close(permuted_embeddings_cpu, permuted_embeddings_ref)
         torch.testing.assert_close(permuted_lengths_cpu, permuted_lengths_ref)
@@ -626,7 +637,11 @@ class SparseOpsTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_offsets_range(
-        self, N: int, offsets_type: "Union[Type[torch.int32], Type[torch.int64]]"
+        self,
+        N: int,
+        # pyre-fixme[11]: Annotation `int32` is not defined as a type.
+        # pyre-fixme[11]: Annotation `int64` is not defined as a type.
+        offsets_type: "Union[Type[torch.int32], Type[torch.int64]]",
     ) -> None:
         lengths = np.array([np.random.randint(low=0, high=20) for _ in range(N)])
         offsets = np.cumsum(np.concatenate(([0], lengths)))[:-1]
@@ -769,6 +784,7 @@ class SparseOpsTest(unittest.TestCase):
                 sequence,
                 block_sizes.cuda(),
                 my_size,
+                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights.cuda() if has_weight else None,
             )
             torch.testing.assert_close(
@@ -853,6 +869,7 @@ class SparseOpsTest(unittest.TestCase):
                 indices.cuda(),
                 bucketize_pos,
                 2,
+                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights.cuda() if has_weight else None,
             )
             torch.testing.assert_close(
@@ -1780,6 +1797,8 @@ class SparseOpsTest(unittest.TestCase):
                 for d in range(len(max_lengths)):
                     begin = offsets[d][cur_offset].item()
                     end = offsets[d][cur_offset + 1].item()
+                    # pyre-fixme[6]: For 1st param expected `int` but got
+                    #  `Union[bool, float, int]`.
                     if jagged_coord[d] >= end - begin:
                         is_zero = True
                         break
@@ -1805,13 +1824,23 @@ class SparseOpsTest(unittest.TestCase):
             # Sometimes length[i] exceed max_L meaning jagged->dense will be
             # truncation vs. padding
             lengths = torch.randint(
-                low=0, high=max_lengths[d] * 2, size=(num_lengths,), device=device
+                low=0,
+                high=max_lengths[d] * 2,
+                # pyre-fixme[6]: For 3rd param expected `Union[List[int], Size,
+                #  typing.Tuple[int, ...]]` but got `Tuple[Union[bool, float, int]]`.
+                size=(num_lengths,),
+                device=device,
             )
             x_offsets.append(torch.ops.fbgemm.asynchronous_complete_cumsum(lengths))
             num_lengths = x_offsets[-1][-1].item()
 
         x_values = torch.rand(
-            x_offsets[-1][-1] * inner_dense_size, dtype=dtype, device=device
+            # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+            #  typing.Tuple[int, ...]]` but got `Tensor`.
+            x_offsets[-1][-1] * inner_dense_size,
+            dtype=dtype,
+            device=device
+            # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
         ).reshape(x_offsets[-1][-1].item(), inner_dense_size)
 
         return x_values, x_offsets, max_lengths
@@ -2256,6 +2285,7 @@ class SparseOpsTest(unittest.TestCase):
         else:
             padded_arrs = torch.Tensor(np.stack(padded_arrs))
 
+        # pyre-fixme[7]: Expected `ndarray` but got `Tensor`.
         return padded_arrs
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -2286,6 +2316,7 @@ class SparseOpsTest(unittest.TestCase):
 
         packed_ref = self._pack_segments_ref(lengths, input_raw)
 
+        # pyre-fixme[6]: For 2nd param expected `Tensor` but got `ndarray`.
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         grad_cpu = torch.tensor(
@@ -2341,6 +2372,7 @@ class SparseOpsTest(unittest.TestCase):
             input_data,
             max_length=max_length,
         )
+        # pyre-fixme[6]: For 2nd param expected `Tensor` but got `ndarray`.
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         if gpu_available:

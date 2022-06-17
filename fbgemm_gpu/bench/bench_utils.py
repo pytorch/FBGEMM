@@ -61,6 +61,7 @@ def round_up(a: int, b: int) -> int:
 
 
 def get_device() -> torch.device:
+    # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
     return (
         torch.cuda.current_device()
         if torch.cuda.is_available()

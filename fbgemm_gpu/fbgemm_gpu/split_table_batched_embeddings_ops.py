@@ -267,6 +267,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if device is not None:
             self.current_device: torch.device = device
         else:
+            # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
             self.current_device: torch.device = (
                 torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
             )
@@ -916,9 +917,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 weights = self.weights_uvm
             splits.append(
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self,
-                #  Tensor)], Tensor], Tensor], Tensor, nn.Module]` is not a function.
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
         return splits
@@ -1102,6 +1100,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_dev",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.host_size > 0:
@@ -1133,6 +1132,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_host",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.uvm_size > 0:
@@ -1165,6 +1165,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_uvm",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
 
@@ -1295,7 +1296,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
-            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
@@ -1351,6 +1351,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
 
         self.use_cpu = use_cpu
+        # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
         self.current_device: torch.device = (
             torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
@@ -1580,7 +1581,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         elif isinstance(device, torch.device):
             self.current_device = device
         else:
-            # pyre-ignore [6]
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
@@ -2213,7 +2213,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
-            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
@@ -2424,6 +2423,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         row_size = len(update_row_indices)
         if row_size == 0:
             return
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
@@ -2434,6 +2434,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ]
         table_values[0].scatter_(
             dim=0,
+            # pyre-fixme[16]: `List` has no attribute `view`.
             index=update_row_indices.view(row_size, 1).expand_as(update_weights),
             src=update_weights,
         )
@@ -2471,11 +2472,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_offset += D_bytes
         update_offsets.append(update_offset)
 
+        # pyre-fixme[9]: update_table_indices has type `List[int]`; used as `Tensor`.
         update_table_indices = torch.tensor(
             update_table_indices,
             device=self.current_device,
             dtype=torch.int32,
         )
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
