@@ -90,9 +90,6 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   int64_t total_offsets = 1;
   bool need_weights = false;
   bool pin_memory = false;
-  if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
-    pin_memory = true;
-  }
 
   for (size_t i = 0; i < indices_list.size(); i++) {
     TORCH_CHECK(
@@ -172,9 +169,6 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
   int64_t total_lengths = 0;
   bool need_weights = false;
   bool pin_memory = false;
-  if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
-    pin_memory = true;
-  }
 
   for (size_t i = 0; i < indices_list.size(); i++) {
     TORCH_CHECK(
@@ -234,9 +228,6 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   int64_t total_offsets = 1 + batch_size * indices_list.size();
   bool need_weights = false;
   bool pin_memory = false;
-  if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
-    pin_memory = true;
-  }
 
   for (size_t i = 0; i < indices_list.size(); i++) {
     TORCH_CHECK(
