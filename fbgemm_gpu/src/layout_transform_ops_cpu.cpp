@@ -7,7 +7,9 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
+#include <functional>
 #include "ATen/Parallel.h"
+#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -61,6 +63,168 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   return sharded_grad_output;
 }
 
+namespace {
+
+using nbit::div_round_up;
+
+std::vector<Tensor> multi_dim_split_cpu(
+    const Tensor& ten,
+    const std::vector<int64_t>& splits) {
+  const int num_dims = splits.size();
+  std::vector<int> num_splits(num_dims);
+  for (const auto d : c10::irange(num_dims)) {
+    num_splits[d] = div_round_up(ten.size(d), splits[d]);
+  }
+  const int num_total_splits = std::accumulate(
+      num_splits.begin(), num_splits.end(), 1, std::multiplies<int>());
+
+  std::vector<Tensor> out_tensors;
+  out_tensors.reserve(num_dims);
+  // To reduce allocation overhead, allocate one big tensor and slice.
+  Tensor out_tensor_container = at::empty({ten.numel()}, ten.options());
+
+  std::vector<int64_t> out_tensor_sizes(num_dims);
+  std::vector<int64_t> offsets(num_dims);
+
+  for (const auto split_idx : c10::irange(num_total_splits)) {
+    // Compute offset and size of the split.
+    auto temp_split_idx = split_idx;
+    int64_t out_offset = 0;
+    int numel = 1;
+    for (int d = num_dims - 1; d >= 0; --d) {
+      const auto split_coord = temp_split_idx % num_splits[d];
+      temp_split_idx /= num_splits[d];
+
+      out_tensor_sizes[d] =
+          std::min(splits[d], ten.size(d) - split_coord * splits[d]);
+
+      offsets[d] = split_coord * splits[d];
+
+      out_offset = out_offset * out_tensor_sizes[d] + offsets[d] * numel;
+      numel *= ten.size(d);
+    }
+
+    const auto out_numel = std::accumulate(
+        out_tensor_sizes.begin(),
+        out_tensor_sizes.end(),
+        1,
+        std::multiplies<int64_t>());
+
+    Tensor out_tensor =
+        out_tensor_container.slice(0, out_offset, out_offset + out_numel)
+            .view(out_tensor_sizes);
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        ten.scalar_type(),
+        "multi_dim_split",
+        [&] {
+          const scalar_t* ten_ptr = ten.data_ptr<scalar_t>() +
+              offsets[num_dims - 1] * ten.stride(num_dims - 1);
+          scalar_t* out_ptr = out_tensor.data_ptr<scalar_t>();
+
+          for (const auto i : c10::irange(out_numel / out_tensor.size(-1))) {
+            // Compute coordinate within the split.
+            const scalar_t* ten_ptr_temp = ten_ptr;
+            auto temp_i = i;
+            for (int d = num_dims - 2; d >= 0; --d) {
+              auto coord = temp_i % out_tensor.size(d);
+              temp_i /= out_tensor.size(d);
+
+              ten_ptr_temp += (offsets[d] + coord) * ten.stride(d);
+            }
+
+            memcpy(
+                out_ptr + i * out_tensor.size(-1),
+                ten_ptr_temp,
+                out_tensor.size(-1) * sizeof(scalar_t));
+          }
+        });
+
+    out_tensors.push_back(out_tensor);
+  }
+
+  return out_tensors;
+}
+
+Tensor multi_dim_cat_cpu(
+    const std::vector<Tensor>& tens,
+    const std::vector<int64_t>& num_splits) {
+  const size_t num_total_splits = std::accumulate(
+      num_splits.begin(), num_splits.end(), 1, std::multiplies<int64_t>());
+  TORCH_CHECK(tens.size() == num_total_splits);
+
+  const int num_dims = num_splits.size();
+  int multiplier = 1;
+  std::vector<int64_t> out_tensor_sizes(num_dims);
+  for (int d = num_dims - 1; d >= 0; --d) {
+    int sum = 0;
+    for (int i = 0; i < num_splits[d]; ++i) {
+      sum += tens[i * multiplier].size(d);
+    }
+    out_tensor_sizes[d] = sum;
+    multiplier *= num_splits[d];
+  }
+
+  TORCH_CHECK(tens.size() > 0);
+  Tensor out_tensor = at::empty(out_tensor_sizes, tens[0].options());
+
+  std::vector<int64_t> offsets(num_dims);
+
+  for (const auto split_idx : c10::irange(num_total_splits)) {
+    // Compute offset and size of the split.
+    auto temp_split_idx = split_idx;
+    Tensor ten = *tens[split_idx].expect_contiguous();
+    for (int d = num_dims - 1; d >= 0; --d) {
+      const int split_coord = temp_split_idx % num_splits[d];
+      temp_split_idx /= num_splits[d];
+
+      const int64_t split_size =
+          div_round_up(out_tensor.size(d), num_splits[d]);
+      TORCH_CHECK(
+          std::min(split_size, out_tensor.size(d) - split_coord * split_size) ==
+          ten.size(d));
+
+      offsets[d] = split_coord * split_size;
+    }
+
+    auto numel = ten.numel();
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        out_tensor.scalar_type(),
+        "multi_dim_split",
+        [&] {
+          const scalar_t* ten_ptr = ten.data_ptr<scalar_t>();
+          scalar_t* out_ptr = out_tensor.data_ptr<scalar_t>() +
+              offsets[num_dims - 1] * out_tensor.stride(num_dims - 1);
+
+          for (const auto i : c10::irange(numel / ten.size(-1))) {
+            // Compute coordinate within the split.
+            scalar_t* out_ptr_temp = out_ptr;
+            auto temp_i = i;
+            for (int d = num_dims - 2; d >= 0; --d) {
+              auto coord = temp_i % ten.size(d);
+              temp_i /= ten.size(d);
+
+              out_ptr_temp += (offsets[d] + coord) * out_tensor.stride(d);
+            }
+
+            memcpy(
+                out_ptr_temp,
+                ten_ptr + i * ten.size(-1),
+                ten.size(-1) * sizeof(scalar_t));
+          }
+        });
+  }
+
+  return out_tensor;
+}
+
+} // namespace
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -70,10 +234,30 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "recat_embedding_grad_output_mixed_D(Tensor grad_output, int[] dim_sum_per_rank) -> Tensor");
   m.def(
       "recat_embedding_grad_output(Tensor grad_output, int[] num_features_per_rank) -> Tensor");
+  // multi-dimensional version of torch.split . Python ref code would be
+  // split_ten = [ten]
+  // for dim, split in enumerate(splits):
+  //   temp_split = split_ten
+  //   split_ten = []
+  //   for t in temp_split:
+  //     split_ten.extend(torch.split(t, split, dim=dim))
+  // return split_ten
+  m.def("multi_dim_split(Tensor ten, int[] splits) -> Tensor[]");
+  // multi-dimensional version of torch.cat . Python ref code would be
+  // merged_ten = tens
+  // for dim, split in reversed(list(enumerate(num_splits))):
+  //   temp_split = []
+  //   for i in range(0, len(merged_ten), split):
+  //     temp_split.append(torch.cat(merged_ten[i : i + split], dim=dim))
+  //   merged_ten = temp_split
+  // return merged_ten[0]
+  m.def("multi_dim_cat(Tensor[] tens, int[] num_splits) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "recat_embedding_grad_output_mixed_D",
       fbgemm_gpu::recat_embedding_grad_output_mixed_D_cpu);
+  DISPATCH_TO_CPU("multi_dim_split", fbgemm_gpu::multi_dim_split_cpu);
+  DISPATCH_TO_CPU("multi_dim_cat", fbgemm_gpu::multi_dim_cat_cpu);
 }

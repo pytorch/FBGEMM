@@ -6,11 +6,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
+from typing import List
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
+from torch import Tensor
 
 try:
     # pyre-ignore[21]
@@ -185,6 +187,113 @@ class LayoutTransformOpsTest(unittest.TestCase):
         torch.testing.assert_close(
             sharded_grad_output_impl.cpu(), sharded_grad_output.cpu()
         )
+
+
+class MultiDimSplitTest(unittest.TestCase):
+    def _test_multi_dim_split(
+        self, grad: Tensor, splits: List[int], split_grad: List[Tensor]
+    ) -> None:
+        for idx, g in enumerate(torch.ops.fbgemm.multi_dim_split(grad, splits)):
+            self.assertTrue(torch.equal(split_grad[idx], g.cpu()))
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_split_1(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(10).reshape(5, 2).to(device)
+        splits = [3, 2]
+        split_grad = [torch.arange(6).reshape(3, 2), torch.arange(6, 10).reshape(2, 2)]
+        self._test_multi_dim_split(grad, splits, split_grad)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_split_2(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(10).reshape(5, 2).to(device)
+        splits = [3, 1]
+        split_grad = [
+            torch.arange(0, 6, 2).reshape(3, 1),
+            torch.arange(0, 6, 2).reshape(3, 1) + 1,
+            torch.arange(6, 10, 2).reshape(2, 1),
+            torch.arange(6, 10, 2).reshape(2, 1) + 1,
+        ]
+        self._test_multi_dim_split(grad, splits, split_grad)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_split_3(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(30).reshape(5, 2, 3).to(device)
+        splits = [3, 1, 2]
+        split_grad = [
+            torch.tensor([[[0, 1]], [[6, 7]], [[12, 13]]]),
+            torch.tensor([[[2]], [[8]], [[14]]]),
+            torch.tensor([[[3, 4]], [[9, 10]], [[15, 16]]]),
+            torch.tensor([[[5]], [[11]], [[17]]]),
+            torch.tensor([[[18, 19]], [[24, 25]]]),
+            torch.tensor([[[20]], [[26]]]),
+            torch.tensor([[[21, 22]], [[27, 28]]]),
+            torch.tensor([[[23]], [[29]]]),
+        ]
+        self._test_multi_dim_split(grad, splits, split_grad)
+
+
+class MultiDimCatTest(unittest.TestCase):
+    def _test_multi_dim_cat(
+        self, grad: Tensor, num_splits: List[int], split_grad: List[Tensor]
+    ) -> None:
+        self.assertTrue(
+            torch.equal(
+                torch.ops.fbgemm.multi_dim_cat(split_grad, num_splits), grad.cpu()
+            )
+        )
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_cat_1(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(10).reshape(5, 2).to(device)
+        num_splits = [2, 1]
+        split_grad = [torch.arange(6).reshape(3, 2), torch.arange(6, 10).reshape(2, 2)]
+        self._test_multi_dim_cat(grad, num_splits, split_grad)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_cat_2(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(10).reshape(5, 2).to(device)
+        num_splits = [2, 2]
+        split_grad = [
+            torch.arange(0, 6, 2).reshape(3, 1),
+            torch.arange(0, 6, 2).reshape(3, 1) + 1,
+            torch.arange(6, 10, 2).reshape(2, 1),
+            torch.arange(6, 10, 2).reshape(2, 1) + 1,
+        ]
+        self._test_multi_dim_cat(grad, num_splits, split_grad)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(use_cpu=st.just(True) if gpu_unavailable[0] else st.booleans())
+    @settings(deadline=None)
+    def test_multi_dim_cat_3(self, use_cpu: bool) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        grad = torch.arange(30).reshape(5, 2, 3).to(device)
+        num_splits = [2, 2, 2]
+        split_grad = [
+            torch.tensor([[[0, 1]], [[6, 7]], [[12, 13]]]),
+            torch.tensor([[[2]], [[8]], [[14]]]),
+            torch.tensor([[[3, 4]], [[9, 10]], [[15, 16]]]),
+            torch.tensor([[[5]], [[11]], [[17]]]),
+            torch.tensor([[[18, 19]], [[24, 25]]]),
+            torch.tensor([[[20]], [[26]]]),
+            torch.tensor([[[21, 22]], [[27, 28]]]),
+            torch.tensor([[[23]], [[29]]]),
+        ]
+        self._test_multi_dim_cat(grad, num_splits, split_grad)
 
 
 if __name__ == "__main__":
