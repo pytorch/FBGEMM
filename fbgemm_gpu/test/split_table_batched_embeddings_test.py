@@ -3726,8 +3726,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
             indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
             dense_indice_t = (
-                (dense_indices.view(T, B, L))[t]
-                .view(-1)
+                (dense_indices.view(T, B, L))[t].view(-1)
                 # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
                 #  str]`.
                 .to(current_device)
