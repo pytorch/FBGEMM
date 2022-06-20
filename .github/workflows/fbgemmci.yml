@@ -295,7 +295,7 @@ jobs:
         cd fbgemm_gpu
         # build for MI250 only to save time.
         export PYTORCH_ROCM_ARCH=gfx90a
-        sudo python3 setup.py build develop
+        sudo HIPCC_VERBOSE=1 python3 setup.py build develop
 
     - name: Test fbgemm_gpu installation
       shell: bash
