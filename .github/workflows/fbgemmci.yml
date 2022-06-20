@@ -260,7 +260,7 @@ jobs:
 
     - uses: actions/checkout@v2
 
-    - name: Install ROCm
+    - name: Install ROCm 5.1.1
       shell: bash
       run: |
         sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
