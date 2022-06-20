@@ -243,7 +243,6 @@ Tensor index_select_dim0_gpu(
       consecutive_range_start ? *consecutive_range_start : 0,
       consecutive_range_length ? *consecutive_range_length : 0)[0];
 }
-
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
