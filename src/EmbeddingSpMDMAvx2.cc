@@ -99,9 +99,11 @@ bool EmbeddingSpMDMBlockSize1_(
     }
 #endif
 
+    float temp = out[m];
     for (; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
+        out[m] = temp;
         return false;
       }
 
@@ -111,18 +113,19 @@ bool EmbeddingSpMDMBlockSize1_(
       }
 
       const InType* inptr = input + indices[current];
-      out[m] = std::fma(
+      temp = std::fma(
           w,
           std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
                                                : *inptr,
-          out[m]);
+          temp);
 
       ++current;
     }
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
-      out[m] *= scale;
+      temp *= scale;
     }
+    out[m] = temp;
   }
   return current == index_size;
 }
