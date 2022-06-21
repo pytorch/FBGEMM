@@ -5,7 +5,11 @@ IF(NOT DEFINED ENV{ROCM_PATH})
 ELSE()
   SET(ROCM_PATH $ENV{ROCM_PATH})
 ENDIF()
-
+if(NOT DEFINED ENV{ROCM_INCLUDE_DIRS})
+  set(ROCM_INCLUDE_DIRS ${ROCM_PATH}/include)
+else()
+  set(ROCM_INCLUDE_DIRS $ENV{ROCM_INCLUDE_DIRS})
+endif()
 # HIP_PATH
 IF(NOT DEFINED ENV{HIP_PATH})
   SET(HIP_PATH ${ROCM_PATH}/hip)
@@ -106,21 +110,111 @@ find_package(HIP)
 IF(HIP_FOUND)
   set(FBGEMM_HAVE_HIP TRUE)
 
+  # Find ROCM version for checks
+  # ROCM 5.0 and later will have header api for version management
+  if(EXISTS ${ROCM_INCLUDE_DIRS}/rocm_version.h)
+
+    set(PROJECT_RANDOM_BINARY_DIR "${PROJECT_BINARY_DIR}")
+    set(file "${PROJECT_BINARY_DIR}/detect_rocm_version.cc")
+    file(WRITE ${file} ""
+      "#include <rocm_version.h>\n"
+      "#include <cstdio>\n"
+
+      "#ifndef ROCM_VERSION_PATCH\n"
+      "#define ROCM_VERSION_PATCH 0\n"
+      "#endif\n"
+      "#define STRINGIFYHELPER(x) #x\n"
+      "#define STRINGIFY(x) STRINGIFYHELPER(x)\n"
+      "int main() {\n"
+      "  printf(\"%d.%d.%s\", ROCM_VERSION_MAJOR, ROCM_VERSION_MINOR, STRINGIFY(ROCM_VERSION_PATCH));\n"
+      "  return 0;\n"
+      "}\n"
+      )
+
+    try_run(run_result compile_result ${PROJECT_RANDOM_BINARY_DIR} ${file}
+      CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${ROCM_INCLUDE_DIRS}"
+      RUN_OUTPUT_VARIABLE rocm_version_from_header
+      COMPILE_OUTPUT_VARIABLE output_var
+      )
+    # We expect the compile to be successful if the include directory exists.
+    if(NOT compile_result)
+      message(FATAL_ERROR "Caffe2: Couldn't determine version from header: " ${output_var})
+    endif()
+    message(STATUS "Caffe2: Header version is: " ${rocm_version_from_header})
+    set(ROCM_VERSION_DEV_RAW ${rocm_version_from_header})
+    message("\n***** ROCm version from rocm_version.h ****\n")
+  endif()
+
+  string(REGEX MATCH "^([0-9]+)\.([0-9]+)\.([0-9]+).*$" ROCM_VERSION_DEV_MATCH ${ROCM_VERSION_DEV_RAW})
+
+  if(ROCM_VERSION_DEV_MATCH)
+    set(ROCM_VERSION_DEV_MAJOR ${CMAKE_MATCH_1})
+    set(ROCM_VERSION_DEV_MINOR ${CMAKE_MATCH_2})
+    set(ROCM_VERSION_DEV_PATCH ${CMAKE_MATCH_3})
+    set(ROCM_VERSION_DEV "${ROCM_VERSION_DEV_MAJOR}.${ROCM_VERSION_DEV_MINOR}.${ROCM_VERSION_DEV_PATCH}")
+    math(EXPR ROCM_VERSION_DEV_INT "(${ROCM_VERSION_DEV_MAJOR}*10000) + (${ROCM_VERSION_DEV_MINOR}*100) + ${ROCM_VERSION_DEV_PATCH}")
+  endif()
+
+  message("ROCM_VERSION_DEV: ${ROCM_VERSION_DEV}")
+  message("ROCM_VERSION_DEV_MAJOR: ${ROCM_VERSION_DEV_MAJOR}")
+  message("ROCM_VERSION_DEV_MINOR: ${ROCM_VERSION_DEV_MINOR}")
+  message("ROCM_VERSION_DEV_PATCH: ${ROCM_VERSION_DEV_PATCH}")
+  message("ROCM_VERSION_DEV_INT:   ${ROCM_VERSION_DEV_INT}")
+
+  math(EXPR TORCH_HIP_VERSION "(${HIP_VERSION_MAJOR} * 100) + ${HIP_VERSION_MINOR}")
+  message("HIP_VERSION_MAJOR: ${HIP_VERSION_MAJOR}")
+  message("HIP_VERSION_MINOR: ${HIP_VERSION_MINOR}")
+  message("TORCH_HIP_VERSION: ${TORCH_HIP_VERSION}")
+
+  message("\n***** Library versions from dpkg *****\n")
+  execute_process(COMMAND dpkg -l COMMAND grep rocm-dev COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep rocm-libs COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep hsakmt-roct COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep rocr-dev COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep -w hcc COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep hip-base COMMAND awk "{print $2 \" VERSION: \" $3}")
+  execute_process(COMMAND dpkg -l COMMAND grep hip_hcc COMMAND awk "{print $2 \" VERSION: \" $3}")
+
+  message("\n***** Library versions from cmake find_package *****\n")
+
+  # As of ROCm 5.1.x, all *.cmake files are under /opt/rocm/lib/cmake/<package>
+  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.1.1")
+    set(hip_DIR ${HIP_PATH}/lib/cmake/hip)
+    set(hsa-runtime64_DIR ${ROCM_PATH}/lib/cmake/hsa-runtime64)
+    set(AMDDeviceLibs_DIR ${ROCM_PATH}/lib/cmake/AMDDeviceLibs)
+    set(amd_comgr_DIR ${ROCM_PATH}/lib/cmake/amd_comgr)
+    set(rocrand_DIR ${ROCM_PATH}/lib/cmake/rocrand)
+    set(hiprand_DIR ${ROCM_PATH}/lib/cmake/hiprand)
+    set(rocblas_DIR ${ROCM_PATH}/lib/cmake/rocblas)
+    set(miopen_DIR ${ROCM_PATH}/lib/cmake/miopen)
+    set(rocfft_DIR ${ROCM_PATH}/lib/cmake/rocfft)
+    set(hipfft_DIR ${ROCM_PATH}/lib/cmake/hipfft)
+    set(hipsparse_DIR ${ROCM_PATH}/lib/cmake/hipsparse)
+    set(rccl_DIR ${ROCM_PATH}/lib/cmake/rccl)
+    set(rocprim_DIR ${ROCM_PATH}/lib/cmake/rocprim)
+    set(hipcub_DIR ${ROCM_PATH}/lib/cmake/hipcub)
+    set(rocthrust_DIR ${ROCM_PATH}/lib/cmake/rocthrust)
+    set(ROCclr_DIR ${ROCM_PATH}/rocclr/lib/cmake/rocclr)
+    set(ROCRAND_INCLUDE ${ROCM_PATH}/include)
+    set(ROCM_SMI_INCLUDE ${ROCM_PATH}/rocm_smi/include)
+  else()
+    message(FATAL_ERROR "\n***** The minimal ROCm version is 5.1.1 but have ${ROCM_VERSION_DEV} installed *****\n")
+  endif()
+
+  find_package(hip REQUIRED)
+  find_package(rocblas REQUIRED)
+  find_package(hipfft REQUIRED)
+  find_package(hiprand REQUIRED)
+  find_package(rocrand REQUIRED)
+  find_package(hipsparse REQUIRED)
+  find_package(rocprim REQUIRED)
+
   if(HIP_COMPILER STREQUAL clang)
     set(hip_library_name amdhip64)
   else()
     set(hip_library_name hip_hcc)
   endif()
   message("HIP library name: ${hip_library_name}")
-
-  find_package(hip REQUIRED)
-  find_package(rocBLAS REQUIRED)
-  find_package(hipFFT REQUIRED)
-  find_package(hipRAND REQUIRED)
-  find_package(rocRAND REQUIRED)
-  find_package(hipSPARSE REQUIRED)
-  find_package(OpenMP REQUIRED)
-  find_package(rocPRIM REQUIRED)
 
   set(CMAKE_HCC_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
   set(CMAKE_HCC_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
@@ -130,6 +224,7 @@ IF(HIP_FOUND)
   # list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_CONVERSIONS__=1)
   list(APPEND HIP_CXX_FLAGS -D__HIP_NO_BFLOAT16_CONVERSIONS__=1)
   list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF2_OPERATORS__=1)
+  list(APPEND HIP_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
   list(APPEND HIP_CXX_FLAGS -mavx2)
   list(APPEND HIP_CXX_FLAGS -mf16c)
   list(APPEND HIP_CXX_FLAGS -mfma)
@@ -141,27 +236,8 @@ IF(HIP_FOUND)
   list(APPEND HIP_HCC_FLAGS -fno-gpu-rdc)
   list(APPEND HIP_HCC_FLAGS -Wno-defaulted-function-deleted)
   foreach(fbgemm_rocm_arch ${FBGEMM_ROCM_ARCH})
-    list(APPEND HIP_HCC_FLAGS --amdgpu-target=${fbgemm_rocm_arch})
+    list(APPEND HIP_HCC_FLAGS --offload-arch=${fbgemm_rocm_arch})
   endforeach()
-
-  set(hip_DIR ${HIP_PATH}/lib/cmake/hip)
-  set(hsa-runtime64_DIR ${ROCM_PATH}/lib/cmake/hsa-runtime64)
-  set(AMDDeviceLibs_DIR ${ROCM_PATH}/lib/cmake/AMDDeviceLibs)
-  set(amd_comgr_DIR ${ROCM_PATH}/lib/cmake/amd_comgr)
-  set(rocrand_DIR ${ROCRAND_PATH}/lib/cmake/rocrand)
-  set(hiprand_DIR ${HIPRAND_PATH}/lib/cmake/hiprand)
-  set(rocblas_DIR ${ROCBLAS_PATH}/lib/cmake/rocblas)
-  set(miopen_DIR ${MIOPEN_PATH}/lib/cmake/miopen)
-  set(rocfft_DIR ${ROCFFT_PATH}/lib/cmake/rocfft)
-  set(hipfft_DIR ${HIPFFT_PATH}/lib/cmake/hipfft)
-  set(hipsparse_DIR ${HIPSPARSE_PATH}/lib/cmake/hipsparse)
-  set(rccl_DIR ${RCCL_PATH}/lib/cmake/rccl)
-  set(rocprim_DIR ${ROCPRIM_PATH}/lib/cmake/rocprim)
-  set(hipcub_DIR ${HIPCUB_PATH}/lib/cmake/hipcub)
-  set(rocthrust_DIR ${ROCTHRUST_PATH}/lib/cmake/rocthrust)
-  set(ROCclr_DIR ${ROCM_PATH}/rocclr/lib/cmake/rocclr)
-  set(ROCRAND_INCLUDE ${ROCRAND_PATH}/include)
-  set(ROCM_SMI_INCLUDE ${ROCM_PATH}/rocm_smi/include)
 
   set(FBGEMM_HIP_INCLUDE ${ROCM_PATH}/include ${FBGEMM_HIP_INCLUDE})
   set(FBGEMM_HIP_INCLUDE ${hip_INCLUDE_DIRS} $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}> $<INSTALL_INTERFACE:include> ${FBGEMM_HIP_INCLUDE})
