@@ -2391,6 +2391,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // unique indices computation step in the backward operation.
   m.def(
       "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
+  m.def(
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

@@ -2432,6 +2432,89 @@ class SparseOpsTest(unittest.TestCase):
 
         torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
 
+    @staticmethod
+    def jagged_index_select_2d_ref(
+        values: torch.Tensor, lengths: torch.Tensor, inverse_lookup: torch.Tensor
+    ) -> torch.Tensor:
+        offsets = torch.ops.fbgemm.asynchronous_exclusive_cumsum(lengths)
+        end_offsets = offsets + lengths
+        full_start_offset = torch.index_select(offsets, 0, inverse_lookup)
+        full_end_offset = torch.index_select(end_offsets, 0, inverse_lookup)
+        index_ranges = torch.stack(
+            (full_start_offset, full_end_offset), dim=0
+        ).transpose(0, 1)
+
+        to_be_merged_tensors = []
+        for row in index_ranges:
+            to_be_merged_tensors.append(torch.arange(row[0], row[1], device="cuda"))
+        all_indices = torch.cat(to_be_merged_tensors, dim=0)
+        new_embeddings = torch.index_select(values, 0, all_indices)
+        return new_embeddings
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-ignore [56]
+    @given(
+        max_seq_length=st.integers(5, 10),
+        batch_size=st.integers(1, 128),
+        num_cols=st.integers(1, 128),
+        num_jagged_tensor_rows=st.integers(1, 128),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from([torch.float, torch.half]),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_jagged_index_select_2d(
+        self,
+        max_seq_length: int,
+        batch_size: int,
+        num_cols: int,
+        num_jagged_tensor_rows: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+    ) -> None:
+        lengths = torch.randint(
+            low=0,
+            high=max_seq_length,
+            size=(num_jagged_tensor_rows,),
+            dtype=index_dtype,
+            device="cuda",
+        )
+        indices, _ = torch.sort(
+            torch.randint(
+                low=0,
+                high=num_jagged_tensor_rows,
+                size=(batch_size,),
+                dtype=index_dtype,
+                device="cuda",
+            )
+        )
+        values = torch.rand(
+            int(lengths.sum().item()),
+            num_cols,
+            dtype=jagged_tensor_dtype,
+            device="cuda",
+        )
+        values_ref = values.detach().clone()
+        values.requires_grad = True
+        values_ref.requires_grad = True
+
+        output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
+        output_ref = self.jagged_index_select_2d_ref(values_ref, lengths, indices)
+
+        assert torch.equal(output, output_ref)
+
+        grad = torch.rand_like(output)
+        grad_ref = grad.detach().clone()
+
+        output.backward(grad)
+        output_ref.backward(grad_ref)
+
+        torch.testing.assert_close(
+            values.grad,
+            values_ref.grad,
+            rtol=1e-2 if jagged_tensor_dtype == torch.half else None,
+            atol=1e-2 if jagged_tensor_dtype == torch.half else None,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
