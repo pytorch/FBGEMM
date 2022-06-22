@@ -211,19 +211,9 @@ def generate_requests(
         # oversample and then remove duplicates to obtain sampling without
         # replacement
         all_indices = (np.random.zipf(a=alpha, size=(iters, T, B, 3 * L)) - 1) % E
-        for index_tuple in itertools.product(range(iters), range(T), range(B)):
-            # sample without replacement from
-            # https://stats.stackexchange.com/questions/20590/how-do-i-sample-without-replacement-using-a-sampling-with-replacement-function
-            r = set()
-            for x in all_indices[index_tuple]:
-                if x not in r:
-                    r.add(x)
-                    if len(r) == L:
-                        break
-            assert (len(r)) == L, "too skewed distribution (alpha too big)"
-            all_indices[index_tuple][:L] = list(r)
-        # shuffle indices so we don't have unintended spatial locality
-        all_indices = torch.as_tensor(all_indices[:, :, :, :L])
+        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(
+            torch.as_tensor(all_indices), L
+        )
         rng = default_rng()
         permutation = torch.as_tensor(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
