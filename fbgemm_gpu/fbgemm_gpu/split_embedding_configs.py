@@ -68,6 +68,7 @@ class SparseType(enum.Enum):
     FP32 = "fp32"
     FP16 = "fp16"
     FP8 = "fp8"
+    FP8_qparams = "fp8_qparams"
     INT8 = "int8"
     INT4 = "int4"
     INT2 = "int2"
@@ -104,6 +105,7 @@ class SparseType(enum.Enum):
             SparseType.INT2.value: 4,
             SparseType.BF16.value: 5,
             SparseType.FP8.value: 6,
+            SparseType.FP8_qparams.value: 7,
         }[self.value]
 
     @staticmethod
@@ -112,8 +114,10 @@ class SparseType(enum.Enum):
             return SparseType("fp32")
         elif dtype == torch.float16:
             return SparseType("fp16")
-        elif dtype == torch.int8 or dtype == torch.uint8:
+        elif dtype == torch.uint8:
             return SparseType("int8")
+        elif dtype == torch.int8:
+            return SparseType("fp8_qparams")
         elif dtype == torch.quint4x2:
             return SparseType("int4")
         elif dtype == torch.quint2x4:
@@ -128,6 +132,7 @@ class SparseType(enum.Enum):
             SparseType.FP32.value: torch.float32,
             SparseType.FP16.value: torch.float16,
             SparseType.INT8.value: torch.uint8,
+            SparseType.FP8_qparams.value: torch.int8,
             SparseType.INT4.value: torch.quint4x2,
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
@@ -138,6 +143,7 @@ class SparseType(enum.Enum):
             SparseType.FP32.value: 32,
             SparseType.FP16.value: 16,
             SparseType.FP8.value: 8,
+            SparseType.FP8_qparams.value: 8,
             SparseType.INT8.value: 8,
             SparseType.INT4.value: 4,
             SparseType.INT2.value: 2,
@@ -149,6 +155,7 @@ class SparseType(enum.Enum):
             SparseType.FP32.value: 1,
             SparseType.FP16.value: 2,
             SparseType.FP8.value: 4,
+            SparseType.FP8_qparams.value: 4,
             SparseType.INT8.value: 4,
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
@@ -160,6 +167,7 @@ class SparseType(enum.Enum):
             self.value == SparseType.FP32.value
             or self.value == SparseType.FP16.value
             or self.value == SparseType.FP8.value
+            or self.value == SparseType.FP8_qparams.value
             or self.value == SparseType.BF16.value
         ):
             return True
@@ -167,8 +175,11 @@ class SparseType(enum.Enum):
             return False
 
     def default_config(self) -> QuantizationConfig:
-        if self.value == SparseType.FP8.value:
-            return FP8QuantizationConfig(4, 7)
+        if (
+            self.value == SparseType.FP8.value
+            or self.value == SparseType.FP8_qparams.value
+        ):
+            return FP8QuantizationConfig(4, 14)
         else:
             return QuantizationConfig()
 
@@ -177,6 +188,7 @@ ELEMENT_SIZE: Dict[SparseType, int] = {
     SparseType.FP32: 4,
     SparseType.FP16: 2,
     SparseType.FP8: 1,
+    SparseType.FP8_qparams: 1,
     SparseType.INT8: 1,
     SparseType.BF16: 2,
     # SparseType.INT4: 0.5,

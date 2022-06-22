@@ -122,7 +122,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                         weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
                 } else {
                     int32_t D_emb = D;
-                    if (std::is_same<emb_t, uint8_t>::value) {
+                    if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                         D_emb += kINT8QparamsBytes;
                     }
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
@@ -131,7 +131,9 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                         D,
                         nullptr);
                     float2 qparams;
-                    if (std::is_same<emb_t, uint8_t>::value) {
+                    qparams.x = 1.0f;
+                    qparams.y = 0.0f;
+                    if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                         qparams = weight_row.load_qparams();
                     }
                     Vec4T<at::acc_type<cache_t, true>> weight =
@@ -142,7 +144,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                 }
                 {% else %}
                 int32_t D_emb = D;
-                if (std::is_same<emb_t, uint8_t>::value) {
+                if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                     D_emb += kINT8QparamsBytes;
                 }
                 auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
@@ -151,7 +153,9 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                     D,
                     nullptr);
                 float2 qparams;
-                if (std::is_same<emb_t, uint8_t>::value) {
+                qparams.x = 1.0f;
+                qparams.y = 0.0f;
+                if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                     qparams = weight_row.load_qparams();
                 }
                 Vec4T<at::acc_type<cache_t, true>> weight =

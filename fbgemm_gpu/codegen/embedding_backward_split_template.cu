@@ -333,7 +333,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             emb_t* __restrict__ weights{nullptr};
             cache_t* __restrict__ cache_weights{nullptr};
             int32_t D_emb = D;
-            if (std::is_same<emb_t, uint8_t>::value) {
+            if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                 D_emb += kINT8QparamsBytes;
             }
             const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
@@ -378,13 +378,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
 
             float2 qparams_template;
-            if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+            qparams_template.x = 1.0f;
+            qparams_template.y = 0.0f;
+            if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
                 qparams_template = weight_row_template.load_qparams();
             }
 
             {{ split_precomputation }}
 
             float2 qparams_new;
+            qparams_new.x = 1.0f;
+            qparams_new.y = 0.0f;
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                     i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -393,15 +397,20 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
                 auto& grad = grad_sum[i];
                 {{ split_weight_update }}
-                if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+                if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
                     shared_weight_update_row[lane_id + i * kWarpSize] = weight_new;
                 } else {
                     weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if embedding is not int8
                 }
             }
-            if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+            if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
                 // calculate qparams from updated weight row
-                qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
+                if(std::is_same<emb_t, uint8_t>::value) {
+                    qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
+                } else if (std::is_same<emb_t, int8_t>::value) {
+                    qparams_new = thrust_find_qparams_fp8<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
+
+                }
                 weight_row_template.store_qparams(qparams_new);
 
                 #pragma unroll kMaxVecsPerThread
@@ -580,7 +589,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     emb_t* __restrict__ weights{nullptr};
     cache_t* __restrict__ cache_weights{nullptr};
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
         D_emb += kINT8QparamsBytes;
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
@@ -622,13 +631,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         weight_row_template.set_stoc_state(&state);
     }
     float2 qparams_template;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights){
+    qparams_template.x = 1.0f;
+    qparams_template.y = 0.0f;
+    if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights){
         qparams_template = weight_row_template.load_qparams();
     }
 
     {{ split_precomputation }}
 
     float2 qparams_new;
+    qparams_new.x = 1.0f;
+    qparams_new.y = 0.0f;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
             i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -637,16 +650,20 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
         auto& grad = grad_sum[i];
         {{ split_weight_update }}
-        if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+        if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
             shared_weight_update_row[threadIdx.x + i * kWarpSize + threadIdx.y * kMaxVecsPerThread * kWarpSize] = weight_new;
         } else {
             weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if type is not int8
         }
     }
 
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
         // calculate new qparams after row update
-        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kWarpSize], D);
+        if (std::is_same<emb_t, uint8_t>::value) {
+            qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kWarpSize], D);
+        } else if (std::is_same<emb_t, int8_t>::value) {
+            qparams_new = thrust_find_qparams_fp8<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kWarpSize], D);
+        }
         weight_row_template.store_qparams(qparams_new);
 
         // fetch cached updated row from shared mem and quantize on-the-fly when saving to lowp embedding
