@@ -12,6 +12,8 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import SparseType
+
+# pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
 from numpy.random import default_rng
 from torch import Tensor
 
