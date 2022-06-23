@@ -331,7 +331,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops.cu
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
-      src/split_embeddings_utils.cu)
+      src/split_embeddings_utils.cu
+      src/metric_ops.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS
