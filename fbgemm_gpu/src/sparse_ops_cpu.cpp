@@ -2325,6 +2325,39 @@ Tensor index_select_dim0(
     c10::optional<int64_t> /*consecutive_range_length*/) {
   return at::index_select(input, 0, indices);
 }
+
+Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
+  auto num_cols = input.size(-1);
+  Tensor input_reshaped = input.reshape({-1, num_cols});
+  auto input_accessor = input_reshaped.accessor<int64_t, 2>();
+
+  // Create output tensor
+  int num_rows = input_reshaped.size(0);
+  Tensor output = at::empty({num_rows, k}, input.options());
+  auto output_accessor = output.accessor<int64_t, 2>();
+
+  for (auto i : c10::irange(input_reshaped.size(0))) {
+    std::set<int64_t> s;
+    for (auto j : c10::irange(num_cols)) {
+      s.insert(input_accessor[i][j]);
+      if (s.size() == static_cast<size_t>(k)) {
+        break;
+      }
+    }
+    TORCH_CHECK(
+        s.size() == static_cast<size_t>(k),
+        "too skewed distribution (alpha too big)")
+    int j = 0;
+    for (int64_t x : s) {
+      output_accessor[i][j] = x;
+      ++j;
+    }
+  }
+
+  auto output_shape = input.sizes().vec();
+  output_shape[output_shape.size() - 1] = k;
+  return output.reshape(output_shape);
+}
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -2393,6 +2426,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
   m.def(
       "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
+  // This is an one-off op to be used in bench_utils.py for zipf generation w/o
+  // replacement Along dim=-1, find smallest unique k. If the number of unique
+  // elements is less than k, errors out.
+  m.def("bottom_unique_k_per_row(Tensor input, int k) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2454,4 +2491,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
+  DISPATCH_TO_CPU(
+      "bottom_unique_k_per_row", fbgemm_gpu::bottom_unique_k_per_row);
 }
