@@ -5,6 +5,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
 import random
 import unittest
 from itertools import accumulate
@@ -1512,6 +1513,38 @@ class SparseOpsTest(unittest.TestCase):
             gradcheck_args.append(kwargs[k])
 
         torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
+
+    # pyre-ignore [56]
+    @given(
+        T=st.integers(1, 5),
+        B=st.integers(1, 5),
+        L=st.integers(1, 5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_bottom_unique_k_per_row(
+        self,
+        T: int,
+        B: int,
+        L: int,
+    ) -> None:
+        E = 1000000
+        all_indices = (np.random.zipf(a=1.15, size=(T, B, 3 * L)) - 1) % E
+        all_indices_deduped = torch.ops.fbgemm.bottom_unique_k_per_row(
+            torch.as_tensor(all_indices), L
+        )
+        for index_tuple in itertools.product(range(T), range(B)):
+            # sample without replacement from
+            # https://stats.stackexchange.com/questions/20590/how-do-i-sample-without-replacement-using-a-sampling-with-replacement-function
+            r = set()
+            for x in all_indices[index_tuple]:
+                if x not in r:
+                    r.add(x)
+                    if len(r) == L:
+                        break
+            assert (len(r)) == L, "too skewed distribution (alpha too big)"
+            all_indices[index_tuple][:L] = sorted(r)
+        all_indices_deduped_ref = torch.as_tensor(all_indices[:, :, :L])
+        torch.testing.assert_close(all_indices_deduped, all_indices_deduped_ref)
 
 
 if __name__ == "__main__":
