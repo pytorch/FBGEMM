@@ -13,12 +13,13 @@
 
 namespace fbgemm_gpu {
 
-#define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                                \
-  struct fbgemm_gpu_enum_tag_##module_name {};                                 \
-  template <> enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*     \
-      enum_registration<                                                       \
-          struct fbgemm_gpu_enum_tag_##module_name>::registration_list;        \
-  extern template class enum_registration<                                     \
+#define FBGEMM_GPU_ENUM_CREATE_TAG(module_name)                         \
+  struct fbgemm_gpu_enum_tag_##module_name {};                          \
+  template <>                                                           \
+  enum_registration<struct fbgemm_gpu_enum_tag_##module_name>*          \
+      enum_registration<                                                \
+          struct fbgemm_gpu_enum_tag_##module_name>::registration_list; \
+  extern template class enum_registration<                              \
       struct fbgemm_gpu_enum_tag_##module_name>;
 
 #define FBGEMM_GPU_ENUM_TAG(module_name) \
@@ -31,17 +32,21 @@ namespace fbgemm_gpu {
       enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)>::registration_list = \
           nullptr;
 
-#define FBGEMM_GPU_ENUM_REGISTER_START(module_name, enum_name)                           \
-  enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)> fbgemm_fpu_enum_reg_ ## enum_name( \
-      #enum_name,
+// To work around (escape from) hipify_torch, the names of the idendifiers
+// are decoposed to `prefix` and `enum_name`.
+#define FBGEMM_GPU_ENUM_REGISTER_START(module_name, prefix, enum_name)     \
+  enum_registration<FBGEMM_GPU_ENUM_TAG(module_name)> fbgemm_fpu_enum_reg_ \
+      ## prefix ## enum_name( #prefix #enum_name,
 
 #define FBGEMM_GPU_ENUM_REGISTER_END );
 
 #define FBGEMM_GPU_ENUM_OP(module_name, op_name) \
 #op_name "() -> ((str, (str, int)[])[])",      \
       TORCH_FN(enum_query <FBGEMM_GPU_ENUM_TAG(module_name)>)
-#define FBGEMM_GPU_ENUM_ITEM(x) \
-  { #x, x }
+// To work around (escape from) hipify_torch, the names of the idendifiers
+// are decoposed to `x` and `y`. `z` is supposed to be hipified.
+#define FBGEMM_GPU_ENUM_ITEM(x, y, z) \
+  { #x #y, z }
 
 using enum_item = std::tuple<std::string, int64_t>;
 

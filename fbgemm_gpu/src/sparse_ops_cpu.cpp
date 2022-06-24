@@ -298,9 +298,10 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
       }
     }
@@ -322,10 +323,13 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-        const uindex_t new_idx = idx % blk_size;
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
+        const uindex_t new_idx = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx % blk_size
+            : idx / my_size;
         const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
         new_indices_data[pos] = new_idx;
         if (sequence) {
@@ -2101,6 +2105,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
+  // wrapper for permute_2D_sparse_data_cpu, kept for BC
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(embeddings);
@@ -2110,59 +2115,25 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.");
 
-  const auto permute_contig = permute.expect_contiguous();
-  const auto lengths_contig = lengths.expect_contiguous();
-  const auto embeddings_contig = embeddings.expect_contiguous();
-  // the features to permute over can be less or more with or without
-  // repetitions
-  const auto num_output_features = permute.numel();
-  const auto B = lengths.sizes()[1];
-
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
+  c10::optional<Tensor> weights_dummy;
+  c10::optional<int64_t> permuted_lengths_sum_dummy;
 
-  permuted_lengths = at::empty({num_output_features, B}, lengths.options());
+  const auto T = permute.numel();
+  const auto B = lengths.size(1);
 
-  const auto lengths_size = lengths.numel();
-  auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
+  permuted_lengths = at::empty({T, B}, lengths.options());
 
-  int num_threads = at::get_num_threads();
-  std::vector<int64_t> output_offsets_per_thread_cumsum(
-      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+  // ignore the third element in the tuple
+  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+      fbgemm_gpu::permute_2D_sparse_data_cpu(
+          permute,
+          lengths,
+          embeddings,
+          weights_dummy,
+          permuted_lengths_sum_dummy);
 
-  AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_lengths_cpu_kernel", ([&] {
-        _permute_lengths_cpu_kernel(
-            num_output_features,
-            B,
-            lengths_contig->data_ptr<index_t>(),
-            lengths_size,
-            permute.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>(),
-            input_offsets.data_ptr<index_t>(),
-            output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
-
-  auto permuted_lengths_sum =
-      output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
-  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
-  AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_embeddings_kernel_1", ([&] {
-        AT_DISPATCH_FLOATING_TYPES(
-            embeddings.scalar_type(), "permute_embeddings_kernel_2", ([&] {
-              permuted_embeddings =
-                  at::empty(permuted_lengths_sum, embeddings.options());
-              _permute_embeddings_kernel_cpu<index_t, scalar_t>(
-                  num_output_features,
-                  B,
-                  embeddings_contig->data_ptr<scalar_t>(),
-                  permute_contig->data_ptr<int32_t>(),
-                  input_offsets.data_ptr<index_t>(),
-                  output_offsets_per_thread_cumsum.data(),
-                  permuted_embeddings.data_ptr<scalar_t>(),
-                  permuted_lengths.data_ptr<index_t>());
-            })); // for each scalar_t
-      })); // for each index_t
   return {permuted_lengths, permuted_embeddings};
 }
 
@@ -2354,6 +2325,39 @@ Tensor index_select_dim0(
     c10::optional<int64_t> /*consecutive_range_length*/) {
   return at::index_select(input, 0, indices);
 }
+
+Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
+  auto num_cols = input.size(-1);
+  Tensor input_reshaped = input.reshape({-1, num_cols});
+  auto input_accessor = input_reshaped.accessor<int64_t, 2>();
+
+  // Create output tensor
+  int num_rows = input_reshaped.size(0);
+  Tensor output = at::empty({num_rows, k}, input.options());
+  auto output_accessor = output.accessor<int64_t, 2>();
+
+  for (auto i : c10::irange(input_reshaped.size(0))) {
+    std::set<int64_t> s;
+    for (auto j : c10::irange(num_cols)) {
+      s.insert(input_accessor[i][j]);
+      if (s.size() == static_cast<size_t>(k)) {
+        break;
+      }
+    }
+    TORCH_CHECK(
+        s.size() == static_cast<size_t>(k),
+        "too skewed distribution (alpha too big)")
+    int j = 0;
+    for (int64_t x : s) {
+      output_accessor[i][j] = x;
+      ++j;
+    }
+  }
+
+  auto output_shape = input.sizes().vec();
+  output_shape[output_shape.size() - 1] = k;
+  return output.reshape(output_shape);
+}
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -2420,6 +2424,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // unique indices computation step in the backward operation.
   m.def(
       "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
+  m.def(
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
+  // This is an one-off op to be used in bench_utils.py for zipf generation w/o
+  // replacement Along dim=-1, find smallest unique k. If the number of unique
+  // elements is less than k, errors out.
+  m.def("bottom_unique_k_per_row(Tensor input, int k) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2481,4 +2491,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
+  DISPATCH_TO_CPU(
+      "bottom_unique_k_per_row", fbgemm_gpu::bottom_unique_k_per_row);
 }

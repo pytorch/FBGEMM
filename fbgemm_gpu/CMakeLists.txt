@@ -48,8 +48,10 @@ if(DEFINED GLIBCXX_USE_CXX11_ABI)
   if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
     set(CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-    message("${CMAKE_CXX_FLAGS}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
   endif()
+  message("${CMAKE_CXX_FLAGS}")
 endif()
 
 #
@@ -329,7 +331,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops.cu
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
-      src/split_embeddings_utils.cu)
+      src/split_embeddings_utils.cu
+      src/metric_ops.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS

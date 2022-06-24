@@ -12,6 +12,8 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 import torch
 from fbgemm_gpu.split_table_batched_embeddings_ops import SparseType
+
+# pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
 from numpy.random import default_rng
 from torch import Tensor
 
@@ -61,6 +63,7 @@ def round_up(a: int, b: int) -> int:
 
 
 def get_device() -> torch.device:
+    # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
     return (
         torch.cuda.current_device()
         if torch.cuda.is_available()
@@ -208,19 +211,9 @@ def generate_requests(
         # oversample and then remove duplicates to obtain sampling without
         # replacement
         all_indices = (np.random.zipf(a=alpha, size=(iters, T, B, 3 * L)) - 1) % E
-        for index_tuple in itertools.product(range(iters), range(T), range(B)):
-            # sample without replacement from
-            # https://stats.stackexchange.com/questions/20590/how-do-i-sample-without-replacement-using-a-sampling-with-replacement-function
-            r = set()
-            for x in all_indices[index_tuple]:
-                if x not in r:
-                    r.add(x)
-                    if len(r) == L:
-                        break
-            assert (len(r)) == L, "too skewed distribution (alpha too big)"
-            all_indices[index_tuple][:L] = list(r)
-        # shuffle indices so we don't have unintended spatial locality
-        all_indices = torch.as_tensor(all_indices[:, :, :, :L])
+        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(
+            torch.as_tensor(all_indices), L
+        )
         rng = default_rng()
         permutation = torch.as_tensor(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
@@ -369,6 +362,7 @@ def benchmark_pipelined_requests(
     func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
+    check_median: bool = False,
 ) -> Tuple[float, float]:
     torch.cuda.synchronize()
     start_events = [
@@ -394,7 +388,7 @@ def benchmark_pipelined_requests(
         func2(indices, offsets, indices_weights)
         end_event[1].record()
     torch.cuda.synchronize()
-    return (
+    avg_time = (
         sum(
             start_event[0].elapsed_time(end_event[0]) * 1.0e-3
             for start_event, end_event in zip(start_events, end_events)
@@ -406,3 +400,14 @@ def benchmark_pipelined_requests(
         )
         / len(requests),
     )
+    median_time = (
+        statistics.median(
+            start_event[0].elapsed_time(end_event[0]) * 1.0e-3
+            for start_event, end_event in zip(start_events, end_events)
+        ),
+        statistics.median(
+            start_event[1].elapsed_time(end_event[1]) * 1.0e-3
+            for start_event, end_event in zip(start_events, end_events)
+        ),
+    )
+    return median_time if check_median else avg_time

@@ -72,9 +72,8 @@ cd FBGEMM
 # if you are updating an existing checkout
 git submodule sync
 git submodule update --init --recursive
-mkdir build && cd build
-cmake ..
-make
+cmake -B build
+make -C build
 ```
 
 To run the tests after building FBGEMM (if tests are built), use the following

@@ -248,6 +248,66 @@ jobs:
         python -c "import fbgemm_gpu"
         python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
+  build_amd_gpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+    - name: Free space
+      run: sudo rm -rf /usr/local/android /usr/share/dotnet /usr/local/share/boost /opt/ghc /usr/local/share/chrom* /usr/share/swift /usr/local/julia* /usr/local/lib/android
+
+    - uses: actions/checkout@v2
+
+    - name: Install ROCm 5.1.1
+      shell: bash
+      run: |
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+        wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
+        amdgpu-install -y --usecase=hiplibsdk,rocm
+        sudo rm amdgpu-install_22.10.1.50101-1_all.deb
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
+        sudo apt-get install -y hipify-clang || true
+        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+        sudo apt-get clean
+        # Install pytorch 1.11 as required by fbgemm_gpu
+        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
+
+    - name: Checkout submodules
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        git submodule sync
+        git submodule update --init --recursive
+
+    - name: Build fbgemm_gpu
+      shell: bash
+      run: |
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+        cd fbgemm_gpu
+        # build for MI250 only to save time.
+        sudo PYTORCH_ROCM_ARCH=gfx90a python3 setup.py build develop
+
+    - name: Test fbgemm_gpu installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu
+        cd test
+        python3 input_combine_test.py
+        python3 quantize_ops_test.py
+        # disable sparse_ops_test for ROCm at the moment, since a "core dumped" aborts the test on the Github actions vm that has no GPUs.
+        # python3 sparse_ops_test.py
+        python3 -c "import fbgemm_gpu"
+        python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+
   build_cpu_only:
     runs-on: ${{ matrix.os }}
     strategy:

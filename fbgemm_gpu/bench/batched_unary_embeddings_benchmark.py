@@ -121,7 +121,7 @@ def main(batch_size, num_tables, num_tasks, repeats) -> None:
         param.detach().copy_(ref_emb.emb_modules[i].weight)
     output_ref = ref_emb(offsets, indices)
     output = unary_emb(offsets_tensor, indices_tensor)
-    torch.testing.assert_allclose(output_ref, output)
+    torch.testing.assert_close(output_ref, output)
     # backward
     d_output = torch.randn([num_tasks, batch_size, len(hash_sizes)]).to(device) * 0.1
     output_ref.backward(d_output)
@@ -131,7 +131,8 @@ def main(batch_size, num_tables, num_tasks, repeats) -> None:
         d_weight_ref.append(emb.weight.grad)
     d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, -1)
     d_weight = unary_emb.weight.grad
-    torch.testing.assert_allclose(d_weight_ref, d_weight.squeeze())
+    # pyre-fixme[16]: Optional type has no attribute `squeeze`.
+    torch.testing.assert_close(d_weight_ref, d_weight.squeeze())
 
     # A100 40MB L2 cache
     elapse, _ = benchmark_torch_function(ref_emb, (offsets, indices), iters=repeats)

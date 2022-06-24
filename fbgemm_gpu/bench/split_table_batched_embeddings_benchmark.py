@@ -1292,7 +1292,7 @@ def nbit_uvm(
             f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
         )
         logging.info(
-            f"Accessed weights per batch: {B * (T * L + T_uvm * L_uvm)} rows, "
+            f"Accessed weights per batch: {B * (T_gpu * L + T_uvm * L_uvm)} rows, "
             f"{B * (L * sum(Ds[T_uvm:]) + L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
         )
 
@@ -1934,6 +1934,8 @@ def emb_inplace_update(  # noqa C901
         high=255,
         size=(update_weight_size,),
         dtype=torch.uint8,
+        # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
     )
 
@@ -1975,16 +1977,22 @@ def emb_inplace_update(  # noqa C901
 
     update_table_idx = torch.tensor(
         update_table_idx,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_row_idx = torch.tensor(
         update_row_idx,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_offsets = torch.tensor(
         update_offsets,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int64,
     )
