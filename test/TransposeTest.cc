@@ -61,6 +61,34 @@ TEST(TransposeTest, TransposeTest) {
     int ld_dst = m + dist(generator);
     shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
   }
+  for (int i = 0; i < 1024; ++i) {
+    int m = dist(generator);
+    int n = 2;
+    int ld_src = n;
+    int ld_dst = m + dist(generator);
+    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+  }
+  for (int i = 0; i < 1024; ++i) {
+    int m = dist(generator);
+    int n = 4;
+    int ld_src = n;
+    int ld_dst = m + dist(generator);
+    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+  }
+  for (int i = 0; i < 1024; ++i) {
+    int m = 2;
+    int n = dist(generator);
+    int ld_src = n + dist(generator);
+    int ld_dst = m;
+    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+  }
+  for (int i = 0; i < 1024; ++i) {
+    int m = 4;
+    int n = dist(generator);
+    int ld_src = n + dist(generator);
+    int ld_dst = m;
+    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+  }
 
   for (const auto& shape : shapes) {
     int m, n, ld_src, ld_dst;
