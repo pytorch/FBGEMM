@@ -199,6 +199,14 @@ struct Vec4T<float> {
     acc.z *= scale;
     acc.w *= scale;
   }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
 };
 
 template <>
@@ -352,6 +360,22 @@ struct Vec4T<at::Half> {
     acc.w += a.acc.w;
   }
 
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
   // this <- this * scale
   DEVICE_INLINE void mul_(float scale) {
     acc.x *= scale;
@@ -471,6 +495,22 @@ struct Vec4T<at::BFloat16> {
     acc.w += a.acc.w;
   }
 
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
   // this <- this * scale
   DEVICE_INLINE void mul_(float scale) {
     acc.x *= scale;
@@ -588,6 +628,14 @@ struct Vec4T<double> {
     acc.y += a.acc.y;
     acc.z += a.acc.z;
     acc.w += a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<double> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
   }
 
   // this <- this * scale
