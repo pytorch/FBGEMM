@@ -304,20 +304,22 @@ void transpose_kernel_mxn_avx512(
 
 namespace internal {
 
+template<typename T>
 void transpose_avx512_contiguous_thin(
     const int64_t M,
     const int64_t N,
-    const float* src,
+    const T* src,
     unsigned ld_src,
-    float* dst,
+    T* dst,
     unsigned ld_dst);
 
+template<typename T>
 void transpose_avx512_contiguous_wide(
     const int64_t M,
     const int64_t N,
-    const float* src,
+    const T* src,
     unsigned ld_src,
-    float* dst,
+    T* dst,
     unsigned ld_dst);
 
 template <>
@@ -1019,7 +1021,7 @@ static inline void store_with_remainders_i8(
   }
 }
 
-void transpose_contiguous_4x16_block(
+static inline void transpose_contiguous_4x16_block(
     const float* src,
     float* dst,
     int ld_src,
@@ -1077,7 +1079,7 @@ void transpose_contiguous_4x16_block(
   }
 }
 
-void transpose_contiguous_4x16_block(
+static inline void transpose_contiguous_4x16_block(
     const uint16_t* src,
     uint16_t* dst,
     int ld_src,
@@ -1137,7 +1139,7 @@ void transpose_contiguous_4x16_block(
   }
 }
 
-void transpose_contiguous_8x4_block(
+static inline void transpose_contiguous_8x4_block(
     const float* src,
     float* dst,
     int ld_dst,
@@ -1202,7 +1204,7 @@ void transpose_contiguous_8x4_block(
   }
 }
 
-void transpose_contiguous_16x2_block(
+static inline void transpose_contiguous_16x2_block(
     const float* src,
     float* dst,
     int ld_dst,
@@ -1250,7 +1252,7 @@ void transpose_contiguous_16x2_block(
 
 }
 
-void transpose_contiguous_8x4_block(
+static inline void transpose_contiguous_8x4_block(
     const uint16_t* src,
     uint16_t* dst,
     int ld_dst,
@@ -1306,7 +1308,7 @@ void transpose_contiguous_8x4_block(
   }
 }
 
-void transpose_contiguous_2x16_block(
+static inline void transpose_contiguous_2x16_block(
     const float* src,
     float* dst,
     int ld_src,
@@ -1350,7 +1352,7 @@ void transpose_contiguous_2x16_block(
   }
 }
 
-void transpose_contiguous_32x4_block(
+static inline void transpose_contiguous_32x4_block(
     const uint8_t* src,
     uint8_t* dst,
     int ld_dst,
@@ -1426,7 +1428,7 @@ void transpose_contiguous_32x4_block(
 
 }
 
-void transpose_contiguous_32x2_block(
+static inline void transpose_contiguous_32x2_block(
     const uint8_t* src,
     uint8_t* dst,
     int ld_dst,
@@ -1472,10 +1474,10 @@ void transpose_contiguous_32x2_block(
   }
 }
 
-void transpose_contiguous_4x32_block(
+static inline void transpose_contiguous_4x32_block(
     const uint8_t* src,
     uint8_t* dst,
-    int ld_src,
+    unsigned ld_src,
     int nrem = 32) {
   __m256i r[4];
   __m512i t[2], d[2];
@@ -1523,10 +1525,10 @@ void transpose_contiguous_4x32_block(
   }
 }
 
-void transpose_contiguous_2x32_block(
+static inline void transpose_contiguous_2x32_block(
     const uint8_t* src,
     uint8_t* dst,
-    int ld_src,
+    unsigned ld_src,
     int nrem = 32) {
   __m256i r0, r1;
   __m512i r, d;
@@ -1564,7 +1566,7 @@ void transpose_contiguous_2x32_block(
   }
 }
 
-void transpose_contiguous_2x16_block(
+static inline void transpose_contiguous_2x16_block(
     const uint16_t* src,
     uint16_t* dst,
     int ld_src,
@@ -1598,7 +1600,7 @@ void transpose_contiguous_2x16_block(
   }
 }
 
-void transpose_contiguous_16x2_block(
+static inline void transpose_contiguous_16x2_block(
     const uint16_t* src,
     uint16_t* dst,
     int ld_dst,
@@ -1978,13 +1980,47 @@ void transpose_16x32_block(
   }
 }
 
+template <typename T>
+void transpose_avx512_contiguous_thin(
+  const int64_t M,
+  const int64_t N,
+  const T* src,
+  unsigned ld_src,
+  T* dst,
+  unsigned ld_dst) {
+  if (N == 2) {
+    int i = 0;
+    for (; i < M / 16 * 16; i += 16) {
+      transpose_contiguous_16x2_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_16x2_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  } else if (N == 4) {
+    int i = 0;
+    for (; i < M / 8 * 8; i += 8) {
+      transpose_contiguous_8x4_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_8x4_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  }
+}
+
+template <>
 void transpose_avx512_contiguous_thin(
     const int64_t M,
     const int64_t N,
     const uint8_t* src,
-    int ld_src,
+    unsigned ld_src,
     uint8_t* dst,
-    int ld_dst) {
+    unsigned ld_dst) {
     if (N == 2) {
       int i = 0;
       for (; i < M / 32 * 32; i += 32) {
@@ -2011,136 +2047,40 @@ void transpose_avx512_contiguous_thin(
 
 }
 
-void transpose_avx512_contiguous_thin(
-    const int64_t M,
-    const int64_t N,
-    const float* src,
-    unsigned ld_src,
-    float* dst,
-    unsigned ld_dst) {
-    if (N == 2) {
-      int i = 0;
-      for (; i < M / 16 * 16; i += 16) {
-        transpose_contiguous_16x2_block(
-            src + i * ld_src, dst + i, ld_dst);
-      }
-      int mrem = M - i;
-      if (mrem > 0) {
-        transpose_contiguous_16x2_block(
-            src + i * ld_src, dst + i, ld_dst, mrem);
-      }
-    } else if (N == 4) {
-      int i = 0;
-      for (; i < M / 8 * 8; i += 8) {
-        transpose_contiguous_8x4_block(
-            src + i * ld_src, dst + i, ld_dst);
-      }
-      int mrem = M - i;
-      if (mrem > 0) {
-        transpose_contiguous_8x4_block(
-            src + i * ld_src, dst + i, ld_dst, mrem);
-      }
-    }
-
-}
-
-void transpose_avx512_contiguous_thin(
-    const int64_t M,
-    const int64_t N,
-    const uint16_t* src,
-    unsigned ld_src,
-    uint16_t* dst,
-    unsigned ld_dst) {
-    if (N == 2) {
-      int i = 0;
-      for (; i < M / 16 * 16; i += 16) {
-        transpose_contiguous_16x2_block(
-            src + i * ld_src, dst + i, ld_dst);
-      }
-      int mrem = M - i;
-      if (mrem > 0) {
-        transpose_contiguous_16x2_block(
-            src + i * ld_src, dst + i, ld_dst, mrem);
-      }
-    } else if (N == 4) {
-      int i = 0;
-      for (; i < M / 8 * 8; i += 8) {
-        transpose_contiguous_8x4_block(
-            src + i * ld_src, dst + i, ld_dst);
-      }
-      int mrem = M - i;
-      if (mrem > 0) {
-        transpose_contiguous_8x4_block(
-            src + i * ld_src, dst + i, ld_dst, mrem);
-      }
-    }
-
-}
-
+template <typename T>
 void transpose_avx512_contiguous_wide(
-    const int64_t M,
-    const int64_t N,
-    const float* src,
-    unsigned ld_src,
-    float* dst,
-    unsigned ld_dst) {
-    if (M == 2) {
-      int i = 0;
-      for (; i < N / 16 * 16; i += 16) {
-        transpose_contiguous_2x16_block(
-            src + i, dst + i * ld_dst, ld_src);
-      }
-      int nrem = N - i;
-      if (nrem > 0) {
-        transpose_contiguous_2x16_block(
-            src + i, dst + i * ld_dst, ld_src, nrem);
-      }
-    } else if (M == 4) {
-      int i = 0;
-      for (; i < N / 16 * 16; i += 16) {
-        transpose_contiguous_4x16_block(
-            src + i, dst + i * ld_dst, ld_src);
-      }
-      int nrem = N - i;
-      if (nrem > 0) {
-        transpose_contiguous_4x16_block(
-            src + i, dst + i * ld_dst, ld_src, nrem);
-      }
+  const int64_t M,
+  const int64_t N,
+  const T* src,
+  unsigned ld_src,
+  T* dst,
+  unsigned ld_dst) {
+  if (M == 2) {
+    int i = 0;
+    for (; i < N / 16 * 16; i += 16) {
+      transpose_contiguous_2x16_block(
+          src + i, dst + i * ld_dst, ld_src);
     }
+    int nrem = N - i;
+    if (nrem > 0) {
+      transpose_contiguous_2x16_block(
+          src + i, dst + i * ld_dst, ld_src, nrem);
+    }
+  } else if (M == 4) {
+    int i = 0;
+    for (; i < N / 16 * 16; i += 16) {
+      transpose_contiguous_4x16_block(
+          src + i, dst + i * ld_dst, ld_src);
+    }
+    int nrem = N - i;
+    if (nrem > 0) {
+      transpose_contiguous_4x16_block(
+          src + i, dst + i * ld_dst, ld_src, nrem);
+    }
+  }
 }
 
-void transpose_avx512_contiguous_wide(
-    const int64_t M,
-    const int64_t N,
-    const uint16_t* src,
-    unsigned ld_src,
-    uint16_t* dst,
-    unsigned ld_dst) {
-    if (M == 2) {
-      int i = 0;
-      for (; i < N / 16 * 16; i += 16) {
-        transpose_contiguous_2x16_block(
-            src + i, dst + i * ld_dst, ld_src);
-      }
-      int nrem = N - i;
-      if (nrem > 0) {
-        transpose_contiguous_2x16_block(
-            src + i, dst + i * ld_dst, ld_src, nrem);
-      }
-    } else if (M == 4) {
-      int i = 0;
-      for (; i < N / 16 * 16; i += 16) {
-        transpose_contiguous_4x16_block(
-            src + i, dst + i * ld_dst, ld_src);
-      }
-      int nrem = N - i;
-      if (nrem > 0) {
-        transpose_contiguous_4x16_block(
-            src + i, dst + i * ld_dst, ld_src, nrem);
-      }
-    }
-}
-
+template <>
 void transpose_avx512_contiguous_wide(
     const int64_t M,
     const int64_t N,
