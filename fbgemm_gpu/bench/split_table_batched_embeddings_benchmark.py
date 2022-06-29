@@ -34,6 +34,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
     OptimType,
     PoolingMode,
+    RecordCacheMetrics,
     rounded_row_size_in_bytes,
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -1295,6 +1296,8 @@ def nbit_uvm(
             f"Accessed weights per batch: {B * (T_gpu * L + T_uvm * L_uvm)} rows, "
             f"{B * (L * sum(Ds[T_uvm:]) + L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
         )
+    torch.cuda.cudart().cudaProfilerStart()
+    torch.cuda.nvtx.range_push("uvm forward")
 
     time_per_iter = benchmark_requests(
         requests_uvm,
@@ -1311,7 +1314,8 @@ def nbit_uvm(
         f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
     )
-
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.cudart().cudaProfilerStop()
     if T_gpu > 0:
         requests = []
         assert requests_gpu is not None
@@ -1416,6 +1420,8 @@ def nbit_uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--record-cache-miss-counter", is_flag=True, default=False)
+@click.option("--record-tablewise-cache-miss", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cache(  # noqa C901
@@ -1435,6 +1441,8 @@ def nbit_cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
     enforce_hbm: bool,
+    record_cache_miss_counter: bool,
+    record_tablewise_cache_miss: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
 ) -> None:
@@ -1484,6 +1492,9 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
+        record_cache_metrics=RecordCacheMetrics(
+            record_cache_miss_counter, record_tablewise_cache_miss
+        ),
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         output_dtype=output_dtype,
@@ -1497,7 +1508,11 @@ def nbit_cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
-        output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+        param_size_multiplier
+        * B
+        * sum(Ds)
+        * L
+        # output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -1527,14 +1542,19 @@ def nbit_cache(  # noqa C901
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
-    # exchanged_cache_lines = [100]
     # warm up
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices.int(), offsets.int())
+
     # get cache miss rate (forward only) and exchanged cache lines (prefetch)
     cache_misses = []
     exchanged_cache_lines = []
+    unique_indices = []
+    input_indices = []
     NOT_FOUND = -1
+    # reset the cache miss counters after warmup
+    emb.reset_cache_miss_counter()
+
     for indices, offsets, _ in requests:
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.clone)[[Named(self,
@@ -1552,6 +1572,14 @@ def nbit_cache(  # noqa C901
             (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()
         )
         emb.forward(indices, offsets)
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            emb.cache_hash_size_cumsum,
+            indices,
+            offsets,
+        )
+        unique_indices.append(len(torch.unique(linear_cache_indices, sorted=False)))
+        input_indices.append(len(indices))
+
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -1560,11 +1588,27 @@ def nbit_cache(  # noqa C901
         f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
-
+    logging.info(
+        f"input_indices -- mean: {sum(input_indices)/len(requests)}, "
+        f"max: {max(input_indices)}, min: {min(input_indices)}"
+    )
+    logging.info(
+        f"unique_indices -- mean: {sum(unique_indices)/len(requests)}, "
+        f"max: {max(unique_indices)}, min: {min(unique_indices)}"
+    )
+    unique_miss_rate = [a / b for (a, b) in zip(exchanged_cache_lines, unique_indices)]
+    logging.info(
+        f"unique_miss_rate -- mean: {sum(unique_miss_rate)/len(requests)}, "
+        f"max: {max(unique_miss_rate)}, min: {min(unique_miss_rate)}"
+    )
+    emb.print_cache_miss_counter()
     # benchmark prefetch
     emb.reset_cache_states()
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices, offsets)
+
+    torch.cuda.cudart().cudaProfilerStart()
+    torch.cuda.nvtx.range_push("pipeline")
     prefetch_time, forward_time = benchmark_pipelined_requests(
         requests,
         lambda indices, offsets, indices_weights: emb.prefetch(
@@ -1579,6 +1623,7 @@ def nbit_cache(  # noqa C901
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     e2e_time = prefetch_time + forward_time
+    torch.cuda.nvtx.range_pop()
 
     logging.info(
         f"Forward(LXU) {weights_precision}, reuse: {reuse}, alpha: {alpha}, B: {B}, "
@@ -1590,6 +1635,7 @@ def nbit_cache(  # noqa C901
         f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
         f"{read_write_bytes / forward_time / 1.0e9: .2f} GB/s"
     )
+    torch.cuda.cudart().cudaProfilerStop()
 
 
 @cli.command()

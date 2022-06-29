@@ -3950,6 +3950,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         expect_out = sum(unique_cache_miss_ids >= 0)
         linear_cache_indices = linear_cache_indices_cpu.to(torch.int32).cuda()
         lxu_cache_locations = lxu_cache_locations_cpu.to(torch.int32).cuda()
+        expected_unique_access = len(torch.unique(linear_cache_indices_cpu))
+        expected_total_access = len(linear_cache_indices_cpu)
 
         # Create an abstract split table
         D = 8
@@ -3977,10 +3979,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         (
             cache_miss_forward_count,
             unique_cache_miss_count,
+            unique_access_count,
+            total_access_count,
         ) = cc.get_cache_miss_counter().cpu()
 
         self.assertEqual(unique_cache_miss_count, expect_out)
         self.assertLessEqual(cache_miss_forward_count, unique_cache_miss_count)
+        self.assertEqual(unique_access_count, expected_unique_access)
+        self.assertEqual(total_access_count, expected_total_access)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(N=st.integers(min_value=1, max_value=8))
@@ -4025,6 +4031,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 (
                     cache_miss_forward_count,
                     unique_cache_miss_count,
+                    _,
+                    _,
                 ) = cc.get_cache_miss_counter().cpu()
                 tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
                 self.assertEqual(cache_miss_forward_count, t_counter[0])
