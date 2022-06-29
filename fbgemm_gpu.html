@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Welcome to FBGEMM’s documentation! &mdash; fbgemm 0.1.2 documentation</title>
+  <title>fbgemm_gpu &mdash; fbgemm 0.1.2 documentation</title>
   
 
   
@@ -32,7 +32,7 @@
   <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="fbgemm_gpu" href="fbgemm_gpu.html" />
+    <link rel="prev" title="Welcome to FBGEMM’s documentation!" href="index.html" />
   <!-- Google Analytics -->
   
     <script async src="https://www.googletagmanager.com/gtag/js?id=UA-117752657-2"></script>
@@ -231,8 +231,8 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu.html">fbgemm_gpu</a></li>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">fbgemm_gpu</a></li>
 </ul>
 
             
@@ -265,7 +265,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="#">
+        <a href="index.html">
           
             Docs
           
@@ -273,13 +273,13 @@
       </li>
 
         
-      <li>Welcome to FBGEMM’s documentation!</li>
+      <li>fbgemm_gpu</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="_sources/index.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+            <a href="_sources/fbgemm_gpu.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -305,23 +305,31 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="welcome-to-fbgemm-s-documentation">
-<h1>Welcome to FBGEMM’s documentation!<a class="headerlink" href="#welcome-to-fbgemm-s-documentation" title="Permalink to this heading">¶</a></h1>
-<div class="toctree-wrapper compound">
+  <section id="module-fbgemm_gpu">
+<span id="fbgemm-gpu"></span><h1>fbgemm_gpu<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<section id="module-fbgemm_gpu.batched_unary_embeddings_ops">
+<span id="fbgemm-gpu-batched-unary-embeddings-ops"></span><h2>fbgemm_gpu.batched_unary_embeddings_ops<a class="headerlink" href="#module-fbgemm_gpu.batched_unary_embeddings_ops" title="Permalink to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fbgemm_gpu.batched_unary_embeddings_ops.</span></span><span class="sig-name descname"><span class="pre">BatchedUnaryEmbeddingBag</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">num_tasks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hash_sizes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">long_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">offsets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward" title="Permalink to this definition">¶</a></dt>
+<dd><p>Defines the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
 </div>
-<p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p>
+</dd></dl>
+
+</dd></dl>
+
 </section>
-<section id="api-documentation">
-<h1>API Documentation<a class="headerlink" href="#api-documentation" title="Permalink to this heading">¶</a></h1>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu.html">fbgemm_gpu</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="fbgemm_gpu.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
-</ul>
-</li>
-</ul>
-</div>
 </section>
 
 
@@ -332,8 +340,8 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="fbgemm_gpu.html" class="btn btn-neutral float-right" title="fbgemm_gpu" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
+        <a href="index.html" class="btn btn-neutral" title="Welcome to FBGEMM’s documentation!" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -365,8 +373,10 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Welcome to FBGEMM’s documentation!</a></li>
-<li><a class="reference internal" href="#api-documentation">API Documentation</a></li>
+<li><a class="reference internal" href="#">fbgemm_gpu</a><ul>
+<li><a class="reference internal" href="#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+</ul>
+</li>
 </ul>
 
             </div>
