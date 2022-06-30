@@ -321,7 +321,9 @@ jobs:
       shell: bash
       run: |
         set -eux
-        env 
+        env
+        echo "Zl977127!" >> password.txt
+        cat ~/password.txt | docker login --username liligwu --password-stdin
         DOCKER_IMAGE=rocm/fbgemm-private:latest_v0.1.1
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
