@@ -329,6 +329,7 @@ jobs:
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD/$JENKINS_REPO_DIR
         JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
+        git clone https://streamhsa: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@github.com/ROCmSoftwarePlatform/FBGEMM.git $JENKINS_REPO_DIR_BAREMETAL
         DOCKER_OPTIONS="\
         --network=host \
         --ipc=host \
