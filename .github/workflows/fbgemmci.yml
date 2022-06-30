@@ -317,51 +317,28 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Install ROCm 5.1.1
+    - name: build fbgemm_gpu and test
       shell: bash
       run: |
-        wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
-        export DEBIAN_FRONTEND=noninteractive
-        apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
-        amdgpu-install -y --usecase=hiplibsdk,rocm
-        rm amdgpu-install_22.10.1.50101-1_all.deb
-
-    - name: Install dependencies
-      shell: bash
-      run: |
-        apt-get update
-        apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
-        apt-get install -y hipify-clang || true
-        pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        apt-get clean
-        # Install pytorch 1.11 as required by fbgemm_gpu
-        pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
-
-    - name: Checkout submodules
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        git submodule sync
-        git submodule update --init --recursive
-
-    - name: Build fbgemm_gpu
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        # build for MI250 only to save time.
-        PYTORCH_ROCM_ARCH=gfx90a python3 setup.py build develop
-
-    - name: Test fbgemm_gpu installation
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        cd test
-        python3 input_combine_test.py
-        python3 quantize_ops_test.py
-        # disable sparse_ops_test for ROCm at the moment, since a "core dumped" aborts the test on the Github actions vm that has no GPUs.
-        # python3 sparse_ops_test.py
-        python3 -c "import fbgemm_gpu"
-        python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+        set -eux
+        env 
+        DOCKER_IMAGE=rocm/fbgemm-private:latest_v0.1.1
+        docker pull $DOCKER_IMAGE
+        JENKINS_REPO_DIR=fbgemm-private-jenkins
+        JENKINS_REPO_DIR_BAREMETAL=$PWD/$JENKINS_REPO_DIR
+        JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
+        DOCKER_OPTIONS="\
+        --network=host \
+        --ipc=host \
+        --shm-size 16G \
+        --group-add video \
+        --cap-add=SYS_PTRACE \
+        --security-opt seccomp=unconfined \
+        --device=/dev/kfd \
+        --device=/dev/dri \
+        -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER
+        "
+        docker run $DOCKER_OPTIONS $DOCKER_IMAGE /scripts/build_and_run_unit_tests.sh $JENKINS_REPO_DIR_DOCKER
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}
