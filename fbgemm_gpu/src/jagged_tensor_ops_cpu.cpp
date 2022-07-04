@@ -389,6 +389,11 @@ class JaggedToPaddedDenseCPUOp
       padded_values_shape.push_back(values.size(-1));
     }
     Tensor padded_values = at::empty(padded_values_shape, values.options());
+    if (values.numel() == 0) {
+      // To avoid an error due to values_canonicalized.data_ptr is nullptr.
+      padded_values.fill_(padding_value);
+      return {padded_values};
+    }
     Tensor padded_values_view =
         values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
 
