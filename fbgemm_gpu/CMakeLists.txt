@@ -308,7 +308,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
-    src/split_table_batched_embeddings.cpp)
+    src/split_table_batched_embeddings.cpp
+    src/metric_ops_host.cpp)
 
   if(NVML_LIB_PATH)
     list(APPEND fbgemm_gpu_sources_cpu src/merge_pooled_embeddings_cpu.cpp
