@@ -178,7 +178,7 @@ IF(HIP_FOUND)
   message("\n***** Library versions from cmake find_package *****\n")
 
   # As of ROCm 5.1.x, all *.cmake files are under /opt/rocm/lib/cmake/<package>
-  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.1.1")
+  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.1.0")
     set(hip_DIR ${HIP_PATH}/lib/cmake/hip)
     set(hsa-runtime64_DIR ${ROCM_PATH}/lib/cmake/hsa-runtime64)
     set(AMDDeviceLibs_DIR ${ROCM_PATH}/lib/cmake/AMDDeviceLibs)
@@ -198,7 +198,7 @@ IF(HIP_FOUND)
     set(ROCRAND_INCLUDE ${ROCM_PATH}/include)
     set(ROCM_SMI_INCLUDE ${ROCM_PATH}/rocm_smi/include)
   else()
-    message(FATAL_ERROR "\n***** The minimal ROCm version is 5.1.1 but have ${ROCM_VERSION_DEV} installed *****\n")
+    message(FATAL_ERROR "\n***** The minimal ROCm version is 5.1.0 but have ${ROCM_VERSION_DEV} installed *****\n")
   endif()
 
   find_package(hip REQUIRED)
