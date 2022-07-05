@@ -320,6 +320,8 @@ jobs:
       run: |
         sudo chown -R $USER:$USER ${{ github.workspace }}/fbgemm-private-jenkins
         sudo rm -rf ${{ github.workspace }}/fbgemm-private-jenkins
+        sudo apt update
+        sudo apt install --only-upgrade git
 
     - uses: actions/checkout@v2
       with:
