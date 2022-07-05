@@ -328,7 +328,7 @@ jobs:
     - name: Checkout script
       uses: actions/checkout@v2
       with:
-        repository: https://github.com/liligwu/fbgemm_ci.git
+        repository: liligwu/fbgemm_ci
         path: fbgemm_ci
 
     - name: build fbgemm_gpu and test
