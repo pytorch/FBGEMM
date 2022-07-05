@@ -315,6 +315,11 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
+    - name: pre-checkout
+      shell: bash
+      run: |
+        sudo chown -R $USER:$USER ${{ github.workspace }}/fbgemm-private-jenkins
+
     - uses: actions/checkout@v2
       with:
         ref: ${{ github.ref }}
