@@ -16,7 +16,7 @@
 
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
-
+// #include <stdio.h>
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -110,10 +110,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {% endif %}
 
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
         D_emb += kINT8QparamsBytes;
     }
-
     {% if not nobag %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {% endif %}
@@ -146,6 +145,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 D,
                 nullptr);
             float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+            qparams_cache.x = 1.0f;
+            qparams_cache.y = 0.0f;
 
             {% endif %}
             auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
@@ -154,11 +155,15 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 D,
                 nullptr);
             float2 qparams_emb;
-            if (std::is_same<emb_t, uint8_t>::value) {
+            qparams_emb.x = 1.0f;
+            qparams_emb.y = 0.0f;
+            if (std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) {
                 qparams_emb = weight_row_emb.load_qparams();
+                // printf("l158 loaded qparams_emb %f %f\n", qparams_emb.x, qparams_emb.y);
             }
 
             {% if not nobag %}
+            // printf("bag op\n");
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
@@ -166,6 +171,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
                 {% if not dense %}
                 if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                    // printf("l170 load from cache %f %f\n", qparams_cache.x, qparams_cache.y);
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -173,6 +179,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     accumulators[i].add_(weight);
                     {% endif %}
                 } else {
+                    // printf("l178 load from emb\n");
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -181,6 +188,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% endif %}
                 }
                 {% else %}
+                    // printf("l187 load from emb\n");
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -190,24 +198,30 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 {% endif %}
             }
             {% else %}
+            // printf("nobag op\n");
             for (int32_t i = 0; i < D; i+=4 * kWarpSize) {
                 int32_t d = i + threadIdx.x * 4;
                 if (d < D) {
                     {% if not dense %}
                     if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                        // printf("l203 load weight with qparams_cache %f %f\n", qparams_cache.x, qparams_cache.y);
                         Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                         weight.store(&output[output_j][d]);
+                        // printf("l206 store to output %f\n", output[output_j][d]);
                     } else {
+                        // printf("l208 load from emb\n");
                         Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                         weight.store(&output[output_j][d]);
                     }
                     {% else %}
+                        // printf("l213 load from emb\n");
                         Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                         weight.store(&output[output_j][d]);
                     {% endif %}
                 }
             }
             {% endif %}
+
         }
     }
 
@@ -223,12 +237,15 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
             }
             int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
             accumulators[i].store(&output[b][D_start + d]);
+            // printf("l236 store to output %d\n", output[b][D_start + d]);
         }
     } else {
         // apply per feature row-wise int8
         float thread_local_min = std::numeric_limits<float>::max();
         float thread_local_max = std::numeric_limits<float>::lowest();
         float2 qparams;
+        qparams.x = 1.0f;
+        qparams.y = 0.0f;
 
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
@@ -368,6 +385,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     }
     {% else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    /*
+    printf("o_dtype is fp32? %d\n", o_dtype == SparseType::FP32);
+    printf("o_dtype is fp16? %d\n", o_dtype == SparseType::FP16);
+    printf("o_dtype is BF16? %d\n", o_dtype == SparseType::BF16);
+    printf("o_dtype is int8? %d\n", o_dtype == SparseType::INT8);
+    */
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
     int64_t total_adjusted_D = total_D;

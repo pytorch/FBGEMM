@@ -108,7 +108,8 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     int32_t D_current = D_end_current - D_start_current;
 
     int32_t D_emb = D_current;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (std::is_same<emb_t, uint8_t>::value ||
+        std::is_same<emb_t, int8_t>::value) {
       D_emb += kINT8QparamsBytes;
     }
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
@@ -131,13 +132,23 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     }
 
     float2 qparams;
+    qparams.x = 1.0f;
+    qparams.y = 0.0f;
     if (std::is_same<emb_t, uint8_t>::value) {
       qparams =
           thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
       if (threadIdx.x == 0) {
         weight_row.store_qparams(qparams);
       }
+    } else if (std::is_same<emb_t, int8_t>::value) {
+      qparams =
+          thrust_find_qparams_fp8<cache_t>(&lxu_cache_weights[b][0], D_current);
+      if (threadIdx.x == 0) {
+        weight_row.store_qparams(qparams);
+      }
+      CUDA_KERNEL_ASSERT(!isnan(qparams.x));
     }
+
     for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
       Vec4T<at::acc_type<cache_t, true>> cache_weights_vec =
           weight_row.load(d * 4, qparams);
@@ -607,7 +618,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
       int32_t D_end_current = D_offsets[t_current + 1];
       int32_t D_current = D_end_current - D_start_current;
       int32_t D_emb = D_current;
-      if (std::is_same<emb_t, uint8_t>::value) {
+      if (std::is_same<emb_t, uint8_t>::value ||
+          std::is_same<emb_t, int8_t>::value) {
         D_emb += kINT8QparamsBytes;
       }
       auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
@@ -631,18 +643,25 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         weight_row.set_stoc_state(&state);
       }
       float2 qparams;
+      qparams.x = 1.0f;
+      qparams.y = 0.0f;
       at::acc_type<cache_t, true> local_min =
           std::numeric_limits<at::acc_type<cache_t, true>>::max();
       at::acc_type<cache_t, true> local_max =
           std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
-      if (std::is_same<emb_t, uint8_t>::value) {
+      if (std::is_same<emb_t, uint8_t>::value ||
+          std::is_same<emb_t, int8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
           Vec4T<cache_t> cache_weights_vec =
               weight_row.load(d * 4, qparams); // qparams not used
           local_max = max(local_max, vec4_max(cache_weights_vec));
           local_min = min(local_min, vec4_min(cache_weights_vec));
         }
-        qparams = warp_find_qparams(local_min, local_max);
+        if (std::is_same<emb_t, uint8_t>::value) {
+          qparams = warp_find_qparams(local_min, local_max);
+        } else if (std::is_same<emb_t, int8_t>::value) {
+          qparams = warp_find_qparams_fp8(local_min, local_max);
+        }
         if (threadIdx.x == 0) {
           weight_row.store_qparams(qparams);
         }
@@ -654,7 +673,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
       }
     }
     int32_t D_emb = D_insert;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (std::is_same<emb_t, uint8_t>::value ||
+        std::is_same<emb_t, int8_t>::value) {
       D_emb += kINT8QparamsBytes;
     }
     // insert into cache
@@ -671,7 +691,10 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         nullptr);
 
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    qparams.x = 1.0f;
+    qparams.y = 0.0f;
+    if (std::is_same<emb_t, uint8_t>::value ||
+        std::is_same<emb_t, int8_t>::value) {
       qparams = weight_row_emb.load_qparams();
     }
     for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
@@ -1344,7 +1367,8 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       int32_t D_current = D_end_current - D_start_current;
 
       int32_t D_emb = D_current;
-      if (std::is_same<emb_t, uint8_t>::value) {
+      if (std::is_same<emb_t, uint8_t>::value ||
+          std::is_same<emb_t, int8_t>::value) {
         D_emb += kINT8QparamsBytes;
       }
       auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
@@ -1369,18 +1393,25 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       }
 
       float2 qparams;
+      qparams.x = 1.0f;
+      qparams.y = 0.0f;
       at::acc_type<cache_t, true> local_min =
           std::numeric_limits<at::acc_type<cache_t, true>>::max();
       at::acc_type<cache_t, true> local_max =
           std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
-      if (std::is_same<emb_t, uint8_t>::value) {
+      if (std::is_same<emb_t, uint8_t>::value ||
+          std::is_same<emb_t, int8_t>::value) {
         for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
           Vec4T<cache_t> cache_weights_vec =
               weight_row.load(d * 4, qparams); // qparams not used
           local_max = max(local_max, vec4_max(cache_weights_vec));
           local_min = min(local_min, vec4_min(cache_weights_vec));
         }
-        qparams = warp_find_qparams(local_min, local_max);
+        if (std::is_same<emb_t, uint8_t>::value) {
+          qparams = warp_find_qparams(local_min, local_max);
+        } else if (std::is_same<emb_t, int8_t>::value) {
+          qparams = warp_find_qparams_fp8(local_min, local_max);
+        }
         if (threadIdx.x == 0) {
           weight_row.store_qparams(qparams);
         }
@@ -1392,7 +1423,8 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
     }
     // insert into cache
     int32_t D_emb = D_insert;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (std::is_same<emb_t, uint8_t>::value ||
+        std::is_same<emb_t, int8_t>::value) {
       D_emb += kINT8QparamsBytes;
     }
     auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
@@ -1408,7 +1440,10 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
         nullptr);
 
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    qparams.x = 1.0f;
+    qparams.y = 0.0f;
+    if (std::is_same<emb_t, uint8_t>::value ||
+        std::is_same<emb_t, int8_t>::value) {
       qparams = weight_row_emb.load_qparams();
     }
     for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {

@@ -82,6 +82,39 @@ float_to_hfp8(float val_fp, int ebits, int exponent_bias, float max_pos) {
   return bfp8_val;
 }
 
+inline C10_HOST_DEVICE uint8_t float_to_hfp8_stochastic(
+    float val_fp,
+    int ebits,
+    int mbits,
+    int bias,
+    float min_pos,
+    float max_pos,
+    uint32_t random_bits) {
+  // We add a random noise in  [-1/2,1/2]*ulp and then
+  // call the usual float_to_hfp8 (round to nearest).
+  // Here, ulp is the last place of val_fp in FP8's precision
+  // which is 2^e x 2^(-mbit); and e is the exponent of x:
+  // If 2^(1-bias) <= |x|, e is simply the exponent field of x minus 127
+  // Otherwise, e is 1-bias
+
+  fint32 random_noise, three_halfs;
+  int32_t e;
+
+  random_noise.F = val_fp;
+  e = ((random_noise.I & 0x7F800000) >> 23) - 127;
+  e = (e < 1 - bias) ? 1 - bias : e;
+  random_noise.I = ((127 + e - mbits) << 23) | (random_bits & 0x007FFFFF);
+  // at this point random_noise is uniform [1,2]*ulp
+  three_halfs.I = (random_noise.I & 0x7F800000) | 0x00400000;
+  random_noise.F = random_noise.F - three_halfs.F;
+
+  float val_fp_with_noise = val_fp + random_noise.F;
+
+  uint8_t bfp8_val = float_to_hfp8(val_fp_with_noise, ebits, bias, max_pos);
+
+  return bfp8_val;
+}
+
 inline C10_HOST_DEVICE float
 hfp8_to_float(uint8_t hfp8_val, int ebits, int exponent_bias) {
   fint32 val_out, sign, multiplier;

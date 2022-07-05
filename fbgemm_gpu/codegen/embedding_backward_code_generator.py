@@ -911,7 +911,9 @@ def lamb() -> None:
   at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
   auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
   float2 qparams;
-  if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+  qparams.x = 1.0f;
+  qparams.y = 0.0f;
+  if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
     qparams = weight_row.load_qparams();
   }
 #pragma unroll 1
@@ -1003,7 +1005,9 @@ def partial_rowwise_lamb() -> None:
     at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+    qparams.x = 1.0f;
+    qparams.y = 0.0f;
+    if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
         qparams = weight_row.load_qparams();
     }
     #pragma unroll kMaxVecsPerThread
@@ -1178,7 +1182,9 @@ def lars_sgd() -> None:
 
   auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
   float2 qparams;
-  if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+  qparams.x = 1.0f;
+  qparams.y = 0.0f;
+  if ((std::is_same<emb_t, uint8_t>::value || std::is_same<emb_t, int8_t>::value) && !cache_weights) {
       qparams = weight_row.load_qparams();
   }
 #pragma unroll kMaxVecsPerThread

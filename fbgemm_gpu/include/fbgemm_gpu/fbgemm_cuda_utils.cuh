@@ -13,6 +13,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#include "fbgemm_gpu/quantize_ops_utils.h"
 
 namespace {
 using fint32 = union fint32 {
@@ -22,6 +23,25 @@ using fint32 = union fint32 {
 } // namespace
 
 namespace fbgemm_gpu {
+
+__device__ int ebits = 4;
+__device__ int mbits = 3;
+__device__ int bias = 14;
+__device__ float min_pos = 1.52587890625e-05;
+__device__ float max_pos = 1.875;
+
+/*
+__device__ int ebits = 5;
+__device__ int mbits = 2;
+__device__ int bias = 30;
+__device__ float min_pos = 4.656612873077393e-10;
+__device__ float max_pos = 1.75;
+__device__ int ebits = 5;
+__device__ int mbits = 2;
+__device__ int bias = 24;
+__device__ float min_pos = 2.9802322387695312e-08;
+__device__ float max_pos = 112.0;
+*/
 
 enum class PrimitiveType : uint8_t { FP = 0, INT = 1, BF = 2 };
 
@@ -838,6 +858,92 @@ DEVICE_INLINE void stochastic_rounding_vector(
       (value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    int8_t* output,
+    Vec4T<float> value,
+    StochasticRoundingRNGState& state,
+    float2 qparams) {
+  uint4 random_bits = stochastic_rounding_rand4(&state);
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  float inv_scale = 1.0f / (qparams.x + kQParamEps);
+  output[0] = float_to_hfp8_stochastic(
+      value.acc.x * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.x);
+  output[1] = float_to_hfp8_stochastic(
+      value.acc.y * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.y);
+  output[2] = float_to_hfp8_stochastic(
+      value.acc.z * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.z);
+  output[3] = float_to_hfp8_stochastic(
+      value.acc.w * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.w);
+}
+
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    int8_t* output,
+    Vec4T<at::Half> value,
+    StochasticRoundingRNGState& state,
+    float2 qparams) {
+  uint4 random_bits = stochastic_rounding_rand4(&state);
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  float inv_scale = 1.0f / (qparams.x + kQParamEps);
+  output[0] = float_to_hfp8_stochastic(
+      value.acc.x * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.x);
+  output[1] = float_to_hfp8_stochastic(
+      value.acc.y * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.y);
+  output[2] = float_to_hfp8_stochastic(
+      value.acc.z * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.z);
+  output[3] = float_to_hfp8_stochastic(
+      value.acc.w * inv_scale,
+      ebits,
+      mbits,
+      bias,
+      min_pos,
+      max_pos,
+      random_bits.w);
+}
+
 // begin nearest rounding and store implementations
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void nearest_rounding_vector(
@@ -875,12 +981,40 @@ nearest_rounding_vector(uint8_t* output, Vec4T<double> value, float2 qparams) {
   CUDA_KERNEL_ASSERT(false);
 }
 
+template <>
+DEVICE_INLINE void
+nearest_rounding_vector(int8_t* output, Vec4T<float> value, float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  float inv_scale = 1.0f / (qparams.x + kQParamEps);
+  output[0] = lrintf(value.acc.x * inv_scale);
+  output[1] = lrintf(value.acc.y * inv_scale);
+  output[2] = lrintf(value.acc.z * inv_scale);
+  output[3] = lrintf(value.acc.w * inv_scale);
+}
+template <>
+DEVICE_INLINE void
+nearest_rounding_vector(int8_t* output, Vec4T<at::Half> value, float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  float inv_scale = 1.0f / (qparams.x + kQParamEps);
+  output[0] = lrintf(value.acc.x * inv_scale);
+  output[1] = lrintf(value.acc.y * inv_scale);
+  output[2] = lrintf(value.acc.z * inv_scale);
+  output[3] = lrintf(value.acc.w * inv_scale);
+}
+
+template <>
+DEVICE_INLINE void
+nearest_rounding_vector(int8_t* output, Vec4T<double> value, float2 qparams) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
     Vec4T<src_t> value,
     StochasticRoundingRNGState* state,
     float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
   if (!state) {
     nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
   } else {
@@ -913,12 +1047,39 @@ DEVICE_INLINE Vec4T<at::Half> dequantize_load(uint8_t* value, float2 qparams) {
   return out;
 }
 
+template <>
+DEVICE_INLINE Vec4T<float> dequantize_load(int8_t* value, float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  uint8_t* fp8_value = reinterpret_cast<uint8_t*>(value);
+  Vec4T<float> out;
+  out.acc.x = hfp8_to_float(fp8_value[0], ebits, bias) * qparams.x;
+  out.acc.y = hfp8_to_float(fp8_value[1], ebits, bias) * qparams.x;
+  out.acc.z = hfp8_to_float(fp8_value[2], ebits, bias) * qparams.x;
+  out.acc.w = hfp8_to_float(fp8_value[3], ebits, bias) * qparams.x;
+  CUDA_KERNEL_ASSERT(!isnan(out.acc.x));
+  return out;
+}
+
+template <>
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(int8_t* value, float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+  uint8_t* fp8_value = reinterpret_cast<uint8_t*>(value);
+  Vec4T<at::Half> out;
+  out.acc.x = hfp8_to_float(fp8_value[0], ebits, bias) * qparams.x;
+  out.acc.y = hfp8_to_float(fp8_value[1], ebits, bias) * qparams.x;
+  out.acc.z = hfp8_to_float(fp8_value[2], ebits, bias) * qparams.x;
+  out.acc.w = hfp8_to_float(fp8_value[3], ebits, bias) * qparams.x;
+  CUDA_KERNEL_ASSERT(!isnan(out.acc.x));
+  return out;
+}
+
 template <typename emb_t>
 DEVICE_INLINE float2 load_qparams_from_row(emb_t* qparam_ptr) {
   float2 qparams;
   float* qparams_fp_ptr = reinterpret_cast<float*>(qparam_ptr);
   qparams.x = qparams_fp_ptr[0];
   qparams.y = qparams_fp_ptr[1];
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
   return qparams;
 }
 
@@ -929,6 +1090,7 @@ DEVICE_INLINE void store_qparams_to_row(emb_t* ptr, float2 qparams) {
 
 template <>
 DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
+  CUDA_KERNEL_ASSERT(!isnan(qparams.x));
   auto ptr_as_uint = reinterpret_cast<uintptr_t>(ptr);
   if (ptr_as_uint % 8 == 0) {
     *reinterpret_cast<float2*>(ptr) = qparams;
@@ -980,6 +1142,7 @@ struct WeightRow {
 
   // load from cache if resident; else load from embedding
   DEVICE_INLINE Vec4T<dst_t> load(int32_t d, float2 qparams) {
+    CUDA_KERNEL_ASSERT(!isnan(qparams.x));
     if (cache_row_) {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
     } else {
@@ -1117,6 +1280,42 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
 }
 
 template <typename scalar_t>
+__device__ float2 thrust_find_qparams_fp8(scalar_t* input_row, int D) {
+  float2 qparams;
+
+  scalar_t scalar_minimum = *(input_row++);
+  scalar_t scalar_maximum = scalar_minimum;
+
+  while (--D > 0) {
+    scalar_t next = *(input_row++);
+    scalar_minimum = (scalar_minimum <= next) ? scalar_minimum : next;
+    scalar_maximum = (scalar_maximum >= next) ? scalar_maximum : next;
+  }
+  float minimum_element = scalar_minimum;
+  float maximum_element = scalar_maximum;
+
+  qparams.x = maximum_element;
+  qparams.y = minimum_element;
+  return qparams;
+}
+
+template <typename scalar_t>
+__device__ float2
+thrust_find_qparams_fp8(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
+  // TODO: replace uses in backward kernels with warp find qparams
+  float2 qparams;
+  float min_val = vec4_min(input_row[0]);
+  float max_val = vec4_max(input_row[0]);
+  for (int i = 0; i < D / 4; ++i) {
+    min_val = min(min_val, vec4_min(input_row[i]));
+    max_val = max(max_val, vec4_max(input_row[i]));
+  }
+  qparams.x = max_val;
+  qparams.y = min_val;
+  return qparams;
+}
+
+template <typename scalar_t>
 DEVICE_INLINE scalar_t vec4_min(fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t min_val = vec4.acc.x;
   min_val = min(vec4.acc.y, min_val);
@@ -1161,6 +1360,21 @@ __device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
   local_max = warp_reduce_max<scalar_t>(local_max);
   if (threadIdx.x == 0) {
     qparams.x = (local_max - local_min) / 255.0f;
+    qparams.y = local_min;
+  }
+  qparams.x = shfl_sync(qparams.x, 0);
+  qparams.y = shfl_sync(qparams.y, 0);
+  return qparams;
+}
+
+template <typename scalar_t>
+__device__ float2
+warp_find_qparams_fp8(scalar_t local_min, scalar_t local_max) {
+  float2 qparams;
+  local_min = warp_reduce_min<scalar_t>(local_min);
+  local_max = warp_reduce_max<scalar_t>(local_max);
+  if (threadIdx.x == 0) {
+    qparams.x = local_max;
     qparams.y = local_min;
   }
   qparams.x = shfl_sync(qparams.x, 0);
@@ -1766,6 +1980,14 @@ struct VecNT<1, PrimitiveType::FP> {
   }
 
   DEVICE_INLINE void
+  store(int8_t* output_ptr, float2 qparams, int num_valid_outputs = 1) {
+    CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+    const float inv_scale = 1.0f / (qparams.x + kQParamEps);
+    output_ptr[0] = *reinterpret_cast<int8_t*>(
+        float_to_hfp8(acc * inv_scale, ebits, bias, max_pos));
+  }
+
+  DEVICE_INLINE void
   store(float* output_ptr, float2 qparams, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -1843,6 +2065,19 @@ struct VecNT<2, PrimitiveType::FP> {
     for (int i = 0; i < 2; ++i) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(((&acc.x)[i] - qparams.y) * inv_scale);
+      }
+    }
+  }
+
+  DEVICE_INLINE void
+  store(int8_t* output_ptr, float2 qparams, int num_valid_outputs = 2) {
+    CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+    const float inv_scale = 1.0f / (qparams.x + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 2; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = *reinterpret_cast<int8_t*>(
+            float_to_hfp8((&acc.x)[i] * inv_scale, ebits, bias, max_pos));
       }
     }
   }
@@ -1960,6 +2195,18 @@ struct VecNT<4, PrimitiveType::FP> {
   }
 
   DEVICE_INLINE void
+  store(int8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+    const float inv_scale = 1.0f / (qparams.x + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = *reinterpret_cast<int8_t*>(float_to_hfp8(
+            lrintf((&(acc.x))[i] * inv_scale), ebits, bias, max_pos));
+      }
+    }
+  }
+  DEVICE_INLINE void
   store(float* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2069,6 +2316,19 @@ struct VecNT<4, PrimitiveType::INT> {
     for (int i = 0; i < 4; ++i) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(((&(acc.x))[i] - qparams.y) * inv_scale);
+      }
+    }
+  }
+
+  DEVICE_INLINE void
+  store(int8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(!isnan(qparams.x));
+    const float inv_scale = 1.0f / (qparams.x + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = *reinterpret_cast<int8_t*>(
+            float_to_hfp8((&(acc.x))[i] * inv_scale, ebits, bias, max_pos));
       }
     }
   }

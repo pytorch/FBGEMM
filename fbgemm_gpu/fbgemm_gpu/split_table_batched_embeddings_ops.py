@@ -98,7 +98,7 @@ def construct_split_state(
     uvm_size = 0
     for (num_embeddings, embedding_dim, location, _) in embedding_specs:
         assert embedding_dim % 4 == 0, f"{embedding_dim}"
-        if precision == SparseType.INT8:
+        if precision == SparseType.INT8 or precision == SparseType.FP8_qparams:
             embedding_dim += int8_emb_row_dim_offset
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
         if location == EmbeddingLocation.HOST:
@@ -887,6 +887,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 tmp_emb.uniform_(min_val, max_val)
                 tmp_emb_i8 = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(tmp_emb)
                 emb.data.copy_(tmp_emb_i8)
+        elif self.weights_precision == SparseType.FP8_qparams:
+            for emb in splits:
+                assert (
+                    len(emb.shape) == 2
+                ), "FP8 embedding only supported for 2D weight tensors."
+                shape = [emb.shape[0], emb.shape[1] - self.int8_emb_row_dim_offset]
+                tmp_emb = torch.zeros(shape, device=self.current_device)
+                tmp_emb.uniform_(min_val, max_val)
+                """
+                ebits = 5
+                mbits = 2
+                bias = 30
+                """
+                ebits = 4
+                mbits = 3
+                bias = 14
+                max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+                tmp_emb_fp8 = torch.ops.fbgemm.FloatToHFP8Quantized(
+                    tmp_emb.contiguous(), ebits, bias, max_pos
+                )
+                emb.data.copy_(tmp_emb_fp8)
         else:
             for param in splits:
                 param.uniform_(min_val, max_val)
@@ -898,7 +919,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         splits = []
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
-            if self.weights_precision == SparseType.INT8:
+            if (
+                self.weights_precision == SparseType.INT8
+                or self.weights_precision == SparseType.FP8_qparams
+            ):
                 dim += self.int8_emb_row_dim_offset
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
@@ -1104,7 +1128,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.host_size > 0:
-            if dtype == torch.uint8:
+            if dtype == torch.uint8 or dtype == torch.int8:
                 self.register_buffer(
                     f"{prefix}_host",
                     torch.zeros(
@@ -1487,6 +1511,7 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
         SparseType.FP32.value: dim * 4,
         SparseType.FP16.value: dim * 2,
         SparseType.FP8.value: dim,
+        SparseType.FP8_qparams.value: dim + 4,
         SparseType.INT8.value: dim + 4,
         SparseType.INT4.value: dim // 2 + 4,
         SparseType.INT2.value: dim // 4 + 4,
@@ -2319,6 +2344,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     weight_ty == SparseType.INT8
                     or weight_ty == SparseType.INT4
                     or weight_ty == SparseType.INT2
+                    or weight_ty == SparseType.FP8_qparams
                 ):
                     splits.append(
                         (

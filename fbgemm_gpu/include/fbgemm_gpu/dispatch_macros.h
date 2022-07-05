@@ -32,6 +32,8 @@
     PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)           \
     PRIVATE_CASE_TYPE_EMB(                                                    \
+        at::ScalarType::Char, _cache_t, int8_t, NAME, __VA_ARGS__)            \
+    PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
     PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
@@ -127,6 +129,8 @@
     switch (_emb_t) {                                                      \
       PRIVATE_CASE_TYPE_EMB(                                               \
           at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)      \
+      PRIVATE_CASE_TYPE_EMB(                                               \
+          at::ScalarType::Char, _cache_t, int8_t, NAME, __VA_ARGS__)       \
       PRIVATE_CASE_TYPE_EMB(                                               \
           at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
       PRIVATE_CASE_TYPE_EMB(                                               \
