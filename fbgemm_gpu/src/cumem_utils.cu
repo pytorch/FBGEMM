@@ -165,6 +165,34 @@ Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes) {
   return t;
 }
 
+// Allocate a cuda Tensor with unified managed memory (UVM)
+// Without setting the preferred data location
+Tensor new_managed_tensor_experimental(
+    Tensor self,
+    const std::vector<std::int64_t>& sizes) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(self.get_device());
+
+  Tensor t = new_managed_tensor_internal(self, sizes);
+
+  void* ptr = t.data_ptr();
+  size_t size_bytes = t.storage().nbytes();
+
+  // User hints with "accessed by": GPU will establish direct mapping of data
+  // in CPU memory, no page faults will be generated
+  AT_CUDA_CHECK(cudaMemAdvise(
+      ptr, size_bytes, cudaMemAdviseSetAccessedBy, at::cuda::current_device()));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  // Work around fork issue - see uvm_mem_advice_dont_fork for details
+  auto adjusted = adjust_to_page_boundaries(ptr, size_bytes);
+  int result =
+      madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
+  TORCH_CHECK(result == 0)
+
+  return t;
+}
+
 // Allocate a cuda Tensor with unified managed memory (UVM) without the
 // additional steps taked by new_managed_tensor above
 Tensor new_vanilla_managed_tensor(

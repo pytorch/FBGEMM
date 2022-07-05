@@ -1573,6 +1573,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         row_alignment: Optional[int] = None,
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
+        set_preferred_location: bool = True,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1718,6 +1719,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.dev_size: int = weight_split.dev_size
         self.uvm_size: int = weight_split.uvm_size
         self.enforce_hbm: bool = enforce_hbm
+        self.set_preferred_location: bool = set_preferred_location
 
         # Assign weights after weights and weights_offsets are initialized.
         if weight_lists:
@@ -1728,6 +1730,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_placements,
                 self.weights_physical_offsets,
                 self.enforce_hbm,
+                self.set_preferred_location,
             )
             self.assign_embedding_weights(weight_lists)  # type: ignore
 
@@ -2077,6 +2080,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         placements: List[int],
         offsets: List[int],
         enforce_hbm: bool,
+        set_preferred_location: bool = True,
     ) -> None:
         assert not self.weight_initialized, "Weights have already been initialized."
         self.weight_initialized = True
@@ -2118,13 +2122,26 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     dtype=torch.uint8,
                 )
             else:
-                self.weights_uvm = torch.zeros(
-                    uvm_size,
-                    out=torch.ops.fbgemm.new_managed_tensor(
-                        torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
-                        [uvm_size],
-                    ),
-                )
+                if set_preferred_location:
+                    self.weights_uvm = torch.zeros(
+                        uvm_size,
+                        out=torch.ops.fbgemm.new_managed_tensor(
+                            torch.zeros(
+                                1, device=self.D_offsets.device, dtype=torch.uint8
+                            ),
+                            [uvm_size],
+                        ),
+                    )
+                else:
+                    self.weights_uvm = torch.zeros(
+                        uvm_size,
+                        out=torch.ops.fbgemm.new_managed_tensor_experimental(
+                            torch.zeros(
+                                1, device=self.D_offsets.device, dtype=torch.uint8
+                            ),
+                            [uvm_size],
+                        ),
+                    )
 
     def _apply_cache_state(
         self,
@@ -2352,6 +2369,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_placements,
                 self.weights_physical_offsets,
                 self.enforce_hbm,
+                self.set_preferred_location,
             )
             self.weight_initialized: bool = True
 

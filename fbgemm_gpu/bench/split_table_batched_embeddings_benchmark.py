@@ -1129,10 +1129,12 @@ def nbit_device(  # noqa C901
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--use-cache", is_flag=True, default=False)
 @click.option("--cache-algorithm", default="lru")
+@click.option("--memory-fraction", default=1.0)
 @click.option("--cache-load-factor", default=0.2)
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--set-preferred-location", default=True)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1153,9 +1155,11 @@ def nbit_uvm(
     use_cache: bool,
     cache_algorithm: str,
     cache_load_factor: float,
+    memory_fraction: float,
     enforce_hbm: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    set_preferred_location: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1178,6 +1182,27 @@ def nbit_uvm(
     )
 
     logging.info(f"T: {T}, T_uvm: {T_uvm}, T_gpu: {T_gpu}")
+    total_memory = torch.cuda.get_device_properties(
+        torch.cuda.current_device()
+    ).total_memory
+    if memory_fraction < 1:
+        tmp_tensor = torch.empty(
+            int(total_memory * (1 - memory_fraction)),
+            dtype=torch.int8,
+            device=torch.cuda.current_device(),
+        )
+    else:
+        tmp_tensor = torch.empty(
+            int(1),
+            dtype=torch.int8,
+            device=torch.cuda.current_device(),
+        )
+    print("total memory (GB): ", total_memory / (1024 * 1024 * 1024))
+    print("Tmp tensor size (GB): ", len(tmp_tensor) / (1024 * 1024 * 1024))
+    print(
+        "Available memory size (GB): ",
+        (total_memory - len(tmp_tensor)) / (1024 * 1024 * 1024),
+    )
 
     if mixed:
         Ds = [
@@ -1204,6 +1229,7 @@ def nbit_uvm(
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
+        set_preferred_location=set_preferred_location,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1246,6 +1272,7 @@ def nbit_uvm(
             enforce_hbm=enforce_hbm,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
+            set_preferred_location=set_preferred_location,
         ).cuda()
         emb_mixed.fill_random_weights()
 
