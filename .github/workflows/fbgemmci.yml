@@ -322,7 +322,7 @@ jobs:
         sudo rm -rf ${{ github.workspace }}/fbgemm-private-jenkins
         sudo add-apt-repository ppa:git-core/ppa
         sudo apt update
-        sudo apt install --only-upgrade git
+        sudo apt -y install --only-upgrade git
 
     - uses: actions/checkout@v2
       with:
