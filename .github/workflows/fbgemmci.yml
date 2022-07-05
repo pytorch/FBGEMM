@@ -340,7 +340,7 @@ jobs:
         DOCKER_IMAGE=rocm/pytorch:rocm5.1.3_ubuntu20.04_py3.7_pytorch_1.11.0
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
-        JENKINS_REPO_DIR_BAREMETAL=$PWD/$JENKINS_REPO_DIR
+        JENKINS_REPO_DIR_BAREMETAL=$PWD
         JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
         SCRIPT_DIR=fbgemm_ci
         SCRIPT_DIR_BAREMETAL=$PWD/$SCRIPT_DIR
