@@ -319,6 +319,7 @@ jobs:
       shell: bash
       run: |
         sudo chown -R $USER:$USER ${{ github.workspace }}/fbgemm-private-jenkins
+        sudo rm -rf ${{ github.workspace }}/fbgemm-private-jenkins
 
     - uses: actions/checkout@v2
       with:
