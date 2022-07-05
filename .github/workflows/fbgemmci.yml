@@ -318,8 +318,11 @@ jobs:
     - name: pre-checkout
       shell: bash
       run: |
-        sudo chown -R $USER:$USER ${{ github.workspace }}/fbgemm-private-jenkins
-        sudo rm -rf ${{ github.workspace }}/fbgemm-private-jenkins
+        if [ -d ${{ github.workspace }}/fbgemm-private-jenkins ]
+        then
+          sudo chown -R $USER:$USER ${{ github.workspace }}/fbgemm-private-jenkins
+          sudo rm -rf ${{ github.workspace }}/fbgemm-private-jenkins
+        fi
         sudo add-apt-repository ppa:git-core/ppa
         sudo apt update
         sudo apt -y install --only-upgrade git
