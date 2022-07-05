@@ -330,7 +330,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         ref: ${{ github.ref }}
-        lfs: 'true'
+        submodules: 'true'
         path: 'fbgemm-private-jenkins'
 
     - name: Checkout script
