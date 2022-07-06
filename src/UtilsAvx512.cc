@@ -322,296 +322,6 @@ void transpose_avx512_contiguous_wide(
     T* dst,
     unsigned ld_dst);
 
-template <>
-void transpose_avx512(
-    int64_t M,
-    int64_t N,
-    const float* src,
-    unsigned ld_src,
-    float* dst,
-    unsigned ld_dst) {
-  if (M == ld_dst && (M == 2 || M == 4)) {
-    transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
-  } else if (N == ld_src && (N == 2 || N == 4)) {
-    transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
-  } else {
-    unsigned ib = 0, jb = 0;
-    if (N % 16 > 0 && N % 16 < 4) {
-      // If the remainder has n < 4 columns, we use the SSE kernel for the
-      // remainder because it requires 4 * (2 * 4 + 2 * N) = 32 + 8N instructions
-      // instead of 4 * 16 + 2 * N = 64 + 2N instructions needed in the masked
-      // AVX512 kernel.
-      for (ib = 0; ib + 16 <= M; ib += 16) {
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_16x16_avx512(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        for (unsigned i = ib; i < ib + 16; i += 4) {
-          transpose_kernel_mxn_sse<4>(
-              N - jb,
-              &src[i * ld_src + jb],
-              ld_src,
-              &dst[i + jb * ld_dst],
-              ld_dst);
-        }
-      }
-    } else if (N % 16 == 4) {
-      // If the remainder has 4 columns, we use the SSE kernel for the remainder
-      // because it requires 4 * 16 = 64 instructions instead of 4 * 16 + 2 * 4 =
-      // 72 instructions needed in the masked AVX512 kernel.
-      for (ib = 0; ib + 16 <= M; ib += 16) {
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_16x16_avx512(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        for (unsigned i = ib; i < ib + 16; i += 4) {
-          transpose_kernel_4x4_sse(
-              &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
-        }
-      }
-    } else if (N % 16 == 8) {
-      // If the remainder has 8 columns, we use the AVX kenrel for the remainder
-      // because it requires 2 * 40 = 80 instructions instead of 4 * 16 + 2 * 8 =
-      // 80 instructions + looping overhead in the masked AVX512 kernel.
-      for (ib = 0; ib + 16 <= M; ib += 16) {
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_16x16_avx512(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        for (unsigned i = ib; i < ib + 16; i += 8) {
-          transpose_kernel_8x8_avx2(
-              &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
-        }
-      }
-    } else {
-      for (ib = 0; ib + 16 <= M; ib += 16) {
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_16x16_avx512(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<16>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-      }
-    }
-
-    // Specialization for small M - ib cases so that the compiler can inline
-    // transpose_kernel_mxn_avx512 and unroll the loops whose iteration count
-    // depends on by M - ib .
-    // Specialization for m helps more than for n in transpose_kernel_mxn_avx512
-    // because we have more loops in that function whose iteration count depends
-    // on m.
-    switch (M - ib) {
-      case 1:
-        for (unsigned j = 0; j < N; ++j) {
-          dst[ib + j * ld_dst] = src[ib * ld_src + j];
-        }
-        break;
-      case 2:
-        for (jb = 0; jb + 4 <= N; jb += 4) {
-          transpose_kernel_mxn_sse<2>(
-              4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_sse<2>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 3:
-        for (jb = 0; jb + 4 <= N; jb += 4) {
-          transpose_kernel_mxn_sse<3>(
-              4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_sse<3>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 4:
-        for (jb = 0; jb + 4 <= N; jb += 4) {
-          transpose_kernel_4x4_sse(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_sse<4>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 5:
-        for (jb = 0; jb + 8 <= N; jb += 8) {
-          transpose_kernel_mxn_avx2<5>(
-              8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx2<5>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 6:
-        for (jb = 0; jb + 8 <= N; jb += 8) {
-          transpose_kernel_mxn_avx2<6>(
-              8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx2<6>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 7:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<7>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<7>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 8:
-        for (jb = 0; jb + 8 <= N; jb += 8) {
-          transpose_kernel_8x8_avx2(
-              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx2<8>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 9:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<9>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<9>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 10:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<10>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<10>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 11:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<11>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<11>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 12:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<12>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<12>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 13:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<13>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<13>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 14:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<14>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<14>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-      case 15:
-        for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<15>(
-              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
-        }
-        if (jb < N) {
-          transpose_kernel_mxn_avx512<15>(
-              N - jb,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
-        }
-        break;
-    }
-  }
-}
-
 // Permute elements in 128 bit lane
 // e.g., if a 128-bit lane has the following elements:
 // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
@@ -1079,6 +789,57 @@ static inline void transpose_contiguous_4x16_block(
   }
 }
 
+static inline void transpose_contiguous_4x32_block(
+    const uint16_t* src,
+    uint16_t* dst,
+    int ld_src,
+    int nrem = 32) {
+  __m512i r[4], d[4];
+  //load
+  if (nrem < 32) {
+    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
+    r[0] = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
+    r[1] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
+    r[2] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + 2 * ld_src);
+    r[3] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + 3 * ld_src);
+  } else {
+    r[0] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
+    r[1] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + ld_src));
+    r[2] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + 2 * ld_src));
+    r[3] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + 3 * ld_src));
+  }
+  // transpose
+  d[0] = _mm512_unpacklo_epi16(r[0], r[1]);
+  d[1] = _mm512_unpackhi_epi16(r[0], r[1]);
+  d[2] = _mm512_unpacklo_epi16(r[2], r[3]);
+  d[3] = _mm512_unpackhi_epi16(r[2], r[3]);
+
+  r[0] = _mm512_unpacklo_epi32(d[0], d[2]);
+  r[1] = _mm512_unpackhi_epi32(d[0], d[2]);
+  r[2] = _mm512_unpacklo_epi32(d[1], d[3]);
+  r[3] = _mm512_unpackhi_epi32(d[1], d[3]);
+
+  d[0] = _mm512_shuffle_i32x4(r[0], r[1], 0x44);
+  d[1] = _mm512_shuffle_i32x4(r[0], r[1], 0xee);
+  d[2] = _mm512_shuffle_i32x4(r[2], r[3], 0x44);
+  d[3] = _mm512_shuffle_i32x4(r[2], r[3], 0xee);
+
+  r[0] = _mm512_shuffle_i32x4(d[0], d[2], 0x88);
+  r[1] = _mm512_shuffle_i32x4(d[0], d[2], 0xdd);
+  r[2] = _mm512_shuffle_i32x4(d[1], d[3], 0x88);
+  r[3] = _mm512_shuffle_i32x4(d[1], d[3], 0xdd);
+  // store
+  int i = 0;
+  for (; (i + 1) * 32 <= nrem * 4; i++) {
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + i * 32), r[i]);
+  }
+  int erem = nrem * 4 - i * 32;
+  if (erem > 0) {
+    __mmask32 mask_rem_v = (((long long)1) << erem) - 1;
+    _mm512_mask_storeu_epi16(dst + i * 32, mask_rem_v, r[i]);
+  }
+}
+
 static inline void transpose_contiguous_4x16_block(
     const uint16_t* src,
     uint16_t* dst,
@@ -1136,6 +897,65 @@ static inline void transpose_contiguous_4x16_block(
   } else {
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u[0]);
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + 32), u[1]);
+  }
+}
+
+static inline void transpose_contiguous_16x4_block(
+    const float* src,
+    float* dst,
+    int ld_dst,
+    int mrem = 16) {
+  __m512i r[4], d[4];
+  int i = 0;
+  for (; (i + 1) * 16 <= mrem * 4; i++) {
+    // normal load
+    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 16));
+  }
+  if (i * 16 < mrem * 4) {
+    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 16)) - 1;
+    r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 16);
+  }
+
+  // transpose
+  __m512i index1 = _mm512_set_epi32(
+      0x0f, 0x0b, 0x07, 0x03, 0x0e, 0x0a, 0x06, 0x02,
+      0x0d, 0x09, 0x05, 0x01, 0x0c, 0x08, 0x04, 0x00);
+  d[0] = _mm512_permutexvar_epi32(index1, r[0]);
+  d[1] = _mm512_permutexvar_epi32(index1, r[1]);
+  d[2] = _mm512_permutexvar_epi32(index1, r[2]);
+  d[3] = _mm512_permutexvar_epi32(index1, r[3]);
+
+  r[0] = _mm512_shuffle_i32x4(d[0], d[1], 0x44);
+  r[1] = _mm512_shuffle_i32x4(d[0], d[1], 0xee);
+  r[2] = _mm512_shuffle_i32x4(d[2], d[3], 0x44);
+  r[3] = _mm512_shuffle_i32x4(d[2], d[3], 0xee);
+
+  d[0] = _mm512_shuffle_i32x4(r[0], r[2], 0x88);
+  d[1] = _mm512_shuffle_i32x4(r[0], r[2], 0xdd);
+  d[2] = _mm512_shuffle_i32x4(r[1], r[3], 0x88);
+  d[3] = _mm512_shuffle_i32x4(r[1], r[3], 0xdd);
+  
+  if (mrem < 16) {
+    // mask store
+    __mmask16 mask_rem_v = (((long long)1) << mrem) - 1;
+    _mm512_mask_storeu_epi32(dst + 0 * ld_dst, mask_rem_v, d[0]);
+    _mm512_mask_storeu_epi32(dst + 1 * ld_dst, mask_rem_v, d[1]);
+    _mm512_mask_storeu_epi32(dst + 2 * ld_dst, mask_rem_v, d[2]);
+    _mm512_mask_storeu_epi32(dst + 3 * ld_dst, mask_rem_v, d[3]);
+  } else {
+    // normal load
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 0 * ld_dst),
+        d[0]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 1 * ld_dst),
+        d[1]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 2 * ld_dst),
+        d[2]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 3 * ld_dst),
+        d[3]);
   }
 }
 
@@ -1250,6 +1070,162 @@ static inline void transpose_contiguous_16x2_block(
     _mm512_storeu_si512(dst + ld_dst, d[1]);
   }
 
+}
+
+static inline void transpose_contiguous_64x4_block(
+    const uint8_t* src,
+    uint8_t* dst,
+    int ld_dst,
+    int mrem = 64) {
+  __m512i r[4], d[4];
+  // normal load
+  int i = 0;
+  for(; (i + 1) * 64 <= mrem * 4; i++) {
+    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 64));
+  }
+  int erem = mrem * 4 - i * 64;
+  if (erem > 0) {
+    __mmask64 mask_mrem_v = (((long long)1) << erem) - 1;
+    r[i] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + i * 64);
+  }
+
+  // transpose
+  __m512i index = _mm512_set_epi32(
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400);
+
+  d[0] = _mm512_shuffle_epi8(r[0], index);
+  d[1] = _mm512_shuffle_epi8(r[1], index);
+  d[2] = _mm512_shuffle_epi8(r[2], index);
+  d[3] = _mm512_shuffle_epi8(r[3], index);
+
+  __m512i index2 = _mm512_set_epi32(
+      15, 11, 7, 3, 14, 10, 6, 2,
+      13, 9, 5, 1, 12, 8, 4, 0);
+  r[0] = _mm512_permutexvar_epi32(index2, d[0]);
+  r[1] = _mm512_permutexvar_epi32(index2, d[1]);
+  r[2] = _mm512_permutexvar_epi32(index2, d[2]);
+  r[3] = _mm512_permutexvar_epi32(index2, d[3]);
+
+  __m512i t0 = _mm512_shuffle_i32x4(r[0], r[1], 0x44);
+  __m512i t1 = _mm512_shuffle_i32x4(r[0], r[1], 0xee);
+  __m512i t2 = _mm512_shuffle_i32x4(r[2], r[3], 0x44);
+  __m512i t3 = _mm512_shuffle_i32x4(r[2], r[3], 0xee);
+
+  d[0] = _mm512_shuffle_i32x4(t0, t2, 0x88);
+  d[1] = _mm512_shuffle_i32x4(t0, t2, 0xdd);
+  d[2] = _mm512_shuffle_i32x4(t1, t3, 0x88);
+  d[3] = _mm512_shuffle_i32x4(t1, t3, 0xdd);
+
+  // store
+  if (mrem < 64) {
+    __mmask64 mask_rem_v = (((long long)1) << mrem) - 1;
+    // mask store
+    _mm512_mask_storeu_epi8(
+        dst,
+        mask_rem_v,
+        d[0]);
+    _mm512_mask_storeu_epi8(
+        dst + ld_dst,
+        mask_rem_v,
+        d[1]);
+     _mm512_mask_storeu_epi8(
+        dst + 2 * ld_dst,
+        mask_rem_v,
+        d[2]);
+    _mm512_mask_storeu_epi8(
+        dst + 3 * ld_dst,
+        mask_rem_v,
+        d[3]);
+  } else {
+    // normal store
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 0 * ld_dst),
+        d[0]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 1 * ld_dst),
+        d[1]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 2 * ld_dst),
+        d[2]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 3 * ld_dst),
+        d[3]);
+  }
+
+}
+
+static inline void transpose_contiguous_32x4_block(
+    const uint16_t* src,
+    uint16_t* dst,
+    int ld_dst,
+    int mrem = 32) {
+  __m512i r[4], d[4];
+  int i = 0;
+  for (; (i + 1) * 32 <= mrem * 4; i++) {
+    // normal load
+    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 32));
+  }
+  if (i * 32 < mrem * 4) {
+    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 32)) - 1;
+    r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 32);
+  }
+  // transpose
+  __m512i index = _mm512_set_epi32(
+      0x001f001b, 0x00170013, 0x000f000b, 0x00070003, 0x001e001a, 0x00160012, 0x000e000a, 0x00060002,
+      0x001d0019, 0x00150011, 0x000d0009, 0x00050001, 0x001c0018, 0x00140010, 0x000c0008, 0x00040000);
+
+  d[0] = _mm512_permutexvar_epi16(index, r[0]);
+  d[1] = _mm512_permutexvar_epi16(index, r[1]);
+  d[2] = _mm512_permutexvar_epi16(index, r[2]);
+  d[3] = _mm512_permutexvar_epi16(index, r[3]);
+
+  r[0] = _mm512_shuffle_i32x4(d[0], d[1], 0x44);
+  r[1] = _mm512_shuffle_i32x4(d[0], d[1], 0xee);
+  r[2] = _mm512_shuffle_i32x4(d[2], d[3], 0x44);
+  r[3] = _mm512_shuffle_i32x4(d[2], d[3], 0xee);
+
+  d[0] = _mm512_shuffle_i32x4(r[0], r[2], 0x88);
+  d[1] = _mm512_shuffle_i32x4(r[0], r[2], 0xdd);
+  d[2] = _mm512_shuffle_i32x4(r[1], r[3], 0x88);
+  d[3] = _mm512_shuffle_i32x4(r[1], r[3], 0xdd);
+
+  if (mrem < 32) {
+    // mask store
+    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
+    _mm512_mask_storeu_epi16(
+        dst + 0 * ld_dst,
+        mask_rem_v,
+        d[0]);
+    _mm512_mask_storeu_epi16(
+        dst + ld_dst,
+        mask_rem_v,
+        d[1]);
+    _mm512_mask_storeu_epi16(
+        dst + 2 * ld_dst,
+        mask_rem_v,
+        d[2]);
+    _mm512_mask_storeu_epi16(
+        dst + 3 * ld_dst,
+        mask_rem_v,
+        d[3]);
+  } else {
+    // normal load
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 0 * ld_dst),
+        d[0]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 1 * ld_dst),
+        d[1]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 2 * ld_dst),
+        d[2]);
+    _mm512_storeu_si512(
+        reinterpret_cast<__m512i*>(dst + 3 * ld_dst),
+        d[3]);
+  }
 }
 
 static inline void transpose_contiguous_8x4_block(
@@ -1428,6 +1404,51 @@ static inline void transpose_contiguous_32x4_block(
 
 }
 
+static inline void transpose_contiguous_64x2_block(
+    const uint8_t* src,
+    uint8_t* dst,
+    int ld_dst,
+    int mrem = 64) {
+  __m512i r[2], d[2];
+  // normal load
+  int i = 0;
+  for(; (i + 1) * 64 <= mrem * 2; i++) {
+    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 64));
+  }
+  int erem = mrem * 2 - i * 64;
+  if (erem > 0) {
+    __mmask64 mask_mrem_v = (((long long)1) << erem) - 1;
+    r[i] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + i * 64);
+  }
+
+  // transpose
+  __m512i index1 = _mm512_set_epi32(
+      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200,
+      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200);
+  r[0] = _mm512_shuffle_epi8(r[0], index1);
+  r[1] = _mm512_shuffle_epi8(r[1], index1);
+
+  __m512i index2 = _mm512_set_epi64(14, 12, 10, 8, 6, 4, 2, 0);
+  __m512i index3 = _mm512_set_epi64(15, 13, 11, 9, 7, 5, 3, 1);
+
+  d[0] = _mm512_permutex2var_epi64(r[0], index2, r[1]);
+  d[1] = _mm512_permutex2var_epi64(r[0], index3, r[1]);
+
+  // store
+  if (mrem < 64) {
+    __mmask64 mask_rem_v = (((long long)1) << mrem) - 1;
+    // mask store
+    _mm512_mask_storeu_epi8(dst, mask_rem_v, d[0]);
+    _mm512_mask_storeu_epi8(dst + ld_dst, mask_rem_v, d[1]);
+  } else {
+    // normal store
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst),
+      d[0]);
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + ld_dst),
+      d[1]);
+  }
+}
+
 static inline void transpose_contiguous_32x2_block(
     const uint8_t* src,
     uint8_t* dst,
@@ -1471,6 +1492,69 @@ static inline void transpose_contiguous_32x2_block(
       _mm512_extracti64x4_epi64(d, 0x0));
     _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + ld_dst),
       _mm512_extracti64x4_epi64(d, 0x1));
+  }
+}
+
+static inline void transpose_contiguous_4x64_block(
+    const uint8_t* src,
+    uint8_t* dst,
+    unsigned ld_src,
+    int nrem = 64) {
+  __m512i r[4], d[4];
+  //load
+  if (nrem < 64) {
+    __mmask64 mask_mrem_v = (((long long)1) << nrem) - 1;
+    r[0] = _mm512_maskz_loadu_epi8(mask_mrem_v, src);
+    r[1] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
+    r[2] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + 2 * ld_src);
+    r[3] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + 3 * ld_src);
+  } else {
+    r[0] = _mm512_loadu_si512(reinterpret_cast<const __m256i*>(src));
+    r[1] = _mm512_loadu_si512(reinterpret_cast<const __m256i*>(src + ld_src));
+    r[2] = _mm512_loadu_si512(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
+    r[3] = _mm512_loadu_si512(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
+  }
+  // transpose
+  d[0] = _mm512_unpacklo_epi32(r[0], r[1]);
+  d[1] = _mm512_unpackhi_epi32(r[0], r[1]);
+  d[2] = _mm512_unpacklo_epi32(r[2], r[3]);
+  d[3] = _mm512_unpackhi_epi32(r[2], r[3]);
+
+  r[0] = _mm512_unpacklo_epi64(d[0], d[2]);
+  r[1] = _mm512_unpackhi_epi64(d[0], d[2]);
+  r[2] = _mm512_unpacklo_epi64(d[1], d[3]);
+  r[3] = _mm512_unpackhi_epi64(d[1], d[3]);
+
+  d[0] = _mm512_shuffle_i32x4(r[0], r[1], 0x44);
+  d[1] = _mm512_shuffle_i32x4(r[0], r[1], 0xee);
+  d[2] = _mm512_shuffle_i32x4(r[2], r[3], 0x44);
+  d[3] = _mm512_shuffle_i32x4(r[2], r[3], 0xee);
+
+  r[0] = _mm512_shuffle_i32x4(d[0], d[2], 0x88);
+  r[1] = _mm512_shuffle_i32x4(d[0], d[2], 0xdd);
+  r[2] = _mm512_shuffle_i32x4(d[1], d[3], 0x88);
+  r[3] = _mm512_shuffle_i32x4(d[1], d[3], 0xdd);
+
+__m512i index = _mm512_set_epi32(
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400,
+      0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400);
+
+  d[0] = _mm512_shuffle_epi8(r[0], index);
+  d[1] = _mm512_shuffle_epi8(r[1], index);
+  d[2] = _mm512_shuffle_epi8(r[2], index);
+  d[3] = _mm512_shuffle_epi8(r[3], index);
+
+  // store
+  int i = 0;
+  for (; (i + 1) * 64 <= nrem * 4; i++) {
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + i * 64), d[i]);
+  }
+  int erem = nrem * 4 - i * 64;
+  if (erem > 0) {
+    __mmask64 mask_rem_v = (((long long)1) << erem) - 1;
+    _mm512_mask_storeu_epi8(dst + i * 64, mask_rem_v, d[i]);
   }
 }
 
@@ -1525,6 +1609,49 @@ static inline void transpose_contiguous_4x32_block(
   }
 }
 
+static inline void transpose_contiguous_2x64_block(
+    const uint8_t* src,
+    uint8_t* dst,
+    unsigned ld_src,
+    int nrem = 64) {
+  __m512i r[2];
+  __m512i d[2];
+  //load
+  if (nrem < 64) {
+    __mmask64 mask_mrem_v = (((long long)1) << nrem) - 1;
+    r[0] = _mm512_maskz_loadu_epi8(mask_mrem_v, src);
+    r[1] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
+  } else {
+    r[0] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
+    r[1] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + ld_src));
+  }
+  // transpose
+  // _mm512_mask_blend_epi8(0xaaaaaaaaaaaaaaaa, r0, r1);
+  d[0] = _mm512_unpacklo_epi16(r[0], r[1]);
+  d[1] = _mm512_unpackhi_epi16(r[0], r[1]);
+  __m512i index1 = _mm512_set_epi32(
+      0x0f0d0e0c, 0x0b090a08, 0x07050604, 0x03010200, 0x0f0d0e0c, 0x0b090a08, 0x07050604, 0x03010200,
+      0x0f0d0e0c, 0x0b090a08, 0x07050604, 0x03010200, 0x0f0d0e0c, 0x0b090a08, 0x07050604, 0x03010200);
+  r[0] = _mm512_shuffle_epi8(d[0], index1);
+  r[1] = _mm512_shuffle_epi8(d[1], index1);
+  __m512i index2 = _mm512_set_epi64(11, 10, 3, 2, 9, 8, 1, 0);
+  __m512i index3 = _mm512_set_epi64(15, 14, 7, 6, 13, 12, 5, 4);
+  // a0b0 a1b1 ... a31b31
+  // a32b32 ... a63b63
+  d[0] = _mm512_permutex2var_epi64(r[0], index2, r[1]);
+  d[1] = _mm512_permutex2var_epi64(r[0], index3, r[1]);
+
+  int i = 0;
+  for (; (i + 1) * 64 <= nrem * 2; i++) {
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + i * 64), d[i]);
+  }
+  int erem = nrem * 2 - i * 64;
+  if (erem > 0) {
+    __mmask64 mask_rem_v = (((long long)1) << erem) - 1;
+    _mm512_mask_storeu_epi8(dst + i * 64, mask_rem_v, d[i]);
+  }
+}
+
 static inline void transpose_contiguous_2x32_block(
     const uint8_t* src,
     uint8_t* dst,
@@ -1566,6 +1693,48 @@ static inline void transpose_contiguous_2x32_block(
   }
 }
 
+static inline void transpose_contiguous_2x32_block(
+    const uint16_t* src,
+    uint16_t* dst,
+    int ld_src,
+    int nrem = 32) {
+  __m512i r0, r1;
+  __m512i d0, d1;
+  //load
+  if (nrem < 32) {
+    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
+    r0 = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
+    r1 = _mm512_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
+  } else {
+    r0 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
+    r1 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + ld_src));
+  }
+  // transpose
+  d0 = _mm512_unpacklo_epi16(r0, r1);
+  d1 = _mm512_unpackhi_epi16(r0, r1);
+  r0 =_mm512_shuffle_i32x4(d0, d1, 0x88);
+  r1 =_mm512_shuffle_i32x4(d0, d1, 0xdd);
+  d0 =_mm512_shuffle_i32x4(r0, r1, 0x88);
+  d1 =_mm512_shuffle_i32x4(r0, r1, 0xdd);
+
+  // store
+  if (nrem < 16) {
+    __mmask32 mask_rem_v = (((long long)1) << (nrem * 2)) - 1;
+    _mm512_mask_storeu_epi16(dst, mask_rem_v, d0);
+  } else if (nrem == 16) {
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
+  } else if (nrem < 32) {
+    __mmask32 mask_rem_v = (((long long)1) << (nrem * 2 - 32)) - 1;
+    _mm512_mask_storeu_epi16(dst, mask_rem_v, d0);
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
+    _mm512_mask_storeu_epi16(reinterpret_cast<__m512i*>(dst + 32), mask_rem_v, d1);
+  } else {
+    // normal store
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
+    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + 32), d1);
+  }
+}
+
 static inline void transpose_contiguous_2x16_block(
     const uint16_t* src,
     uint16_t* dst,
@@ -1597,6 +1766,54 @@ static inline void transpose_contiguous_2x16_block(
   } else {
     // normal store
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u);
+  }
+}
+
+static inline void transpose_contiguous_32x2_block(
+    const uint16_t* src,
+    uint16_t* dst,
+    int ld_dst,
+    int mrem = 32) {
+  __m512i r[2], d[2];
+  // load
+  int i = 0;
+  for(; (i + 1) * 32 <= mrem * 2; i++) {
+    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 32));
+  }
+  int erem = mrem * 2 - i * 32;
+  if (erem > 0) {
+    __mmask32 mask_mrem_v = (((long long)1) << erem) - 1;
+    r[i] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + i * 32);
+  }
+  // transpose
+  __m512i index = _mm512_set_epi32(
+      0x001f001d, 0x001b0019, 0x00170015, 0x00130011, 0x000f000d, 0x000b0009, 0x00070005, 0x00030001,
+      0x001e001c, 0x001a0018, 0x00160014, 0x00120010, 0x000e000c, 0x000a0008, 0x00060004, 0x00020000);
+  d[0] = _mm512_permutexvar_epi16(index, r[0]);
+  d[1] = _mm512_permutexvar_epi16(index, r[1]);
+  r[0] = _mm512_shuffle_i32x4(d[0], d[1], 0x44);
+  r[1] = _mm512_shuffle_i32x4(d[0], d[1], 0xee);
+
+  // store
+  if (mrem < 32) {
+    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
+    // mask store
+    _mm512_mask_storeu_epi16(
+        dst,
+        mask_rem_v,
+        r[0]);
+    _mm512_mask_storeu_epi16(
+        dst + ld_dst,
+        mask_rem_v,
+        r[1]);
+  } else {
+    // normal store
+    _mm512_storeu_si512(
+      reinterpret_cast<__m512i*>(dst),
+      r[0]);
+    _mm512_storeu_si512(
+      reinterpret_cast<__m512i*>(dst + ld_dst),
+      r[1]);
   }
 }
 
@@ -1660,64 +1877,58 @@ void transpose_16x16_block(
   } else {
     __m256i t00 =
         _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 0 * ld_src));
+    __m256i t01 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 1 * ld_src));
+    __m256i t02 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
+    __m256i t03 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
     __m256i t04 =
         _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 4 * ld_src));
+    __m256i t05 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 5 * ld_src));
+    __m256i t06 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 6 * ld_src));
+    __m256i t07 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 7 * ld_src));
+    __m256i t08 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 8 * ld_src));
+    __m256i t09 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 9 * ld_src));
+    __m256i t10 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 10 * ld_src));
+    __m256i t11 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 11 * ld_src));
+    __m256i t12 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 12 * ld_src));
+    __m256i t13 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 13 * ld_src));
+    __m256i t14 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 14 * ld_src));
+    __m256i t15 =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 15 * ld_src));
+
     // a0a1 a2a3 a4a5 a6a7 a8a9 a10a11 a12a13 a14a15
     // e0e1 e2e3 e4e5 e6e7 e8e9 e10e11 e12e13 e14e15
     r[0] = _mm512_inserti64x4(_mm512_castsi256_si512(t00), t04, 0x01);
-
-    __m256i t01 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 1 * ld_src));
-    __m256i t05 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 5 * ld_src));
     // b0-b15
     // f0-f15
     r[1] = _mm512_inserti64x4(_mm512_castsi256_si512(t01), t05, 0x01);
-
-    __m256i t02 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
-    __m256i t06 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 6 * ld_src));
     // c0-c15
     // g0-g15
     r[2] = _mm512_inserti64x4(_mm512_castsi256_si512(t02), t06, 0x01);
-
-    __m256i t03 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
-    __m256i t07 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 7 * ld_src));
     // d0-d15
     // g0-h15
     r[3] = _mm512_inserti64x4(_mm512_castsi256_si512(t03), t07, 0x01);
-
-    __m256i t08 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 8 * ld_src));
-    __m256i t12 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 12 * ld_src));
     // i0-i15
     // m0-m15
     r[4] = _mm512_inserti64x4(_mm512_castsi256_si512(t08), t12, 0x01);
-
-    __m256i t09 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 9 * ld_src));
-    __m256i t13 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 13 * ld_src));
     // j0-j15
     // n0-n15
     r[5] = _mm512_inserti64x4(_mm512_castsi256_si512(t09), t13, 0x01);
-
-    __m256i t10 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 10 * ld_src));
-    __m256i t14 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 14 * ld_src));
     // k0-k15
     // o0-o15
     r[6] = _mm512_inserti64x4(_mm512_castsi256_si512(t10), t14, 0x01);
-
-    __m256i t11 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 11 * ld_src));
-    __m256i t15 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 15 * ld_src));
     // l0-l15
     // p0-p15
     r[7] = _mm512_inserti64x4(_mm512_castsi256_si512(t11), t15, 0x01);
@@ -1980,13 +2191,46 @@ void transpose_16x32_block(
   }
 }
 
-template <typename T>
+template <>
 void transpose_avx512_contiguous_thin(
   const int64_t M,
   const int64_t N,
-  const T* src,
+  const uint16_t * src,
   unsigned ld_src,
-  T* dst,
+  uint16_t* dst,
+  unsigned ld_dst) {
+  if (N == 2) {
+    int i = 0;
+    for (; i < M / 32 * 32; i += 32) {
+      transpose_contiguous_32x2_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_32x2_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  } else if (N == 4) {
+    int i = 0;
+    for (; i < M / 32 * 32; i += 32) {
+      transpose_contiguous_32x4_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_32x4_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  }
+}
+
+template <>
+void transpose_avx512_contiguous_thin(
+  const int64_t M,
+  const int64_t N,
+  const float* src,
+  unsigned ld_src,
+  float* dst,
   unsigned ld_dst) {
   if (N == 2) {
     int i = 0;
@@ -2001,13 +2245,13 @@ void transpose_avx512_contiguous_thin(
     }
   } else if (N == 4) {
     int i = 0;
-    for (; i < M / 8 * 8; i += 8) {
-      transpose_contiguous_8x4_block(
+    for (; i < M / 16 * 16; i += 16) {
+      transpose_contiguous_16x4_block(
           src + i * ld_src, dst + i, ld_dst);
     }
     int mrem = M - i;
     if (mrem > 0) {
-      transpose_contiguous_8x4_block(
+      transpose_contiguous_16x4_block(
           src + i * ld_src, dst + i, ld_dst, mrem);
     }
   }
@@ -2023,37 +2267,36 @@ void transpose_avx512_contiguous_thin(
     unsigned ld_dst) {
     if (N == 2) {
       int i = 0;
-      for (; i < M / 32 * 32; i += 32) {
-        transpose_contiguous_32x2_block(
+      for (; i < M / 64 * 64; i += 64) {
+        transpose_contiguous_64x2_block(
             src + i * ld_src, dst + i, ld_dst);
       }
       int mrem = M - i;
       if (mrem > 0) {
-        transpose_contiguous_32x2_block(
+        transpose_contiguous_64x2_block(
             src + i * ld_src, dst + i, ld_dst, mrem);
       }
     } else if (N == 4) {
       int i = 0;
-      for (; i < M / 32 * 32; i += 32) {
-        transpose_contiguous_32x4_block(
+      for (; i < M / 64 * 64; i += 64) {
+        transpose_contiguous_64x4_block(
             src + i * ld_src, dst + i, ld_dst);
       }
       int mrem = M - i;
       if (mrem > 0) {
-        transpose_contiguous_32x4_block(
+        transpose_contiguous_64x4_block(
             src + i * ld_src, dst + i, ld_dst, mrem);
       }
     }
-
 }
 
-template <typename T>
+template <>
 void transpose_avx512_contiguous_wide(
   const int64_t M,
   const int64_t N,
-  const T* src,
+  const float* src,
   unsigned ld_src,
-  T* dst,
+  float* dst,
   unsigned ld_dst) {
   if (M == 2) {
     int i = 0;
@@ -2082,6 +2325,39 @@ void transpose_avx512_contiguous_wide(
 
 template <>
 void transpose_avx512_contiguous_wide(
+  const int64_t M,
+  const int64_t N,
+  const uint16_t* src,
+  unsigned ld_src,
+  uint16_t* dst,
+  unsigned ld_dst) {
+  if (M == 2) {
+    int i = 0;
+    for (; i < N / 32 * 32; i += 32) {
+      transpose_contiguous_2x32_block(
+          src + i, dst + i * ld_dst, ld_src);
+    }
+    int nrem = N - i;
+    if (nrem > 0) {
+      transpose_contiguous_2x32_block(
+          src + i, dst + i * ld_dst, ld_src, nrem);
+    }
+  } else if (M == 4) {
+    int i = 0;
+    for (; i < N / 32 * 32; i += 32) {
+      transpose_contiguous_4x32_block(
+          src + i, dst + i * ld_dst, ld_src);
+    }
+    int nrem = N - i;
+    if (nrem > 0) {
+      transpose_contiguous_4x32_block(
+          src + i, dst + i * ld_dst, ld_src, nrem);
+    }
+  }
+}
+
+template <>
+void transpose_avx512_contiguous_wide(
     const int64_t M,
     const int64_t N,
     const uint8_t* src,
@@ -2090,27 +2366,317 @@ void transpose_avx512_contiguous_wide(
     unsigned ld_dst) {
     if (M == 2) {
       int i = 0;
-      for (; i < N / 32 * 32; i += 32) {
-        transpose_contiguous_2x32_block(
+      for (; i < N / 64 * 64; i += 64) {
+        transpose_contiguous_2x64_block(
             src + i, dst + i * ld_dst, ld_src);
       }
       int nrem = N - i;
       if (nrem > 0) {
-        transpose_contiguous_2x32_block(
+        transpose_contiguous_2x64_block(
             src + i, dst + i * ld_dst, ld_src, nrem);
       }
     } else if (M == 4) {
       int i = 0;
-      for (; i < N / 32 * 32; i += 32) {
-        transpose_contiguous_4x32_block(
+      for (; i < N / 64 * 64; i += 64) {
+        transpose_contiguous_4x64_block(
             src + i, dst + i * ld_dst, ld_src);
       }
       int nrem = N - i;
       if (nrem > 0) {
-        transpose_contiguous_4x32_block(
+        transpose_contiguous_4x64_block(
             src + i, dst + i * ld_dst, ld_src, nrem);
       }
     }
+}
+
+template <>
+void transpose_avx512(
+    int64_t M,
+    int64_t N,
+    const float* src,
+    unsigned ld_src,
+    float* dst,
+    unsigned ld_dst) {
+  if (M == ld_dst && (M == 2 || M == 4)) {
+    transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
+  } else if (N == ld_src && (N == 2 || N == 4)) {
+    transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
+  } else {
+    unsigned ib = 0, jb = 0;
+    if (N % 16 > 0 && N % 16 < 4) {
+      // If the remainder has n < 4 columns, we use the SSE kernel for the
+      // remainder because it requires 4 * (2 * 4 + 2 * N) = 32 + 8N instructions
+      // instead of 4 * 16 + 2 * N = 64 + 2N instructions needed in the masked
+      // AVX512 kernel.
+      for (ib = 0; ib + 16 <= M; ib += 16) {
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_16x16_avx512(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        for (unsigned i = ib; i < ib + 16; i += 4) {
+          transpose_kernel_mxn_sse<4>(
+              N - jb,
+              &src[i * ld_src + jb],
+              ld_src,
+              &dst[i + jb * ld_dst],
+              ld_dst);
+        }
+      }
+    } else if (N % 16 == 4) {
+      // If the remainder has 4 columns, we use the SSE kernel for the remainder
+      // because it requires 4 * 16 = 64 instructions instead of 4 * 16 + 2 * 4 =
+      // 72 instructions needed in the masked AVX512 kernel.
+      for (ib = 0; ib + 16 <= M; ib += 16) {
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_16x16_avx512(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        for (unsigned i = ib; i < ib + 16; i += 4) {
+          transpose_kernel_4x4_sse(
+              &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
+        }
+      }
+    } else if (N % 16 == 8) {
+      // If the remainder has 8 columns, we use the AVX kenrel for the remainder
+      // because it requires 2 * 40 = 80 instructions instead of 4 * 16 + 2 * 8 =
+      // 80 instructions + looping overhead in the masked AVX512 kernel.
+      for (ib = 0; ib + 16 <= M; ib += 16) {
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_16x16_avx512(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        for (unsigned i = ib; i < ib + 16; i += 8) {
+          transpose_kernel_8x8_avx2(
+              &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
+        }
+      }
+    } else {
+      for (ib = 0; ib + 16 <= M; ib += 16) {
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_16x16_avx512(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<16>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+      }
+    }
+
+    // Specialization for small M - ib cases so that the compiler can inline
+    // transpose_kernel_mxn_avx512 and unroll the loops whose iteration count
+    // depends on by M - ib .
+    // Specialization for m helps more than for n in transpose_kernel_mxn_avx512
+    // because we have more loops in that function whose iteration count depends
+    // on m.
+    switch (M - ib) {
+      case 1:
+        for (unsigned j = 0; j < N; ++j) {
+          dst[ib + j * ld_dst] = src[ib * ld_src + j];
+        }
+        break;
+      case 2:
+        for (jb = 0; jb + 4 <= N; jb += 4) {
+          transpose_kernel_mxn_sse<2>(
+              4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_sse<2>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 3:
+        for (jb = 0; jb + 4 <= N; jb += 4) {
+          transpose_kernel_mxn_sse<3>(
+              4, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_sse<3>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 4:
+        for (jb = 0; jb + 4 <= N; jb += 4) {
+          transpose_kernel_4x4_sse(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_sse<4>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 5:
+        for (jb = 0; jb + 8 <= N; jb += 8) {
+          transpose_kernel_mxn_avx2<5>(
+              8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx2<5>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 6:
+        for (jb = 0; jb + 8 <= N; jb += 8) {
+          transpose_kernel_mxn_avx2<6>(
+              8, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx2<6>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 7:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<7>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<7>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 8:
+        for (jb = 0; jb + 8 <= N; jb += 8) {
+          transpose_kernel_8x8_avx2(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx2<8>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 9:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<9>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<9>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 10:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<10>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<10>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 11:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<11>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<11>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 12:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<12>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<12>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 13:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<13>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<13>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 14:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<14>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<14>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+      case 15:
+        for (jb = 0; jb + 16 <= N; jb += 16) {
+          transpose_kernel_mxn_avx512<15>(
+              16, &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
+        }
+        if (jb < N) {
+          transpose_kernel_mxn_avx512<15>(
+              N - jb,
+              &src[ib * ld_src + jb],
+              ld_src,
+              &dst[ib + jb * ld_dst],
+              ld_dst);
+        }
+        break;
+    }
+  }
 }
 
 template <>
