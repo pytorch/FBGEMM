@@ -328,7 +328,7 @@ jobs:
 
     - uses: actions/checkout@v2
       with:
-        ref: 'add_rocm_runner'
+        ref: ${{ github.ref }}
         submodules: 'true'
 
     - name: Checkout script
