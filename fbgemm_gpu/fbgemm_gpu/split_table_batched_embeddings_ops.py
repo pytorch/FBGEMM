@@ -151,14 +151,17 @@ def construct_cache_state(
     cache_hash_size_cumsum = []
     # [total_cache_hash_size], linear cache index -> table index
     cache_index_table_map = [-1] * total_cache_hash_size
+    unique_feature_table_map = {}
     for t, t_ in enumerate(feature_table_map):
-        for i in range(_cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]):
-            cache_index_table_map[i] = t
-        location = location_list[t_]
-        if location == EmbeddingLocation.MANAGED_CACHING:
-            cache_hash_size_cumsum.append(_cache_hash_size_cumsum[t_])
-        else:
-            cache_hash_size_cumsum.append(-1)
+        unique_feature_table_map[t_] = t
+    for t_, t in unique_feature_table_map.items():
+        start, end = _cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]
+        cache_index_table_map[start:end] = [t] * (end - start)
+    cache_hash_size_cumsum = [
+        _cache_hash_size_cumsum[t_]
+        if location_list[t_] == EmbeddingLocation.MANAGED_CACHING else -1
+        for t_ in feature_table_map
+    ]
     cache_hash_size_cumsum.append(total_cache_hash_size)
     s = CacheState(
         cache_hash_size_cumsum=cache_hash_size_cumsum,
