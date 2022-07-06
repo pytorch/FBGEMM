@@ -43,6 +43,8 @@ find_package(PythonExtensions REQUIRED)
 
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)
+message("${message_line}")
+message(STATUS "THIRDPARTY ${THIRDPARTY}")
 
 if(DEFINED GLIBCXX_USE_CXX11_ABI)
   if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
@@ -73,7 +75,7 @@ if(USE_ROCM)
   include(Hipify)
 
   message("${message_line}")
-  message(STATUS "hip found ${ROCM_FOUND}")
+  message(STATUS "hip found ${HIP_FOUND}")
 endif()
 
 #
