@@ -331,7 +331,6 @@ jobs:
       with:
         ref: 'add_rocm_runner'
         submodules: 'true'
-        path: 'fbgemm-private-jenkins'
 
     - name: Checkout script
       uses: actions/checkout@v2
