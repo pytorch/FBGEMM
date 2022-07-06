@@ -321,7 +321,6 @@ jobs:
         if [ -d ${{ github.workspace }} ]
         then
           sudo chown -R $USER:$USER ${{ github.workspace }}
-          sudo rm -rf ${{ github.workspace }}
         fi
         sudo add-apt-repository ppa:git-core/ppa
         sudo apt update
