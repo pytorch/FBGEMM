@@ -835,68 +835,9 @@ static inline void transpose_contiguous_4x32_block(
   }
   int erem = nrem * 4 - i * 32;
   if (erem > 0) {
+    // mask store
     __mmask32 mask_rem_v = (((long long)1) << erem) - 1;
     _mm512_mask_storeu_epi16(dst + i * 32, mask_rem_v, r[i]);
-  }
-}
-
-static inline void transpose_contiguous_4x16_block(
-    const uint16_t* src,
-    uint16_t* dst,
-    int ld_src,
-    int nrem = 16) {
-  __m256i r[4];
-  __m512i u[2];
-  //load
-  if (nrem < 16) {
-    __mmask16 mask_mrem_v = (((long long)1) << nrem) - 1;
-    r[0] = _mm256_maskz_loadu_epi16(mask_mrem_v, src);
-    r[1] = _mm256_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
-    r[2] = _mm256_maskz_loadu_epi16(mask_mrem_v, src + 2 * ld_src);
-    r[3] = _mm256_maskz_loadu_epi16(mask_mrem_v, src + 3 * ld_src);
-  } else {
-    r[0] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src));
-    r[1] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + ld_src));
-    r[2] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
-    r[3] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
-  }
-  // transpose
-  __m512i index = _mm512_set_epi32(
-      0x001f000f, 0x001e000e, 0x001d000d, 0x001c000c, 0x001b000b, 0x001a000a, 0x00190009, 0x00180008,
-      0x00170007, 0x00160006, 0x00150005, 0x00140004, 0x00130003, 0x00120002, 0x00110001, 0x00100000);
-  __m512i t0 = _mm512_inserti64x4(_mm512_castsi256_si512(r[0]), r[1], 0x01);
-  __m512i t1 = _mm512_inserti64x4(_mm512_castsi256_si512(r[2]), r[3], 0x01);
-
-  __m512i tt0 = _mm512_permutexvar_epi16(index, t0);
-  __m512i tt1 = _mm512_permutexvar_epi16(index, t1);
-  t0 = _mm512_unpacklo_epi32(tt0, tt1);
-  t1 = _mm512_unpackhi_epi32(tt0, tt1);
-
-  __m512i index1 = _mm512_set_epi32(
-      0x002f002e, 0x002d002c, 0x002b002a, 0x00290028, 0x000f000e, 0x000d000c, 0x000b000a, 0x00090008,
-      0x00270026, 0x00250024, 0x00230022, 0x00210020, 0x00070006, 0x00050004, 0x00030002, 0x00010000);
-  __m512i index2 = _mm512_set_epi32(
-      0x003f003e, 0x003d003c, 0x003b003a, 0x00390038, 0x001f001e, 0x001d001c, 0x001b001a, 0x00190018,
-      0x00370036, 0x00350034, 0x00330032, 0x00310030, 0x00170016, 0x00150014, 0x00130012, 0x00110010);
-  // merge values from two regs
-  u[0] = _mm512_permutex2var_epi16(t0, index1, t1);
-  u[1] = _mm512_permutex2var_epi16(t0, index2, t1);
-
-  // store
-  if (nrem < 8) {
-    // mask store
-    __mmask32 mask_rem_v = (((long long)1) << (nrem * 4)) - 1;
-    _mm512_mask_storeu_epi16(dst, mask_rem_v, u[0]);
-  } else if (nrem == 8) {
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u[0]);
-  } else if (nrem < 16) {
-    // mask store
-    __mmask32 mask_rem_v = (((long long)1) << ((nrem - 8) * 4)) - 1;
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u[0]);
-    _mm512_mask_storeu_epi16(dst + 32, mask_rem_v, u[1]);
-  } else {
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u[0]);
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + 32), u[1]);
   }
 }
 
@@ -956,71 +897,6 @@ static inline void transpose_contiguous_16x4_block(
     _mm512_storeu_si512(
         reinterpret_cast<__m512i*>(dst + 3 * ld_dst),
         d[3]);
-  }
-}
-
-static inline void transpose_contiguous_8x4_block(
-    const float* src,
-    float* dst,
-    int ld_dst,
-    int mrem = 8) {
-  __m512i r[2], d[2];
-  int i = 0;
-  for (; (i + 1) * 16 <= mrem * 4; i++) {
-    // normal load
-    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 16));
-  }
-  if (i * 16 < mrem * 4) {
-    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 16)) - 1;
-    r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 16);
-  }
-
-  // transpose
-  __m512i index1 = _mm512_set_epi32(
-      0x1d, 0x19, 0x15, 0x11, 0x0d, 0x09, 0x05, 0x01,
-      0x1c, 0x18, 0x14, 0x10, 0x0c, 0x08, 0x04, 0x00);
-  __m512i index2 = _mm512_set_epi32(
-      0x1f, 0x1b, 0x17, 0x13, 0x0f, 0x0b, 0x07, 0x03,
-      0x1e, 0x1a, 0x16, 0x12, 0x0e, 0x0a, 0x06, 0x02);
-
-  //a0--h0  a1--h1
-  //a2--h2  a3--h3
-  d[0] = _mm512_permutex2var_epi32(r[0], index1, r[1]);
-  d[1] = _mm512_permutex2var_epi32(r[0], index2, r[1]);
-  
-  if (mrem < 8) {
-    // mask store
-    __mmask16 mask_rem_v = (((long long)1) << mrem) - 1;
-    _mm512_mask_storeu_epi32(
-        dst + 0 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti64x4_epi64(d[0], 0x00)));
-    _mm512_mask_storeu_epi32(
-        dst + ld_dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti64x4_epi64(d[0], 0x01)));
-    _mm512_mask_storeu_epi32(
-        dst + 2 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti64x4_epi64(d[1], 0x00)));
-    _mm512_mask_storeu_epi32(
-        dst + 3 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti64x4_epi64(d[1], 0x01)));
-  } else {
-    // normal load
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 0 * ld_dst),
-        _mm512_extracti64x4_epi64(d[0], 0x00));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 1 * ld_dst),
-        _mm512_extracti64x4_epi64(d[0], 0x01));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 2 * ld_dst),
-        _mm512_extracti64x4_epi64(d[1], 0x00));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 3 * ld_dst),
-        _mm512_extracti64x4_epi64(d[1], 0x01));
   }
 }
 
@@ -1154,7 +1030,6 @@ static inline void transpose_contiguous_64x4_block(
         reinterpret_cast<__m512i*>(dst + 3 * ld_dst),
         d[3]);
   }
-
 }
 
 static inline void transpose_contiguous_32x4_block(
@@ -1228,62 +1103,6 @@ static inline void transpose_contiguous_32x4_block(
   }
 }
 
-static inline void transpose_contiguous_8x4_block(
-    const uint16_t* src,
-    uint16_t* dst,
-    int ld_dst,
-    int mrem = 8) {
-  __m512i r;
-  if (mrem < 8) {
-    __mmask32 mask_mrem_v = (((long long)1) << (mrem * 4)) - 1;
-    // mask load
-    r = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
-  } else {
-    // normal load
-    r = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
-  }
-  // transpose
-  __m512i index = _mm512_set_epi32(
-      0x001f001b, 0x00170013, 0x000f000b, 0x00070003, 0x001e001a, 0x00160012, 0x000e000a, 0x00060002,
-      0x001d0019, 0x00150011, 0x000d0009, 0x00050001, 0x001c0018, 0x00140010, 0x000c0008, 0x00040000);
-
-  __m512i u = _mm512_permutexvar_epi16(index, r); // 0-- 1-- 2-- 3--
-  if (mrem < 8) {
-    // mask store
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
-    _mm512_mask_storeu_epi16(
-        dst + 0 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi128_si512(_mm512_extracti32x4_epi32(u, 0)));
-    _mm512_mask_storeu_epi16(
-        dst + ld_dst,
-        mask_rem_v,
-        _mm512_castsi128_si512(_mm512_extracti32x4_epi32(u, 1)));
-    _mm512_mask_storeu_epi16(
-        dst + 2 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi128_si512(_mm512_extracti32x4_epi32(u, 2)));
-    _mm512_mask_storeu_epi16(
-        dst + 3 * ld_dst,
-        mask_rem_v,
-        _mm512_castsi128_si512(_mm512_extracti32x4_epi32(u, 3)));
-  } else {
-    // normal load
-    _mm_storeu_si128(
-        reinterpret_cast<__m128i*>(dst + 0 * ld_dst),
-        _mm512_extracti32x4_epi32(u, 0));
-    _mm_storeu_si128(
-        reinterpret_cast<__m128i*>(dst + 1 * ld_dst),
-        _mm512_extracti32x4_epi32(u, 1));
-    _mm_storeu_si128(
-        reinterpret_cast<__m128i*>(dst + 2 * ld_dst),
-        _mm512_extracti32x4_epi32(u, 2));
-    _mm_storeu_si128(
-        reinterpret_cast<__m128i*>(dst + 3 * ld_dst),
-        _mm512_extracti32x4_epi32(u, 3));
-  }
-}
-
 static inline void transpose_contiguous_2x16_block(
     const float* src,
     float* dst,
@@ -1328,82 +1147,6 @@ static inline void transpose_contiguous_2x16_block(
   }
 }
 
-static inline void transpose_contiguous_32x4_block(
-    const uint8_t* src,
-    uint8_t* dst,
-    int ld_dst,
-    int mrem = 32) {
-  __m512i r[2], d[2], t[2];
-  // normal load
-  int i = 0;
-  for(; (i + 1) * 64 <= mrem * 4; i++) {
-    r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 64));
-  }
-  int erem = mrem * 4 - i * 64;
-  if (erem > 0) {
-    __mmask64 mask_mrem_v = (((long long)1) << erem) - 1;
-    r[i] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + i * 64);
-  }
-
-  // transpose
-  d[0] = permute_row(r[0]);
-  d[1] = permute_row(r[1]);
-  __m512i index = _mm512_set_epi32(
-      0x0f, 0x0b, 0x07, 0x03, 0x0e, 0x0a, 0x06, 0x02,
-      0x0d, 0x09, 0x05, 0x01, 0x0c, 0x08, 0x04, 0x00);
-  t[0] = _mm512_permutexvar_epi32(index, d[0]);
-  t[1] = _mm512_permutexvar_epi32(index, d[1]);
-
-  __m512i index1 = _mm512_set_epi32(
-      0x17, 0x16, 0x15, 0x14, 0x07, 0x06, 0x05, 0x04,
-      0x13, 0x12, 0x11, 0x10, 0x03, 0x02, 0x01, 0x00);
-  __m512i index2 = _mm512_set_epi32(
-      0x1f, 0x1e, 0x1d, 0x1c, 0x0f, 0x0e, 0x0d, 0x0c,
-      0x1b, 0x1a, 0x19, 0x18, 0x0b, 0x0a, 0x09, 0x08);
-
-  //0-- 1--
-  //2-- 3--
-  d[0] = _mm512_permutex2var_epi32(t[0], index1, t[1]);
-  d[1] = _mm512_permutex2var_epi32(t[0], index2, t[1]);
-
-  // store
-  if (mrem < 32) {
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
-    // mask store
-    _mm256_mask_storeu_epi8(
-        dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d[0], 0x0));
-    _mm256_mask_storeu_epi8(
-        dst + ld_dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d[0], 0x1));
-     _mm256_mask_storeu_epi8(
-        dst + 2 * ld_dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d[1], 0x0));
-    _mm256_mask_storeu_epi8(
-        dst + 3 * ld_dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d[1], 0x1));
-  } else {
-    // normal store
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 0 * ld_dst),
-        _mm512_extracti64x4_epi64(d[0], 0x0));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 1 * ld_dst),
-        _mm512_extracti64x4_epi64(d[0], 0x1));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 2 * ld_dst),
-        _mm512_extracti64x4_epi64(d[1], 0x0));
-    _mm256_storeu_si256(
-        reinterpret_cast<__m256i*>(dst + 3 * ld_dst),
-        _mm512_extracti64x4_epi64(d[1], 0x1));
-  }
-
-}
-
 static inline void transpose_contiguous_64x2_block(
     const uint8_t* src,
     uint8_t* dst,
@@ -1446,52 +1189,6 @@ static inline void transpose_contiguous_64x2_block(
       d[0]);
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + ld_dst),
       d[1]);
-  }
-}
-
-static inline void transpose_contiguous_32x2_block(
-    const uint8_t* src,
-    uint8_t* dst,
-    int ld_dst,
-    int mrem = 32) {
-  __m512i r, d;
-  // normal load
-  if (mrem < 32) {
-    __mmask64 mask_mrem_v = (((long long)1) << (mrem * 2)) - 1;
-    r = _mm512_maskz_loadu_epi8(mask_mrem_v, src);
-  } else {
-    r = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
-  }
-
-  // transpose
-  __m512i index1 = _mm512_set_epi32(
-      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200,
-      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200);
-  d = _mm512_shuffle_epi8(r, index1);
-
-  __m512i index2 = _mm512_set_epi32(
-      15, 14, 11, 10, 7, 6, 3, 2,
-      13, 12, 9, 8, 5, 4, 1, 0);
-
-  d = _mm512_permutexvar_epi32(index2, d);
-  // store
-  if (mrem < 32) {
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
-    // mask store
-    _mm256_mask_storeu_epi8(
-        dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d, 0x0));
-    _mm256_mask_storeu_epi8(
-        dst + ld_dst,
-        mask_rem_v,
-        _mm512_extracti64x4_epi64(d, 0x1));
-  } else {
-    // normal store
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst),
-      _mm512_extracti64x4_epi64(d, 0x0));
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + ld_dst),
-      _mm512_extracti64x4_epi64(d, 0x1));
   }
 }
 
@@ -1558,57 +1255,6 @@ __m512i index = _mm512_set_epi32(
   }
 }
 
-static inline void transpose_contiguous_4x32_block(
-    const uint8_t* src,
-    uint8_t* dst,
-    unsigned ld_src,
-    int nrem = 32) {
-  __m256i r[4];
-  __m512i t[2], d[2];
-  //load
-  if (nrem < 32) {
-    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
-    r[0] = _mm256_maskz_loadu_epi8(mask_mrem_v, src);
-    r[1] = _mm256_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
-    r[2] = _mm256_maskz_loadu_epi8(mask_mrem_v, src + 2 * ld_src);
-    r[3] = _mm256_maskz_loadu_epi8(mask_mrem_v, src + 3 * ld_src);
-  } else {
-    r[0] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src));
-    r[1] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + ld_src));
-    r[2] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 2 * ld_src));
-    r[3] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + 3 * ld_src));
-  }
-
-  // transpose
-  //a-- c--
-  //b-- d--
-  d[0] = _mm512_inserti64x4(_mm512_castsi256_si512(r[0]), r[2], 1);
-  d[1] = _mm512_inserti64x4(_mm512_castsi256_si512(r[1]), r[3], 1);
-
-  t[0] = _mm512_unpacklo_epi32(d[0], d[1]);
-  t[1] = _mm512_unpackhi_epi32(d[0], d[1]);
-
-  d[0] = _mm512_shuffle_i32x4(t[0], t[1], 0x88);
-  d[1] = _mm512_shuffle_i32x4(t[0], t[1], 0xdd);
-
-  t[0] = _mm512_permutex_epi64(d[0], 0xd8);
-  t[1] = _mm512_permutex_epi64(d[1], 0xd8);
-
-  d[0] = permute_row(t[0]);
-  d[1] = permute_row(t[1]);
-
-  // store
-  int i = 0;
-  for (; (i + 1) * 64 <= nrem * 4; i++) {
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + i * 64), d[i]);
-  }
-  int erem = nrem * 4 - i * 64;
-  if (erem > 0) {
-    __mmask64 mask_rem_v = (((long long)1) << erem) - 1;
-    _mm512_mask_storeu_epi8(dst + i * 64, mask_rem_v, d[i]);
-  }
-}
-
 static inline void transpose_contiguous_2x64_block(
     const uint8_t* src,
     uint8_t* dst,
@@ -1653,47 +1299,6 @@ static inline void transpose_contiguous_2x64_block(
 }
 
 static inline void transpose_contiguous_2x32_block(
-    const uint8_t* src,
-    uint8_t* dst,
-    unsigned ld_src,
-    int nrem = 32) {
-  __m256i r0, r1;
-  __m512i r, d;
-  //load
-  if (nrem < 32) {
-    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
-    r0 = _mm256_maskz_loadu_epi8(mask_mrem_v, src);
-    r1 = _mm256_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
-  } else {
-    r0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src));
-    r1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + ld_src));
-  }
-  // transpose
-  r = _mm512_inserti64x4(_mm512_castsi256_si512(r0), r1, 0x01);
-  __m512i index1 = _mm512_set_epi32(
-      0x001f000f, 0x001e000e, 0x001d000d, 0x001c000c, 0x001b000b, 0x001a000a, 0x00190009, 0x00180008,
-      0x00170007, 0x00160006, 0x00150005, 0x00140004, 0x00130003, 0x00120002, 0x00110001, 0x00100000);
-  d = _mm512_permutexvar_epi16(index1, r);
-  __m512i index2 = _mm512_set_epi32(
-      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200,
-      0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200, 0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200);
-  d = _mm512_shuffle_epi8(d, index2);
-  __m512i index3 = _mm512_set_epi32(
-      0x001f001b, 0x001e001a, 0x001d0019, 0x001c0018, 0x00170013, 0x00160012, 0x00150011, 0x00140010,
-      0x000f000b, 0x000e000a, 0x000d0009, 0x000c0008, 0x00070003, 0x00060002, 0x00050001, 0x00040000);
-  d = _mm512_permutexvar_epi16(index3, d);
-  // store
-  if (nrem < 32) {
-    // mask store
-    __mmask64 mask_rem_v = (((long long)1) << (nrem * 2)) - 1;
-    _mm512_mask_storeu_epi8(dst, mask_rem_v, d);
-  } else {
-    // normal store
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d);
-  }
-}
-
-static inline void transpose_contiguous_2x32_block(
     const uint16_t* src,
     uint16_t* dst,
     int ld_src,
@@ -1732,40 +1337,6 @@ static inline void transpose_contiguous_2x32_block(
     // normal store
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + 32), d1);
-  }
-}
-
-static inline void transpose_contiguous_2x16_block(
-    const uint16_t* src,
-    uint16_t* dst,
-    int ld_src,
-    int nrem = 16) {
-  __m256i r0, r1;
-  __m512i r;
-  //load
-  if (nrem < 16) {
-    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
-    r0 = _mm256_maskz_loadu_epi16(mask_mrem_v, src);
-    r1 = _mm256_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
-  } else {
-    r0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src));
-    r1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + ld_src));
-  }
-  // transpose
-  r = _mm512_inserti64x4(_mm512_castsi256_si512(r0), r1, 0x01);
-  __m512i index = _mm512_set_epi32(
-      0x001f000f, 0x001e000e, 0x001d000d, 0x001c000c, 0x001b000b, 0x001a000a, 0x00190009, 0x00180008,
-      0x00170007, 0x00160006, 0x00150005, 0x00140004, 0x00130003, 0x00120002, 0x00110001, 0x00100000);
-  __m512i u = _mm512_permutexvar_epi16(index, r);
-
-  // store
-  if (nrem < 16) {
-    // mask store
-    __mmask32 mask_rem_v = (((long long)1) << (nrem * 2)) - 1;
-    _mm512_mask_storeu_epi16(dst, mask_rem_v, u);
-  } else {
-    // normal store
-    _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u);
   }
 }
 
@@ -1814,52 +1385,6 @@ static inline void transpose_contiguous_32x2_block(
     _mm512_storeu_si512(
       reinterpret_cast<__m512i*>(dst + ld_dst),
       r[1]);
-  }
-}
-
-static inline void transpose_contiguous_16x2_block(
-    const uint16_t* src,
-    uint16_t* dst,
-    int ld_dst,
-    int mrem = 16) {
-  __m512i r;
-  // load
-  if (mrem < 16) {
-    __mmask32 mask_mrem_v = (((long long)1) << (mrem * 2)) - 1;
-    // mask load
-    r = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
-  }
-  else {
-    // normal load
-    r = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src));
-  }
-  // transpose
-  __m512i index = _mm512_set_epi32(
-      0x001f001d, 0x001b0019, 0x00170015, 0x00130011, 0x000f000d, 0x000b0009, 0x00070005, 0x00030001,
-      0x001e001c, 0x001a0018, 0x00160014, 0x00120010, 0x000e000c, 0x000a0008, 0x00060004, 0x00020000);
-  // 0-- 1--
-  __m512i u = _mm512_permutexvar_epi16(index, r);
-
-  // store
-  if (mrem < 16) {
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
-    // mask store
-    _mm512_mask_storeu_epi16(
-        dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti32x8_epi32(u, 0x0)));
-    _mm512_mask_storeu_epi16(
-        dst + ld_dst,
-        mask_rem_v,
-        _mm512_castsi256_si512(_mm512_extracti32x8_epi32(u, 0x1)));
-  } else {
-    // normal store
-    _mm256_storeu_si256(
-      reinterpret_cast<__m256i*>(dst),
-      _mm512_extracti32x8_epi32(u, 0x0));
-    _mm256_storeu_si256(
-      reinterpret_cast<__m256i*>(dst + ld_dst),
-      _mm512_extracti32x8_epi32(u, 0x01));
   }
 }
 
@@ -2195,39 +1720,6 @@ template <>
 void transpose_avx512_contiguous_thin(
   const int64_t M,
   const int64_t N,
-  const uint16_t * src,
-  unsigned ld_src,
-  uint16_t* dst,
-  unsigned ld_dst) {
-  if (N == 2) {
-    int i = 0;
-    for (; i < M / 32 * 32; i += 32) {
-      transpose_contiguous_32x2_block(
-          src + i * ld_src, dst + i, ld_dst);
-    }
-    int mrem = M - i;
-    if (mrem > 0) {
-      transpose_contiguous_32x2_block(
-          src + i * ld_src, dst + i, ld_dst, mrem);
-    }
-  } else if (N == 4) {
-    int i = 0;
-    for (; i < M / 32 * 32; i += 32) {
-      transpose_contiguous_32x4_block(
-          src + i * ld_src, dst + i, ld_dst);
-    }
-    int mrem = M - i;
-    if (mrem > 0) {
-      transpose_contiguous_32x4_block(
-          src + i * ld_src, dst + i, ld_dst, mrem);
-    }
-  }
-}
-
-template <>
-void transpose_avx512_contiguous_thin(
-  const int64_t M,
-  const int64_t N,
   const float* src,
   unsigned ld_src,
   float* dst,
@@ -2252,6 +1744,39 @@ void transpose_avx512_contiguous_thin(
     int mrem = M - i;
     if (mrem > 0) {
       transpose_contiguous_16x4_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  }
+}
+
+template <>
+void transpose_avx512_contiguous_thin(
+  const int64_t M,
+  const int64_t N,
+  const uint16_t * src,
+  unsigned ld_src,
+  uint16_t* dst,
+  unsigned ld_dst) {
+  if (N == 2) {
+    int i = 0;
+    for (; i < M / 32 * 32; i += 32) {
+      transpose_contiguous_32x2_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_32x2_block(
+          src + i * ld_src, dst + i, ld_dst, mrem);
+    }
+  } else if (N == 4) {
+    int i = 0;
+    for (; i < M / 32 * 32; i += 32) {
+      transpose_contiguous_32x4_block(
+          src + i * ld_src, dst + i, ld_dst);
+    }
+    int mrem = M - i;
+    if (mrem > 0) {
+      transpose_contiguous_32x4_block(
           src + i * ld_src, dst + i, ld_dst, mrem);
     }
   }
