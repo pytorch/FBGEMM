@@ -331,12 +331,6 @@ jobs:
         ref: ${{ github.ref }}
         submodules: 'true'
 
-    - name: Checkout script
-      uses: actions/checkout@v2
-      with:
-        repository: liligwu/fbgemm_ci
-        path: fbgemm_ci
-
     - name: build fbgemm_gpu and test
       shell: bash
       run: |
@@ -348,9 +342,6 @@ jobs:
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD
         JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
-        SCRIPT_DIR=fbgemm_ci
-        SCRIPT_DIR_BAREMETAL=$PWD/$SCRIPT_DIR
-        SCRIPT_DIR_DOCKER=/workspace/$SCRIPT_DIR
         # git clone https://github.com/ROCmSoftwarePlatform/FBGEMM.git $JENKINS_REPO_DIR_BAREMETAL
         DOCKER_OPTIONS="\
         --network=host \
@@ -364,7 +355,7 @@ jobs:
         -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER \
         -v $SCRIPT_DIR_BAREMETAL:$SCRIPT_DIR_DOCKER
         "
-        docker run $DOCKER_OPTIONS $DOCKER_IMAGE $SCRIPT_DIR_DOCKER/docker/scripts/build_and_run_unit_tests.sh $JENKINS_REPO_DIR_DOCKER
+        docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}
