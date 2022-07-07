@@ -151,14 +151,18 @@ def construct_cache_state(
     cache_hash_size_cumsum = []
     # [total_cache_hash_size], linear cache index -> table index
     cache_index_table_map = [-1] * total_cache_hash_size
+    unique_feature_table_map = {}
     for t, t_ in enumerate(feature_table_map):
-        for i in range(_cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]):
-            cache_index_table_map[i] = t
-        location = location_list[t_]
-        if location == EmbeddingLocation.MANAGED_CACHING:
-            cache_hash_size_cumsum.append(_cache_hash_size_cumsum[t_])
-        else:
-            cache_hash_size_cumsum.append(-1)
+        unique_feature_table_map[t_] = t
+    for t_, t in unique_feature_table_map.items():
+        start, end = _cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]
+        cache_index_table_map[start:end] = [t] * (end - start)
+    cache_hash_size_cumsum = [
+        _cache_hash_size_cumsum[t_]
+        if location_list[t_] == EmbeddingLocation.MANAGED_CACHING
+        else -1
+        for t_ in feature_table_map
+    ]
     cache_hash_size_cumsum.append(total_cache_hash_size)
     s = CacheState(
         cache_hash_size_cumsum=cache_hash_size_cumsum,
@@ -1539,6 +1543,7 @@ def nbit_construct_split_state(
     )
 
 
+# pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
@@ -1547,6 +1552,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    cache_miss_counter: torch.Tensor
 
     def __init__(
         self,
@@ -1803,20 +1809,54 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
 
-    @torch.jit.export
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
+        # cache_miss_counter[2]: total number of unique (dedup) access count
+        # cache_miss_counter[3]: total number of non-dedup access count
 
-        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
-        # nn.Module]`.
+        # How to get cache miss ratio
+        # cache miss ratio (# of missed entries / # of unique requests): ( cache_miss_counter[1] / cache_miss_counter[2] )
+        # cache miss ratio (# of missed entries / # of total access): ( cache_miss_counter[1] / cache_miss_counter[3] )
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+
         return self.cache_miss_counter
 
     @torch.jit.export
     def get_table_wise_cache_miss(self) -> Tensor:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
         # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
-
         return self.table_wise_cache_miss
+
+    def reset_cache_miss_counter(self) -> None:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+        self.cache_miss_counter = torch.tensor(
+            [0, 0, 0, 0], device=self.current_device, dtype=torch.int64
+        )
+
+    def print_cache_miss_counter(self) -> None:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+        logging.info(
+            f"\n"
+            f"Miss counter value [0] - # of miss occured iters : {self.cache_miss_counter[0]}, \n"
+            f"Miss counter value [1] - # of unique misses : {self.cache_miss_counter[1]}, \n"
+            f"Miss counter value [2] - # of unique requested indices : {self.cache_miss_counter[2]}, \n"
+            f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
+        )
+        logging.info(
+            f"unique_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[2]}, \n"
+        )
+        logging.info(
+            f"total_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[3]}, \n"
+        )
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
@@ -1827,6 +1867,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
+
+        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
+        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
+        indices, offsets = indices.long(), offsets.long()
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
@@ -1909,17 +1953,23 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         miss_count = torch.sum(unique_ids_count_list)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[1] += miss_count
+
+        # Number of unique requests
+        assert (
+            len(linear_cache_indices.size()) == 1
+        ), f"linear_cache_indices should be 1-D was {len(linear_cache_indices.size())}-D"
+
+        assert (
+            self.cache_miss_counter.size()[0] == 4
+        ), f"self.cache_miss_counter should be 4-D was {self.cache_miss_counter.size()[0]}-D"
+
+        self.cache_miss_counter[2] += torch.unique(linear_cache_indices).size()[0]
+
+        # Number of total requests
+        self.cache_miss_counter[3] += linear_cache_indices.size()[0]
 
     def _update_tablewise_cache_miss(
         self,
@@ -2139,7 +2189,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self.register_buffer(
                 "cache_miss_counter",
-                torch.tensor([0, 0], dtype=torch.int64),
+                torch.tensor([0, 0, 0, 0], dtype=torch.int64),
                 persistent=False,
             )
             return
@@ -2223,7 +2273,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "cache_miss_counter",
-            torch.tensor([0, 0], device=self.current_device, dtype=torch.int64),
+            torch.tensor([0, 0, 0, 0], device=self.current_device, dtype=torch.int64),
         )
         if cache_algorithm not in (CacheAlgorithm.LFU, CacheAlgorithm.LRU):
             raise ValueError(
