@@ -1942,8 +1942,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         lxu_cache_locations: Tensor,
         linear_cache_indices: Tensor,
     ) -> None:
-        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
-        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=linear_cache_indices.dtype)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=linear_cache_indices.dtype)
 
         cache_missed_locations = torch.where(
             lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT
@@ -1977,8 +1977,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_cache_indices: Tensor,
         offsets: Tensor,
     ) -> None:
-        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
-        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=linear_cache_indices.dtype)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=linear_cache_indices.dtype)
 
         # pyre-ignore[6]:
         # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
