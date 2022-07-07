@@ -352,8 +352,7 @@ jobs:
         --security-opt seccomp=unconfined \
         --device=/dev/kfd \
         --device=/dev/dri \
-        -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER \
-        -v $SCRIPT_DIR_BAREMETAL:$SCRIPT_DIR_DOCKER
+        -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER
         "
         docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
 
