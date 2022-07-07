@@ -58,8 +58,7 @@ def device(
         values_2d = values_2d.cuda()
 
     time, output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_2d_to_dense,
-        (values_2d, offsets, max_len),
+        torch.ops.fbgemm.jagged_2d_to_dense, (values_2d, offsets, max_len), iters=1000
     )
 
     num_bytes = (
@@ -71,7 +70,7 @@ def device(
 
     total_L = values_2d.size(0)
     time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.dense_to_jagged, (output, [offsets], total_L)
+        torch.ops.fbgemm.dense_to_jagged, (output, [offsets], total_L), iters=1000
     )
 
     # Recompute num_bytes to disinclude entire dense tensor
@@ -91,6 +90,7 @@ def device(
             values_1d, offsets, max_len, padding_value=0
         ),
         (),
+        iters=1000,
     )
 
     num_bytes = (
@@ -103,7 +103,7 @@ def device(
     total_L = values_1d.size(0)
     output_1d = torch.unsqueeze(output, -1)
     time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.dense_to_jagged, (output_1d, [offsets], total_L)
+        torch.ops.fbgemm.dense_to_jagged, (output_1d, [offsets], total_L), iters=1000
     )
 
     # Recompute num_bytes to disinclude entire dense tensor
