@@ -177,7 +177,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 const int*, // lengths
                 float, // epsilon
                 float, // lr then rand_buffer
-                uint32_t*>(asmjit::CallConv::kIdHost),
+                uint32_t*>(asmjit::CallConvId::kHost),
             a->environment());
 
         asmjit::FuncFrame frame;
@@ -185,12 +185,12 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
         if (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
-              x86::Reg::kGroupVec,
+              asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
                   asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
           frame.setDirtyRegs(
-              x86::Reg::kGroupVec,
+              asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
                   asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
                   asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
@@ -198,7 +198,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
 
         frame.setDirtyRegs(
-            x86::Reg::kGroupGp,
+            asmjit::RegGroup::kGp,
             asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);

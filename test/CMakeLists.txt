@@ -17,6 +17,11 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
     message(WARNING "gtest_force_shared_crt is OFF")
   endif()
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
+  # add flags required for mac build
+  if(NOT MSVC)
+    target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")
+    target_compile_options(gmock PRIVATE "-Wno-deprecated-copy")
+  endif()
 endif()
 
 if (USE_SANITIZER)

@@ -271,18 +271,18 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             int,
             const int*,
             int,
-            const std::int32_t*>(asmjit::CallConv::kIdHost),
+            const std::int32_t*>(asmjit::CallConvId::kHost),
         e->environment());
 
     asmjit::FuncFrame frame;
     frame.init(func);
 
     frame.setDirtyRegs(
-        x86::Reg::kGroupVec,
+        asmjit::RegGroup::kVec,
         asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
             asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
     frame.setDirtyRegs(
-        x86::Reg::kGroupGp,
+        asmjit::RegGroup::kGp,
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);

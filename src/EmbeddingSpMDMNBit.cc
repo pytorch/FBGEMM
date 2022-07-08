@@ -299,7 +299,7 @@ GenEmbeddingSpMDMNBitLookup<
                   const float*, // weights
                   float*, // out
                   const int32_t* /* compressed_indices_table */,
-                  const int* /* mask */>(asmjit::CallConv::kIdHost),
+                  const int* /* mask */>(asmjit::CallConvId::kHost),
               a->environment());
         } else {
           func.init(
@@ -313,7 +313,7 @@ GenEmbeddingSpMDMNBitLookup<
                   const offsetType*, // offsets or lengths
                   const float*, // weights
                   float*, // out
-                  const int* /* mask */>(asmjit::CallConv::kIdHost),
+                  const int* /* mask */>(asmjit::CallConvId::kHost),
               a->environment());
         }
 
@@ -321,14 +321,14 @@ GenEmbeddingSpMDMNBitLookup<
         frame.init(func);
 
         frame.setDirtyRegs(
-            x86::Reg::kGroupVec,
+            asmjit::RegGroup::kVec,
             asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
                 asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
                 asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
                 asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
 
         frame.setDirtyRegs(
-            x86::Reg::kGroupGp,
+            asmjit::RegGroup::kGp,
             reg_id == 15
                 ? asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15)
                 : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
