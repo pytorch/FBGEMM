@@ -2164,8 +2164,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value =
-          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
+      float output_value = std::fma(
+          input_row[col], input_row_scale_bias[0], input_row_scale_bias[1]);
       if (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
