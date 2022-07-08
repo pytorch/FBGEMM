@@ -1942,8 +1942,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         lxu_cache_locations: Tensor,
         linear_cache_indices: Tensor,
     ) -> None:
-        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=linear_cache_indices.dtype)
-        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=linear_cache_indices.dtype)
+        CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
+        CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
 
         cache_missed_locations = torch.where(
             lxu_cache_locations == CACHE_MISS, linear_cache_indices, CACHE_HIT

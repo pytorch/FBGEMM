@@ -337,12 +337,11 @@ jobs:
         set -eux
         env
         ls -l
-        DOCKER_IMAGE=rocm/pytorch:rocm5.1.3_ubuntu20.04_py3.7_pytorch_1.11.0
+        DOCKER_IMAGE=rocm/pytorch:rocm5.1.1_ubuntu20.04_py3.7_pytorch_1.10.0
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD
         JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
-        # git clone https://github.com/ROCmSoftwarePlatform/FBGEMM.git $JENKINS_REPO_DIR_BAREMETAL
         DOCKER_OPTIONS="\
         --network=host \
         --ipc=host \

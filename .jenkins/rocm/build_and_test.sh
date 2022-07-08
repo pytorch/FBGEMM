@@ -28,6 +28,8 @@ pip3 install jinja2
 pip3 install ninja
 pip3 install scikit-build
 pip3 install --upgrade hypothesis
+pip3 uninstall -y torch torchvision
+pip3 install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
 
 pip3 list
 
