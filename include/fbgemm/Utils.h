@@ -17,15 +17,6 @@
 
 #include <asmjit/asmjit.h>
 
-// // forward declarations to asmjit
-// namespace asmjit {
-// namespace x86 {
-// class Xmm;
-// class Ymm;
-// class Zmm;
-// } // namespace x86
-// } // namespace asmjit
-
 namespace fbgemm {
 
 /**
