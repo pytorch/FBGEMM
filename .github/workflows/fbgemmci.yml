@@ -303,8 +303,7 @@ jobs:
         cd test
         python3 input_combine_test.py
         python3 quantize_ops_test.py
-        # disable sparse_ops_test for ROCm at the moment, since a "core dumped" aborts the test on the Github actions vm that has no GPUs.
-        # python3 sparse_ops_test.py
+        python3 sparse_ops_test.py
         python3 -c "import fbgemm_gpu"
         python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
