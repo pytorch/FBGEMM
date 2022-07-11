@@ -20,6 +20,9 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup embedding-cpu Embedding CPU Operators
+///
+
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -53,6 +56,7 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias);
 
+///@ingroup embedding-cpu
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
     Tensor uvm_weights, // to match the interface of CUDA op using UVM
@@ -114,6 +118,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
 
+///@ingroup embedding-cpu
 void pruned_hashmap_insert_unweighted_cpu(
     Tensor indices,
     Tensor dense_indices,
@@ -121,12 +126,14 @@ void pruned_hashmap_insert_unweighted_cpu(
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+///@ingroup embedding-cpu
 Tensor pruned_hashmap_lookup_unweighted_cpu(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+///@ingroup embedding-cpu
 Tensor pruned_array_lookup_cpu(
     Tensor indices,
     Tensor offsets,
