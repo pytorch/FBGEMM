@@ -540,7 +540,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     bool stochastic_rounding,
-    at::PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    int64_t non_evictable_time_stamp) {
   int32_t C = lxu_cache_state.size(0);
   int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= *N_unique) {
@@ -580,7 +581,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
   for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
     int32_t insert_slot = shfl_sync(sorted_slot, l);
     int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
-    if (insert_current_lru_cost == time_stamp) {
+    if (insert_current_lru_cost >= non_evictable_time_stamp) {
       return;
     }
     int64_t insert_idx = cache_set_sorted_indices[n + l];
@@ -698,7 +699,8 @@ void lru_cache_insert_cuda(
     Tensor lxu_cache_weights,
     int64_t time_stamp,
     Tensor lru_state,
-    bool stochastic_rounding) {
+    bool stochastic_rounding,
+    int64_t non_evictable_time_stamp) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -756,7 +758,8 @@ void lru_cache_insert_cuda(
                 lru_state
                     .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
-                rng_engine_inputs);
+                rng_engine_inputs,
+                non_evictable_time_stamp);
       }));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -773,7 +776,8 @@ void lru_cache_populate_cuda(
     Tensor lxu_cache_weights,
     int64_t time_stamp,
     Tensor lru_state,
-    bool stochastic_rounding) {
+    bool stochastic_rounding,
+    int64_t non_evictable_time_stamp = -1) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -783,6 +787,11 @@ void lru_cache_populate_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
   TENSOR_ON_CUDA_GPU(lxu_cache_weights);
   TENSOR_ON_CUDA_GPU(lru_state);
+
+  // for backward compatibility
+  if (non_evictable_time_stamp < 0) {
+    non_evictable_time_stamp = time_stamp;
+  }
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -827,7 +836,8 @@ void lru_cache_populate_cuda(
       lxu_cache_weights,
       time_stamp,
       lru_state,
-      stochastic_rounding);
+      stochastic_rounding,
+      non_evictable_time_stamp);
 }
 
 template <typename index_t>

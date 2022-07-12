@@ -35,7 +35,8 @@ void lru_cache_populate_cuda(
     Tensor lxu_cache_weights,
     int64_t time_stamp,
     Tensor lru_state,
-    bool stochastic_rounding);
+    bool stochastic_rounding,
+    int64_t non_evictable_time_stamp = -1);
 
 // LRU cache: fetch the rows corresponding to `linear_cache_indices` from
 // `weights`, and insert them into the cache at timestep `time_stamp`.
@@ -115,7 +116,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets) -> Tensor");
   DISPATCH_TO_CUDA("linearize_cache_indices", linearize_cache_indices_cuda);
   m.def(
-      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, bool stochastic_rounding) -> ()");
+      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, bool stochastic_rounding, int non_evictable_time_stamp=-1) -> ()");
   DISPATCH_TO_CUDA("lru_cache_populate", lru_cache_populate_cuda);
   m.def(
       "lru_cache_populate_byte(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state,int row_alignment=16) -> ()");
@@ -144,7 +145,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets) -> Tensor");
   DISPATCH_TO_CUDA("linearize_cache_indices", linearize_cache_indices_cuda);
   m.def(
-      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, bool stochastic_rounding) -> ()");
+      "lru_cache_populate(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, bool stochastic_rounding, int non_evictable_time_stamp=-1) -> ()");
   DISPATCH_TO_CUDA("lru_cache_populate", lru_cache_populate_cuda);
   m.def(
       "lru_cache_populate_byte(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, int row_alignment=16) -> ()");

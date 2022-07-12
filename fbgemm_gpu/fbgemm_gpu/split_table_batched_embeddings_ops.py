@@ -793,6 +793,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.timestep,
                 self.lxu_state,
                 self.stochastic_rounding,
+                self.timesteps_prefetched[0],
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
             torch.ops.fbgemm.lfu_cache_populate(
