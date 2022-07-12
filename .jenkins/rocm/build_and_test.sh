@@ -36,7 +36,7 @@ pip3 list
 cd $FBGEMM_REPO_DIR/fbgemm_gpu
 export MAX_JOBS=`nproc`
 export PYTORCH_ROCM_ARCH="gfx908"
-CXX=hipcc python setup.py build develop
+python setup.py build develop
 
 export FBGEMM_TEST_WITH_ROCM=1
 
