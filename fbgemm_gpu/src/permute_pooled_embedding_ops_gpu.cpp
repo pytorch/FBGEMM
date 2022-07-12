@@ -15,8 +15,12 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup permute-pooled-embs-gpu
+///@defgroup permute-pooled-embs-cpu
+
 namespace fbgemm_gpu {
 
+///@ingroup permute-pooled-embs-cpu
 Tensor permute_pooled_embs_cpu(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
@@ -103,6 +107,7 @@ class PermutePooledEmbsFunction
   }
 };
 
+///@ingroup permute-pooled-embs-gpu
 Tensor permute_pooled_embs_auto_grad_gpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
@@ -117,6 +122,7 @@ Tensor permute_pooled_embs_auto_grad_gpu(
       inv_permute_list);
 }
 
+///@ingroup permute-pooled-embs-cpu
 Tensor permute_pooled_embs_auto_grad_cpu(
     const Tensor& pooled_embs,
     const Tensor& offset_dim_list,
