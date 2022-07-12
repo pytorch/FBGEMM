@@ -27,8 +27,12 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup layout-transform-cuda Layout Transformation CUDA Operators
+///
+
 namespace fbgemm_gpu {
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_cuda(
     Tensor grad_output, // [B_local][T_global][D]
     const std::vector<int64_t>& num_features_per_rank) {
@@ -72,6 +76,7 @@ Tensor recat_embedding_grad_output_cuda(
   return sharded_grad_output;
 }
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_mixed_D_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
@@ -116,6 +121,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
   return sharded_grad_output;
 }
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const Tensor& dim_sum_per_rank,

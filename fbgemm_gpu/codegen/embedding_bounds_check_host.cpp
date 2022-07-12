@@ -14,6 +14,9 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup embedding-cuda Embedding CUDA Operators
+
+///@ingroup embedding-cuda
 void bounds_check_indices_cuda(
     Tensor& rows_per_table,
     Tensor& indices,

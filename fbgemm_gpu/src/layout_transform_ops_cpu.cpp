@@ -12,8 +12,12 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup layout-transform-cpu Layout Transformation CPU Operators
+///
+
 namespace fbgemm_gpu {
 
+///@ingroup layout-transform-cpu
 Tensor recat_embedding_grad_output_mixed_D_cpu(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {

@@ -156,6 +156,10 @@ parts of FBGEMM_GPU please see our Wiki (work in progress).
 We have extensively used comments in our source files. The best and up-do-date
 documentation is available in the source files.
 
+# Building API Documentation
+
+See [docs/README.md](docs/README.md).
+
 ## Join the FBGEMM community
 See the [`CONTRIBUTING`](../CONTRIBUTING.md) file for how to help out.
 

@@ -15,6 +15,10 @@
 
 using Tensor = at::Tensor;
 
+/// @defgroup quantize-data-cpu Quantize Data CPU Operators
+/// The following are CPU Operators
+///
+
 namespace fbgemm_gpu {
 
 template <typename input_t>
@@ -141,6 +145,7 @@ Tensor _fusednbitrowwise_to_float_cpu(
   return output;
 }
 
+///@ingroup quantize-data-cpu
 Tensor& _fused8bitrowwise_to_float_cpu_out(
     Tensor& output,
     const Tensor& input) {
@@ -151,6 +156,7 @@ Tensor& fused8bitrowwise_to_half_cpu_out(Tensor& output, const Tensor& input) {
   return _fused8bitrowwise_to_float_cpu_out_t<fbgemm::float16>(output, input);
 }
 
+///@ingroup quantize-data-cpu
 Tensor& _float_to_fused8bitrowwise_cpu_out(
     Tensor& output,
     const Tensor& input) {
@@ -160,7 +166,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out(
 Tensor& _half_to_fused8bitrowwise_cpu_out(Tensor& output, const Tensor& input) {
   return _float_to_fused8bitrowwise_cpu_out_t<fbgemm::float16>(output, input);
 }
-
+///@ingroup quantize-data-cpu
 Tensor float_to_fused8bitrowwise_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
@@ -168,6 +174,7 @@ Tensor float_to_fused8bitrowwise_cpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_cpu_out(output, input);
 }
 
+///@ingroup quantize-data-cpu
 Tensor half_to_fused8bitrowwise_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
@@ -175,6 +182,7 @@ Tensor half_to_fused8bitrowwise_cpu(const Tensor& input) {
   return _half_to_fused8bitrowwise_cpu_out(output, input);
 }
 
+///@ingroup quantize-data-cpu
 Tensor float_or_half_to_fused8bitrowwise_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
@@ -189,17 +197,17 @@ Tensor float_or_half_to_fused8bitrowwise_cpu(const Tensor& input) {
       });
   return output;
 }
-
+///@ingroup quantize-data-cpu
 Tensor fused8bitrowwise_to_float_cpu(const Tensor& input) {
   auto output = at::empty({0}, input.options().dtype(at::kFloat));
   return _fused8bitrowwise_to_float_cpu_out(output, input);
 }
-
+///@ingroup quantize-data-cpu
 Tensor fused8bitrowwise_to_half_cpu(const Tensor& input) {
   auto output = at::empty({0}, input.options().dtype(at::kHalf));
   return fused8bitrowwise_to_half_cpu_out(output, input);
 }
-
+///@ingroup quantize-data-cpu
 Tensor fused8bitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t output_dtype) {
@@ -224,18 +232,21 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
   return output;
 }
 
+///@ingroup quantize-data-cpu
 Tensor fusednbitrowwise_to_float_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_cpu<float>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cpu
 Tensor fusednbitrowwise_to_half_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_cpu<fbgemm::float16>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cpu
 Tensor fusednbitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t bit_rate,
@@ -286,6 +297,7 @@ Tensor float_or_half_to_fusednbitrowwise_cpu(
   return output;
 }
 
+///@ingroup quantize-data-cpu
 void FloatToFP8Quantized_ref(
     const float* const input,
     const size_t nrows,
@@ -305,6 +317,7 @@ void FloatToFP8Quantized_ref(
   }
 }
 
+///@ingroup quantize-data-cpu
 void FP8QuantizedToFloat_ref(
     const uint8_t* const input,
     const size_t nrows,

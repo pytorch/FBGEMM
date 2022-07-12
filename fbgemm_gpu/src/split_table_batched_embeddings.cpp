@@ -10,19 +10,24 @@
 
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
+///@defgroup table-batched-embed-cuda CUDA Operators
+/// The following are CUDA Operators
+
 using Tensor = at::Tensor;
 
 // Map index to cache_set. h_in: linear_indices; C: #cache_sets.
 int64_t host_lxu_cache_slot(int64_t h_in, int64_t C);
 
-// Linearize the indices of all tables to make it be unique
+///@ingroup table-batched-embed-cuda
+/// Linearize the indices of all tables to make it be unique
 Tensor linearize_cache_indices_cuda(
     Tensor cache_hash_size_cumsum,
     Tensor indices,
     Tensor offsets);
 
-// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
-// `weights`, and insert them into the cache at timestep `time_stamp`.
+///@ingroup table-batched-embed-cuda
+/// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
+///`weights`, and insert them into the cache at timestep `time_stamp`.
 void lru_cache_populate_cuda(
     Tensor weights,
     Tensor hash_size_cumsum,
@@ -37,9 +42,10 @@ void lru_cache_populate_cuda(
     Tensor lru_state,
     bool stochastic_rounding);
 
-// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
-// `weights`, and insert them into the cache at timestep `time_stamp`.
-// weights and lxu_cache_weights have "uint8_t" byte elements
+///@ingroup table-batched-embed-cuda
+/// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
+///`weights`, and insert them into the cache at timestep `time_stamp`.
+/// weights and lxu_cache_weights have "uint8_t" byte elements
 void lru_cache_populate_byte_cuda(
     Tensor weights,
     Tensor hash_size_cumsum,
@@ -55,8 +61,9 @@ void lru_cache_populate_byte_cuda(
     Tensor lru_state,
     int64_t row_alignment);
 
-// LFU cache: fetch the rows corresponding to `linear_cache_indices` from
-// `weights`, and insert them into the cache.
+///@ingroup table-batched-embed-cuda
+/// LFU cache: fetch the rows corresponding to `linear_cache_indices` from
+///`weights`, and insert them into the cache.
 void lfu_cache_populate_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -70,9 +77,10 @@ void lfu_cache_populate_cuda(
     Tensor lfu_state,
     bool stochastic_rounding);
 
-// LFU cache: fetch the rows corresponding to `linear_cache_indices` from
-// `weights`, and insert them into the cache.
-// weights and lxu_cache_weights have "uint8_t" byte elements
+///@ingroup table-batched-embed-cuda
+/// LFU cache: fetch the rows corresponding to `linear_cache_indices` from
+///`weights`, and insert them into the cache.
+/// weights and lxu_cache_weights have "uint8_t" byte elements
 void lfu_cache_populate_byte_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -87,15 +95,17 @@ void lfu_cache_populate_byte_cuda(
     Tensor lfu_state,
     int64_t row_alignment);
 
-// Lookup the LRU/LFU cache: find the cache weights location for all indices.
-// Look up the slots in the cache corresponding to `linear_cache_indices`, with
-// a sentinel value for missing.
+///@ingroup table-batched-embed-cuda
+/// Lookup the LRU/LFU cache: find the cache weights location for all indices.
+/// Look up the slots in the cache corresponding to `linear_cache_indices`, with
+/// a sentinel value for missing.
 Tensor lxu_cache_lookup_cuda(
     Tensor linear_cache_indices,
     Tensor lxu_cache_state,
     int64_t invalid_index);
 
-// Flush the cache: store the weights from the cache to the backing storage.
+//////@ingroup table-batched-embed-cuda
+/// Flush the cache: store the weights from the cache to the backing storage.
 void lxu_cache_flush_cuda(
     Tensor uvm_weights,
     Tensor cache_hash_size_cumsum,

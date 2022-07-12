@@ -16,6 +16,9 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+///@defgroup embedding-cuda Embedding CUDA Operators
+///
+
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -87,6 +90,7 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias);
 
+///@ingroup embedding-cuda
 Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -193,12 +197,14 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
 
+///@ingroup embedding-cuda
 Tensor pruned_hashmap_lookup_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets);
 
+///@ingroup embedding-cuda
 Tensor pruned_array_lookup_cuda(
     Tensor indices,
     Tensor offsets,

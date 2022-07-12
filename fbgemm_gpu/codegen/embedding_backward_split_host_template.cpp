@@ -16,6 +16,8 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+/// @defgroup embedding-cuda Embedding CUDA Operators
+
 Tensor split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -425,6 +427,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
 };
 {% endfor %}
 
+///@ingroup embedding-cuda
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     Tensor placeholder_autograd_tensor,
     Tensor dev_weights,
