@@ -27,8 +27,6 @@
 
   <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="#" />
     <link rel="search" title="Search" href="search.html" />
   <!-- Google Analytics -->
@@ -228,9 +226,22 @@
               
             
             
-              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+              <p class="caption"><span class="caption-text">Python API Documentation</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu.html">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-api/index.html">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+</ul>
+<p class="caption"><span class="caption-text">CPP API Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/embedding_ops.html">Embedding Operators</a></li>
 </ul>
 
             
@@ -305,15 +316,88 @@
 <h1 id="index">Index</h1>
 
 <div class="genindex-jumpbox">
- <a href="#B"><strong>B</strong></a>
+ <a href="#_"><strong>_</strong></a>
+ | <a href="#A"><strong>A</strong></a>
+ | <a href="#B"><strong>B</strong></a>
+ | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
+ | <a href="#G"><strong>G</strong></a>
+ | <a href="#H"><strong>H</strong></a>
+ | <a href="#I"><strong>I</strong></a>
+ | <a href="#J"><strong>J</strong></a>
+ | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
+ | <a href="#N"><strong>N</strong></a>
+ | <a href="#P"><strong>P</strong></a>
+ | <a href="#R"><strong>R</strong></a>
+ | <a href="#T"><strong>T</strong></a>
+ | <a href="#U"><strong>U</strong></a>
  
 </div>
+<h2 id="_">_</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv422_bfloat16_to_float_gpuRKN2at6TensorE">_bfloat16_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv438_float_or_half_to_fused8bitrowwise_gpuRK6Tensor">_float_or_half_to_fused8bitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/sparse_ops.html#_CPPv438_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t">_float_or_half_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv422_float_to_bfloat16_gpuRKN2at6TensorE">_float_to_bfloat16_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor">_float_to_fused8bitrowwise_cpu_out (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv430_float_to_fused8bitrowwise_gpuRK6Tensor">_float_to_fused8bitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv430_float_to_fusednbitrowwise_gpuRK6TensorK7int64_t">_float_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t">_float_to_fusednbitrowwise_gpu_t (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor">_fused8bitrowwise_to_float_cpu_out (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv440_fused8bitrowwise_to_float_mixed_dim_gpuRKN2at6TensorERKN2at6TensorEK7int64_t">_fused8bitrowwise_to_float_mixed_dim_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv438_fused8bitrowwise_to_float_or_half_gpuRKN2at6TensorEK7int64_t">_fused8bitrowwise_to_float_or_half_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t">_fusednbitrowwise_to_float_gpu_t (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv438_fusednbitrowwise_to_float_or_half_gpuRKN2at6TensorEK7int64_tK7int64_t">_fusednbitrowwise_to_float_or_half_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv429_fusednbitrowwise_to_half_gpuRKN2at6TensorEK7int64_t">_fusednbitrowwise_to_half_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv429_half_to_fusednbitrowwise_gpuRKN2at6TensorEK7int64_t">_half_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv418_msfp_to_float_gpuRKN2at6TensorEK7int64_tK7int64_tK7int64_t">_msfp_to_float_gpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="A">A</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv417all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE">all_to_one_device (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="B">B</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="fbgemm_gpu.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">BatchedUnaryEmbeddingBag (class in fbgemm_gpu.batched_unary_embeddings_ops)</a>
+      <li><a href="python-api/index.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">BatchedUnaryEmbeddingBag (class in fbgemm_gpu.batched_unary_embeddings_ops)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE">bounds_check_indices_cuda (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/sparse_ops.html#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">expand_into_jagged_permute_cuda (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -325,19 +409,107 @@
     fbgemm_gpu
 
       <ul>
-        <li><a href="fbgemm_gpu.html#module-fbgemm_gpu">module</a>
+        <li><a href="python-api/index.html#module-fbgemm_gpu">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     fbgemm_gpu.batched_unary_embeddings_ops
 
       <ul>
-        <li><a href="fbgemm_gpu.html#module-fbgemm_gpu.batched_unary_embeddings_ops">module</a>
+        <li><a href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">module</a>
 </li>
       </ul></li>
-      <li><a href="fbgemm_gpu.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">forward() (fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag method)</a>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">float_or_half_to_fused8bitrowwise_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">float_to_fused8bitrowwise_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">FloatToFP8Quantized_ref (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="python-api/index.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">forward() (fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag method)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">fused8bitrowwise_to_float_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t">fused8bitrowwise_to_float_or_half_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv428fused8bitrowwise_to_half_cpuRK6Tensor">fused8bitrowwise_to_half_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv429fusednbitrowwise_to_float_cpuRK6TensorK7int64_t">fusednbitrowwise_to_float_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t">fusednbitrowwise_to_float_or_half_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t">fusednbitrowwise_to_half_cpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="G">G</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/sparse_ops.html#_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td">generic_histogram_binning_calibration_by_feature_cpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="H">H</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/quantize_ops.html#_CPPv428half_to_fused8bitrowwise_cpuRK6Tensor">half_to_fused8bitrowwise_cpu (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/sparse_ops.html#_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td">histogram_binning_calibration_cpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="I">I</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv448int_nbit_split_embedding_codegen_lookup_function6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE">int_nbit_split_embedding_codegen_lookup_function (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv452int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE">int_nbit_split_embedding_codegen_lookup_function_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv413is_uvm_tensor6Tensor">is_uvm_tensor (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="J">J</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/jagged_tensor_ops.html#_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t">jagged_1d_to_dense_cpu (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/jagged_tensor_ops.html#_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t">jagged_2d_to_dense_forward_cpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="L">L</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv428lfu_cache_populate_byte_cuda6Tensor6Tensor7int64_t6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t">lfu_cache_populate_byte_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv423lfu_cache_populate_cuda6Tensor6Tensor7int64_t6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor6Tensorb">lfu_cache_populate_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv428linearize_cache_indices_cuda6Tensor6Tensor6Tensor">linearize_cache_indices_cuda (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv428lru_cache_populate_byte_cuda6Tensor6Tensor7int64_t6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t6Tensor7int64_t">lru_cache_populate_byte_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv423lru_cache_populate_cuda6Tensor6Tensor7int64_t6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t6Tensorb">lru_cache_populate_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv420lxu_cache_flush_cuda6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t6Tensor6Tensorb">lxu_cache_flush_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv421lxu_cache_lookup_cuda6Tensor6Tensor7int64_t">lxu_cache_lookup_cuda (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -349,11 +521,103 @@
     module
 
       <ul>
-        <li><a href="fbgemm_gpu.html#module-fbgemm_gpu">fbgemm_gpu</a>
+        <li><a href="python-api/index.html#module-fbgemm_gpu">fbgemm_gpu</a>
 </li>
-        <li><a href="fbgemm_gpu.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a>
+        <li><a href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a>
 </li>
       </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="N">N</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv418new_managed_tensor6TensorRKNSt6vectorINSt7int64_tEEE">new_managed_tensor (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv426new_vanilla_managed_tensor6TensorRKNSt6vectorINSt7int64_tEEE">new_vanilla_managed_tensor (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="P">P</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/input_combine.html#_CPPv435padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t">padding_fused_tbe_input_combine_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv433permute_pooled_embs_auto_grad_cpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">permute_pooled_embs_auto_grad_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv433permute_pooled_embs_auto_grad_gpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">permute_pooled_embs_auto_grad_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv439permute_pooled_embs_auto_grad_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_auto_grad_split_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv439permute_pooled_embs_auto_grad_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_auto_grad_split_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv423permute_pooled_embs_cpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">permute_pooled_embs_cpu (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor">pruned_array_lookup_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv424pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor">pruned_array_lookup_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv436pruned_hashmap_insert_unweighted_cpu6Tensor6Tensor6Tensor6Tensor6Tensor">pruned_hashmap_insert_unweighted_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv436pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor">pruned_hashmap_lookup_unweighted_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/embedding_ops.html#_CPPv437pruned_hashmap_lookup_unweighted_cuda6Tensor6Tensor6Tensor6Tensor">pruned_hashmap_lookup_unweighted_cuda (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="R">R</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/layout_transform_ops.html#_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_cuda (C++ function)</a>
+</li>
+      <li><a href="cpp-api/layout_transform_ops.html#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor">recat_embedding_grad_output_mixed_D_batch_cuda (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/layout_transform_ops.html#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/layout_transform_ops.html#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cuda (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="T">T</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/input_combine.html#_CPPv421tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE">tbe_input_combine_cpu (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="U">U</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv419uvm_cuda_mem_advise6Tensor7int64_t">uvm_cuda_mem_advise (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv427uvm_cuda_mem_prefetch_async6TensorN3c108optionalI6TensorEE">uvm_cuda_mem_prefetch_async (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv424uvm_mem_advice_dont_fork6Tensor">uvm_mem_advice_dont_fork (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv411uvm_storage6Tensor">uvm_storage (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv410uvm_to_cpu6Tensor">uvm_to_cpu (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv416uvm_to_cpu_clone6Tensor">uvm_to_cpu_clone (C++ function)</a>
+</li>
+      <li><a href="cpp-api/cumem_utils.html#_CPPv413uvm_to_device6Tensor6Tensor">uvm_to_device (C++ function)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -405,11 +669,10 @@
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
-         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
          <script src="_static/jquery.js"></script>
          <script src="_static/underscore.js"></script>
-         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
          <script src="_static/doctools.js"></script>
+         <script src="_static/language_data.js"></script>
      
 
   

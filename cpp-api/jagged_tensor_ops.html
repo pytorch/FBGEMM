@@ -6,11 +6,10 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
-
+  
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>fbgemm_gpu &mdash; fbgemm 0.1.2 documentation</title>
+  <title>Jagged Tensor Operators &mdash; fbgemm 0.1.2 documentation</title>
   
 
   
@@ -26,13 +25,12 @@
 
   
 
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-    <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" />
-    <link rel="prev" title="Welcome to FBGEMM’s documentation!" href="index.html" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CUDA Memory Operators" href="cumem_utils.html" />
+    <link rel="prev" title="Table Batched Embedding Operators" href="split_table_batched_embeddings.html" />
   <!-- Google Analytics -->
   
     <script async src="https://www.googletagmanager.com/gtag/js?id=UA-117752657-2"></script>
@@ -48,16 +46,16 @@
   
 
   
-  <script src="_static/js/modernizr.min.js"></script>
+  <script src="../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -214,7 +212,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -230,9 +228,22 @@
               
             
             
-              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+              <p class="caption"><span class="caption-text">Python API Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+</ul>
+<p class="caption"><span class="caption-text">CPP API Documentation</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
 </ul>
 
             
@@ -265,7 +276,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="index.html">
+        <a href="../index.html">
           
             Docs
           
@@ -273,13 +284,13 @@
       </li>
 
         
-      <li>fbgemm_gpu</li>
+      <li>Jagged Tensor Operators</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="_sources/fbgemm_gpu.rst.txt" rel="nofollow"><img src="_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/cpp-api/jagged_tensor_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -305,32 +316,29 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="module-fbgemm_gpu">
-<span id="fbgemm-gpu"></span><h1>fbgemm_gpu<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
-<section id="module-fbgemm_gpu.batched_unary_embeddings_ops">
-<span id="fbgemm-gpu-batched-unary-embeddings-ops"></span><h2>fbgemm_gpu.batched_unary_embeddings_ops<a class="headerlink" href="#module-fbgemm_gpu.batched_unary_embeddings_ops" title="Permalink to this heading">¶</a></h2>
-<dl class="py class">
-<dt class="sig sig-object py" id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fbgemm_gpu.batched_unary_embeddings_ops.</span></span><span class="sig-name descname"><span class="pre">BatchedUnaryEmbeddingBag</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">num_tasks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hash_sizes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">long_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
-<dl class="py method">
-<dt class="sig sig-object py" id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">
-<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">offsets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward" title="Permalink to this definition">¶</a></dt>
-<dd><p>Defines the computation performed at every call.</p>
-<p>Should be overridden by all subclasses.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although the recipe for forward pass needs to be defined within
-this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
-instead of this since the former takes care of running the
-registered hooks while the latter silently ignores them.</p>
+  <div class="section" id="jagged-tensor-operators">
+<h1>Jagged Tensor Operators<a class="headerlink" href="#jagged-tensor-operators" title="Permalink to this headline">¶</a></h1>
+<p>Jagged Tensor solves the issue when rows in dimension are of
+different length. This often occurs in sparse feature inputs
+in recommender systems, as well as natural language processing
+system batched inputs.</p>
+<div class="section" id="cuda-operators">
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
 </div>
-</dd></dl>
+<div class="section" id="cpu-operators">
+<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t">
+<span id="_CPPv330jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t"></span><span id="_CPPv230jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t"></span><span id="jagged_2d_to_dense_forward_cpu__Tensor.Tensor.int64_t"></span><span class="target" id="group__jagged-tensor-ops-cpu_1ga5fe715114cbd70cded9004548bdf56f9"></span>Tensor <code class="sig-name descname">jagged_2d_to_dense_forward_cpu</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, int64_t <em>max_L</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
 
-</dd></dl>
+<dl class="cpp function">
+<dt id="_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t">
+<span id="_CPPv322jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t"></span><span id="_CPPv222jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t"></span><span id="jagged_1d_to_dense_cpu__Tensor.Tensor.int64_t.int64_t"></span><span class="target" id="group__jagged-tensor-ops-cpu_1ga78bc26dfc821cc8bed98f65da045f0b2"></span>Tensor <code class="sig-name descname">jagged_1d_to_dense_cpu</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, int64_t <em>max_L</em>, int64_t <em>padding_value</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
 
-</section>
-</section>
+</div>
+</div>
 
 
              </article>
@@ -340,8 +348,10 @@ registered hooks while the latter silently ignores them.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
+        <a href="cumem_utils.html" class="btn btn-neutral float-right" title="CUDA Memory Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
-        <a href="index.html" class="btn btn-neutral" title="Welcome to FBGEMM’s documentation!" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+        <a href="split_table_batched_embeddings.html" class="btn btn-neutral" title="Table Batched Embedding Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -373,8 +383,9 @@ registered hooks while the latter silently ignores them.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">fbgemm_gpu</a><ul>
-<li><a class="reference internal" href="#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+<li><a class="reference internal" href="#">Jagged Tensor Operators</a><ul>
+<li><a class="reference internal" href="#cuda-operators">CUDA Operators</a></li>
+<li><a class="reference internal" href="#cpu-operators">CPU Operators</a></li>
 </ul>
 </li>
 </ul>
@@ -391,20 +402,19 @@ registered hooks while the latter silently ignores them.</p>
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
-         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-         <script src="_static/jquery.js"></script>
-         <script src="_static/underscore.js"></script>
-         <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-         <script src="_static/doctools.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script src="../_static/jquery.js"></script>
+         <script src="../_static/underscore.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/language_data.js"></script>
      
 
   
 
-  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="_static/js/theme.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -485,7 +495,7 @@ registered hooks while the latter silently ignores them.</p>
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="_static/images/pytorch-x.svg">
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -600,7 +610,7 @@ registered hooks while the latter silently ignores them.</p>
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {

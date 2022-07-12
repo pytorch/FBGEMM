@@ -1,0 +1,696 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Sparse Data Operators &mdash; fbgemm 0.1.2 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Quantization Data Operators" href="quantize_ops.html" />
+    <link rel="prev" title="fbgemm_gpu" href="../python-api/index.html" />
+  <!-- Google Analytics -->
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-117752657-2"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-117752657-2');
+    </script>
+  
+  <!-- End Google Analytics -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/mobile">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Python API Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+</ul>
+<p class="caption"><span class="caption-text">CPP API Documentation</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Sparse Data Operators</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/cpp-api/sparse_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <div class="section" id="sparse-data-operators">
+<h1>Sparse Data Operators<a class="headerlink" href="#sparse-data-operators" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="sparse-data-cuda-operators">
+<h2>Sparse Data CUDA Operators<a class="headerlink" href="#sparse-data-cuda-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">
+<span id="_CPPv331expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="_CPPv231expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="expand_into_jagged_permute_cuda__at::TensorCR.at::TensorCR.at::TensorCR.int64_t"></span><span class="target" id="group__sparse-data-cuda_1gab003d907505953ce3e55ec4bd818259e"></span>at::Tensor <code class="sig-name descname">expand_into_jagged_permute_cuda</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>permute</em>, <em class="property">const</em> at::Tensor &amp;<em>input_offsets</em>, <em class="property">const</em> at::Tensor &amp;<em>output_offsets</em>, int64_t <em>output_size</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>expand_into_jagged_permute expand the sparse data permute index from table dimension to batch dimension, for cases where the sparse features has different batch sizes across ranks.</p>
+<p><dl class="simple">
+<dt><strong>Return</strong></dt><dd><p>The output follows the following formula: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">output_permute</span><span class="p">[</span><span class="n">table_offset</span><span class="p">[</span><span class="n">permute</span><span class="p">[</span><span class="n">table</span><span class="p">]]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">batch</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">bag_offset</span><span class="p">[</span><span class="n">batch</span><span class="p">]</span><span class="w"></span>
+</pre></div>
+</div>
+ </p>
+</dd>
+<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">permute</span></code>: the table level permute index. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">input_offsets</span></code>: the exclusive offsets of table-level length. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">output_offsets</span></code>: the exclusive offsets of table-level permuted length. The op expands the permute from table level to batch level by contiguously mapping each bag of its corresponding tables to the position the batch sits on after feature permute. We will derive offset array of table and batch to compute the output permute. </p></li>
+</ul>
+</dd>
+</dl>
+</p>
+</dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv438_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t">
+<span id="_CPPv338_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t"></span><span id="_CPPv238_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t"></span><span id="_float_or_half_to_fusednbitrowwise_gpu__TensorCR.int64_tC"></span><span class="target" id="group__sparse-data-cuda_1ga25d5eca6c28e4a86da916c8f092eaea2"></span>Tensor <code class="sig-name descname">_float_or_half_to_fusednbitrowwise_gpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv438_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="sparse-data-cpu-operators">
+<h2>Sparse Data CPU Operators<a class="headerlink" href="#sparse-data-cpu-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td">
+<span id="_CPPv333histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="_CPPv233histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="histogram_binning_calibration_cpu__at::TensorCR.at::TensorCR.at::TensorCR.double.double.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1ga201bb2241fc9d582d6c0fe968b0e71ca"></span>std::tuple&lt;at::Tensor, at::Tensor&gt; <code class="sig-name descname">histogram_binning_calibration_cpu</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>logit</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_examples</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_positives</em>, double <em>positive_weight</em>, double <em>lower_bound</em> = 0.0, double <em>upper_bound</em> = 1.0, int64_t <em>bin_ctr_in_use_after</em> = 0, double <em>bin_ctr_weight_value</em> = 1.0<span class="sig-paren">)</span><a class="headerlink" href="#_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Divide the prediction range (e.g., [0, 1]) into B bins. In each bin, use two parameters to store the number of positive examples and the number of examples that fall into this bucket. So we basically have a histogram for the model prediction. As a result, for each bin, we have a statistical value for the real CTR (<code class="docutils literal notranslate"><span class="pre">num_pos</span> <span class="pre">/</span> <span class="pre">num_example</span></code>). We use this statistical value as the final calibrated prediction if the pre-cali prediction falls into the corresponding bin. In this way, the predictions within each bin should be well-calibrated if we have sufficient examples. That is, we have a fine-grained calibrated model by this calibration module. Theoretically, this calibration layer can fix any uncalibrated model or prediction if we have sufficient bins and examples. <dl class="simple">
+<dt><strong>Return</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code> </p>
+</dd>
+<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">logit</span></code>: is input tensor before applying Sigmoid. Assumes positive weight calibration is used for calibartion target, and </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">positive_weight</span></code>: is passed as input argument. The number of bins is automatically derived from <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be the same size. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lower/upper_bound</span></code>: Bounds of the bins. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code>: We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value: 0. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_weight_value</span></code>: Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"></span>
+<span class="n">bin_ctr_weight</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">calibration_target</span><span class="w"></span>
+</pre></div>
+</div>
+ Default value: 1.0 </p></li>
+</ul>
+</dd>
+</dl>
+</p>
+</dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td">
+<span id="_CPPv352generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="_CPPv252generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="generic_histogram_binning_calibration_by_feature_cpu__at::TensorCR.at::TensorCR.at::TensorCR.int64_t.at::TensorCR.at::TensorCR.at::TensorCR.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1gaef2a0a8c27e3b8b2d72be5c95ba7539e"></span>std::tuple&lt;at::Tensor, at::Tensor&gt; <code class="sig-name descname">generic_histogram_binning_calibration_by_feature_cpu</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>logit</em>, <em class="property">const</em> at::Tensor &amp;<em>segment_value</em>, <em class="property">const</em> at::Tensor &amp;<em>segment_lengths</em>, int64_t <em>num_segments</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_examples</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_positives</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_boundaries</em>, double <em>positive_weight</em>, int64_t <em>bin_ctr_in_use_after</em> = 0, double <em>bin_ctr_weight_value</em> = 1.0<span class="sig-paren">)</span><a class="headerlink" href="#_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>An extension of histogram binning calibration model which divides data into bins based on one specific feature and prediction/ECTR range. In each bin, use two parameters to store the number of positive examples and the number of examples that fall into this bucket. So we basically have a histogram for the model prediction. As a result, for each bin, we have a statistical value for the real CTR (num_pos / num_example). We use this statistical value as the final calibrated prediction if the pre-cali prediction falls into the corresponding bin. In this way, the predictions within each bin should be well-calibrated if we have sufficient examples. That is, we have a fine-grained calibrated model by this calibration module. Theoretically, this calibration layer can fix any uncalibrated model or prediction if we have sufficient bins and examples.</p>
+<p><p>Assumes positive weight calibration is used for calibartion target, and </p>
+<code class="docutils literal notranslate"><span class="pre">positive_weight</span></code> is passed as input argument. <p>Same as above, but accepts generic “bin_boundaries”, which is assumed to be sorted. </p>
+<dl class="simple">
+<dt><strong>Return</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code> </p>
+</dd>
+<dt><strong>Return</strong></dt><dd><p>calibrated_prediction. </p>
+</dd>
+<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">logit</span></code>: is input tensor before applying Sigmoid.</p></li>
+</ul>
+</dd>
+<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">segment_value/lengths</span></code>: Values and lengths in KeyJaggedTensor. Assumes value of length is either 0 or 1. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">num_bins</span></code>: # of bins is no longer the same as <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be still the same size. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lower/upper_bound</span></code>: Bounds of the bins. </p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code>: We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value is <code class="docutils literal notranslate"><span class="pre">0</span></code>. &#64;parambin_ctr_weight_value Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"></span>
+<span class="n">bin_ctr_weight</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">calibration_target</span><span class="p">.</span><span class="w"></span>
+</pre></div>
+</div>
+ Default value: <code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></li>
+</ul>
+</dd>
+</dl>
+</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="quantize_ops.html" class="btn btn-neutral float-right" title="Quantization Data Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="../python-api/index.html" class="btn btn-neutral" title="fbgemm_gpu" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2022, FBGEMM team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Sparse Data Operators</a><ul>
+<li><a class="reference internal" href="#sparse-data-cuda-operators">Sparse Data CUDA Operators</a></li>
+<li><a class="reference internal" href="#sparse-data-cpu-operators">Sparse Data CPU Operators</a></li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script src="../_static/jquery.js"></script>
+         <script src="../_static/underscore.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/language_data.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col follow-us-col">
+          <ul>
+            <li class="list-title">Stay Connected</li>
+          </ul>
+
+          <div class="footer-social-icons">
+            <a href="https://www.facebook.com/pytorch" target="_blank" class="facebook"></a>
+            <a href="https://twitter.com/pytorch" target="_blank" class="twitter"></a>
+            <a href="https://www.youtube.com/pytorch" target="_blank" class="youtube"></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/mobile">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/hub">PyTorch Hub</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

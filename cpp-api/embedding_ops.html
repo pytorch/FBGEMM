@@ -1,0 +1,656 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Embedding Operators &mdash; fbgemm 0.1.2 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Layout Transformation Operators" href="layout_transform_ops.html" />
+  <!-- Google Analytics -->
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-117752657-2"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-117752657-2');
+    </script>
+  
+  <!-- End Google Analytics -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/mobile">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Python API Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html">fbgemm_gpu</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
+</ul>
+<p class="caption"><span class="caption-text">CPP API Documentation</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Embedding Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Embedding Operators</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/cpp-api/embedding_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <div class="section" id="embedding-operators">
+<h1>Embedding Operators<a class="headerlink" href="#embedding-operators" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="cuda-operators">
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE">
+<span id="_CPPv325bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE"></span><span id="_CPPv225bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE"></span><span id="bounds_check_indices_cuda__TensorR.TensorR.TensorR.int64_t.TensorR.c10::optional:Tensor:"></span><span class="target" id="group__embedding-cuda_1ga1a60fbbde0b69ae29d75af2345499025"></span>void <code class="sig-name descname">bounds_check_indices_cuda</code><span class="sig-paren">(</span>Tensor &amp;<em>rows_per_table</em>, Tensor &amp;<em>indices</em>, Tensor &amp;<em>offsets</em>, int64_t <em>bounds_check_mode</em>, Tensor &amp;<em>warning</em>, c10::optional&lt;Tensor&gt; <em>weights</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv448int_nbit_split_embedding_codegen_lookup_function6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE">
+<span id="_CPPv348int_nbit_split_embedding_codegen_lookup_function6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE"></span><span id="_CPPv248int_nbit_split_embedding_codegen_lookup_function6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE"></span><span id="int_nbit_split_embedding_codegen_lookup_function__Tensor.Tensor.Tensor.Tensor.Tensor.Tensor.int64_t.int64_t.int64_t.int64_t.int64_t.int64_t.Tensor.Tensor.int64_t.c10::optional:Tensor:.int64_t.c10::optional:Tensor:.c10::optional:Tensor:.c10::optional:int64_t:.c10::optional:int64_t:.c10::optional:int64_t:.c10::optional:int64_t:"></span><span class="target" id="group__embedding-cuda_1ga0749f1c6540189dd47b32a56858f82fb"></span>Tensor <code class="sig-name descname">int_nbit_split_embedding_codegen_lookup_function</code><span class="sig-paren">(</span>Tensor <em>dev_weights</em>, Tensor <em>uvm_weights</em>, Tensor <em>weights_placements</em>, Tensor <em>weights_offsets</em>, Tensor <em>weights_tys</em>, Tensor <em>D_offsets</em>, int64_t <em>total_D</em>, int64_t <em>max_int2_D</em>, int64_t <em>max_int4_D</em>, int64_t <em>max_int8_D</em>, int64_t <em>max_float16_D</em>, int64_t <em>max_float32_D</em>, Tensor <em>indices</em>, Tensor <em>offsets</em>, int64_t <em>pooling_mode</em>, c10::optional&lt;Tensor&gt; <em>indice_weights</em>, int64_t <em>output_dtype</em>, c10::optional&lt;Tensor&gt; <em>lxu_cache_weights</em>, c10::optional&lt;Tensor&gt; <em>lxu_cache_locations</em>, c10::optional&lt;int64_t&gt; <em>row_alignment</em>, c10::optional&lt;int64_t&gt; <em>max_float8_D</em>, c10::optional&lt;int64_t&gt; <em>fp8_exponent_bits</em>, c10::optional&lt;int64_t&gt; <em>fp8_exponent_bias</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv448int_nbit_split_embedding_codegen_lookup_function6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv437pruned_hashmap_lookup_unweighted_cuda6Tensor6Tensor6Tensor6Tensor">
+<span id="_CPPv337pruned_hashmap_lookup_unweighted_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv237pruned_hashmap_lookup_unweighted_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_hashmap_lookup_unweighted_cuda__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cuda_1ga054dcb27fae0d16f8a160c4f5fd42d56"></span>Tensor <code class="sig-name descname">pruned_hashmap_lookup_unweighted_cuda</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>hash_table</em>, Tensor <em>hash_table_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437pruned_hashmap_lookup_unweighted_cuda6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv424pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor">
+<span id="_CPPv324pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv224pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_array_lookup_cuda__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cuda_1gaea1d3ae26d1e893ccf08f8b55b3d6eff"></span>Tensor <code class="sig-name descname">pruned_array_lookup_cuda</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>index_remappings</em>, Tensor <em>index_remappings_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv424pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="cpu-operators">
+<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv452int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE">
+<span id="_CPPv352int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE"></span><span id="_CPPv252int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE"></span><span id="int_nbit_split_embedding_codegen_lookup_function_cpu__Tensor.Tensor.Tensor.Tensor.Tensor.Tensor.int64_t.int64_t.int64_t.int64_t.int64_t.int64_t.Tensor.Tensor.int64_t.c10::optional:Tensor:.int64_t.c10::optional:Tensor:.c10::optional:Tensor:.c10::optional:int64_t:.c10::optional:int64_t:.c10::optional:int64_t:.c10::optional:int64_t:"></span><span class="target" id="group__embedding-cpu_1gac115303550aa9af7c170baef63bcdb00"></span>Tensor <code class="sig-name descname">int_nbit_split_embedding_codegen_lookup_function_cpu</code><span class="sig-paren">(</span>Tensor <em>dev_weights</em>, Tensor <em>uvm_weights</em>, Tensor <em>weights_placements</em>, Tensor <em>weights_offsets</em>, Tensor <em>weights_tys</em>, Tensor <em>D_offsets</em>, int64_t <em>total_D</em>, int64_t <em>max_int2_D</em>, int64_t <em>max_int4_D</em>, int64_t <em>max_int8_D</em>, int64_t <em>max_float16_D</em>, int64_t <em>max_float32_D</em>, Tensor <em>indices</em>, Tensor <em>offsets</em>, int64_t <em>pooling_mode</em>, c10::optional&lt;Tensor&gt; <em>indice_weights</em>, int64_t <em>output_dtype</em>, c10::optional&lt;Tensor&gt; <em>lxu_cache_weights</em>, c10::optional&lt;Tensor&gt; <em>lxu_cache_locations</em>, c10::optional&lt;int64_t&gt; <em>row_alignment</em>, c10::optional&lt;int64_t&gt; <em>max_float8_D</em>, c10::optional&lt;int64_t&gt; <em>fp8_exponent_bits</em>, c10::optional&lt;int64_t&gt; <em>fp8_exponent_bias</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv452int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv436pruned_hashmap_insert_unweighted_cpu6Tensor6Tensor6Tensor6Tensor6Tensor">
+<span id="_CPPv336pruned_hashmap_insert_unweighted_cpu6Tensor6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv236pruned_hashmap_insert_unweighted_cpu6Tensor6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_hashmap_insert_unweighted_cpu__Tensor.Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cpu_1ga5b5d3d94a399c14899a4410d1f5e7dad"></span>void <code class="sig-name descname">pruned_hashmap_insert_unweighted_cpu</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>dense_indices</em>, Tensor <em>offsets</em>, Tensor <em>hash_table</em>, Tensor <em>hash_table_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv436pruned_hashmap_insert_unweighted_cpu6Tensor6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv436pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor">
+<span id="_CPPv336pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv236pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_hashmap_lookup_unweighted_cpu__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cpu_1ga2c64467f516cc9caf72cb94e9913b211"></span>Tensor <code class="sig-name descname">pruned_hashmap_lookup_unweighted_cpu</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>hash_table</em>, Tensor <em>hash_table_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv436pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor">
+<span id="_CPPv323pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv223pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_array_lookup_cpu__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cpu_1ga50d9da3c5bc1fe8b9cabfbda212c2ea5"></span>Tensor <code class="sig-name descname">pruned_array_lookup_cpu</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>index_remappings</em>, Tensor <em>index_remappings_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+</div>
+</div>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="layout_transform_ops.html" class="btn btn-neutral" title="Layout Transformation Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2022, FBGEMM team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Embedding Operators</a><ul>
+<li><a class="reference internal" href="#cuda-operators">CUDA Operators</a></li>
+<li><a class="reference internal" href="#cpu-operators">CPU Operators</a></li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script src="../_static/jquery.js"></script>
+         <script src="../_static/underscore.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/language_data.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col follow-us-col">
+          <ul>
+            <li class="list-title">Stay Connected</li>
+          </ul>
+
+          <div class="footer-social-icons">
+            <a href="https://www.facebook.com/pytorch" target="_blank" class="facebook"></a>
+            <a href="https://twitter.com/pytorch" target="_blank" class="twitter"></a>
+            <a href="https://www.youtube.com/pytorch" target="_blank" class="youtube"></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/mobile">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/hub">PyTorch Hub</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>
