@@ -481,7 +481,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% endif %}
     {% else %}
     {% if dense %}
-    if (dev_weights.type().scalarType() == at::kHalf || dev_weights.type().scalarType() == at::kByte) {
+    if (dev_weights.scalar_type() == at::kHalf || dev_weights.scalar_type() == at::kByte) {
         output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
     } else {
         output = at::empty({B, total_D}, dev_weights.options());
