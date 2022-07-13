@@ -1553,7 +1553,8 @@ def nbit_cache(  # noqa C901
     input_indices = []
     NOT_FOUND = -1
     # reset the cache miss counters after warmup
-    emb.reset_cache_miss_counter()
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.reset_cache_miss_counter()
 
     for indices, offsets, _ in requests:
         # pyre-fixme[29]:
@@ -1601,9 +1602,11 @@ def nbit_cache(  # noqa C901
         f"unique_miss_rate -- mean: {sum(unique_miss_rate)/len(requests)}, "
         f"max: {max(unique_miss_rate)}, min: {min(unique_miss_rate)}"
     )
-    emb.print_cache_miss_counter()
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.print_cache_miss_counter()
     # benchmark prefetch
-    emb.reset_cache_states()
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.reset_cache_states()
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices, offsets)
 
