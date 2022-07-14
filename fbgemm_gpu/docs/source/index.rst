@@ -6,17 +6,26 @@
 Welcome to FBGEMM's documentation!
 =======================================
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-
-:ref:`genindex`
-
-API Documentation
-=================
+This documentation provides a comprehensive reference of the `fbgemm_gpu`
+library.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
+   :caption: Python API Documentation
 
-   fbgemm_gpu.rst
+   python-api/index.rst
+
+
+.. toctree::
+   :maxdepth: 2
+   :caption: CPP API Documentation
+
+   cpp-api/sparse_ops.rst
+   cpp-api/quantize_ops.rst
+   cpp-api/merge_pooled_embeddings.rst
+   cpp-api/split_table_batched_embeddings.rst
+   cpp-api/jagged_tensor_ops.rst
+   cpp-api/cumem_utils.rst
+   cpp-api/input_combine.rst
+   cpp-api/layout_transform_ops.rst
+   cpp-api/embedding_ops.rst

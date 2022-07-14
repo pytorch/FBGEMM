@@ -5,22 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 #pragma once
+
+#include "./FbgemmBuild.h"
+#include "./UtilsAvx2.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <string>
 #include <type_traits>
-#include "./FbgemmBuild.h"
-#include "./UtilsAvx2.h"
 
-// forward declarations to asmjit
-namespace asmjit {
-namespace x86 {
-class Xmm;
-class Ymm;
-class Zmm;
-} // namespace x86
-} // namespace asmjit
+#include <asmjit/asmjit.h>
 
 namespace fbgemm {
 

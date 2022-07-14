@@ -28,6 +28,10 @@ namespace fbgemm_gpu {
 
 namespace {
 
+/// @defgroup jagged-tensor-ops-cuda Jagged Tensor CUDA Operators
+/// The following are Jagged Tensor CUDA Operators
+///
+
 /**
  * Ref. http://tensor-compiler.org/kjolstad-oopsla17-tensor-compiler.pdf
  * @param offset the input value points to the offset in the first jagged dim
@@ -340,6 +344,7 @@ __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output
   }
 }
 
+///@addtogroup jagged-tensor-ops-cuda
 template <typename scalar_t, typename F>
 void jagged_dense_elementwise_jagged_output_(
     const Tensor& x_values,
@@ -479,6 +484,7 @@ void jagged_dense_dense_elementwise_jagged_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
+///@ingroup jagged-tensor-ops-cuda
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
@@ -563,7 +569,6 @@ at::Tensor jagged_to_padded_dense_backward(
 
   return grad_values;
 }
-
 class JaggedToPaddedDenseGPUOp
     : public torch::autograd::Function<JaggedToPaddedDenseGPUOp> {
  public:
@@ -602,6 +607,7 @@ class JaggedToPaddedDenseGPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cuda
 Tensor jagged_to_padded_dense(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
@@ -611,7 +617,8 @@ Tensor jagged_to_padded_dense(
       values, offsets, max_lengths, padding_value)[0];
 }
 
-// output = x + y where x is jagged, y and output are dense
+///@ingroup jagged-tensor-ops-cuda
+/// output = x + y where x is jagged, y and output are dense
 Tensor jagged_dense_elementwise_add(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -632,6 +639,7 @@ Tensor jagged_dense_elementwise_add(
   return dense_output;
 }
 
+///@ingroup jagged-tensor-ops-cuda
 class DenseToJaggedGPUOp
     : public torch::autograd::Function<DenseToJaggedGPUOp> {
  public:
@@ -760,14 +768,15 @@ class JaggedDenseDenseAddJaggedOutputGPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cuda
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
     const c10::optional<int64_t>& total_L) {
   return {DenseToJaggedGPUOp::apply(dense, offsets, total_L)[0], offsets};
 }
-
-// output = x + y where x is jagged, y is dense, and output is jagged
+///@ingroup jagged-tensor-ops-cuda
+/// output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>>
 jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
@@ -984,6 +993,7 @@ class JaggedDenseMulGPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cuda
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -1252,6 +1262,7 @@ class BatchedDenseVecJagged2DMulGPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cuda
 Tensor batched_dense_vec_jagged_2d_mul(
     const Tensor& v,
     const Tensor& a_values,
