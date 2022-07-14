@@ -25,8 +25,11 @@
 
 using Tensor = at::Tensor;
 
-namespace fbgemm_gpu {
+/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
+/// The following are CUDA Operators
 
+namespace fbgemm_gpu {
+///@ingroup quantize-data-cuda
 at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -50,6 +53,7 @@ at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   return output;
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _bfloat16_to_float_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -492,6 +496,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   return output;
 }
 
+///@ingroup quantize-data-cuda
 Tensor _float_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<float>(input);
 }
@@ -500,6 +505,7 @@ Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<at::Half>(input);
 }
 
+///@ingroup quantize-data-cuda
 Tensor _float_or_half_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -578,6 +584,7 @@ at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
     const int64_t output_dtype) {
@@ -598,6 +605,7 @@ at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
     const at::Tensor& D_offsets,
@@ -655,6 +663,7 @@ at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 template <typename input_t>
 Tensor _float_to_fusednbitrowwise_gpu_t(
     const Tensor& input,
@@ -711,18 +720,21 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 Tensor _float_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<float>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _half_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<at::Half>(input, bit_rate);
 }
 
+///@ingroup sparse-data-cuda
 Tensor _float_or_half_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
@@ -736,6 +748,7 @@ Tensor _float_or_half_to_fusednbitrowwise_gpu(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_gpu_t(
     const Tensor& input,
@@ -801,12 +814,14 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
   return _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate,
@@ -1039,6 +1054,7 @@ at::Tensor _float_to_msfp_gpu(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _msfp_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,

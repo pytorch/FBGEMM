@@ -824,7 +824,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    DISPATCH_OUTPUT_TYPES(output.type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float8_D > 0) {
         auto max_fp8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float8_D, SparseType::FP8, row_alignment), 128);
         TORCH_CHECK(max_fp8_128b_rows <= 8);

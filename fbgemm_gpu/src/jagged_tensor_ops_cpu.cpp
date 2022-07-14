@@ -14,9 +14,15 @@
 
 namespace fbgemm_gpu {
 
+///@defgroup jagged-tensor-ops-cpu Jagged Tensor Operators
+/// The following are Jagged Tensor CPU Operators
+
 using Tensor = at::Tensor;
 
 namespace {
+
+///@defgroup jagged-tensor-ops-cpu Jagged Tensor Operators
+/// The following are Jagged Tensor CPU Operators
 
 // Ref. http://tensor-compiler.org/kjolstad-oopsla17-tensor-compiler.pdf
 template <int NUM_JAGGED_DIM, typename index_t>
@@ -327,6 +333,7 @@ void jagged_dense_elementwise_jagged_output_kernel_(
   } // for each oidx
 }
 
+/// @ingroup jagged-tensor-ops-cpu
 template <typename scalar_t, typename F>
 void jagged_dense_elementwise_jagged_output_(
     const Tensor& x_values,
@@ -355,6 +362,7 @@ void jagged_dense_elementwise_jagged_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
+///@ingroup jagged-tensor-ops-cpu
 class JaggedToPaddedDenseCPUOp
     : public torch::autograd::Function<JaggedToPaddedDenseCPUOp> {
  public:
@@ -389,6 +397,11 @@ class JaggedToPaddedDenseCPUOp
       padded_values_shape.push_back(values.size(-1));
     }
     Tensor padded_values = at::empty(padded_values_shape, values.options());
+    if (values.numel() == 0) {
+      // To avoid an error due to values_canonicalized.data_ptr is nullptr.
+      padded_values.fill_(padding_value);
+      return {padded_values};
+    }
     Tensor padded_values_view =
         values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
 
@@ -446,6 +459,7 @@ class JaggedToPaddedDenseCPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cpu
 Tensor jagged_to_padded_dense(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
@@ -455,7 +469,8 @@ Tensor jagged_to_padded_dense(
       values, offsets, max_lengths, padding_value)[0];
 }
 
-// output = x + y where x is jagged, y and output are dense
+///@ingroup jagged-tensor-ops-cpu
+/// Output = x + y where x is jagged, y and output are dense
 Tensor jagged_dense_elementwise_add(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -476,6 +491,7 @@ Tensor jagged_dense_elementwise_add(
   return dense_output;
 }
 
+///@ingroup jagged-tensor-ops-cpu
 // TODO: Add option to pass in total_L
 class DenseToJaggedCPUOp
     : public torch::autograd::Function<DenseToJaggedCPUOp> {
@@ -538,6 +554,7 @@ class DenseToJaggedCPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cpu
 // output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_cpu(
     const Tensor& dense,
@@ -546,7 +563,8 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_cpu(
   return {DenseToJaggedCPUOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
-// output = x + y where x is jagged, y is dense, and output is jagged
+///@ingroup jagged-tensor-ops-cpu
+/// Output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>>
 jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
@@ -713,6 +731,7 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
+///@addtogroup jagged-tensor-ops-cpu
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -931,6 +950,7 @@ class BatchedDenseVecJagged2DMulCPUOp
   }
 };
 
+///@ingroup jagged-tensor-ops-cpu
 Tensor batched_dense_vec_jagged_2d_mul(
     const Tensor& v,
     const Tensor& a_values,
@@ -940,6 +960,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
 
 } // namespace
 
+///@ingroup jagged-tensor-ops-cpu
 Tensor
 jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(values.dim() == 2);
@@ -950,6 +971,7 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
       values, {offsets}, {max_L}, /*padding_value=*/0);
 }
 
+///@ingroup jagged-tensor-ops-cpu
 Tensor jagged_1d_to_dense_cpu(
     Tensor values,
     Tensor offsets,

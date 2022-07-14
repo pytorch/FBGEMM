@@ -58,8 +58,7 @@ def device(
         values_2d = values_2d.cuda()
 
     time, output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_2d_to_dense,
-        (values_2d, offsets, max_len),
+        torch.ops.fbgemm.jagged_2d_to_dense, (values_2d, offsets, max_len), iters=1000
     )
 
     num_bytes = (
@@ -68,6 +67,17 @@ def device(
         + output.numel() * output.element_size()
     )
     logging.info(f"jagged_2d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
+
+    total_L = values_2d.size(0)
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.dense_to_jagged, (output, [offsets], total_L), iters=1000
+    )
+
+    # Recompute num_bytes to disinclude entire dense tensor
+    num_bytes = offsets.numel() * offsets.element_size() + 2 * (
+        values_2d.numel() * values_2d.element_size()
+    )
+    logging.info(f"dense_to_jagged (2d) {time} sec {num_bytes / time / 1e9} GB/s")
 
     # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
     #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
@@ -80,6 +90,7 @@ def device(
             values_1d, offsets, max_len, padding_value=0
         ),
         (),
+        iters=1000,
     )
 
     num_bytes = (
@@ -88,6 +99,18 @@ def device(
         + output.numel() * output.element_size()
     )
     logging.info(f"jagged_1d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
+
+    total_L = values_1d.size(0)
+    output_1d = torch.unsqueeze(output, -1)
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.dense_to_jagged, (output_1d, [offsets], total_L), iters=1000
+    )
+
+    # Recompute num_bytes to disinclude entire dense tensor
+    num_bytes = offsets.numel() * offsets.element_size() + 2 * (
+        values_1d.numel() * values_1d.element_size()
+    )
+    logging.info(f"dense_to_jagged (1d) {time} sec {num_bytes / time / 1e9} GB/s")
 
 
 if __name__ == "__main__":

@@ -63,10 +63,15 @@ jobs:
       run: |
         conda run -n build_binary \
           python -c "import fbgemm_gpu"
+    - name: Install Doxygen
+      run: |
+        conda install -n build_binary -c conda-forge doxygen
+        which doxygen
     - name: Build the docset
       run: |
         conda run -n build_binary python -m pip install -r fbgemm_gpu/docs/requirements.txt
         cd ./fbgemm_gpu/docs
+        conda run -n build_binary doxygen Doxyfile.in
         conda run -n build_binary make html
         cd ..
     - name: Get output time
@@ -76,4 +81,4 @@ jobs:
       with:
           ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: gh-pages # The branch the action should deploy to.
-          FOLDER: docs/build/html # The folder the action should deploy.
+          FOLDER: fbgemm_gpu/docs/build/html # The folder the action should deploy.
