@@ -74,7 +74,7 @@ if(USE_ROCM)
   include(Hipify)
 
   message("${message_line}")
-  message(STATUS "hip found ${ROCM_FOUND}")
+  message(STATUS "hip found ${HIP_FOUND}")
 endif()
 
 #
