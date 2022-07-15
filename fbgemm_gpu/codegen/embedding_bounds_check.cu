@@ -13,9 +13,9 @@ template <typename index_t>
 __device__ void adjust_offset_kernel(
     index_t& indices_start,
     index_t& indices_end,
-    index_t num_indices,
-    index_t* offset_acc_start,
-    index_t* offset_acc_end) {
+    const index_t num_indices,
+    index_t* const offset_acc_start,
+    index_t* const offset_acc_end) {
   indices_start =
       std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
   indices_end = std::max(indices_start, std::min(indices_end, num_indices));
@@ -29,7 +29,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    int64_t bounds_check_mode_,
+    const int64_t bounds_check_mode_,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd) {
   int32_t T = rows_per_table.size(0);
@@ -84,10 +84,10 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
         &offsets[t * B + b + 1]);
   }
 
-  auto L = indices_end - indices_start;
+  const auto L = indices_end - indices_start;
   for (index_t i = static_cast<index_t>(threadIdx.x); i < L;
        i += static_cast<index_t>(fbgemm_gpu::kWarpSize)) {
-    auto idx = indices[indices_start + i];
+    const auto idx = indices[indices_start + i];
     if (idx == -1) {
       // -1 indicates pruned rows.
       continue;
@@ -161,16 +161,17 @@ void bounds_check_indices_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
 
-  int32_t T = rows_per_table.size(0);
-  int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t T = rows_per_table.size(0);
+  const int32_t B = (offsets.size(0) - 1) / T;
   if (B == 0 || T == 0) {
     return;
   }
-  auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
+  const auto bounds_check_mode =
+      static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
   }
-  int64_t num_indices = indices.size(0);
+  const int64_t num_indices = indices.size(0);
 
   TORCH_CHECK(
       offsets.size(0) == B * T + 1,
