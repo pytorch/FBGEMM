@@ -307,6 +307,54 @@ jobs:
         python3 -c "import fbgemm_gpu"
         python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
+  test_amd_gpu:
+    runs-on: rocm
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+    - name: pre-checkout
+      shell: bash
+      run: |
+        if [ -d ${{ github.workspace }} ]
+        then
+          sudo chown -R $USER:$USER ${{ github.workspace }}
+        fi
+        sudo add-apt-repository ppa:git-core/ppa
+        sudo apt update
+        sudo apt -y install --only-upgrade git
+
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.ref }}
+        submodules: 'true'
+
+    - name: build fbgemm_gpu and test
+      shell: bash
+      run: |
+        set -eux
+        env
+        ls -l
+        DOCKER_IMAGE=rocm/pytorch:rocm5.1.1_ubuntu20.04_py3.7_pytorch_staging_base
+        docker pull $DOCKER_IMAGE
+        JENKINS_REPO_DIR=fbgemm-private-jenkins
+        JENKINS_REPO_DIR_BAREMETAL=$PWD
+        JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
+        DOCKER_OPTIONS="\
+        --user 0 \
+        --network=host \
+        --ipc=host \
+        --shm-size 16G \
+        --group-add video \
+        --cap-add=SYS_PTRACE \
+        --security-opt seccomp=unconfined \
+        --device=/dev/kfd \
+        --device=/dev/dri \
+        -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER
+        "
+        docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
+
   build_cpu_only:
     runs-on: ${{ matrix.os }}
     strategy:
