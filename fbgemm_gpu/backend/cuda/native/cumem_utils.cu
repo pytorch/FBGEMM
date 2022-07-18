@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <cstring>
 
-#include "cumem_utils.h"
+#include "fbgemm_gpu/cumem_utils.h"
 #include "fbgemm_gpu/enum_utils.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
