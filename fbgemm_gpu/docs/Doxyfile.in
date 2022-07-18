@@ -914,15 +914,15 @@ INPUT                  = "../include/fbgemm_gpu" \
                          "../include/fbgemm_gpu/permute_pooled_embedding_ops_split.h" \
                          "../include/fbgemm_gpu/merge_pooled_embeddings.h" \
                          "../include/fbgemm_gpu/sparse_ops.h" \
-                         "../fbgemm_gpu/src/quantize_ops.cu" \
-                         "../src/quantize_ops_cpu.cpp" \
+                         "../fbgemm_gpu/backend/cuda/native/quantize_ops.cu" \
+                         "../backend/cpu/native/quantize_ops_cpu.cpp" \
                          "../src/split_table_batched_embeddings.cpp" \
-                         "../src/jagged_tensor_ops.cu" \
-                         "../src/jagged_tensor_ops_cpu.cpp" \
+                         "../backend/cuda/native/jagged_tensor_ops.cu" \
+                         "../backend/cpu/native/jagged_tensor_ops_cpu.cpp" \
                          "../src/cumem_utils.h" \
                          "../include/fbgemm_gpu/input_combine.h" \
-                         "../src/layout_transform_ops.cu" \
-                         "../src/layout_transform_ops_cpu.cpp" \
+                         "../backend/cuda/native/layout_transform_ops.cu" \
+                         "../backend/cpu/native/layout_transform_ops_cpu.cpp" \
                          "../codegen/embedding_backward_split_host_template.cpp" \
                          "../codegen/embedding_backward_split_host_cpu_template.cpp" \
                          "../codegen/embedding_forward_quantized_host.cpp" \

@@ -287,12 +287,12 @@ set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
-    src/cpu_utils.cpp
-    src/jagged_tensor_ops_cpu.cpp
+    backend/cpu/native/cpu_utils.cpp
+    backend/cpu/native/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
-    src/layout_transform_ops_cpu.cpp
-    src/quantize_ops_cpu.cpp
-    src/sparse_ops_cpu.cpp)
+    backend/cpu/native/layout_transform_ops_cpu.cpp
+    backend/cpu/native/quantize_ops_cpu.cpp
+    backend/cpu/native/sparse_ops_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(
@@ -302,12 +302,12 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
     src/cumem_utils_host.cpp
-    src/layout_transform_ops_gpu.cpp
+    backend/cuda/native/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops_split_gpu.cpp
     src/permute_pooled_embedding_ops_split_cpu.cpp
-    src/quantize_ops_gpu.cpp
-    src/sparse_ops_gpu.cpp
+    backend/cuda/native/quantize_ops_gpu.cpp
+    backend/cuda/native/sparse_ops_gpu.cpp
     src/split_table_batched_embeddings.cpp
     src/metric_ops_host.cpp)
 
@@ -325,15 +325,15 @@ if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu
       codegen/embedding_bounds_check.cu
       src/cumem_utils.cu
-      src/histogram_binning_calibration_ops.cu
-      src/jagged_tensor_ops.cu
-      src/layout_transform_ops.cu
+      backend/cuda/native/histogram_binning_calibration_ops.cu
+      backend/cuda/native/jagged_tensor_ops.cu
+      backend/cuda/native/layout_transform_ops.cu
       src/permute_pooled_embedding_ops.cu
       src/permute_pooled_embedding_ops_split.cu
-      src/quantize_ops.cu
-      src/sparse_ops.cu
+      backend/cuda/native/quantize_ops.cu
+      backend/cuda/native/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
-      src/split_embeddings_utils.cu
+      backend/cuda/native/split_embeddings_utils.cu
       src/metric_ops.cu)
 
   set_source_files_properties(
