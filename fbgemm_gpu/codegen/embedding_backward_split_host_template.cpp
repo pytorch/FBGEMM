@@ -264,6 +264,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
 
     TORCH_CHECK(grad_outputs.size() == 1);
 
+
 #ifdef __HIP_PLATFORM_HCC__
     constexpr int32_t BT_block_size = 64;
     constexpr int32_t max_segment_length_per_warp = 64;
@@ -274,6 +275,9 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     using torch::autograd::Variable;
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
+    std::cout << "xixixi " << reinterpret_cast<uint64_t>(grad_output.data_ptr()) << " " << grad_output.stride(0) << " " << grad_output.stride(1) << std::endl;
+    grad_output = grad_output.contiguous();
+    std::cout << "heheheheheheheh " << reinterpret_cast<uint64_t>(grad_output.data_ptr()) << " " << grad_output.stride(0) << " " << grad_output.stride(1) << std::endl;
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
         grad_output.stride(1) != 1 ||
         grad_output.stride(0) % 4 != 0) {
