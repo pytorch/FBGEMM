@@ -275,9 +275,11 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 ||
-        grad_output.stride(0) % 4 != 0) {
+        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
         grad_output = grad_output.contiguous();
+    }
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+        grad_output = at::empty_like(grad_output).copy_(grad_output);
     }
 
     {% if not nobag %}

@@ -328,6 +328,9 @@ class SplitNoBagLookupFunction_Dense_Op
         grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
       grad_output = grad_output.contiguous();
     }
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
+    }
 
     auto grad_dev_weights =
         split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
