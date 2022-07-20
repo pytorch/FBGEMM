@@ -2064,7 +2064,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_float32_D=self.max_float32_D,
             indices=indices,
             offsets=offsets,
-            pooling_mode=self.pooling_mode,
+            pooling_mode=int(self.pooling_mode),
             indice_weights=per_sample_weights,
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
