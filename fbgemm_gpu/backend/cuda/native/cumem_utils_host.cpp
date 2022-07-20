@@ -9,7 +9,7 @@
 #include "fbgemm_gpu/enum_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-#include "cumem_utils.h"
+#include "fbgemm_gpu/cumem_utils.h"
 
 using Tensor = at::Tensor;
 
