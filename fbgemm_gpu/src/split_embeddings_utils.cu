@@ -175,6 +175,7 @@ transpose_embedding_input(
                     infos.packed_accessor32<int32_t, 1, RestrictPtrTraits>(),
                     linear_indices
                         .packed_accessor32<index_t, 1, RestrictPtrTraits>());
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
               } else {
                 nobag_linearize_index_kernel<<<
                     div_round_up(B * T, kMaxThreads),
@@ -188,8 +189,8 @@ transpose_embedding_input(
                     infos.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
                     linear_indices
                         .packed_accessor32<index_t, 1, RestrictPtrTraits>());
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
               }
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
               {
                 size_t temp_storage_bytes = 0;
                 AT_CUDA_CHECK(

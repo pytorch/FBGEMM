@@ -9,6 +9,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAException.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <ATen/cuda/Atomic.cuh>
@@ -237,10 +238,10 @@ void jagged_dense_elementwise_dense_output_(
             jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                           \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }
@@ -406,10 +407,10 @@ void jagged_dense_elementwise_jagged_output_(
         jagged_dims_tensor,                                                    \
         [f_ = f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)       \
             -> scalar_t { return f_(x, y); });                                 \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                            \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }
@@ -476,10 +477,10 @@ void jagged_dense_dense_elementwise_jagged_output_(
         output_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
         jagged_dims_tensor,                                                    \
         f);                                                                    \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                            \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }
@@ -962,10 +963,10 @@ void jagged_jagged_elementwise_dense_output_(
             jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                           \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }

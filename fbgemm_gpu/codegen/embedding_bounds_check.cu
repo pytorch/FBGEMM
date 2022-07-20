@@ -6,6 +6,8 @@
  */
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
+#include <c10/cuda/CUDAException.h>
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -200,6 +202,6 @@ void bounds_check_indices_cuda(
             bounds_check_mode_,
             warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             FixedDivisor(B));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
   });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }

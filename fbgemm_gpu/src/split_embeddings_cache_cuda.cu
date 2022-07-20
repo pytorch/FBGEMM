@@ -204,8 +204,8 @@ void lxu_cache_flush_cuda(
                     .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return;
 }
 
@@ -760,8 +760,8 @@ void lru_cache_insert_cuda(
                     .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void lru_cache_populate_cuda(
@@ -1109,8 +1109,8 @@ void lfu_update_counts_cuda(
             unique_indices_count
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 constexpr int32_t kCacheSetBits = 24;
@@ -1494,8 +1494,8 @@ void lfu_cache_insert_cuda(
                     .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void lfu_cache_populate_cuda(
@@ -1750,9 +1750,8 @@ void lfu_cache_insert_byte_cuda(
                 .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
             lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
             row_alignment);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void lfu_cache_populate_byte_cuda(

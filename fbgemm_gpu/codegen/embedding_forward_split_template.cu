@@ -17,6 +17,8 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
+#include <c10/cuda/CUDAException.h>
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -547,12 +549,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     2,
                     at::RestrictPtrTraits>()
                 );
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
                 {% else %}
                 output.packed_accessor32<
                     at::acc_type<scalar_t, true>,
                     2,
                     at::RestrictPtrTraits>()
                 );
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
                 {% endif %}
 
             return;
@@ -587,12 +591,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 2,
                 at::RestrictPtrTraits>()
             );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             {% else %}
             output.packed_accessor32<
                 at::acc_type<scalar_t, true>,
                 2,
                 at::RestrictPtrTraits>()
             );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             {% endif %}
 
             return;
@@ -632,11 +638,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             );
             {% endif %}
 
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         {% endif %}
         });
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;
 }
 {% endif %}
