@@ -218,7 +218,8 @@ def device(  # noqa C901
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     if do_pooling:
         read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+            output_size_multiplier * B * sum(Ds)
+            + param_size_multiplier * B * sum(Ds) * L
         )
     else:
         read_write_bytes = (
