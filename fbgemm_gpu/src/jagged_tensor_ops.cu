@@ -667,8 +667,12 @@ class DenseToJaggedGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dense.get_device());
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        values.scalar_type(), "jagged_dense_add_forward", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::Long,
+        values.scalar_type(),
+        "jagged_dense_add_forward",
+        [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               values,
               offsets,
