@@ -244,8 +244,15 @@ def benchmark_requests(
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
+    num_warmups: int = 0,
 ) -> float:
     times = []
+
+    if num_warmups > 0:
+        indices, offsets, weights = requests[0]
+        for _ in range(num_warmups):
+            func(indices, offsets, weights)
+
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
