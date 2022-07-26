@@ -1623,8 +1623,11 @@ Tensor jagged_index_select_2d_cuda(
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        values.scalar_type(), "jagged_index_select_2d_kernel_wrapper_1", [&] {
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        values.scalar_type(),
+        "jagged_index_select_2d_kernel_wrapper_1",
+        [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_select_2d_kernel_wrapper_2",
@@ -1715,8 +1718,11 @@ Tensor jagged_index_add_2d_cuda(
   Tensor output = at::zeros({num_output_rows, num_cols}, grad.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        grad.scalar_type(), "jagged_index_add_2d_kernel_wrapper_1", [&] {
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        grad.scalar_type(),
+        "jagged_index_add_2d_kernel_wrapper_1",
+        [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_add_2d_kernel_wrapper_2",
