@@ -63,10 +63,12 @@ class UvmTest(unittest.TestCase):
         )
 
         uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+        # Show how to copy the UVM tensor to CPU tensor
         cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
         assert not torch.ops.fbgemm.is_uvm_tensor(cpu_t)
         assert torch.ops.fbgemm.uvm_storage(cpu_t)
 
+        # Show how to copy the CPU/CUDA tensor to UVM tensor
         uvm_t.copy_(cpu_t)
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
@@ -231,6 +233,37 @@ class UvmTest(unittest.TestCase):
 
         assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
         assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
+
+    @unittest.skipIf(*gpu_unavailable or torch.cuda.device_count() < 2)
+    @given(N=st.integers(min_value=1, max_value=8))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_uvm_memadvise(self, N: int) -> None:
+        N = min(N, torch.cuda.device_count())
+        per_device_chunk = 4096 * 1024 * 1024
+        prototypes = []
+        for i in range(N):
+            prototypes.append(torch.empty(0, device=f"cuda:{i}", dtype=torch.uint8))
+
+        uvm_t = torch.ops.fbgemm.new_vanilla_managed_tensor(
+            prototypes[0], [per_device_chunk * N]
+        )
+        assert uvm_t.is_cuda
+
+        for i in range(N - 1):
+            cudaMemAdvise(
+                uvm_t[i * per_device_chunk : (i + 1) * per_device_chunk],
+                # pyre-ignore[16]
+                cudaMemoryAdvise.cudaMemAdviseSetPreferredLocation,
+                prototypes[i],
+            )
+
+        # pyre-ignore[16]
+        cudaMemAdvise(uvm_t, cudaMemoryAdvise.cudaMemAdviseSetAccessedBy, prototypes[0])
+        uvm_t.fill_(123)
+        torch.cuda.synchronize(prototypes[0].device)
+        for i in range(N):
+            x = uvm_t[i * per_device_chunk].cpu()
+            assert x == 123
 
 
 if __name__ == "__main__":

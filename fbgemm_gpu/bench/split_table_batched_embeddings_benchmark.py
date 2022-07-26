@@ -10,7 +10,7 @@ import logging
 import math
 import random
 import statistics
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
 import click
 import fbgemm_gpu
@@ -39,6 +39,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+
+# pyre-ignore[21]
+from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise
 from torch import Tensor
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
@@ -68,6 +71,83 @@ else:
 
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+def modify_uvm(
+    emb: Union[
+        SplitTableBatchedEmbeddingBagsCodegen, IntNBitTableBatchedEmbeddingBagsCodegen
+    ],
+    use_target_gpu: bool = False,
+) -> None:
+
+    device = emb.weights_uvm.device
+    dtype = emb.weights_uvm.dtype
+    tensor_size = emb.weights_uvm.size()
+
+    # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no attribute
+    #  `weights_uvm`.
+    # pyre-fixme[6]: For 2nd param expected `dtype` but got `Union[dtype, Tensor,
+    #  Module]`.
+    # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but got
+    #  `Union[device, Tensor, Module]`.
+    emb.weights_uvm = torch.empty(0, dtype=dtype, device=device)
+
+    uvm_weight = torch.ops.fbgemm.new_vanilla_managed_tensor(
+        emb.weights_uvm, tensor_size
+    )
+
+    emb.weights_uvm = uvm_weight
+    size = uvm_weight.numel() * uvm_weight.element_size()
+
+    if size == 0:
+        return
+
+    per_device_chunk = 1024 * 1024
+
+    assert torch.ops.fbgemm.is_uvm_tensor(uvm_weight)
+
+    gpu_count = max(1, torch.cuda.device_count() // 2)
+    logging.info(f"total GPU num = {gpu_count}")
+
+    prototypes = []
+    for i in range(gpu_count):
+        prototypes.append(torch.empty(0, device=f"cuda:{i}", dtype=torch.uint8))
+
+    storage_gpu_count = gpu_count if use_target_gpu else gpu_count - 1
+
+    chunks = (size + per_device_chunk - 1) // per_device_chunk
+
+    chunks_per_device_min = chunks // storage_gpu_count
+    extra_chunks = chunks % storage_gpu_count
+    offset = 0
+    start_id = 0 if use_target_gpu else 1
+
+    for i in range(start_id, gpu_count):
+        my_chunks = chunks_per_device_min
+        if extra_chunks > 0:
+            extra_chunks -= 1
+            my_chunks += 1
+        my_size = min(my_chunks * per_device_chunk, size - offset)
+        if my_size > 0:
+            logging.info(
+                f"*** Preferred Location: offset = {offset} size = {my_size} device = {prototypes[i].device}"
+            )
+            cudaMemAdvise(
+                uvm_weight[
+                    offset
+                    // uvm_weight.element_size() : (offset + my_size)
+                    // uvm_weight.element_size()
+                ],
+                # pyre-ignore[16]
+                cudaMemoryAdvise.cudaMemAdviseSetPreferredLocation,
+                prototypes[i],
+            )
+            offset += my_size
+
+    # pyre-ignore[16]
+    cudaMemAdvise(uvm_weight, cudaMemoryAdvise.cudaMemAdviseSetAccessedBy, uvm_weight)
+    torch.zero_(uvm_weight)
+    torch.cuda.synchronize(uvm_weight.device)
 
 
 @click.group()
@@ -316,6 +396,7 @@ def device(  # noqa C901
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--use-p2p-uvm", is_flag=True, default=False)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -339,6 +420,7 @@ def uvm(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
+    use_p2p_uvm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -385,6 +467,9 @@ def uvm(
         cache_algorithm=cache_alg,
         enforce_hbm=enforce_hbm,
     ).cuda()
+
+    if use_p2p_uvm:
+        modify_uvm(emb_uvm, True)
 
     if weights_precision == SparseType.INT8:
         emb_uvm.init_embedding_weights_uniform(-0.0003, 0.0003)
@@ -560,6 +645,7 @@ def uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option("--use-p2p-uvm", is_flag=True, default=False)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -579,6 +665,7 @@ def cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    use_p2p_uvm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -612,6 +699,9 @@ def cache(  # noqa C901
         weights_precision=weights_precision,
         stochastic_rounding=stoc,
     ).cuda()
+
+    if use_p2p_uvm:
+        modify_uvm(emb_nc, True)
 
     if weights_precision == SparseType.INT8:
         emb_nc.init_embedding_weights_uniform(-0.0003, 0.0003)
@@ -1163,6 +1253,7 @@ def nbit_device(  # noqa C901
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--use-p2p-uvm", is_flag=True, default=False)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1186,6 +1277,7 @@ def nbit_uvm(
     enforce_hbm: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    use_p2p_uvm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1236,6 +1328,9 @@ def nbit_uvm(
         fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_uvm.fill_random_weights()
+
+    if use_p2p_uvm:
+        modify_uvm(emb_uvm, True)
 
     if T_gpu > 0:
         emb_gpu = IntNBitTableBatchedEmbeddingBagsCodegen(
@@ -1454,6 +1549,7 @@ def nbit_uvm(
 @click.option("--record-tablewise-cache-miss", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--use-p2p-uvm", is_flag=True, default=False)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1475,6 +1571,7 @@ def nbit_cache(  # noqa C901
     record_tablewise_cache_miss: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    use_p2p_uvm: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1510,6 +1607,9 @@ def nbit_cache(  # noqa C901
         fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_nc.fill_random_weights()
+
+    if use_p2p_uvm:
+        modify_uvm(emb_nc, True)
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [
