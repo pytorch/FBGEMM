@@ -1324,9 +1324,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         torch.testing.assert_close(
             cc.weights.grad,
@@ -1584,9 +1584,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         if use_cache:
             cc.flush()
@@ -1817,7 +1817,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
@@ -2637,7 +2637,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
 

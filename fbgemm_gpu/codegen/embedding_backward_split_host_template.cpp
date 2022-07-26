@@ -274,12 +274,12 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     using torch::autograd::Variable;
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
-        grad_output = grad_output.contiguous();
-    }
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
         grad_output = at::empty_like(grad_output).copy_(grad_output);
+    } else if (!grad_output.is_contiguous()) {
+        grad_output = grad_output.contiguous();
     }
 
     {% if not nobag %}
