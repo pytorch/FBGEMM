@@ -75,7 +75,7 @@ void CompressedSparseColumn::SpMDM(
 // resnet/resnext so we are keeping arrays with dynamic size for gcc/clang and
 // dynamically allocated memory for MSVC even though dynamically allocated
 // memory works for all compilers.
-#ifdef _MSC_VER
+#ifdef _WIN32
   uint8_t* A_buffer =
       static_cast<uint8_t*>(fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
   int32_t* C_buffer =
@@ -94,7 +94,7 @@ void CompressedSparseColumn::SpMDM(
     // The cost of transpose is O(K*N) and we do O(NNZ*N) multiplications.
     // If NNZ/K is small, it's not worth doing transpose so we just use this
     // scalar loop.
-#ifdef _MSC_VER
+#ifdef _WIN32
     int32_t* C_temp = static_cast<int32_t*>(
         fbgemmAlignedAlloc(64, block.row_size * sizeof(int32_t)));
 #else
@@ -158,7 +158,7 @@ void CompressedSparseColumn::SpMDM(
         }
       } // for each column of B
     }
-#ifdef _MSC_VER
+#ifdef _WIN32
     fbgemmAlignedFree(A_buffer);
     fbgemmAlignedFree(C_buffer);
     fbgemmAlignedFree(C_temp);
@@ -179,7 +179,7 @@ void CompressedSparseColumn::SpMDM(
   for (int i1 = block.row_start; i1 < i_end; i1 += 32) {
     // Transpose 32 x K submatrix of A
     if (i_end - i1 < 32) {
-#ifdef _MSC_VER
+#ifdef _WIN32
       uint8_t* A_temp_buffer = static_cast<uint8_t*>(
           fbgemmAlignedAlloc(64, K * 32 * sizeof(uint8_t)));
 #else
@@ -200,7 +200,7 @@ void CompressedSparseColumn::SpMDM(
       for (int i2 = (i_end - i1) / 8 * 8; i2 < 32; i2 += 8) {
         transpose_8rows(K, A_temp_buffer + i2 * K, K, A_buffer + i2, 32);
       }
-#ifdef _MSC_VER
+#ifdef _WIN32
       fbgemmAlignedFree(A_temp_buffer);
 #endif
     } else {
@@ -280,7 +280,7 @@ void CompressedSparseColumn::SpMDM(
   spmdm_run_time += (dt);
   t_start = std::chrono::high_resolution_clock::now();
 #endif
-#ifdef _MSC_VER
+#ifdef _WIN32
   fbgemmAlignedFree(A_buffer);
   fbgemmAlignedFree(C_buffer);
 #endif

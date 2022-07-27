@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#ifdef _MSC_VER
+#ifdef _WIN32
 #include <immintrin.h>
 #include "./FbgemmFP16UKernelsAvx2.h"
 
@@ -112,4 +112,4 @@ void NOINLINE gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 } // namespace fbgemm
-#endif // _MSC_VER
+#endif // _WIN32
