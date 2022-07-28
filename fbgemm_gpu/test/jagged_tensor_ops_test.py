@@ -972,7 +972,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_cols=st.integers(1, 128),
         num_jagged_tensor_rows=st.integers(1, 128),
         index_dtype=st.sampled_from([torch.int, torch.long]),
-        jagged_tensor_dtype=st.sampled_from([torch.float, torch.half]),
+        jagged_tensor_dtype=st.sampled_from(
+            [torch.float, torch.half, torch.int, torch.long]
+        ),
     )
     @settings(max_examples=20, deadline=None)
     def test_jagged_index_select_2d(
@@ -984,6 +986,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
     ) -> None:
+        is_float = jagged_tensor_dtype in [torch.float, torch.half]
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
@@ -1000,20 +1003,34 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 device="cuda",
             )
         )
-        values = torch.rand(
-            int(lengths.sum().item()),
-            num_cols,
-            dtype=jagged_tensor_dtype,
-            device="cuda",
-        )
+        if is_float:
+            values = torch.rand(
+                int(lengths.sum().item()),
+                num_cols,
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
+        else:
+            values = torch.randint(
+                2**16,
+                (int(lengths.sum().item()), num_cols),
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
         values_ref = values.detach().clone()
-        values.requires_grad = True
-        values_ref.requires_grad = True
+
+        # Only float tensors can require grad
+        if is_float:
+            values.requires_grad = True
+            values_ref.requires_grad = True
 
         output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
         output_ref = self.jagged_index_select_2d_ref(values_ref, lengths, indices)
 
         assert torch.equal(output, output_ref)
+
+        if not is_float:
+            return
 
         grad = torch.rand_like(output)
         grad_ref = grad.detach().clone()

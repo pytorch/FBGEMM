@@ -667,8 +667,12 @@ class DenseToJaggedGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dense.get_device());
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        values.scalar_type(), "jagged_dense_add_forward", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::Long,
+        values.scalar_type(),
+        "jagged_dense_add_forward",
+        [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               values,
               offsets,
@@ -726,7 +730,7 @@ class JaggedDenseDenseAddJaggedOutputGPUOp
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
         x_values.scalar_type(),
-        "agged_dense_dense_elementwise_jagged_output_forward",
+        "jagged_dense_dense_elementwise_jagged_output_forward",
         [&] {
           jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
               x_values,
@@ -775,6 +779,64 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const c10::optional<int64_t>& total_L) {
   return {DenseToJaggedGPUOp::apply(dense, offsets, total_L)[0], offsets};
 }
+
+class JaggedDenseAddJaggedOutputGPUOp
+    : public torch::autograd::Function<JaggedDenseAddJaggedOutputGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& offsets,
+      const Tensor& dense) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["dense_shape"] = dense.sizes();
+
+    auto output = at::empty_like(x_values);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(dense.get_device());
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(),
+        "jagged_dense_elementwise_jagged_output_forward",
+        [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              offsets,
+              dense,
+              output,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x + y;
+              });
+        });
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor dense_values_grad = jagged_to_padded_dense(
+        grad_outputs[0],
+        offsets,
+        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        /*padding_value=*/0);
+    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+
+    return {
+        grad_outputs[0],
+        torch::autograd::Variable(), // offsets
+        dense_values_grad};
+  }
+};
+
 ///@ingroup jagged-tensor-ops-cuda
 /// output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>>
@@ -782,12 +844,8 @@ jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  // Convert to jagged
-  auto jagged_values =
-      DenseToJaggedGPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
-
-  // Add jagged_values + x_values -> sum_values
-  auto sum_values = x_values + jagged_values;
+  auto sum_values =
+      JaggedDenseAddJaggedOutputGPUOp::apply(x_values, x_offsets, y)[0];
 
   return {sum_values, x_offsets};
 }
@@ -1565,8 +1623,11 @@ Tensor jagged_index_select_2d_cuda(
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        values.scalar_type(), "jagged_index_select_2d_kernel_wrapper_1", [&] {
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        values.scalar_type(),
+        "jagged_index_select_2d_kernel_wrapper_1",
+        [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_select_2d_kernel_wrapper_2",
@@ -1657,8 +1718,11 @@ Tensor jagged_index_add_2d_cuda(
   Tensor output = at::zeros({num_output_rows, num_cols}, grad.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        grad.scalar_type(), "jagged_index_add_2d_kernel_wrapper_1", [&] {
+    AT_DISPATCH_ALL_TYPES_AND(
+        at::ScalarType::Half,
+        grad.scalar_type(),
+        "jagged_index_add_2d_kernel_wrapper_1",
+        [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_add_2d_kernel_wrapper_2",
