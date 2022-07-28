@@ -297,6 +297,10 @@ endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
   add_subdirectory(bench)
+  # add a flag to enable Clang 14
+  set_source_files_properties(
+    bench/GEMMsBenchmark.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
 endif()
 
 if(FBGEMM_BUILD_DOCS)
