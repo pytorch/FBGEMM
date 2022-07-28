@@ -5,6 +5,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# The code in this file is refactored from https://fburl.com/code/p2gy2gxb
+# based on "Amy Yang et al., Training Deep Learning Recommendation Model with
+# Quantized Collective Communications", DLP-KDD 2020.
+
 
 import logging
 from typing import Optional
@@ -24,6 +28,10 @@ from torch.autograd.profiler import record_function
 
 logger: logging.Logger = logging.getLogger()
 
+# FP8 configurations
+ebits, mbits, bias = 4, 3, 15
+max_pos: float = (2 ** ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+
 
 def _quantize_tensor(
     input_tensor: torch.Tensor,
@@ -36,7 +44,7 @@ def _quantize_tensor(
     elif comm_precision == SparseType.BF16:
         return fp32_to_bf16_with_clamp(input_tensor)
     elif comm_precision == SparseType.FP8:
-        return fp32_to_hfp8_with_clamp(input_tensor)
+        return fp32_to_hfp8_with_clamp(input_tensor, ebits, mbits, bias)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -56,12 +64,13 @@ def _dequantize_tensor(
         return bf16_to_fp32(quantized_tensor)
     elif comm_precision == SparseType.FP8:
         assert quantized_tensor.dtype == torch.uint8
-        return hfp8_to_fp32(quantized_tensor)
+        return hfp8_to_fp32(quantized_tensor, ebits, bias)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
 
 class QuantizedCommCodec:
+    # Concrete implementation of QuantizedCommCodec provided by FBGEMM functions.
     def __init__(
         self,
         comm_precision: SparseType,
@@ -101,10 +110,4 @@ class QuantizedCommCodec:
 
     @property
     def quantized_dtype(self) -> torch.dtype:
-        if self._comm_precision == SparseType.FP16:
-            return torch.half
-        elif self._comm_precision == SparseType.BF16:
-            return torch.bfloat16
-        elif self._comm_precision == SparseType.FP8:
-            return torch.uint8
-        return torch.float
+        return self._comm_precision.as_dtype()
