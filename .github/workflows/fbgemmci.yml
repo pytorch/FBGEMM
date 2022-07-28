@@ -267,7 +267,7 @@ jobs:
         wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
         export DEBIAN_FRONTEND=noninteractive
         sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
-        amdgpu-install -y --usecase=hiplibsdk,rocm
+        amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
         sudo rm amdgpu-install_22.10.1.50101-1_all.deb
 
     - name: Install dependencies
