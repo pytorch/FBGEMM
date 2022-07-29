@@ -928,9 +928,15 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
       if (max_float32_D > 0) {
         auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, row_alignment), 128);
         TORCH_CHECK(max_fp32_128b_rows <= 32);
-        // FP32 is used for numerical validations and tiny embeddings tables.
-        // We haven't carefully tuned the perf of FP32 embeddings.
-        X(1, 1, 0, 32);
+        if (max_fp32_128b_rows > 0) {
+          X(2, 4, 0, 4);
+        }
+        if (max_fp32_128b_rows > 4) {
+          X(2, 2, 4, 16);
+        }
+        if (max_fp32_128b_rows > 16) {
+          X(1, 1, 16, 32);
+        }
       }
     }));
     #undef X
