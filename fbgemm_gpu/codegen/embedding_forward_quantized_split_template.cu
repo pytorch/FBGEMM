@@ -127,7 +127,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
             "Size is not supported");
 
     unsigned smem_int_ptr = cutlass_get_smem_pointer(smem_ptr);
-    int src_in_bytes = (pred_guard ? SizeInBytes : 0);
+    const int src_in_bytes = pred_guard ? SizeInBytes : 0;
 
     asm volatile(
     "cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
@@ -163,34 +163,34 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   {% if not nobag %}
   const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
   {% else %}
-  int64_t D,
+  const int64_t D,
   {% endif %}
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
-  int64_t pooling_mode,
+  const int64_t pooling_mode,
   {% endif %}
-  int64_t row_alignment,
+  const int64_t row_alignment,
   {% if weighted %}
   at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
   {% if type_map[emb_weight_type].enum_name == "FP8" %}
-  int exponent_bits,
-  int exponent_bias,
+  const int exponent_bits,
+  const int exponent_bias,
   {% endif %}
   at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
   const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
   const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
-  int32_t T = weights_offsets.size(0);
+  const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
-  int32_t B = output.size(0);
+  const int32_t B = output.size(0);
   {% else %}
-  int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t B = (offsets.size(0) - 1) / T;
   {% endif %}
-  int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
   if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
     return;
   }
@@ -218,9 +218,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
 
-  uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
+  const uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
 
-  int64_t weights_offset = weights_offsets[t];
+  const int64_t weights_offset = weights_offsets[t];
   const int32_t D_total = padded_D(D, weight_ty);
   const int32_t D_padding = D_total - D;
 
@@ -422,8 +422,8 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       }
 
       qparams = warp_find_qparams(thread_local_min, thread_local_max);
-      int output_D_start = D_start + t * 8;
-      int output_D_end = output_D_start + D;
+      const int output_D_start = D_start + t * 8;
+      const int output_D_end = output_D_start + D;
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
@@ -460,23 +460,23 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_table_offsets,
-    int32_t B,
-    int32_t T,
+    const int32_t B,
+    const int32_t T,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
     // uint32_t capacity = hash_table.size(0);
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
+    const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    const int32_t t = b_t / B;
+    const int32_t b = b_t % B;
     if (b_t >= B * T) {
         return;
     }
-    int32_t indices_start = offsets[t * B + b];
-    int32_t indices_end = offsets[t * B + b + 1];
-    int32_t L = indices_end - indices_start;
+    const int32_t indices_start = offsets[t * B + b];
+    const int32_t indices_end = offsets[t * B + b + 1];
+    const int32_t L = indices_end - indices_start;
 
-    int64_t table_start = hash_table_offsets[t];
-    int64_t table_end = hash_table_offsets[t + 1];
-    int64_t capacity = table_end - table_start;
+    const int64_t table_start = hash_table_offsets[t];
+    const int64_t table_end = hash_table_offsets[t + 1];
+    const int64_t capacity = table_end - table_start;
 
     if (capacity == 0) {
       // No pruning applied on the indices associated with this table.
@@ -486,21 +486,21 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
       return;
     }
 
-    uint32_t subwarp_id = threadIdx.x / 4;
-    uint32_t subwarp_tid = threadIdx.x % 4;
+    const uint32_t subwarp_id = threadIdx.x / 4;
+    const uint32_t subwarp_tid = threadIdx.x % 4;
 #ifdef __HIP_PLATFORM_HCC__
-    uint64_t subwarp_mask = static_cast<uint64_t>(0xF) << (4 * subwarp_id);
+    const uint64_t subwarp_mask = static_cast<uint64_t>(0xF) << (4 * subwarp_id);
 #else
-    uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
+    const uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
 #endif
     for (int32_t l_start = 0; l_start + subwarp_id < L; l_start += kWarpSize / 4) {
-        int32_t idx = indices[indices_start + l_start + subwarp_id];
+        const int32_t idx = indices[indices_start + l_start + subwarp_id];
         uint32_t slot_start = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
         while (true) {
-            uint32_t slot = (slot_start + subwarp_tid) % capacity;
-            int2 val = *reinterpret_cast<const int2*>(&hash_table[table_start + static_cast<int64_t>(slot)][0]);
-            int32_t slot_sparse_idx = val.x;
-            int32_t slot_dense_idx = val.y;
+            const uint32_t slot = (slot_start + subwarp_tid) % capacity;
+            const int2 val = *reinterpret_cast<const int2*>(&hash_table[table_start + static_cast<int64_t>(slot)][0]);
+            const int32_t slot_sparse_idx = val.x;
+            const int32_t slot_dense_idx = val.y;
 
             bool found = false;
             bool empty = false;
@@ -527,22 +527,22 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
-    int32_t B,
-    int32_t T,
+    const int32_t B,
+    const int32_t T,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t t = b_t / B;
-  int32_t b = b_t % B;
+  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const int32_t t = b_t / B;
+  const int32_t b = b_t % B;
   if (b_t >= B * T) {
       return;
   }
-  int32_t indices_start = offsets[t * B + b];
-  int32_t indices_end = offsets[t * B + b + 1];
-  int32_t L = indices_end - indices_start;
+  const int32_t indices_start = offsets[t * B + b];
+  const int32_t indices_end = offsets[t * B + b + 1];
+  const int32_t L = indices_end - indices_start;
 
-  int64_t index_remappings_start = index_remappings_offsets[t];
-  int64_t index_remappings_end = index_remappings_offsets[t + 1];
-  int64_t capacity = index_remappings_end - index_remappings_start;
+  const int64_t index_remappings_start = index_remappings_offsets[t];
+  const int64_t index_remappings_end = index_remappings_offsets[t + 1];
+  const int64_t capacity = index_remappings_end - index_remappings_start;
 
   for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
     int32_t idx = indices[indices_start + l];
@@ -563,30 +563,30 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor weights_tys,
     {% if not nobag %}
     Tensor D_offsets,
-    int64_t total_D,
+    const int64_t total_D,
     {% else %}
-    int64_t D,
+    const int64_t D,
     {% endif %}
-    int64_t max_int2_D,
-    int64_t max_int4_D,
-    int64_t max_int8_D,
-    int64_t max_float16_D,
-    int64_t max_float32_D,
+    const int64_t max_int2_D,
+    const int64_t max_int4_D,
+    const int64_t max_int8_D,
+    const int64_t max_float16_D,
+    const int64_t max_float32_D,
     Tensor indices,
     Tensor offsets,
     {% if not nobag %}
-    int64_t pooling_mode,
+    const int64_t pooling_mode,
     {% endif %}
-    int64_t row_alignment,
+    const int64_t row_alignment,
     {% if weighted %}
     Tensor indice_weights,
     {% endif %}
-    int64_t output_dtype,
+    const int64_t output_dtype,
     Tensor lxu_cache_weights,
     Tensor lxu_cache_locations,
-    int64_t max_float8_D,
-    int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias
+    const int64_t max_float8_D,
+    const int64_t fp8_exponent_bits,
+    const int64_t fp8_exponent_bias
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
     TENSOR_ON_CUDA_GPU(uvm_weights);
@@ -608,14 +608,14 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     device_guard.set_index(dev_weights.get_device());
 
     {% if not nobag %}
-    int32_t T = D_offsets.numel() - 1;
+    const int32_t T = D_offsets.numel() - 1;
     {% else %}
-    int32_t total_L = indices.numel();
-    int32_t T = weights_offsets.numel();
+    const int32_t total_L = indices.numel();
+    const int32_t T = weights_offsets.numel();
     {% endif %}
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
-    int32_t B = (offsets.size(0) - 1) / T;
+    const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
 
     {% if not nobag %}
@@ -824,7 +824,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
-    DISPATCH_OUTPUT_TYPES(output.type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
+    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float8_D > 0) {
         auto max_fp8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float8_D, SparseType::FP8, row_alignment), 128);
         TORCH_CHECK(max_fp8_128b_rows <= 8);
@@ -954,8 +954,8 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(indices.get_device());
     auto dense_indices = at::empty_like(indices);
-    int32_t T = hash_table_offsets.size(0) - 1;
-    int32_t B = (offsets.size(0) - 1) / T;
+    const int32_t T = hash_table_offsets.size(0) - 1;
+    const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
     constexpr size_t kForwardMaxThreads = 256;
@@ -991,7 +991,7 @@ Tensor pruned_array_lookup_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
   auto dense_indices = at::empty_like(indices);
-  int32_t T = index_remappings_offsets.size(0) - 1;
+  const int32_t T = index_remappings_offsets.size(0) - 1;
   TORCH_CHECK(
       (offsets.size(0) - 1) % T == 0,
       "offsets.size() - 1 is not divisible by T! offsets.size: ",
@@ -999,7 +999,7 @@ Tensor pruned_array_lookup_cuda(
       "T: ",
       T
   );
-  int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B > 0, "offsets.size(): ", offsets.size(0), ", T: ", T, ", B: ", B);
   TORCH_CHECK(index_remappings.size(0) < std::numeric_limits<int64_t>::max());
   TORCH_CHECK(indices.dim() == 1, "Tensor dim: ", indices.dim());

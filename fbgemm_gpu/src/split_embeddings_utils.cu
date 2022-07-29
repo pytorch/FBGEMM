@@ -68,25 +68,25 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> infos,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices) {
-  int32_t T = hash_size_cumsum.size(0) - 1;
-  int32_t B = (offsets.size(0) - 1) / T;
-  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  bool valid = t < T;
+  const int32_t T = hash_size_cumsum.size(0) - 1;
+  const int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int32_t b = b_t % B;
+  const int32_t t = b_t / B;
+  const bool valid = t < T;
 
-  index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
-  index_t indices_start = valid ? offsets[t * B + b] : -1;
-  int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
-  int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
+  const index_t indices_start = valid ? offsets[t * B + b] : -1;
+  const int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
+  const int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-    index_t indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-    int32_t b_t_warp = fbgemm_gpu::shfl_sync(b_t, j);
-    int32_t L_warp = fbgemm_gpu::shfl_sync(L, j);
-    index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
+    const index_t indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
+    const int32_t b_t_warp = fbgemm_gpu::shfl_sync(b_t, j);
+    const int32_t L_warp = fbgemm_gpu::shfl_sync(L, j);
+    const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-      index_t idx = __ldg(&indices[indices_start_warp + i]);
+      const index_t idx = __ldg(&indices[indices_start_warp + i]);
       infos[indices_start_warp + i] = b_t_warp;
       linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
     }
@@ -102,26 +102,26 @@ __global__ __launch_bounds__(kMaxThreads) void nobag_linearize_index_kernel(
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> infos,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices) {
-  int32_t T = hash_size_cumsum.size(0) - 1;
-  int32_t B = (offsets.size(0) - 1) / T;
-  int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
-  bool valid = t < T;
+  const int32_t T = hash_size_cumsum.size(0) - 1;
+  const int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int32_t b = b_t % B;
+  const int32_t t = b_t / B;
+  const bool valid = t < T;
 
-  index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
-  index_t indices_start = valid ? offsets[t * B + b] : -1;
-  int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
-  int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
+  const index_t indices_start = valid ? offsets[t * B + b] : -1;
+  const int32_t L = valid ? offsets[t * B + b + 1] - indices_start : 0;
+  const int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-    index_t indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-    int32_t t_warp = fbgemm_gpu::shfl_sync(t, j);
-    int32_t L_warp = fbgemm_gpu::shfl_sync(L, j);
-    index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
+    const index_t indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
+    const int32_t t_warp = fbgemm_gpu::shfl_sync(t, j);
+    const int32_t L_warp = fbgemm_gpu::shfl_sync(L, j);
+    const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-      index_t idx = __ldg(&indices[indices_start_warp + i]);
-      int64_t l_t = (indices_start_warp + i) * T + t_warp;
+      const index_t idx = __ldg(&indices[indices_start_warp + i]);
+      const int64_t l_t = (indices_start_warp + i) * T + t_warp;
       infos[indices_start_warp + i] = l_t;
       linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
     }
@@ -142,8 +142,8 @@ transpose_embedding_input(
     Tensor indices,
     Tensor offsets,
     bool nobag) {
-  int32_t T = hash_size_cumsum.size(0) - 1;
-  int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t T = hash_size_cumsum.size(0) - 1;
+  const int32_t B = (offsets.size(0) - 1) / T;
 
   auto infos = at::empty_like(
       indices, indices.options().dtype(nobag ? at::kLong : at::kInt));
@@ -281,11 +281,11 @@ transpose_embedding_input(
       KeyT* d_keys_out,                                              \
       const ValueT* d_values_in,                                     \
       ValueT* d_values_out,                                          \
-      int num_items,                                                 \
-      int begin_bit,                                                 \
-      int end_bit,                                                   \
+      const int num_items,                                           \
+      const int begin_bit,                                           \
+      const int end_bit,                                             \
       cudaStream_t stream,                                           \
-      bool debug_synchronous) {                                      \
+      const bool debug_synchronous) {                                \
     return FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
         d_temp_storage,                                              \
         temp_storage_bytes,                                          \

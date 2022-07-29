@@ -13,7 +13,8 @@ endif()
 option(USE_CUDA "Use CUDA" ON)
 option(USE_ROCM "Use ROCm" OFF)
 
-if((EXISTS "/opt/rocm/") AND NOT (EXISTS "/bin/nvcc"))
+if(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH}))
+   AND NOT (EXISTS "/bin/nvcc"))
   message("AMD GPU detected.")
   set(USE_CUDA OFF)
   set(USE_ROCM ON)
@@ -48,8 +49,10 @@ if(DEFINED GLIBCXX_USE_CXX11_ABI)
   if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
     set(CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-    message("${CMAKE_CXX_FLAGS}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
   endif()
+  message("${CMAKE_CXX_FLAGS}")
 endif()
 
 #
@@ -71,7 +74,7 @@ if(USE_ROCM)
   include(Hipify)
 
   message("${message_line}")
-  message(STATUS "hip found ${ROCM_FOUND}")
+  message(STATUS "hip found ${HIP_FOUND}")
 endif()
 
 #
@@ -194,7 +197,7 @@ set_source_files_properties(
   ${gen_cpu_source_files}
   PROPERTIES
     INCLUDE_DIRECTORIES
-    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
+    "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include;${THIRDPARTY}/asmjit/src"
 )
 
 set_source_files_properties(
@@ -305,7 +308,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
-    src/split_table_batched_embeddings.cpp)
+    src/split_table_batched_embeddings.cpp
+    src/metric_ops_host.cpp)
 
   if(NVML_LIB_PATH)
     list(APPEND fbgemm_gpu_sources_cpu src/merge_pooled_embeddings_cpu.cpp
@@ -329,7 +333,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops.cu
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
-      src/split_embeddings_utils.cu)
+      src/split_embeddings_utils.cu
+      src/metric_ops.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS

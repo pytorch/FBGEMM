@@ -233,7 +233,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
             int8_t*,
             int32_t*,
             int,
-            int>(asmjit::CallConv::kIdHost),
+            int>(asmjit::CallConvId::kHost),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -246,9 +246,9 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
           asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(x86::Reg::kGroupVec, dirtyVecRegs);
+    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
     frame.setDirtyRegs(
-        x86::Reg::kGroupGp,
+        asmjit::RegGroup::kGp,
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
@@ -660,7 +660,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
             int,
             int,
             int,
-            int>(asmjit::CallConv::kIdHost),
+            int>(asmjit::CallConvId::kHost),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -673,9 +673,9 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
           asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
     }
 
-    frame.setDirtyRegs(x86::Reg::kGroupVec, dirtyVecRegs);
+    frame.setDirtyRegs(asmjit::RegGroup::kVec, dirtyVecRegs);
     frame.setDirtyRegs(
-        x86::Reg::kGroupGp,
+        asmjit::RegGroup::kGp,
         asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
     asmjit::FuncArgsAssignment args(&func);
