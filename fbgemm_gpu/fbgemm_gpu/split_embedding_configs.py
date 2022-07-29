@@ -127,6 +127,7 @@ class SparseType(enum.Enum):
         return {
             SparseType.FP32.value: torch.float32,
             SparseType.FP16.value: torch.float16,
+            SparseType.FP8.value: torch.uint8,
             SparseType.INT8.value: torch.uint8,
             SparseType.INT4.value: torch.quint4x2,
             SparseType.INT2.value: torch.quint2x4,
