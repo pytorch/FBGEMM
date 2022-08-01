@@ -519,8 +519,12 @@ class DenseToJaggedCPUOp
     auto values = at::empty({total_L_computed, D}, dense.options());
     auto output = at::zeros({total_L_computed, D}, dense.options());
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        values.scalar_type(), "jagged_scalars", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::Long,
+        values.scalar_type(),
+        "jagged_scalars",
+        [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               values,
               offsets,
