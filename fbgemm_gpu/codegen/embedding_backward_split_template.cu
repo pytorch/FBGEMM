@@ -13,6 +13,12 @@
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
 
+#ifdef __HIP_PLATFORM_HCC__
+{%set ITEMS_PER_CTA = 256%}
+#else
+{%set ITEMS_PER_CTA = 128%}
+#endif
+
 constexpr size_t kBackwardMaxThreads = 512;
 
 using Tensor = at::Tensor;
@@ -930,11 +936,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                         ->philox_cuda_state(4);
             }
             {% endif %}
-            {% for kMaxVecsPerThread in range(1, max_embedding_dim // 256 + 1) %}
+            {% for kMaxVecsPerThread in range(1, max_embedding_dim // ITEMS_PER_CTA + 1) %}
             {% if not nobag %}
-            if (max_D <= {{ 256 * kMaxVecsPerThread }}) {
+            if (max_D <= {{ ITEMS_PER_CTA * kMaxVecsPerThread }}) {
             {% else %}
-            if (D <= {{ 256 * kMaxVecsPerThread }}) {
+            if (D <= {{ ITEMS_PER_CTA * kMaxVecsPerThread }}) {
             {% endif %}
             // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB), BT_block_size must be a power of two.
             while (BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= used_shared_bytes) {
