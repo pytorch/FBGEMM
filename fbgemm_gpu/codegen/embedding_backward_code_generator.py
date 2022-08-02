@@ -7,6 +7,7 @@
 
 import argparse
 import os
+import torch
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -41,6 +42,7 @@ env = jinja2.Environment(
 # Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
 # Note that if we increase max_D, it will increase the compilation time significantly.
 env.globals["max_embedding_dim"] = 1024
+env.globals["ITEMS_PER_CTA"] = 128 if torch.version.hip is None else 256
 env.globals["dense"] = False
 
 

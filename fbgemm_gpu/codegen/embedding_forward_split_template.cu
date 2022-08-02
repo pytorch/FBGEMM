@@ -21,12 +21,6 @@
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
 
-#ifdef __HIP_PLATFORM_HCC__
-{%set ITEMS_PER_CTA = 256%}
-#else
-{%set ITEMS_PER_CTA = 128%}
-#endif
-
 constexpr size_t kForwardMaxThreads = 512;
 
 using Tensor = at::Tensor;
