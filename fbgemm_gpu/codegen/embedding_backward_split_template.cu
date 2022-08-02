@@ -968,6 +968,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // over 48 KB per block are architecture-specific, as such they
             // must use dynamic shared memory (rather than statically sized
             // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+
 #ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<

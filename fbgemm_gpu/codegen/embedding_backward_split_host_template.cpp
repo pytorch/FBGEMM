@@ -14,6 +14,9 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
+
+/// @defgroup embedding-cuda Embedding CUDA Operators
 
 Tensor split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
@@ -186,6 +189,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
     {% endfor %}
+
     {% if not nobag %}
 #ifdef __HIP_PLATFORM_HCC__
     constexpr int32_t BT_block_size = 64;
@@ -270,9 +274,11 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     using torch::autograd::Variable;
 
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 ||
-        grad_output.stride(0) % 4 != 0) {
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+        grad_output = at::empty_like(grad_output).copy_(grad_output);
+    } else if (!grad_output.is_contiguous()) {
         grad_output = grad_output.contiguous();
     }
 
@@ -423,6 +429,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
 };
 {% endfor %}
 
+///@ingroup embedding-cuda
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     Tensor placeholder_autograd_tensor,
     Tensor dev_weights,

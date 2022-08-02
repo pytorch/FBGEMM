@@ -27,8 +27,12 @@
 
 using Tensor = at::Tensor;
 
+///@defgroup layout-transform-cuda Layout Transformation CUDA Operators
+///
+
 namespace fbgemm_gpu {
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_cuda(
     Tensor grad_output, // [B_local][T_global][D]
     const std::vector<int64_t>& num_features_per_rank) {
@@ -51,6 +55,9 @@ Tensor recat_embedding_grad_output_cuda(
         int64_t feature_offset = 0;
         int64_t sgo_offset = 0;
         for (auto num_features : num_features_per_rank) {
+          if (num_features == 0) {
+            continue;
+          }
           AT_CUDA_CHECK(cudaMemcpy2DAsync(
               &sgo[sgo_offset],
               num_features * D * sizeof(scalar_t),
@@ -69,6 +76,7 @@ Tensor recat_embedding_grad_output_cuda(
   return sharded_grad_output;
 }
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_mixed_D_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const std::vector<int64_t>& dim_sum_per_rank) {
@@ -91,6 +99,9 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
         int64_t sgo_offset = 0;
         int64_t accum_dim_sum = 0;
         for (auto dim_sum : dim_sum_per_rank) {
+          if (dim_sum == 0) {
+            continue;
+          }
           AT_CUDA_CHECK(cudaMemcpy2DAsync(
               &sgo[sgo_offset],
               dim_sum * sizeof(scalar_t),
@@ -110,6 +121,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
   return sharded_grad_output;
 }
 
+///@ingroup layout-transform-cuda
 Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const Tensor& dim_sum_per_rank,

@@ -14,6 +14,7 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -297,9 +298,10 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
       }
     }
@@ -321,10 +323,13 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        const auto idx = static_cast<int64_t>(indices_data[i]);
-        const auto p =
-            idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-        const uindex_t new_idx = idx % blk_size;
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx / blk_size
+            : idx % my_size;
+        const uindex_t new_idx = idx < static_cast<uindex_t>(blk_size * my_size)
+            ? idx % blk_size
+            : idx / my_size;
         const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
         new_indices_data[pos] = new_idx;
         if (sequence) {
@@ -344,59 +349,43 @@ void _block_bucketize_sparse_features_cpu(
 
 void FloatToBFloat16Quantized_ref(
     const float* const input,
-    const size_t nrows,
-    const size_t ncols,
+    const size_t numel,
     uint16_t* const output) {
-  for (const auto row : c10::irange(nrows)) {
-    const float* input_row = input + row * ncols;
-    uint16_t* output_row = output + row * ncols;
-
-    for (const auto col : c10::irange(ncols)) {
-      output_row[col] =
-          (*reinterpret_cast<const uint32_t*>(input_row + col) + (1 << 15)) >>
-          16;
-    }
+  for (const auto idx : c10::irange(numel)) {
+    const float* input_elem = input + idx;
+    uint16_t* output_elem = output + idx;
+    *output_elem =
+        (*reinterpret_cast<const uint32_t*>(input_elem) + (1 << 15)) >> 16;
   }
 }
 
 void BFloat16QuantizedToFloat_ref(
     const at::BFloat16* const input,
-    const size_t nrows,
-    const size_t ncols,
+    const size_t numel,
     float* const output) {
-  const int32_t output_columns = ncols;
+  for (const auto idx : c10::irange(numel)) {
+    const at::BFloat16* input_elem = input + idx;
+    float* output_elem = output + idx;
 
-  for (const auto row : c10::irange(nrows)) {
-    const at::BFloat16* input_row = input + row * ncols;
-    float* output_row = output + row * output_columns;
-
-    for (const auto col : c10::irange(ncols)) {
-      uint32_t val_fp32 = static_cast<uint32_t>(
-                              reinterpret_cast<const uint16_t*>(input_row)[col])
-          << 16;
-      reinterpret_cast<uint32_t*>(output_row)[col] = val_fp32;
-    }
+    uint32_t val_fp32 =
+        static_cast<uint32_t>(*reinterpret_cast<const uint16_t*>(input_elem))
+        << 16;
+    *reinterpret_cast<uint32_t*>(output_elem) = val_fp32;
   }
 }
 
 // TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
-  TENSOR_NDIM_EQUALS(input, 2);
 
   const auto input_sizes = input.sizes();
-  const int32_t nrows = input_sizes[0];
-  const int32_t ncols = input_sizes[1];
-  const int32_t output_columns = ncols;
   auto output = at::empty(
-      {nrows, output_columns},
+      input_sizes,
       input.options().dtype(at::kHalf)); // at::kHalf
-  // input.options().dtype(at::kBFloat16)); // at::kBFloat16
 
   FloatToBFloat16Quantized_ref(
       input.data_ptr<float>(),
-      nrows,
-      ncols,
+      input.numel(),
       reinterpret_cast<uint16_t*>(output.data_ptr<at::Half>()));
 
   return output;
@@ -405,21 +394,14 @@ at::Tensor _float_to_bfloat16_cpu(const at::Tensor& input) {
 // TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia NCCL
 at::Tensor _bfloat16_to_float_cpu(const at::Tensor& input) {
   TENSOR_ON_CPU(input);
-  TENSOR_NDIM_EQUALS(input, 2);
 
   const auto input_sizes = input.sizes();
-  const int32_t nrows = input_sizes[0];
-  const int32_t ncols = input_sizes[1];
-  const int32_t output_columns = ncols;
 
-  auto output = at::empty(
-      {nrows, output_columns}, // 4 = sizeof(float)
-      input.options().dtype(at::kFloat)); //
+  auto output = at::empty(input_sizes, input.options().dtype(at::kFloat));
 
   BFloat16QuantizedToFloat_ref(
       reinterpret_cast<at::BFloat16*>(input.data_ptr<at::Half>()),
-      nrows,
-      ncols,
+      input.numel(),
       output.data_ptr<float>());
 
   return output;
@@ -2123,6 +2105,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
+  // wrapper for permute_2D_sparse_data_cpu, kept for BC
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(embeddings);
@@ -2132,61 +2115,250 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.");
 
-  const auto permute_contig = permute.expect_contiguous();
-  const auto lengths_contig = lengths.expect_contiguous();
-  const auto embeddings_contig = embeddings.expect_contiguous();
-  // the features to permute over can be less or more with or without
-  // repetitions
-  const auto num_output_features = permute.numel();
-  const auto B = lengths.sizes()[1];
-
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
+  c10::optional<Tensor> weights_dummy;
+  c10::optional<int64_t> permuted_lengths_sum_dummy;
 
-  permuted_lengths = at::empty({num_output_features, B}, lengths.options());
+  const auto T = permute.numel();
+  const auto B = lengths.size(1);
 
-  const auto lengths_size = lengths.numel();
-  auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
+  permuted_lengths = at::empty({T, B}, lengths.options());
 
-  int num_threads = at::get_num_threads();
-  std::vector<int64_t> output_offsets_per_thread_cumsum(
-      (num_threads + 1) * FALSE_SHARING_PAD, 0);
+  // ignore the third element in the tuple
+  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+      fbgemm_gpu::permute_2D_sparse_data_cpu(
+          permute,
+          lengths,
+          embeddings,
+          weights_dummy,
+          permuted_lengths_sum_dummy);
 
-  AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_lengths_cpu_kernel", ([&] {
-        _permute_lengths_cpu_kernel(
-            num_output_features,
-            B,
-            lengths_contig->data_ptr<index_t>(),
-            lengths_size,
-            permute.data_ptr<int32_t>(),
-            permuted_lengths.data_ptr<index_t>(),
-            input_offsets.data_ptr<index_t>(),
-            output_offsets_per_thread_cumsum.data());
-      })); // for each scalar_t
-
-  auto permuted_lengths_sum =
-      output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
-  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
-  AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_embeddings_kernel_1", ([&] {
-        AT_DISPATCH_FLOATING_TYPES(
-            embeddings.scalar_type(), "permute_embeddings_kernel_2", ([&] {
-              permuted_embeddings =
-                  at::empty(permuted_lengths_sum, embeddings.options());
-              _permute_embeddings_kernel_cpu<index_t, scalar_t>(
-                  num_output_features,
-                  B,
-                  embeddings_contig->data_ptr<scalar_t>(),
-                  permute_contig->data_ptr<int32_t>(),
-                  input_offsets.data_ptr<index_t>(),
-                  output_offsets_per_thread_cumsum.data(),
-                  permuted_embeddings.data_ptr<scalar_t>(),
-                  permuted_lengths.data_ptr<index_t>());
-            })); // for each scalar_t
-      })); // for each index_t
   return {permuted_lengths, permuted_embeddings};
 }
+
+/// Map N dim tensor to N+1 dim based on lengths tensor.
+/// Sequences that are shorter than the longest sequence are padded with zeros.
+/// @param t_in         N dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// output.
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @return packed_tensor
+///            packed_tensor        N + 1 dim Tensor where dim(1) is the max
+///                                 length, dim(0) is the batch size.
+Tensor pack_segments_forward_cpu(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length) {
+  TENSOR_NDIM_IS_GE(t_in, 1);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      t_in.dtype() == at::ScalarType::Float ||
+          t_in.dtype() == at::ScalarType::Double,
+      "t_in must be of type float or double");
+  TORCH_CHECK(max_length > 0, "max_length must be a positive number");
+
+  const auto t_in_cont = t_in.expect_contiguous();
+  Tensor packed_tensor;
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "pack_segments_cpu", ([&]() {
+        const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+        // Shape of output is batch_size x max_len x ...
+        auto shape = t_in_cont->sizes().vec(); // Get copy of current shape
+        shape[0] = max_length; // Set first element to max_len
+        shape.insert(
+            shape.begin(), lengths.numel()); // Insert batch size at beginning
+        packed_tensor = at::zeros(shape, t_in_cont->options());
+
+        if (t_in_cont->sizes()[0] == 0) {
+          return; // Return empty output (with the proper shape)
+        }
+
+        AT_DISPATCH_FLOATING_TYPES(
+            t_in_cont->scalar_type(), "pack_segments_cpu-packing", ([&]() {
+              const auto sizes =
+                  t_in_cont->sizes().slice(1, t_in_cont->sizes().size() - 1);
+              const auto block_size = c10::multiply_integers(sizes);
+              const auto block_bytesize = t_in_cont->itemsize() * block_size;
+              const auto* const data_ptr = t_in_cont->data_ptr<scalar_t>();
+              auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+              int64_t start = 0;
+              for (const auto i : c10::irange(lengths.sizes()[0])) {
+                const auto len =
+                    std::min(static_cast<int64_t>(lengths_data[i]), max_length);
+                std::memcpy(
+                    out_data + block_size * max_length * i, // dst
+                    data_ptr + block_size * start, // src
+                    len * block_bytesize);
+                start += lengths_data[i];
+              }
+            }));
+      }));
+
+  return packed_tensor;
+}
+
+/// Map N+1 dim tensor to N dim based on lengths tensor
+/// Sequences that are shorter than the longest sequence are padded with zeros.
+/// @param data         N+1 dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// input.
+/// @param total_length Sum of elements in the 1D tensor legnths
+/// @param max_length   The pre-defined max_length for the packed segments. -1
+/// means autodetect
+/// @return unpacked_tensor N-dimensional tensor
+Tensor pack_segments_backward_cpu(
+    const Tensor& data,
+    const Tensor& lengths,
+    const int64_t total_length,
+    const int64_t max_length) {
+  TENSOR_NDIM_IS_GE(data, 2);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      data.sizes()[0] == lengths.sizes()[0],
+      "LENGTHS and DATA must match in dimension 0");
+  TORCH_CHECK(
+      data.dtype() == at::ScalarType::Float ||
+          data.dtype() == at::ScalarType::Double,
+      "data must be of type float or double");
+  TORCH_CHECK(
+      max_length == data.sizes()[1],
+      "max_length should be equal to the second dimension of the packed segments");
+
+  Tensor unpacked_tensor; // The output tensor
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "unpack_segments_cpu", ([&]() {
+        const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+        // Create output tensor of appropriate dimensions
+        auto shape = data.sizes().vec();
+        shape.erase(shape.begin());
+        shape[0] = total_length;
+        unpacked_tensor = at::empty(shape, data.options());
+
+        if (!(data.sizes()[0] &&
+              data.sizes()[1])) { // TODO: What does this mean?
+          return;
+        }
+
+        AT_DISPATCH_FLOATING_TYPES(
+            data.scalar_type(), "unpack_segments_cpu-unpacking", ([&]() {
+              const auto sizes = data.sizes().slice(2, data.sizes().size() - 2);
+              const auto block_size = c10::multiply_integers(sizes);
+              const auto block_bytesize = data.itemsize() * block_size;
+              const auto* const data_ptr = data.data_ptr<scalar_t>();
+              auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
+
+              int64_t start = 0;
+              for (const auto i : c10::irange(lengths.sizes()[0])) {
+                int64_t len = lengths_data[i];
+                len =
+                    std::min(static_cast<int64_t>(lengths_data[i]), max_length);
+                std::memcpy(
+                    out_data + block_size * start, // dst
+                    data_ptr + block_size * data.sizes()[1] * i, // src
+                    len * block_bytesize);
+                start += len;
+              }
+            }));
+      }));
+
+  return unpacked_tensor;
+}
+
+class PackSegmentsFunction
+    : public torch::autograd::Function<PackSegmentsFunction> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      const int64_t max_length) {
+    int64_t total_length = t_in.expect_contiguous()->sizes()[0];
+    ctx->saved_data["max_length"] = max_length;
+    ctx->saved_data["total_length"] = total_length;
+    ctx->save_for_backward({lengths});
+
+    // Run the forward pass.
+    const auto& res = pack_segments_forward_cpu(t_in, lengths, max_length);
+    torch::autograd::variable_list outputs(1);
+    outputs[0] = res;
+    return outputs;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toInt();
+    const auto& total_length = ctx->saved_data["total_length"].toInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+    grad_inputs[0] =
+        pack_segments_backward_cpu(grad, lengths, total_length, max_length);
+    return grad_inputs;
+  }
+};
+
+Tensor pack_segments_cpu(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length) {
+  const auto& res = PackSegmentsFunction::apply(t_in, lengths, max_length);
+  return res[0];
+}
+
+namespace {
+Tensor index_select_dim0(
+    const Tensor& input,
+    const Tensor& indices,
+    c10::optional<int64_t> /*consecutive_range_start*/,
+    c10::optional<int64_t> /*consecutive_range_length*/) {
+  return at::index_select(input, 0, indices);
+}
+
+Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
+  auto num_cols = input.size(-1);
+  Tensor input_reshaped = input.reshape({-1, num_cols});
+  auto input_accessor = input_reshaped.accessor<int64_t, 2>();
+
+  // Create output tensor
+  int num_rows = input_reshaped.size(0);
+  Tensor output = at::empty({num_rows, k}, input.options());
+  auto output_accessor = output.accessor<int64_t, 2>();
+
+  for (auto i : c10::irange(input_reshaped.size(0))) {
+    std::set<int64_t> s;
+    for (auto j : c10::irange(num_cols)) {
+      s.insert(input_accessor[i][j]);
+      if (s.size() == static_cast<size_t>(k)) {
+        break;
+      }
+    }
+    TORCH_CHECK(
+        s.size() == static_cast<size_t>(k),
+        "too skewed distribution (alpha too big)")
+    int j = 0;
+    for (int64_t x : s) {
+      output_accessor[i][j] = x;
+      ++j;
+    }
+  }
+
+  auto output_shape = input.sizes().vec();
+  output_shape[output_shape.size() - 1] = k;
+  return output.reshape(output_shape);
+}
+} // namespace
 
 } // namespace fbgemm_gpu
 
@@ -2234,6 +2406,30 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
+  m.def("pack_segments(Tensor t_in, Tensor lengths, int max_length) -> Tensor");
+  // A specialization of at::index_select for selecting dim 0
+  //
+  // The consecutive_range_start and consecutive_range_length arguments are for
+  // the special case where indices are selected from a consecutive range
+  // [consecutive_range_start, consecutive_range_start +
+  // consecutive_range_length).
+  //
+  // For the consecutive indices range case, we can skip the unique indices
+  // computation step in the backward operation because we can infer them from
+  // the consecutive indices range.  This assumption saves computation as well
+  // as a host-device synchronization that occurs in the unique operation of
+  // Torch.
+  //
+  // If indices are not selected from a consecutive range, we perform the
+  // unique indices computation step in the backward operation.
+  m.def(
+      "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
+  m.def(
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
+  // This is an one-off op to be used in bench_utils.py for zipf generation w/o
+  // replacement Along dim=-1, find smallest unique k. If the number of unique
+  // elements is less than k, errors out.
+  m.def("bottom_unique_k_per_row(Tensor input, int k) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2293,4 +2489,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cpu);
+  DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
+  DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
+  DISPATCH_TO_CPU(
+      "bottom_unique_k_per_row", fbgemm_gpu::bottom_unique_k_per_row);
 }

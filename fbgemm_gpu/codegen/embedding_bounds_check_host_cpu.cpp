@@ -12,6 +12,10 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
+
+///@defgroup embedding-cpu Embedding CPU Operators
+///
 
 namespace {
 
@@ -31,6 +35,7 @@ void adjust_offset_cpu(
   *offsets_acc_end = indices_end;
 }
 
+///@addtogroup embedding-cpu
 void bounds_check_indices_cpu(
     Tensor& rows_per_table,
     Tensor& indices,

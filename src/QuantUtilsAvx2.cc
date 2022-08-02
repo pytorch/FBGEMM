@@ -52,12 +52,14 @@ void QuantizeAvx2(
   // clang-format on
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
+  const auto zero_point_v_legacy = _mm256_set1_ps(qparams.zero_point);
+  const auto zero_point_v_non_legacy = _mm256_set1_epi32(qparams.zero_point);
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
     __m256 transformed_v;
     if (LEGACY) { // static if
-      transformed_v = _mm256_fmadd_ps(
-          src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
+      transformed_v =
+          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
     } else {
       transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     }
@@ -69,8 +71,7 @@ void QuantizeAvx2(
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
     if (!LEGACY) {
-      rounded_v =
-          _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
     }
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
@@ -94,8 +95,8 @@ void QuantizeAvx2(
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v;
     if (LEGACY) {
-      transformed_v = _mm256_fmadd_ps(
-          src_v, inverse_scale_v, _mm256_set1_ps(qparams.zero_point));
+      transformed_v =
+          _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
     } else {
       transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     }
@@ -104,8 +105,7 @@ void QuantizeAvx2(
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
     if (!LEGACY) {
-      rounded_v =
-          _mm256_add_epi32(rounded_v, _mm256_set1_epi32(qparams.zero_point));
+      rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
     }
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
@@ -2147,7 +2147,11 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     for (col = 0; col < output_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(
           _mm_loadl_epi64(reinterpret_cast<const __m128i*>(input_row + col))));
+#ifdef __FMA__
+      __m256 dequantzed_v = _mm256_fmadd_ps(in_v, scale_v, bias_v);
+#else
       __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
+#endif
       if (std::is_same<OutputType, float>()) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);

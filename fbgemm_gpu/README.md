@@ -143,6 +143,11 @@ cd ../bench
 python split_table_batched_embeddings_benchmark.py
 ```
 
+To run the tests and benchmarks on a GPU-capable device in CPU-only mode use CUDA_VISIBLE_DEVICES=-1
+```
+CUDA_VISIBLE_DEVICES=-1 python split_table_batched_embeddings_test.py
+```
+
 ## How FBGEMM_GPU works
 For a high-level overview, design philosophy and brief descriptions of various
 parts of FBGEMM_GPU please see our Wiki (work in progress).
@@ -150,6 +155,10 @@ parts of FBGEMM_GPU please see our Wiki (work in progress).
 ## Full documentation
 We have extensively used comments in our source files. The best and up-do-date
 documentation is available in the source files.
+
+# Building API Documentation
+
+See [docs/README.md](docs/README.md).
 
 ## Join the FBGEMM community
 See the [`CONTRIBUTING`](../CONTRIBUTING.md) file for how to help out.

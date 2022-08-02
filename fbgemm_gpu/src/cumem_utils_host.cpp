@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -15,6 +15,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+// Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def("is_uvm_tensor(Tensor t) -> bool", TORCH_FN(is_uvm_tensor));
   m.def("uvm_storage(Tensor t) -> bool", TORCH_FN(uvm_storage));
@@ -38,11 +39,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       TORCH_FN(uvm_mem_advice_dont_fork));
 
   m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
-
-#ifndef __HIP_PLATFORM_HCC__
-  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
-#endif
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -67,10 +64,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "uvm_mem_advice_dont_fork(Tensor t) -> ()",
       TORCH_FN(uvm_mem_advice_dont_fork));
 
-#ifndef __HIP_PLATFORM_HCC__
-  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
+  m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
-#endif
 }
 
 } // namespace fbgemm_gpu

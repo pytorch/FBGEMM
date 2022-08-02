@@ -23,6 +23,11 @@ using namespace std;
 
 namespace fbgemm {
 
+typedef union {
+  uint32_t I;
+  float F;
+} fint32;
+
 // Thread-safe random number generator
 //
 // Return a random 32bit integer using xoshiro128++
@@ -113,6 +118,97 @@ void Bfloat16ToFloat_ref(const bfloat16* src, float* dst, size_t size) {
         static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(src)[i]) << 16;
     reinterpret_cast<uint32_t*>(dst)[i] = val_fp32;
   }
+}
+
+void FloatToFloat8_ref(
+    const float input,
+    uint8_t* output,
+    int exponent_bits,
+    int exponent_bias) {
+  float max_pos = (1 << ((1 << exponent_bits) - 2 - exponent_bias)) *
+      (2 - std::pow(2, exponent_bits - 7));
+  int mantissa_bits = 7 - exponent_bits;
+  fint32 val_out, bouncer, smallest_normal;
+
+  val_out.F = input;
+  uint32_t sign_bit = val_out.I & 0x80000000;
+  val_out.I = val_out.I & 0x7FFFFFFF;
+  val_out.F = fminf(val_out.F, max_pos);
+
+  smallest_normal.I = (127 - exponent_bias + 1)
+      << 23; // smallest hfp8 normal number in FP32
+  // I don't know if the input "min_pos" is the smallest denormalized number
+  // or the smallest normalized number. The test below needs to be done with
+  // the smallest normal number, which is the numerical value 2^(1-bias)
+
+  // The conversion for denormalized values are slightly different. HFP8 is so
+  // low precision that gradual underflow is probably crucial
+  if (val_out.F >= smallest_normal.F) {
+    // Use round to nearest even. We make use of the standard rounding mechanism
+    // in FP32 rather than rounding the mantissa and handling tie-to-even and
+    // incrementing exponent We want to round of 23-mbits of the FP32 value
+    // val_in This can be done by adding a power of 2 exactly 23-mbits larger
+    // than the exponent of val_in This forces val_in to be moved to the right
+    // and rounding exact at the location corresponding to having mbits of
+    // explicit mantissa left
+    bouncer.I = (val_out.I & 0xFF800000) + ((23 - mantissa_bits) << 23);
+    val_out.F = (bouncer.F + val_out.F) - bouncer.F;
+    // adding the bouncer rounds off bits, and subtracting bouncer
+    // leaves the desired value, albeit in FP32 encoding
+    // All we need is to change the exponent encoding to using "bias"
+    val_out.I = uint32_t(val_out.I - ((127 - exponent_bias) << 23))
+        << (8 - exponent_bits);
+    val_out.I =
+        ((val_out.I | sign_bit) >>
+         24); // the 8 lsbs is the desired HFP8 encoding
+
+  } else {
+    // When the value is in the denormal range, IEEE numbers essentially becomes
+    // a fixed point number. The lsb is the smallest non-zero number
+    // 2^(1-bias-mbits) Hence, we define the bouncer so that its lsb is this
+    // smallest non-zero number Adding the input to this bouncer forces rounding
+    // to occur appropriately Also, in this situation, after adding the bouncer,
+    // the 8 least significant bits of the sum is already the HFP8 encoding of
+    // the desired result. Just need to restore the sign bit
+    bouncer.I = (127 + (23 + (1 - exponent_bias - mantissa_bits))) << 23;
+    val_out.F = bouncer.F + val_out.F;
+    val_out.I = val_out.I | (sign_bit >> 24);
+  }
+
+  *output = val_out.I; // get the 8 lsbs
+}
+
+void Float8ToFloat_ref(
+    const uint8_t input,
+    float* output,
+    int exponent_bits,
+    int exponent_bias) {
+  fint32 val_out, sign, multiplier;
+
+  sign.I = (input & 0x80) << 24;
+  val_out.I = (input & 0x7F) << (24 - (8 - exponent_bits));
+  // so that the mantissa bits start at the mantissa bit positions of FP32
+  // encoding
+
+  // Let the hfp8 mantissa bits correspond to the value frac, 0 <= frac < 1
+  // So if the hfp8 value is a normal number, it's value is 2^e x (1+frac)
+  // where e is its (true, unbiased) exponent
+  // If the hfp8 value is denormal, the value is 2^(1-bias) x frac
+
+  // However, the bit pattern in the 8-bit exponent field of val_out.F
+  // is bias+e when hfp8 is normal, and 0 when hfp8 is subnormal.
+  // So, as an FP32 value, when hfp8 is normal, val_out.F represents the value
+  // of 2^(bias+e-127) * (1+frac)
+  // And when hfp8 is subnormal, val_out.F is also subnormal, and represents the
+  // value of 2^(-126) * frac In either case, val_out.F corresponds to
+  // 2^(bias-127) * (value of hfp8 input) Thus, if we multiply val_out.F by
+  // 2^(127-bias), we obtain the hfp8 value as an FP32 number
+
+  multiplier.I = (127 + (127 - exponent_bias))
+      << 23; // multiplier.F is 2^(127-bias)
+  val_out.F *= multiplier.F;
+  val_out.I |= sign.I;
+  *output = val_out.F;
 }
 
 void requantize_u8acc32_ref(
@@ -1315,6 +1411,80 @@ bool EmbeddingSpMDMNBit_ref(
   return current == index_size;
 }
 
+template <typename IndexType, typename OffsetType, typename OutType>
+bool EmbeddingSpMDMFP8_ref(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights,
+    bool normalize_by_lengths,
+    OutType* out,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias) {
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+
+  vector<float> buf(block_size);
+
+  if (input_stride == -1) {
+    input_stride = block_size;
+  }
+
+  // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
+  // except for the FP8->FP32 conversion after reading the embedding weight.
+  int64_t current = 0;
+  for (int m = 0; m < output_size; ++m) {
+    memset(buf.data(), 0, sizeof(float) * block_size);
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
+      return false;
+    }
+    for (int i = 0; i < len; ++i) {
+      int64_t idx = indices[current];
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      float w = 1.f;
+      if (weights) {
+        w = weights[is_weight_positional ? i : current];
+      }
+
+      for (int j = 0; j < block_size; ++j) {
+        const uint8_t* inptr = input + input_stride * idx + j;
+        float input_f;
+        // Dequantize FP8 to FP32 before compute
+        Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
+        buf[j] = std::fma(w, input_f, buf[j]);
+      }
+
+      ++current;
+    }
+    if (normalize_by_lengths && len) {
+      float scale = 1.f / len;
+      for (int j = 0; j < block_size; ++j) {
+        buf[j] *= scale;
+      }
+    }
+    for (int j = 0; j < block_size; ++j) {
+      out[j] =
+          is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j]) : buf[j];
+    }
+    out += output_stride;
+  }
+  return current == index_size;
+}
+
 template <typename InType, typename IndexType, typename OffsetType>
 bool EmbeddingSpMDMRowWiseSparse_ref(
     const int64_t block_size,
@@ -1858,7 +2028,24 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       bool use_offsets,                                           \
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
-      bool scale_bias_last);
+      bool scale_bias_last);                                      \
+  template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                 \
+      const int64_t block_size,                                   \
+      const int64_t output_size,                                  \
+      const int64_t index_size,                                   \
+      const int64_t data_size,                                    \
+      const uint8_t* input,                                       \
+      const INDEX_TYPE* indices,                                  \
+      const OFFSET_TYPE* offsets_or_lengths,                      \
+      const float* weights,                                       \
+      bool normalize_by_lengths,                                  \
+      OUT_TYPE* out,                                              \
+      bool is_weight_positional,                                  \
+      bool use_offsets,                                           \
+      int64_t output_stride,                                      \
+      int64_t input_stride,                                       \
+      int exponent_bits,                                          \
+      int exponent_bias);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)        \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)        \

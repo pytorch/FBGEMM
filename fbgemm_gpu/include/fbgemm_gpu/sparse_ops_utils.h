@@ -142,6 +142,14 @@ inline bool torch_tensor_empty_or_on_cpu_check(
   TENSOR_ON_CUDA_GPU(x);                     \
   TENSOR_CONTIGUOUS(x)
 
+#define TENSOR_NDIM_IS_GE(ten, dims)         \
+  TORCH_CHECK(                               \
+      (ten).dim() >= (dims),                 \
+      "Tensor '" #ten "' must have >=" #dims \
+      " dimension(s). "                      \
+      "Found ",                              \
+      (ten).ndimension())
+
 /// Determine an appropriate CUDA block count along the x axis
 ///
 /// When launching CUDA kernels the number of blocks B is often calculated
@@ -284,6 +292,16 @@ constexpr uint32_t cuda_calc_block_count(
   return std::min(
       cuda_calc_xblock_count(num_items, threads_per_block), max_blocks);
 }
+
+// A wrapper class for passing dynamically sized dimension information (e.g.
+// tensor.dims()) from the host to device.
+constexpr size_t kStackArrayMaxDims = 5;
+
+template <typename T>
+struct StackArray {
+  T vals[kStackArrayMaxDims];
+  size_t ndim;
+};
 
 // Used in jagged_tensor_ops.cu and jagged_tensor_ops_cpu.cpp
 // Passing lambda exp argument by value instead of by reference to avoid

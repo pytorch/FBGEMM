@@ -14,7 +14,16 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
+namespace {
+using fint32 = union fint32 {
+  uint32_t I;
+  float F;
+};
+} // namespace
+
 namespace fbgemm_gpu {
+
+enum class PrimitiveType : uint8_t { FP = 0, INT = 1, BF = 2 };
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
@@ -190,6 +199,14 @@ struct Vec4T<float> {
     acc.z *= scale;
     acc.w *= scale;
   }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
 };
 
 template <>
@@ -343,6 +360,22 @@ struct Vec4T<at::Half> {
     acc.w += a.acc.w;
   }
 
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
   // this <- this * scale
   DEVICE_INLINE void mul_(float scale) {
     acc.x *= scale;
@@ -460,6 +493,22 @@ struct Vec4T<at::BFloat16> {
     acc.y += a.acc.y;
     acc.z += a.acc.z;
     acc.w += a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
   }
 
   // this <- this * scale
@@ -581,6 +630,14 @@ struct Vec4T<double> {
     acc.w += a.acc.w;
   }
 
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(Vec4T<double> a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+    acc.z *= a.acc.z;
+    acc.w *= a.acc.w;
+  }
+
   // this <- this * scale
   DEVICE_INLINE void mul_(float scale) {
     acc.x *= scale;
@@ -625,11 +682,7 @@ template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(T val) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-#ifdef __HIP_PLATFORM_HCC__
-    val += __shfl_xor(val, mask);
-#else
     val += shfl_xor(val, mask);
-#endif
   }
   return val;
 }
@@ -646,11 +699,6 @@ stochastic_rounding_scalar(float x, uint32_t random_value) {
 
 static DEVICE_INLINE uint8_t
 stochastic_rounding_scalar_uint8(float x, uint32_t random_bits) {
-  typedef union {
-    uint32_t I;
-    float F;
-  } fint32;
-
   fint32 noise;
   noise.F = 1;
   noise.I = (noise.I & 0x7F800000) | (random_bits & 0x007FFFFF);
@@ -1216,10 +1264,8 @@ DEVICE_INLINE float_16 make_zero_float_16() {
 
 __forceinline__ __device__ __half2
 hfma2(const __half2 a, const __half2 b, const __half2 c) {
-#ifdef __HIP_PLATFORM_HCC__
-  return __hfma2(a, b, c);
-#else
-#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+#if (__CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610) || \
+    defined(__HIP_PLATFORM_HCC__)
   return __hfma2(a, b, c);
 #else
   float2 fa, fb, fc;
@@ -1230,18 +1276,14 @@ hfma2(const __half2 a, const __half2 b, const __half2 c) {
   fc.y = fa.y * fb.y + fc.y;
   return __float22half2_rn(fc);
 #endif
-#endif
 }
 
 __forceinline__ __device__ half hmul(half a, half b) {
-#ifdef __HIP_PLATFORM_HCC__
-  return __hmul(a, b);
-#else
-#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
+#if (__CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610) || \
+    defined(__HIP_PLATFORM_HCC__)
   return __hmul(a, b);
 #else
   return __float2half(__half2float(a) * __half2float(b));
-#endif
 #endif
 }
 
@@ -1436,6 +1478,50 @@ dequantize_permuted_int8(uint32_t packedVals, __half2 shift_scale) {
   return res;
 }
 
+__forceinline__ __device__ float4
+dequantize_packed_hfp8(uint32_t vals, int exp_bits, int exp_bias) {
+  union fint128 {
+    uint32_t I[4];
+    uint64_t L[2];
+    float4 F;
+  } res, sign;
+
+  union b32 {
+    uint32_t I;
+    uint8_t S[4];
+  } v;
+
+  v.I = vals;
+
+  fint32 multiplier;
+  multiplier.I = (127 + (127 - exp_bias)) << 23;
+
+#pragma unroll
+  for (int i = 0; i < 4; i++) {
+    sign.I[i] = v.S[i] & 0x80;
+    res.I[i] = v.S[i] & 0x7F;
+  }
+
+  // Shift sign and mantissa bits
+  // (Shift 64 bits instead of 8 bits in the above loop)
+  sign.L[0] <<= 24;
+  sign.L[1] <<= 24;
+  res.L[0] <<= (16 + exp_bits);
+  res.L[1] <<= (16 + exp_bits);
+
+  // Obtain FP32
+  res.F.x *= multiplier.F;
+  res.F.y *= multiplier.F;
+  res.F.z *= multiplier.F;
+  res.F.w *= multiplier.F;
+
+  // Compute sign
+  res.L[0] |= sign.L[0];
+  res.L[1] |= sign.L[1];
+
+  return res.F;
+}
+
 __forceinline__ __device__ float accumulate_fp32(float acc, float vals) {
   acc += vals;
   return acc;
@@ -1458,6 +1544,33 @@ accumulate_weighted_fp16(float2 acc, __half2 vals, float weight) {
   float2 v = __half22float2(vals);
   acc.x = fmaf(v.x, weight, acc.x);
   acc.y = fmaf(v.y, weight, acc.y);
+  return acc;
+}
+
+__forceinline__ __device__ float4 accumulate_packed_hfp8(
+    float4 acc,
+    uint32_t packedVals,
+    int exp_bits,
+    int exp_bias) {
+  float4 res = dequantize_packed_hfp8(packedVals, exp_bits, exp_bias);
+  acc.x += res.x;
+  acc.y += res.y;
+  acc.z += res.z;
+  acc.w += res.w;
+  return acc;
+}
+
+__forceinline__ __device__ float4 accumulate_weighted_packed_hfp8(
+    float4 acc,
+    uint32_t packedVals,
+    int exp_bits,
+    int exp_bias,
+    float weight) {
+  float4 res = dequantize_packed_hfp8(packedVals, exp_bits, exp_bias);
+  acc.x = fmaf(res.x, weight, acc.x);
+  acc.y = fmaf(res.y, weight, acc.y);
+  acc.z = fmaf(res.z, weight, acc.z);
+  acc.w = fmaf(res.w, weight, acc.w);
   return acc;
 }
 
@@ -1618,11 +1731,11 @@ __forceinline__ __device__ float_16 accumulate_weighted_packed_int2(
 
 // Customized N-element vector data types (with element type float for
 // accumulation type).
-template <int N>
+template <int N, PrimitiveType>
 struct VecNT {};
 
 template <>
-struct VecNT<1> {
+struct VecNT<1, PrimitiveType::FP> {
   float acc;
 
   DEVICE_INLINE VecNT() {
@@ -1679,7 +1792,7 @@ struct VecNT<1> {
 };
 
 template <>
-struct VecNT<2> {
+struct VecNT<2, PrimitiveType::FP> {
   float2 acc;
 
   DEVICE_INLINE VecNT() {
@@ -1762,7 +1875,121 @@ struct VecNT<2> {
 };
 
 template <>
-struct VecNT<4> {
+struct VecNT<4, PrimitiveType::FP> {
+  float4 acc;
+
+  DEVICE_INLINE VecNT() {
+    acc = make_zero_float4();
+  }
+
+  DEVICE_INLINE VecNT(uint32_t v, const int exp_bits, const int exp_bias) {
+    acc = make_zero_float4();
+    acc = accumulate_packed_hfp8(acc, v, exp_bits, exp_bias);
+  }
+
+  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 4) {
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_16b && num_valid_outputs == 4) {
+      *reinterpret_cast<float4*>(output_ptr) =
+          *reinterpret_cast<const float4*>(&acc);
+    } else if (aligned_8b && num_valid_outputs >= 2) {
+      *reinterpret_cast<float2*>(output_ptr) =
+          *reinterpret_cast<const float2*>(&(acc.x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<float2*>(output_ptr + 2) =
+            *reinterpret_cast<const float2*>(&(acc.x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) = *(&(acc.x) + 2);
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *(&(acc.x) + i);
+        }
+      }
+    }
+  }
+
+  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 4) {
+    half4 val = to_half4(acc);
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_8b && num_valid_outputs == 4) {
+      *reinterpret_cast<float2*>(output_ptr) =
+          *reinterpret_cast<const float2*>(&val);
+    } else if (aligned_4b && num_valid_outputs >= 2) {
+      *reinterpret_cast<float*>(output_ptr) =
+          *reinterpret_cast<const float*>(&(val.vals[0].x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<float*>(output_ptr + 2) =
+            *reinterpret_cast<const float*>(&(val.vals[0].x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) =
+            *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + 2);
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
+        }
+      }
+    }
+  }
+
+  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+#pragma unroll
+    for (int i = 0; i < 4; ++i) {
+      if (i < num_valid_outputs) {
+        output_ptr[i] = lrintf(((&(acc.x))[i] - qparams.y) * inv_scale);
+      }
+    }
+  }
+
+  DEVICE_INLINE void
+  store(float* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  // acc <- acc + a * b
+  DEVICE_INLINE void fma(uint32_t v, int exp_bits, int exp_bias, float b) {
+    acc = accumulate_weighted_packed_hfp8(acc, v, exp_bits, exp_bias, b);
+  }
+
+  // acc <- acc + a
+  DEVICE_INLINE void add(uint32_t v, int exp_bits, int exp_bias) {
+    acc = accumulate_packed_hfp8(acc, v, exp_bits, exp_bias);
+  }
+
+  // acc <- acc * a
+  DEVICE_INLINE void mul(float a) {
+    acc.x *= a;
+    acc.y *= a;
+    acc.z *= a;
+    acc.w *= a;
+  }
+};
+
+template <>
+struct VecNT<4, PrimitiveType::INT> {
   float4 acc;
 
   DEVICE_INLINE VecNT() {
@@ -1876,7 +2103,7 @@ struct VecNT<4> {
 };
 
 template <>
-struct VecNT<8> {
+struct VecNT<8, PrimitiveType::INT> {
   float8 acc;
 
   DEVICE_INLINE VecNT() {
@@ -2011,7 +2238,7 @@ struct VecNT<8> {
 };
 
 template <>
-struct VecNT<16> {
+struct VecNT<16, PrimitiveType::INT> {
   float_16 acc;
 
   DEVICE_INLINE VecNT() {
@@ -2223,10 +2450,13 @@ DEVICE_INLINE float float16_min(float_16 val) {
 #undef min
 #undef max
 
+// ROCm does not natively support __any_sync(). Using __ballot()
+// (https://rocmdocs.amd.com/en/latest/Programming_Guides/Kernel_language.html)
+// to implement __any_sync(). Note: the "warp-size" of AMD GPU is 64.
 #ifdef __HIP_PLATFORM_HCC__
 __device__ int __any_sync(uint64_t mask, int predicate) {
   uint64_t predicate_bit_pattern = __ballot(predicate);
-  return (predicate_bit_pattern & mask) > 0;  
+  return (predicate_bit_pattern & mask) > 0;
 }
 #endif
 

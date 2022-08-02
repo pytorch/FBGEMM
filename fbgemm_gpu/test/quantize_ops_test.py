@@ -5,14 +5,14 @@
 
 import random
 import unittest
-from ctypes import POINTER, c_float, c_int32, cast, pointer
-from typing import Tuple, Dict
+from ctypes import c_float, c_int32, cast, POINTER, pointer
+from typing import Dict, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from hypothesis import HealthCheck, given, assume, settings
+from hypothesis import assume, given, HealthCheck, settings
 from torch import Tensor
 
 
@@ -20,26 +20,24 @@ try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
     from test_utils import (  # pyre-ignore[21]
-        fused_rowwise_8bit_quantize_reference,
-        fused_rowwise_8bit_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
         gpu_available,
-        skipIfRocm,
         gpu_unavailable,
+        skipIfRocm,
     )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    torch.ops.load_library("//caffe2/torch/fb/sparsenn:sparsenn_operators_gpu")
-    torch.ops.load_library("//caffe2/torch/fb/sparsenn:sparsenn_operators")
     from fbgemm_gpu.test.test_utils import (
-        fused_rowwise_8bit_quantize_reference,
-        fused_rowwise_8bit_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        fused_rowwise_nbit_quantize_dequantize_reference,
         bytes_to_half_floats,
+        fused_rowwise_8bit_dequantize_reference,
+        fused_rowwise_8bit_quantize_reference,
+        fused_rowwise_nbit_quantize_dequantize_reference,
+        fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
     )
@@ -55,6 +53,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
         is_half=st.booleans(),
+        test_float_or_half_op=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(
@@ -62,19 +61,25 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         nrows: int,
         ncols: int,
         is_half: bool,
+        test_float_or_half_op: bool,
     ) -> None:
         input_data = torch.rand(nrows, ncols).float()
         if is_half:
             input_data = torch.rand(nrows, ncols).half()
 
-        if not is_half:
-            quantized_data = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+        if test_float_or_half_op:
+            quantized_data = torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(
                 input_data
             )
         else:
-            quantized_data = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
-                input_data
-            )
+            if not is_half:
+                quantized_data = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                    input_data
+                )
+            else:
+                quantized_data = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
+                    input_data
+                )
 
         if nrows == 0 or ncols == 0:
             assert quantized_data.numel() == nrows * ((ncols + 3) // 4 * 4 + 8)
@@ -86,15 +91,23 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
         if gpu_available:
             input_data_gpu = input_data.cuda()
-            if not is_half:
-                quantized_data_gpu = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
-                    input_data_gpu
+            if test_float_or_half_op:
+                quantized_data_gpu = (
+                    torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(
+                        input_data_gpu
+                    )
                 )
             else:
-                quantized_data_gpu = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
-                    input_data_gpu
-                )
-
+                if not is_half:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                            input_data_gpu
+                        )
+                    )
+                else:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(input_data_gpu)
+                    )
             quantized_data_numpy = quantized_data_gpu.cpu().numpy()
             ncols_aligned = (ncols + 4 - 1) // 4 * 4
             # compare quantized data
@@ -117,6 +130,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
         is_output_half=st.booleans(),
+        test_float_or_half_op=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op(
@@ -124,6 +138,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         nrows: int,
         ncols: int,
         is_output_half: bool,
+        test_float_or_half_op: bool,
     ) -> None:
         num_elem_per_byte = 1
         input_data = torch.rand(nrows, ncols).float()
@@ -132,20 +147,30 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
         assume(ncols % (2 * num_elem_per_byte) == 0)
 
-        if not is_output_half:
-            quantized_data = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+        if test_float_or_half_op:
+            quantized_data = torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(
                 input_data
             )
-            dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
-                quantized_data
+            dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
+                quantized_data,
+                output_dtype=1 if is_output_half else 0,
             )
         else:
-            quantized_data = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
-                input_data
-            )
-            dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToHalf(
-                quantized_data
-            )
+            if not is_output_half:
+                quantized_data = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                    input_data
+                )
+                dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                    quantized_data
+                )
+            else:
+                quantized_data = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
+                    input_data
+                )
+                dequantized_data = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToHalf(
+                    quantized_data
+                )
+
         if nrows == 0 or ncols == 0:
             assert dequantized_data.numel() == 0
             return
@@ -161,22 +186,39 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         if gpu_available:
             input_data_gpu = input_data.cuda()
 
-            if not is_output_half:
-                quantized_data_gpu = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
-                    input_data_gpu
+            if test_float_or_half_op:
+                quantized_data_gpu = (
+                    torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(
+                        input_data_gpu
+                    )
                 )
                 dequantized_data_gpu = (
-                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
-                        quantized_data_gpu
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
+                        quantized_data_gpu,
+                        output_dtype=1 if is_output_half else 0,
                     )
                 )
             else:
-                quantized_data_gpu = torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(
-                    input_data_gpu
-                )
-                dequantized_data_gpu = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToHalf(
-                    quantized_data_gpu
-                )
+                if not is_output_half:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                            input_data_gpu
+                        )
+                    )
+                    dequantized_data_gpu = (
+                        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                            quantized_data_gpu
+                        )
+                    )
+                else:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.HalfToFused8BitRowwiseQuantized(input_data_gpu)
+                    )
+                    dequantized_data_gpu = (
+                        torch.ops.fbgemm.Fused8BitRowwiseQuantizedToHalf(
+                            quantized_data_gpu
+                        )
+                    )
 
             dequantized_data_numpy = dequantized_data_gpu.cpu().numpy()
             dequantized_data_trimmed = torch.from_numpy(
@@ -355,10 +397,16 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         ncols=st.integers(min_value=0, max_value=100),
         bit_rate=st.sampled_from([2, 4]),
         is_half=st.booleans(),
+        test_float_or_half_op=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_op(
-        self, nrows: int, ncols: int, bit_rate: int, is_half: bool
+        self,
+        nrows: int,
+        ncols: int,
+        bit_rate: int,
+        is_half: bool,
+        test_float_or_half_op: bool,
     ) -> None:
         assert 8 % bit_rate == 0
         num_elem_per_byte = 8 // bit_rate
@@ -368,15 +416,23 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         if is_half:
             input_data = input_data.half()
 
-        if not is_half:
-            quantized_data = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                input_data, bit_rate
+        if test_float_or_half_op:
+            quantized_data = (
+                torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
+                    input_data, bit_rate
+                )
             )
         else:
-            quantized_data = torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
-                input_data, bit_rate
-            )
-
+            if not is_half:
+                quantized_data = (
+                    torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                        input_data, bit_rate
+                    )
+                )
+            else:
+                quantized_data = torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
+                    input_data, bit_rate
+                )
         if nrows == 0 or ncols == 0:
             assert quantized_data.numel() == nrows * (
                 (ncols + bit_rate - 1) // bit_rate + 4
@@ -408,19 +464,25 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
 
         if gpu_available:
             input_data_gpu = input_data.cuda()
-            if not is_half:
+            if test_float_or_half_op:
                 quantized_data_gpu = (
-                    torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                    torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
                         input_data_gpu, bit_rate
                     )
                 )
             else:
-                quantized_data_gpu = (
-                    torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
-                        input_data_gpu, bit_rate
+                if not is_half:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data_gpu, bit_rate
+                        )
                     )
-                )
-
+                else:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data_gpu, bit_rate
+                        )
+                    )
             quantized_data_numpy = quantized_data_gpu.cpu().numpy()
             # compare quantized data
             np.testing.assert_array_equal(
@@ -433,6 +495,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         ncols=st.integers(min_value=0, max_value=100),
         bit_rate=st.sampled_from([2, 4]),
         is_output_half=st.booleans(),
+        test_float_or_half_op=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op(
@@ -441,6 +504,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         ncols: int,
         bit_rate: int,
         is_output_half: bool,
+        test_float_or_half_op: bool,
     ) -> None:
         assert 8 % bit_rate == 0
         num_elem_per_byte = 8 // bit_rate
@@ -450,20 +514,40 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
 
         assume(ncols % (2 * num_elem_per_byte) == 0)
 
-        if not is_output_half:
-            quantized_data = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                input_data, bit_rate
+        if test_float_or_half_op:
+            quantized_data = (
+                torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
+                    input_data, bit_rate
+                )
             )
-            dequantized_data = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
-                quantized_data, bit_rate
+            dequantized_data = (
+                torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                    quantized_data,
+                    bit_rate,
+                    output_dtype=1 if is_output_half else 0,
+                )
             )
         else:
-            quantized_data = torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
-                input_data, bit_rate
-            )
-            dequantized_data = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
-                quantized_data, bit_rate
-            )
+            if not is_output_half:
+                quantized_data = (
+                    torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                        input_data, bit_rate
+                    )
+                )
+                dequantized_data = (
+                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                        quantized_data, bit_rate
+                    )
+                )
+            else:
+                quantized_data = torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
+                    input_data, bit_rate
+                )
+                dequantized_data = (
+                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
+                        quantized_data, bit_rate
+                    )
+                )
         if nrows == 0 or ncols == 0:
             assert dequantized_data.numel() == 0
             return
@@ -483,28 +567,42 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
 
         if gpu_available:
             input_data_gpu = input_data.cuda()
-            if not is_output_half:
+            if test_float_or_half_op:
                 quantized_data_gpu = (
-                    torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                    torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
                         input_data_gpu, bit_rate
                     )
                 )
                 dequantized_data_gpu = (
-                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
-                        quantized_data_gpu, bit_rate
+                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                        quantized_data_gpu,
+                        bit_rate,
+                        output_dtype=1 if is_output_half else 0,
                     )
                 )
             else:
-                quantized_data_gpu = (
-                    torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
-                        input_data_gpu, bit_rate
+                if not is_output_half:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data_gpu, bit_rate
+                        )
                     )
-                )
-                dequantized_data_gpu = (
-                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
-                        quantized_data_gpu, bit_rate
+                    dequantized_data_gpu = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                            quantized_data_gpu, bit_rate
+                        )
                     )
-                )
+                else:
+                    quantized_data_gpu = (
+                        torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data_gpu, bit_rate
+                        )
+                    )
+                    dequantized_data_gpu = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
+                            quantized_data_gpu, bit_rate
+                        )
+                    )
             # compare quantized data
             torch.testing.assert_close(
                 dequantized_data_gpu.cpu().float(), dequantized_data.float()
@@ -592,7 +690,7 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
             dequantized_data_gpu = torch.ops.fbgemm.HFP8QuantizedToFloat(
                 quantized_data_gpu, ebits, exponent_bias
             )
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 dequantized_data_gpu.cpu(), reference_data, rtol=rtol, atol=atol
             )
 
@@ -730,7 +828,7 @@ class TestDenseMLPQuantizationConversion(unittest.TestCase):
         bounding_box_size = 16
         print("MSFP parameters", bounding_box_size, ebits, mbits, bias)
         input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToMSFPQuantized(
+        quantized_data = torch.ops.fbgemm.FloatToMSFPQuantized(
             input_data.cuda(),
             bounding_box_size,
             ebits,
@@ -739,7 +837,7 @@ class TestDenseMLPQuantizationConversion(unittest.TestCase):
             min_pos,
             max_pos,
         )
-        dequantized_data = torch.ops.fb.MSFPQuantizedToFloat(
+        dequantized_data = torch.ops.fbgemm.MSFPQuantizedToFloat(
             quantized_data.cuda(), ebits, mbits, bias
         )
         torch.testing.assert_close(dequantized_data.cpu(), input_data, rtol=1, atol=0)
@@ -759,12 +857,10 @@ class SparseNNOperatorsGPUTest(unittest.TestCase):
         self, precision: str, batch_size: int, k: int, n: int
     ) -> None:
         if precision == "BF16":
-            input_data = torch.tensor(
-                np.random.rand(n, k).astype(np.float32), dtype=torch.float32
-            )
+            input_data = torch.rand((n, k), dtype=torch.float32)
             quantized_data = torch.ops.fbgemm.FloatToBfloat16Quantized(input_data)
             dequantized_data = torch.ops.fbgemm.Bfloat16QuantizedToFloat(quantized_data)
-            torch.testing.assert_allclose(
+            torch.testing.assert_close(
                 dequantized_data, input_data, rtol=1e-2, atol=1e-2
             )
 
@@ -831,7 +927,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
         ref_bfloat16 = f(input_data.numpy())
         f = np.vectorize(lambda x: bfloat_dequantize(x))
         ref_fp32 = torch.from_numpy(f(ref_bfloat16)).float()
-        torch.testing.assert_allclose(dequantized_data, ref_fp32)
+        torch.testing.assert_close(dequantized_data, ref_fp32)
 
         if torch.cuda.is_available():
             input_data_gpu = input_data.cuda()
@@ -842,7 +938,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
                 quantized_data_gpu
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), ref_fp32)
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), ref_fp32)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
@@ -869,41 +965,7 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
                 quantized_data_gpu
             )
             # compare quantized data
-            torch.testing.assert_allclose(dequantized_data_gpu.cpu(), dequantized_data)
-
-
-class TestDenseMLPQuantizationConversion(unittest.TestCase):
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @skipIfRocm
-    @given(
-        nrows=st.integers(min_value=0, max_value=100),
-        ncols=st.integers(min_value=0, max_value=100),
-    )
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
-    def test_quantize_op(self, nrows: int, ncols: int) -> None:
-        ebits = 8
-        mbits = 7
-        bias = 127
-        max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
-        min_pos = 2 ** (1 - bias - mbits)
-        bounding_box_size = 16
-        print("MSFP parameters", bounding_box_size, ebits, mbits, bias)
-        input_data = torch.rand(nrows, ncols).float()
-        quantized_data = torch.ops.fb.FloatToMSFPQuantized(
-            input_data.cuda(),
-            bounding_box_size,
-            ebits,
-            mbits,
-            bias,
-            min_pos,
-            max_pos,
-        )
-        dequantized_data = torch.ops.fb.MSFPQuantizedToFloat(
-            quantized_data.cuda(), ebits, mbits, bias
-        )
-        torch.testing.assert_allclose(
-            dequantized_data.cpu(), input_data, rtol=1, atol=0
-        )
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), dequantized_data)
 
 
 if __name__ == "__main__":

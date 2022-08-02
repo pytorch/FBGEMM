@@ -510,7 +510,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
                 const int*, // mask_avx2
                 float, // weight_decay
                 const double*, // counter then counter_halflife
-                std::int64_t>(asmjit::CallConv::kIdHost),
+                std::int64_t>(asmjit::CallConvId::kHost),
             a->environment());
 
         asmjit::FuncFrame frame;
@@ -518,12 +518,12 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         if (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
-              x86::Reg::kGroupVec,
+              asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
                   asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
         } else {
           frame.setDirtyRegs(
-              x86::Reg::kGroupVec,
+              asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
                   asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
                   asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
@@ -531,7 +531,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
 
         frame.setDirtyRegs(
-            x86::Reg::kGroupGp,
+            asmjit::RegGroup::kGp,
             asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
         asmjit::FuncArgsAssignment args(&func);

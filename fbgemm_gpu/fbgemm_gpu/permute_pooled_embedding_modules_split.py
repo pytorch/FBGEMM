@@ -18,6 +18,8 @@ try:
 except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_gpu"
+    )
+    torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_cpu"
     )
 
