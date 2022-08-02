@@ -6,6 +6,7 @@
  */
 #pragma once
 #include <asmjit/asmjit.h>
+#include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
