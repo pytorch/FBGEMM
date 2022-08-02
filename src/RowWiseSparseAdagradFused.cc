@@ -15,6 +15,7 @@
 #include "./CodeCache.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
+#include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 
 using namespace std;

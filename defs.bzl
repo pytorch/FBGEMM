@@ -73,6 +73,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/QuantUtilsAvx512.h",
         "include/fbgemm/spmmUtils.h",
         "include/fbgemm/spmmUtilsAvx2.h",
+        "include/fbgemm/SimdUtils.h",
         "include/fbgemm/Utils.h",
         "include/fbgemm/UtilsAvx2.h",
         "include/fbgemm/Types.h",

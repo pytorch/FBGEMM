@@ -7,6 +7,7 @@
 #pragma once
 
 #include <fbgemm/FbgemmPackMatrixB.h>
+#include <fbgemm/SimdUtils.h>
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
 #include <array>

@@ -18,6 +18,7 @@
 #include "./CodeCache.h"
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 /*#define FBGEMM_LOG_CODE 1*/
 

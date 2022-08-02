@@ -11,6 +11,7 @@
 #include <numeric>
 #include "./RefImplementations.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/SimdUtils.h"
 
 namespace fbgemm {
 

@@ -14,6 +14,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "SimdUtils.h"
 #include "Types.h"
 #include "Utils.h"
 
