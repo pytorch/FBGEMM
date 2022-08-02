@@ -18,13 +18,14 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    OptimType,
-    SparseType,
-    RecordCacheMetrics,
     BoundsCheckMode,
-    WeightDecayMode,
+    OptimType,
+    RecordCacheMetrics,
     rounded_row_size_in_bytes,
+    SparseType,
+    WeightDecayMode,
 )
 
 
@@ -35,9 +36,13 @@ if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        TEST_WITH_ROCM,
+    )
 
-from hypothesis import HealthCheck, Verbosity, assume, given, settings
+from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from hypothesis.strategies import composite
 from torch import Tensor
 
@@ -64,6 +69,7 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.FP8,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
@@ -144,18 +150,22 @@ def generate_requests(
             low=0,
             high=E,
             size=(iters, T, B * L),
+            # pyre-fixme[6]: For 4th param expected `Union[None, str, device]` but
+            #  got `int`.
             device=torch.cuda.current_device(),
             dtype=torch.int32,
         )
     else:
         all_indices = (
             torch.as_tensor(np.random.zipf(a=alpha, size=(iters, T, B * L)))
-            .to(torch.cuda.current_device())
-            .int()
+            # pyre-fixme[6]: For 1st param expected `dtype` but got `int`.
+            .to(torch.cuda.current_device()).int()
             % E
         )
     for it in range(iters - 1):
         for t in range(T):
+            # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but
+            #  got `int`.
             reused_indices = torch.randperm(B * L, device=torch.cuda.current_device())[
                 : int(B * L * reuse)
             ]
@@ -168,6 +178,8 @@ def generate_requests(
             if not weighted
             else torch.randn(
                 T * B * L,
+                # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]`
+                #  but got `int`.
                 device=torch.cuda.current_device(),
                 dtype=torch.float16 if weights_precision else torch.float32,
             )
@@ -278,7 +290,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # This proves that we have exhaustively checked all PoolingModes
             raise RuntimeError("Unknown PoolingMode!")
 
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
         else:
@@ -327,6 +339,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -867,7 +881,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             round_up(np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)), 4)
             for _ in range(T)
         ]
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
 
         op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
@@ -881,22 +895,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ],
             output_dtype=output_dtype,
+            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got `int`.
             device=torch.cuda.current_device(),
         )
-        op_ref = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-                embedding_specs=[
-                    (
-                        E,
-                        D,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
-                    )
-                    for (E, D) in zip(Es, Ds)
-                ],
-                output_dtype=SparseType.FP32,
-                device=torch.cuda.current_device(),
-            )
+        op_ref = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            output_dtype=SparseType.FP32,
+            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got
+            #  `int`.
+            device=torch.cuda.current_device(),
         )
         # sync weights between two ops
         split_weights = op.split_embedding_weights()
@@ -1003,7 +1018,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for _ in range(T)
         ]
         Ds = [D] * T
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
 
         weights_ty_list = [weights_ty] * T
@@ -1130,7 +1145,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1190,7 +1209,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # This proves that we have exhaustively checked all PoolingModes
             raise RuntimeError("Unknown PoolingMode!")
 
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
         else:
@@ -1213,6 +1232,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=False), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1303,9 +1324,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         torch.testing.assert_close(
             cc.weights.grad,
@@ -1349,7 +1370,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.just(SparseType.FP32),
     )
@@ -1419,7 +1444,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # This proves that we have exhaustively checked all PoolingModes
             raise RuntimeError("Unknown PoolingMode!")
 
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
         else:
@@ -1468,6 +1493,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1557,9 +1584,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         if use_cache:
             cc.flush()
@@ -1642,11 +1669,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # stochastic rounding only implemented for rowwise
         assume(not stochastic_rounding or row_wise)
         # need unique indices for non-exact tests
-        assume(exact or int(10 ** log_E) > int(2.1 * B * L))
+        assume(exact or int(10**log_E) > int(2.1 * B * L))
         # only row-wise supports caching
         assume(row_wise or not use_cache)
 
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
         else:
@@ -1695,6 +1722,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1788,7 +1817,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
@@ -1865,6 +1894,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             param.requires_grad = False
         y = cc(indices, offsets, per_sample_weights)
         y.sum().backward()
+        # pyre-fixme[16]: `Optional` has no attribute `clone`.
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
         T_ = len(xws)
         feature_requires_grad = to_device(
@@ -1909,7 +1939,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -1974,7 +2008,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2039,7 +2077,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2104,7 +2146,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2169,7 +2215,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2234,7 +2284,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
@@ -2307,7 +2361,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
     ) -> None:
         iters = 3
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         D = D * 4
         if not mixed:
             Ds = [D] * T
@@ -2437,7 +2491,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # This proves that we have exhaustively checked all PoolingModes
             raise RuntimeError("Unknown PoolingMode!")
 
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         if use_cpu:
             D = (D + 15) // 16 * 4
         else:
@@ -2474,6 +2528,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -2581,7 +2637,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
 
@@ -2627,6 +2683,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                         dense_cpu_grad / denom + weight_decay * bs[t].weight.cpu()
                     )
                 else:
+                    # pyre-fixme[58]: `/` is not supported for operand types `float`
+                    #  and `Tensor`.
                     weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 # TODO: why is tolerance off here?
                 torch.testing.assert_close(
@@ -2655,7 +2713,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 weights_new = split_weights[t]
                 weights_ref = bs[t].weight.cpu() - lr * lambda_ * dense_cpu_grad / (
-                    torch.pow(m1_ref.view(m1_ref.numel(), 1), 1.0 / 3) + eps
+                    # pyre-fixme[58]: `/` is not supported for operand types `float`
+                    #  and `Tensor`.
+                    torch.pow(m1_ref.view(m1_ref.numel(), 1), 1.0 / 3)
+                    + eps
                 )
                 torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=x[t].view(-1)).cpu(),
@@ -2678,9 +2739,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
                 torch.testing.assert_close(m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4)
                 iter_ = cc.iter.item()
-                v_hat_t = m2_ref / (1 - beta2 ** iter_)
+                v_hat_t = m2_ref / (1 - beta2**iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
-                m_hat_t = m1_ref / (1 - beta1 ** iter_)
+                m_hat_t = m1_ref / (1 - beta1**iter_)
                 weights_new = split_weights[t]
                 weights_ref = (
                     torch.addcdiv(
@@ -2712,9 +2773,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
                 torch.testing.assert_close(m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4)
                 iter_ = cc.iter.item()
-                v_hat_t = m2_ref / (1 - beta2 ** iter_)
+                v_hat_t = m2_ref / (1 - beta2**iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
-                m_hat_t = m1_ref / (1 - beta1 ** iter_)
+                m_hat_t = m1_ref / (1 - beta1**iter_)
                 rtw = (m_hat_t / (torch.sqrt(v_hat_t) + eps)) + weight_decay * bs[
                     t
                 ].weight.cpu()
@@ -2787,7 +2848,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2847,7 +2912,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         weight_decay_mode=st.sampled_from(
             [
                 WeightDecayMode.L2,
@@ -2914,7 +2983,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -2968,7 +3041,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3047,7 +3124,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             mode = "sum"
             do_pooling = False
-        E = int(10 ** log_E)
+        E = int(10**log_E)
 
         if not mixed_weights_ty:
             weights_ty_list = [weights_ty] * T
@@ -3057,6 +3134,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     [
                         SparseType.FP32,
                         SparseType.FP16,
+                        SparseType.FP8,
                         SparseType.INT8,
                         SparseType.INT4,
                         SparseType.INT2,
@@ -3094,6 +3172,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -3123,6 +3203,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for _ in range(T)
             ]
 
+        # Fix exponent bias to 7 for now (TODO: Randomize it from a range of integers)
+        if SparseType.FP8 in weights_ty_list:
+            fp8_config = FP8QuantizationConfig(random.choice([4, 5]), 7)
+            has_fp8_weight = True
+        else:
+            has_fp8_weight = False
+
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
@@ -3146,6 +3233,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
+            fp8_exponent_bits=fp8_config.get("exponent_bits")
+            if has_fp8_weight
+            else None,
+            fp8_exponent_bias=fp8_config.get("exponent_bias")
+            if has_fp8_weight
+            else None,
         )
         # Initilize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
@@ -3237,6 +3330,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     np.float32
                 )
                 bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
+
+            elif weights_ty_list[t] == SparseType.FP8:
+                # Quantize FP32 to HPF8
+                comps = torch.ops.fbgemm.FloatToHFP8Quantized(
+                    bs[t].weight.detach().float(),
+                    fp8_config.get("exponent_bits"),
+                    fp8_config.get("exponent_bias"),
+                    fp8_config.get("max_position"),
+                )
+                weights.copy_(comps)
+
+                # Dequantize HPF8 to FP32
+                comps = torch.ops.fbgemm.HFP8QuantizedToFloat(
+                    comps,
+                    fp8_config.get("exponent_bits"),
+                    fp8_config.get("exponent_bias"),
+                )
+                bs[t].weight.data.copy_(comps)
 
             elif weights_ty_list[t] == SparseType.FP16:
                 comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
@@ -3456,7 +3567,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed = random.choice([True, False])
 
         iters = 3
-        E = int(10 ** log_E)
+        E = int(10**log_E)
 
         D_alignment = (
             1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
@@ -3532,7 +3643,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=5),
         B=st.integers(min_value=1, max_value=8),
         L=st.integers(min_value=0, max_value=8),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         use_cpu_hashtable=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
     )
@@ -3593,16 +3708,28 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # Initialize and insert Array index remapping based data structure
         index_remappings_array = torch.tensor(
-            [-1] * original_E * T, dtype=torch.int32, device=current_device
+            [-1] * original_E * T,
+            dtype=torch.int32,
+            # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but
+            #  got `Union[int, str]`.
+            device=current_device,
         )
         index_remappings_array_offsets = torch.empty(
-            T + 1, dtype=torch.int64, device=current_device
+            T + 1,
+            dtype=torch.int64,
+            # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but
+            #  got `Union[int, str]`.
+            device=current_device,
         )
         index_remappings_array_offsets[0] = 0
         for t in range(T):
+            # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
             indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
             dense_indice_t = (
-                (dense_indices.view(T, B, L))[t].view(-1).to(current_device)
+                (dense_indices.view(T, B, L))[t].view(-1)
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
+                .to(current_device)
             )
             selected_indices = torch.add(indice_t, t * original_E)[:E]
             index_remappings_array[selected_indices] = dense_indice_t
@@ -3621,12 +3748,26 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 index_remappings_array,
                 index_remappings_array_offsets,
             ) = (
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 indices.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 dense_indices.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 offsets.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 hash_table.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 hash_table_offsets.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 index_remappings_array.to(current_device),
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 index_remappings_array_offsets.to(current_device),
             )
 
@@ -3701,7 +3842,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Create an abstract split table
         D = 8
         T = 2
-        E = 10 ** 3
+        E = 10**3
         Ds = [D] * T
         Es = [E] * T
         emb_op = (
@@ -3734,7 +3875,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Create an abstract split table
         D = 8
         T = 2
-        E = 10 ** 3
+        E = 10**3
         Ds = [D] * T
         Es = [E] * T
         emb_op = (
@@ -3809,11 +3950,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         expect_out = sum(unique_cache_miss_ids >= 0)
         linear_cache_indices = linear_cache_indices_cpu.to(torch.int32).cuda()
         lxu_cache_locations = lxu_cache_locations_cpu.to(torch.int32).cuda()
+        expected_unique_access = len(torch.unique(linear_cache_indices_cpu))
+        expected_total_access = len(linear_cache_indices_cpu)
 
         # Create an abstract split table
         D = 8
         T = 2
-        E = 10 ** 3
+        E = 10**3
         Ds = [D] * T
         Es = [E] * T
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
@@ -3836,10 +3979,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         (
             cache_miss_forward_count,
             unique_cache_miss_count,
+            unique_access_count,
+            total_access_count,
         ) = cc.get_cache_miss_counter().cpu()
 
         self.assertEqual(unique_cache_miss_count, expect_out)
         self.assertLessEqual(cache_miss_forward_count, unique_cache_miss_count)
+        self.assertEqual(unique_access_count, expected_unique_access)
+        self.assertEqual(total_access_count, expected_total_access)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(N=st.integers(min_value=1, max_value=8))
@@ -3848,7 +3995,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Create an abstract split table
         D = 8
         T = 2
-        E = 10 ** 3
+        E = 10**3
         Ds = [D] * T
         Es = [E] * T
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
@@ -3884,6 +4031,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 (
                     cache_miss_forward_count,
                     unique_cache_miss_count,
+                    _,
+                    _,
                 ) = cc.get_cache_miss_counter().cpu()
                 tablewise_cache_miss = cc.get_table_wise_cache_miss().cpu()
                 self.assertEqual(cache_miss_forward_count, t_counter[0])
@@ -3902,7 +4051,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         weighted=st.booleans(),
         dtype=st.sampled_from(
             [
@@ -3950,6 +4103,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 warning.cuda(),
             )
             if weighted:
+                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights = weights.cuda()
         indices_copy = indices.clone()
         offsets_copy = offsets.clone()
@@ -4137,11 +4291,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         lxu_cache_state_gpu = torch.arange(ASSOC, dtype=torch.int64).unsqueeze(0).cuda()
 
         # Testing all miss.
-        linear_cache_indices_0 = torch.tensor(
-            [32, 33, 34, 35, 36, 100, 1000, 1725]
-        ).cuda() if ASSOC == 32 else torch.tensor(
-            [64, 65, 66, 67, 68, 100, 1000, 1725]
-        ).cuda()
+        linear_cache_indices_0 = (
+            torch.tensor([32, 33, 34, 35, 36, 100, 1000, 1725]).cuda()
+            if ASSOC == 32
+            else torch.tensor([64, 65, 66, 67, 68, 100, 1000, 1725]).cuda()
+        )
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_0, lxu_cache_state_gpu, max_index
         )
@@ -4222,7 +4376,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
             ]
         ),
-        use_cpu=st.booleans() if (gpu_available and not TEST_WITH_ROCM) else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         test_internal=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -4246,7 +4404,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             for _ in range(T)
         ]
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
         row_alignment = 1 if use_cpu else 16
         current_device = "cpu" if use_cpu else torch.cuda.current_device()
@@ -4317,6 +4475,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             high=255,
             size=(update_weight_size,),
             dtype=torch.uint8,
+            # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but
+            #  got `Union[int, str]`.
             device=current_device,
         )
 
@@ -4338,7 +4498,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 update_offsets += D_bytes
 
             update_weights_tensor = torch.tensor(
-                update_weights, device=current_device, dtype=torch.uint8
+                update_weights,
+                # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]`
+                #  but got `Union[int, str]`.
+                device=current_device,
+                dtype=torch.uint8,
             )
             update_weights_list.append(update_weights_tensor)
 

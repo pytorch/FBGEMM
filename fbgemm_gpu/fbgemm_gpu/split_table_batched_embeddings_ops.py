@@ -16,22 +16,10 @@ from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
-from fbgemm_gpu.split_embedding_configs import SparseType
-from torch import Tensor, nn
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from torch import nn, Tensor
 
 ASSOC = 32 if torch.version.hip is None else 64
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-except Exception:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update"
-    )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update_cpu"
-    )
-
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
@@ -109,7 +97,9 @@ def construct_split_state(
     host_size = 0
     uvm_size = 0
     for (num_embeddings, embedding_dim, location, _) in embedding_specs:
-        assert embedding_dim % 4 == 0, f"{embedding_dim}"
+        assert (
+            embedding_dim % 4 == 0
+        ), f"embedding_dim must be a multiple of 4, but got {embedding_dim}"
         if precision == SparseType.INT8:
             embedding_dim += int8_emb_row_dim_offset
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
@@ -163,14 +153,18 @@ def construct_cache_state(
     cache_hash_size_cumsum = []
     # [total_cache_hash_size], linear cache index -> table index
     cache_index_table_map = [-1] * total_cache_hash_size
+    unique_feature_table_map = {}
     for t, t_ in enumerate(feature_table_map):
-        for i in range(_cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]):
-            cache_index_table_map[i] = t
-        location = location_list[t_]
-        if location == EmbeddingLocation.MANAGED_CACHING:
-            cache_hash_size_cumsum.append(_cache_hash_size_cumsum[t_])
-        else:
-            cache_hash_size_cumsum.append(-1)
+        unique_feature_table_map[t_] = t
+    for t_, t in unique_feature_table_map.items():
+        start, end = _cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]
+        cache_index_table_map[start:end] = [t] * (end - start)
+    cache_hash_size_cumsum = [
+        _cache_hash_size_cumsum[t_]
+        if location_list[t_] == EmbeddingLocation.MANAGED_CACHING
+        else -1
+        for t_ in feature_table_map
+    ]
     cache_hash_size_cumsum.append(total_cache_hash_size)
     s = CacheState(
         cache_hash_size_cumsum=cache_hash_size_cumsum,
@@ -279,6 +273,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if device is not None:
             self.current_device: torch.device = device
         else:
+            # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
             self.current_device: torch.device = (
                 torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
             )
@@ -610,6 +605,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
@@ -678,12 +674,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            return invokers.lookup_rowwise_adagrad_with_weight_decay.invoke(
+            return invokers.lookup_rowwise_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
         if self.optimizer == OptimType.ROWWISE_ADAGRAD:
             assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            return invokers.lookup_approx_rowwise_adagrad_with_weight_decay.invoke(
+            return invokers.lookup_approx_rowwise_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
 
@@ -927,9 +923,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 weights = self.weights_uvm
             splits.append(
-                # pyre-fixme[29]:
-                #  `Union[BoundMethod[typing.Callable(Tensor.detach)[[Named(self,
-                #  Tensor)], Tensor], Tensor], Tensor, nn.Module]` is not a function.
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
         return splits
@@ -1113,6 +1106,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_dev",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.host_size > 0:
@@ -1144,6 +1138,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_host",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
         if split.uvm_size > 0:
@@ -1176,6 +1171,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.register_buffer(
                 f"{prefix}_uvm",
+                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
                 torch.empty(0, device=self.current_device, dtype=dtype),
             )
 
@@ -1263,7 +1259,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
@@ -1306,7 +1302,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
-            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
@@ -1362,6 +1357,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
 
         self.use_cpu = use_cpu
+        # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
         self.current_device: torch.device = (
             torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
@@ -1496,6 +1492,7 @@ def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
     r = {
         SparseType.FP32.value: dim * 4,
         SparseType.FP16.value: dim * 2,
+        SparseType.FP8.value: dim,
         SparseType.INT8.value: dim + 4,
         SparseType.INT4.value: dim // 2 + 4,
         SparseType.INT2.value: dim // 4 + 4,
@@ -1548,14 +1545,16 @@ def nbit_construct_split_state(
     )
 
 
+# pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP16/INT8/INT4/INT2 supports
+    Inference version, with FP16/FP8/INT8/INT4/INT2 supports
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    cache_miss_counter: torch.Tensor
 
     def __init__(
         self,
@@ -1578,6 +1577,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
         row_alignment: Optional[int] = None,
+        fp8_exponent_bits: Optional[int] = None,
+        fp8_exponent_bias: Optional[int] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1588,7 +1589,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         elif isinstance(device, torch.device):
             self.current_device = device
         else:
-            # pyre-ignore [6]
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
@@ -1659,6 +1659,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.max_int2_D: int = max_ty_D(SparseType.INT2)
         self.max_int4_D: int = max_ty_D(SparseType.INT4)
         self.max_int8_D: int = max_ty_D(SparseType.INT8)
+        self.max_float8_D: int = max_ty_D(SparseType.FP8)
         self.max_float16_D: int = max_ty_D(SparseType.FP16)
         self.max_float32_D: int = max_ty_D(SparseType.FP32)
 
@@ -1794,20 +1795,70 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_reserved_memory,
         )
 
-    @torch.jit.export
+        if self.max_float8_D > 0:
+            default_config = SparseType.FP8.default_config()
+            self.fp8_exponent_bits: int = (
+                default_config.get("exponent_bits")
+                if fp8_exponent_bits is None
+                else fp8_exponent_bits
+            )
+            self.fp8_exponent_bias: int = (
+                default_config.get("exponent_bias")
+                if fp8_exponent_bias is None
+                else fp8_exponent_bias
+            )
+        else:
+            self.fp8_exponent_bits = -1
+            self.fp8_exponent_bias = -1
+
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
+        # cache_miss_counter[2]: total number of unique (dedup) access count
+        # cache_miss_counter[3]: total number of non-dedup access count
 
-        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
-        # nn.Module]`.
+        # How to get cache miss ratio
+        # cache miss ratio (# of missed entries / # of unique requests): ( cache_miss_counter[1] / cache_miss_counter[2] )
+        # cache miss ratio (# of missed entries / # of total access): ( cache_miss_counter[1] / cache_miss_counter[3] )
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+
         return self.cache_miss_counter
 
     @torch.jit.export
     def get_table_wise_cache_miss(self) -> Tensor:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
         # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
-
         return self.table_wise_cache_miss
+
+    def reset_cache_miss_counter(self) -> None:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+        self.cache_miss_counter = torch.tensor(
+            [0, 0, 0, 0], device=self.current_device, dtype=torch.int64
+        )
+
+    def print_cache_miss_counter(self) -> None:
+        assert (
+            self.record_cache_metrics.record_cache_miss_counter
+        ), "record_cache_miss_counter should be true to access counter values"
+        logging.info(
+            f"\n"
+            f"Miss counter value [0] - # of miss occured iters : {self.cache_miss_counter[0]}, \n"
+            f"Miss counter value [1] - # of unique misses : {self.cache_miss_counter[1]}, \n"
+            f"Miss counter value [2] - # of unique requested indices : {self.cache_miss_counter[2]}, \n"
+            f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
+        )
+        logging.info(
+            f"unique_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[2]}, \n"
+        )
+        logging.info(
+            f"total_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[3]}, \n"
+        )
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
@@ -1818,6 +1869,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
+
+        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
+        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
+        indices, offsets = indices.long(), offsets.long()
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
@@ -1900,17 +1955,23 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         miss_count = torch.sum(unique_ids_count_list)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[1] += miss_count
+
+        # Number of unique requests
+        assert (
+            len(linear_cache_indices.size()) == 1
+        ), f"linear_cache_indices should be 1-D was {len(linear_cache_indices.size())}-D"
+
+        assert (
+            self.cache_miss_counter.size()[0] == 4
+        ), f"self.cache_miss_counter should be 4-D was {self.cache_miss_counter.size()[0]}-D"
+
+        self.cache_miss_counter[2] += torch.unique(linear_cache_indices).size()[0]
+
+        # Number of total requests
+        self.cache_miss_counter[3] += linear_cache_indices.size()[0]
 
     def _update_tablewise_cache_miss(
         self,
@@ -1983,6 +2044,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 offsets,
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
+                per_sample_weights,
             )
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
@@ -2002,12 +2064,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_float32_D=self.max_float32_D,
             indices=indices,
             offsets=offsets,
-            pooling_mode=self.pooling_mode,
+            pooling_mode=int(self.pooling_mode),
             indice_weights=per_sample_weights,
             output_dtype=self.output_dtype,
             lxu_cache_weights=self.lxu_cache_weights,
             lxu_cache_locations=lxu_cache_locations,
             row_alignment=self.row_alignment,
+            max_float8_D=self.max_float8_D,
+            fp8_exponent_bits=self.fp8_exponent_bits,
+            fp8_exponent_bias=self.fp8_exponent_bias,
         )
 
     def _apply_split(
@@ -2126,7 +2191,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self.register_buffer(
                 "cache_miss_counter",
-                torch.tensor([0, 0], dtype=torch.int64),
+                torch.tensor([0, 0, 0, 0], dtype=torch.int64),
                 persistent=False,
             )
             return
@@ -2157,7 +2222,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
-            assert cache_sets < 2 ** 24 - 1
+            assert cache_sets < 2**24 - 1
         cache_size = cache_sets * ASSOC * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
@@ -2200,7 +2265,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "lxu_state",
-            # pyre-fixme[28]: Unexpected keyword argument `size`.
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
@@ -2211,7 +2275,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "cache_miss_counter",
-            torch.tensor([0, 0], device=self.current_device, dtype=torch.int64),
+            torch.tensor([0, 0, 0, 0], device=self.current_device, dtype=torch.int64),
         )
         if cache_algorithm not in (CacheAlgorithm.LFU, CacheAlgorithm.LRU):
             raise ValueError(
@@ -2269,7 +2333,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         )
                     )
                 else:
-                    assert weight_ty == SparseType.FP16 or weight_ty == SparseType.FP32
+                    assert (
+                        weight_ty == SparseType.FP8
+                        or weight_ty == SparseType.FP16
+                        or weight_ty == SparseType.FP32
+                    )
                     splits.append(
                         (
                             weights_shifts,
@@ -2407,6 +2475,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         row_size = len(update_row_indices)
         if row_size == 0:
             return
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
@@ -2417,6 +2486,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ]
         table_values[0].scatter_(
             dim=0,
+            # pyre-fixme[16]: `List` has no attribute `view`.
             index=update_row_indices.view(row_size, 1).expand_as(update_weights),
             src=update_weights,
         )
@@ -2454,11 +2524,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_offset += D_bytes
         update_offsets.append(update_offset)
 
+        # pyre-fixme[9]: update_table_indices has type `List[int]`; used as `Tensor`.
         update_table_indices = torch.tensor(
             update_table_indices,
             device=self.current_device,
             dtype=torch.int32,
         )
+        # pyre-fixme[9]: update_row_indices has type `List[int]`; used as `Tensor`.
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,

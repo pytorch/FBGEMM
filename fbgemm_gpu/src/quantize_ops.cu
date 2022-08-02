@@ -25,8 +25,11 @@
 
 using Tensor = at::Tensor;
 
-namespace fbgemm_gpu {
+/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
+/// The following are CUDA Operators
 
+namespace fbgemm_gpu {
+///@ingroup quantize-data-cuda
 at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -50,6 +53,7 @@ at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   return output;
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _bfloat16_to_float_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -76,15 +80,15 @@ namespace {
 template <typename input_t>
 __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     const input_t* __restrict__ input,
-    int nrows,
-    int ncols,
+    const int nrows,
+    const int ncols,
     std::uint8_t* __restrict__ output) {
   constexpr float kEpsilon = 1e-8f;
 
-  int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  int output_columns = ncols_aligned + 2 * sizeof(float);
+  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int output_columns = ncols_aligned + 2 * sizeof(float);
 
-  int64_t row = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  const int64_t row = (int)blockIdx.x * blockDim.x + threadIdx.x;
 
   if (row < nrows) {
     const input_t* input_row = input + row * ncols;
@@ -92,9 +96,9 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + ncols_aligned);
 
-    float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
-    float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
-    float range = maximum_element - minimum_element;
+    const float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
+    const float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
+    const float range = maximum_element - minimum_element;
 
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
@@ -109,20 +113,18 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
 template <typename T>
 __device__ inline __attribute__((always_inline)) T
 quantize_ops_shfl_xor(const T val, int laneMask, int width) {
-#ifdef __HIP_PLATFORM_HCC__
+#if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl_xor(val, laneMask, width);
-#elif CUDA_VERSION >= 9000
-  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #else
-  return __shfl_xor(val, laneMask, width);
+  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
 #endif
 }
 
 template <typename input_t>
 __global__ inline void _get_8bit_qparam_cuda_kernel(
     const input_t* __restrict__ input,
-    int nrows,
-    int ncols,
+    const int nrows,
+    const int ncols,
     uint8_t* __restrict__ output,
     float* __restrict__ range_list) {
   const int row = (int)blockIdx.x * blockDim.y + threadIdx.y;
@@ -206,9 +208,9 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
       // load scale, bias
       float* row_qparams = reinterpret_cast<float*>(
           output + row * output_columns + ncols_aligned);
-      float bias = row_qparams[1];
+      const float bias = row_qparams[1];
 
-      int input_idx = row * ncols + col;
+      const int input_idx = row * ncols + col;
       uint8_t* output_addr = output + row * output_columns + col;
       // TODO: lift range_list into shared memory. However, when nrows is large,
       // it might exceed the size of shared memory.
@@ -291,13 +293,13 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
 // FP32/FP16 -> Fused 4/2-bit rowwise kernel
 template <typename input_t>
 __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
-    int bit_rate,
+    const int bit_rate,
     const input_t* __restrict__ input,
-    int nrows,
-    int ncols,
+    const int nrows,
+    const int ncols,
     std::uint8_t* __restrict__ output) {
-  int num_elem_per_byte = 8 / bit_rate;
-  int output_columns =
+  const int num_elem_per_byte = 8 / bit_rate;
+  const int output_columns =
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte + 2 * sizeof(__half);
 
   int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
@@ -329,7 +331,7 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
     output_row_scale_bias[0] = __float2half(scale);
     output_row_scale_bias[1] = __float2half(minimum_element);
     for (std::size_t col = 0; col < ncols; ++col) {
-      float X = input_row[col];
+      const float X = input_row[col];
 
       std::uint8_t quantized = QUANTIZE_OPS_MAX(
           0,
@@ -494,12 +496,23 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   return output;
 }
 
+///@ingroup quantize-data-cuda
 Tensor _float_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<float>(input);
 }
 
 Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<at::Half>(input);
+}
+
+///@ingroup quantize-data-cuda
+Tensor _float_or_half_to_fused8bitrowwise_gpu(const Tensor& input) {
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      input.scalar_type(),
+      "float_or_half_to_fused8bitrowwise_cuda_kernel",
+      [&] { output = _float_to_fused8bitrowwise_gpu_t<scalar_t>(input); });
+  return output;
 }
 
 template <typename output_t>
@@ -543,11 +556,11 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   constexpr int threads_per_block = 256;
 
   const int blockDim_x = std::min(threads_per_block, output_columns);
-  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+  const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
 
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-  dim3 gridDim(gridDim_x, gridDim_y);
+  const dim3 gridDim(gridDim_x, gridDim_y);
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
@@ -571,6 +584,28 @@ at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
 }
 
+///@ingroup quantize-data-cuda
+at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t output_dtype) {
+  Tensor output;
+
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      output = _fused8bitrowwise_to_float_gpu_t<float>(input);
+      break;
+    case SparseType::FP16:
+      output = _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
+      break;
+    default:
+      TORCH_CHECK(false);
+  }
+
+  return output;
+}
+
+///@ingroup quantize-data-cuda
 at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
     const at::Tensor& D_offsets,
@@ -591,7 +626,7 @@ at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   const int qparam_size = 8;
   // allocate a warp for each output row
   const int num_tables = D_offsets.size(0) - 1;
-  int64_t output_dim =
+  const int64_t output_dim =
       input.size(1) - static_cast<int64_t>(qparam_size * num_tables);
   at::Tensor output;
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
@@ -611,8 +646,9 @@ at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     return output;
   }
   constexpr int threads_per_block = 256;
-  dim3 blockDim(kWarpSize, threads_per_block / kWarpSize);
-  dim3 gridDim(cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
+  const dim3 blockDim(kWarpSize, threads_per_block / kWarpSize);
+  const dim3 gridDim(
+      cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       output.scalar_type(),
       "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
@@ -628,6 +664,7 @@ at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 template <typename input_t>
 Tensor _float_to_fusednbitrowwise_gpu_t(
     const Tensor& input,
@@ -684,18 +721,35 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   return output;
 }
 
+///@ingroup quantize-data-cuda
 Tensor _float_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<float>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _half_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<at::Half>(input, bit_rate);
 }
 
+///@ingroup sparse-data-cuda
+Tensor _float_or_half_to_fusednbitrowwise_gpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  Tensor output;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      input.scalar_type(),
+      "float_or_half_to_fusednbitrowwise_cuda_kernel",
+      [&] {
+        output = _float_to_fusednbitrowwise_gpu_t<scalar_t>(input, bit_rate);
+      });
+  return output;
+}
+
+///@ingroup quantize-data-cuda
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_gpu_t(
     const Tensor& input,
@@ -735,10 +789,10 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   constexpr int threads_per_block = 256;
 
   const int blockDim_x = std::min(output_columns, threads_per_block);
-  dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+  const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-  dim3 gridDim(gridDim_x, gridDim_y);
+  const dim3 gridDim(gridDim_x, gridDim_y);
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
@@ -761,10 +815,33 @@ at::Tensor _fusednbitrowwise_to_float_gpu(
   return _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
 }
 
+///@ingroup quantize-data-cuda
 at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+}
+
+///@ingroup quantize-data-cuda
+at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
+    const at::Tensor& input,
+    const int64_t bit_rate,
+    const int64_t output_dtype) {
+  Tensor output;
+
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      output = _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
+      break;
+    case SparseType::FP16:
+      output = _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+      break;
+    default:
+      TORCH_CHECK(false);
+  }
+
+  return output;
 }
 
 at::Tensor _float_to_hfp8_gpu(
@@ -818,5 +895,178 @@ at::Tensor _hfp8_to_float_gpu(
   });
 
   return output;
+}
+
+__host__ __device__ inline float float_to_msfp(
+    const float val_fp,
+    const int shared_expo,
+    const int mbits,
+    const int bias,
+    const float max_pos) {
+  fbgemm_gpu::fint32 X, bouncer, scale, inv_scale;
+  int32_t expo, emin, delta_E, nbits2round;
+
+  X.F = val_fp;
+  const uint32_t sign_bit = X.I & 0x80000000;
+  X.I = X.I & 0x7FFFFFFF; // 31 bits
+
+  emin = 1 - bias;
+
+  // Because the input value can be of extreme magnitude
+  // We scale them into less extreme to avoid potential exception during
+  // manipulation
+  const int32_t E = ((X.I & 0x7F800000) >> 23) - 127;
+  if (E >= 0) {
+    scale.I = 0X2F800000;
+    inv_scale.I = 0X4F800000; // scale is 2^-32, inv_scale is 2^32
+    delta_E = -32;
+  } else {
+    scale.I = 0x4F800000;
+    inv_scale.I = 0x2F800000;
+    delta_E = 32;
+  }
+  X.F *= scale.F; // at this point X is never close to over/underflow
+  expo = ((X.I & 0x7F800000) >> 23) - 127 - delta_E;
+
+  // If expo >= emin
+  // We round to mbits explicit mantissa bits
+  // That is, we want to round off 23-mbits of the trailing bits in X
+  nbits2round = 23 - mbits;
+  // However, if expo < emin, we need to round more bits off
+  nbits2round += ::max(emin - expo, 0); // max(emin - expo, 0);
+  // also need to right shift mantissa with the shared expoennt
+  nbits2round += ::max(shared_expo - expo, 0);
+
+  bouncer.I = (nbits2round << 23) + (X.I & 0x7F800000);
+  X.F = X.F + bouncer.F; // Because bouncer is exactly 2^nbits2round bigger
+                         // this addition forces the rounding off of nbits2round
+  X.F = X.F - bouncer.F; // X.F is the original X with nbits2round rounded off
+
+  // restore the true magnitude by undoing the previous scale
+  X.F *= inv_scale.F;
+  // clip on the large end of the domain
+  X.F = ::min(X.F, max_pos);
+  // restores the original sign
+  X.I |= sign_bit;
+
+  const float val_msfp = X.F;
+  return val_msfp;
+}
+
+__global__ inline void _compute_msfp_shared_exponent_cuda_kernel(
+    const float* __restrict__ input,
+    const int nrows,
+    const int ncols,
+    const int bounding_box_size,
+    int* __restrict__ shared_exponents) {
+  const int tidy = blockIdx.y * blockDim.y +
+      threadIdx.y; // to get the threadid-y dimension of this thread
+  const int tidx = blockIdx.x * blockDim.x +
+      threadIdx.x; // to get the threadid-x dimension of this thread
+
+  const int row_incre = blockDim.y * gridDim.y;
+  const int col_incre = blockDim.x * gridDim.x;
+
+  for (int row = tidy; row < nrows; row += row_incre) {
+    const float* input_row = input + row * ncols;
+    int* shared_expo_row = shared_exponents + row * ncols;
+    for (int col = tidx; col < ncols; col += col_incre) {
+      const int boundingbox_start = col / bounding_box_size * bounding_box_size;
+      const int boundingbox_end =
+          ::min(boundingbox_start + bounding_box_size, ncols);
+
+      int32_t max_exponent = 0;
+      for (int i = boundingbox_start; i < boundingbox_end; i++) {
+        // update the max_exponent
+        fbgemm_gpu::fint32 org_data;
+        org_data.F = input_row[i];
+        org_data.I = org_data.I & 0x7FFFFFFF; // 31 bits
+        const int32_t exponent = ((org_data.I & 0x7F800000) >> 23);
+        max_exponent = ::max(max_exponent, exponent);
+      }
+      shared_expo_row[col] = static_cast<int>(max_exponent) - 127;
+    }
+  }
+}
+
+at::Tensor _float_to_msfp_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos) {
+  TENSOR_ON_CUDA_GPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  TORCH_CHECK(ebits <= 8);
+  TORCH_CHECK(mbits <= 23);
+  TORCH_CHECK(ebits > 0 && mbits > 0);
+  TORCH_CHECK(min_pos > 0 && max_pos > 0 && max_pos > min_pos);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const int nrows = input.size(0);
+  const int ncols = input.size(1);
+
+  auto output = at::empty({nrows, ncols}, input.options().dtype(at::kFloat));
+  if (nrows == 0 || ncols == 0) {
+    return output;
+  }
+
+  constexpr int threads_per_block = 256;
+
+  const int blockDim_x = std::min(ncols, threads_per_block);
+  const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+  const int gridDim_x = (ncols + blockDim.x - 1) / blockDim.x;
+  const int gridDim_y = std::min((nrows + blockDim.y - 1) / blockDim.y, 65535u);
+  const dim3 gridDim(gridDim_x, gridDim_y);
+
+  auto shared_exponents =
+      at::empty({nrows, ncols}, input.options().dtype(at::kInt));
+
+  _compute_msfp_shared_exponent_cuda_kernel<<<
+      gridDim,
+      blockDim,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      input.contiguous().data_ptr<float>(),
+      nrows,
+      ncols,
+      bounding_box_size,
+      shared_exponents.data_ptr<int>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  auto iter = at::TensorIteratorConfig()
+                  .check_all_same_dtype(false)
+                  .add_output(output)
+                  .add_input(input)
+                  .add_input(shared_exponents)
+                  .build();
+
+  at::native::gpu_kernel(
+      iter, [=] GPU_LAMBDA(float in, int shared_expo) -> float {
+        return float_to_msfp(in, shared_expo, mbits, bias, max_pos);
+      });
+
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return output;
+}
+
+///@ingroup quantize-data-cuda
+at::Tensor _msfp_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias) {
+  TENSOR_ON_CUDA_GPU(input);
+
+  // Because float_to_msfp is a fakequant operator,
+  // the input msfp number is already a FP32 number
+  // with limited precision.
+  // Thus this msfp_to_float is really a no-op
+  return input.clone();
 }
 } // namespace fbgemm_gpu

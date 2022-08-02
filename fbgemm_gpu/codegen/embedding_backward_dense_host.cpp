@@ -13,6 +13,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 Tensor dense_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
@@ -173,8 +174,12 @@ class SplitLookupFunction_Dense_Op
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
+
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
+    } else if (!grad_output.is_contiguous()) {
       grad_output = grad_output.contiguous();
     }
 
@@ -323,8 +328,11 @@ class SplitNoBagLookupFunction_Dense_Op
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
+    } else if (!grad_output.is_contiguous()) {
       grad_output = grad_output.contiguous();
     }
 

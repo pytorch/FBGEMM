@@ -9,11 +9,11 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 #include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
-
 #include <torch/library.h>
 
 // clang-format off
@@ -28,6 +28,12 @@
 
 #ifdef __HIP_PLATFORM_HCC__
 #include <hipblas.h>
+#endif
+
+#ifdef __HIP_PLATFORM_HCC__
+#define LDG(ptr) (*(ptr))
+#else
+#define LDG(ptr) (__ldg(ptr))
 #endif
 
 using Tensor = at::Tensor;
@@ -1680,7 +1686,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
   int32_t L = indices_end - indices_start;
   at::acc_type<scalar_t, true> sum = 0.0;
   for (int32_t l = 0; l < L; ++l) {
-    auto idx = __ldg(&indices[indices_start + l]);
+    auto idx = LDG(&indices[indices_start + l]);
     sum += weight[n * sum_E + table_offset + idx + 0];
   }
   output[(n * B + b) * T + t] = sum;
@@ -2261,6 +2267,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
+  // wrapper for permute_2D_sparse_data_cuda, kept for BC
   TENSOR_ON_CUDA_GPU(permute);
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_ON_CUDA_GPU(embeddings);
@@ -2276,83 +2283,541 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
       "The dimension of lengths tensor should be equal to 2"
       "to correctly infer number of features and batch size.")
 
-  const auto permute_contig = permute.contiguous();
-  const auto lengths_contig = lengths.contiguous();
-  const auto embeddings_contig = embeddings.contiguous();
-  // the features to permute over can be less or more with or without
-  // repetitions
-  const auto num_output_embeddings = permute.numel();
-  const auto num_embeddings = lengths.size(0);
-  const auto B = lengths.size(1);
-
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
+  c10::optional<Tensor> weights_dummy;
+  c10::optional<int64_t> permuted_lengths_sum_dummy;
 
-  permuted_lengths = at::empty({num_output_embeddings, B}, lengths.options());
+  const auto T = permute.numel();
+  const auto B = lengths.size(1);
 
-  constexpr int32_t threads_1 = 256;
-  const auto blocks_1 =
-      cuda_calc_xblock_count(B * num_output_embeddings, threads_1);
-  AT_DISPATCH_INDEX_TYPES(
-      lengths.scalar_type(), "permute_2D_lengths_kernel", [&] {
-        fbgemm_gpu::permute_2D_lengths_kernel<index_t>
-            <<<blocks_1, threads_1, 0, at::cuda::getCurrentCUDAStream()>>>(
-                num_output_embeddings,
-                B,
-                lengths_contig.data_ptr<index_t>(),
-                permute_contig.data_ptr<int32_t>(),
-                permuted_lengths.data_ptr<index_t>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+  permuted_lengths = at::empty({T, B}, lengths.options());
 
-  // convert lengths to offsets
-  const auto input_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_contig);
-  const auto output_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
-  int64_t permuted_lengths_sum = embeddings.numel();
+  // ignore the third element in the tuple
+  std::tie(permuted_lengths, permuted_embeddings, std::ignore) =
+      fbgemm_gpu::permute_2D_sparse_data_cuda(
+          permute,
+          lengths,
+          embeddings,
+          weights_dummy,
+          permuted_lengths_sum_dummy);
 
-  /* TODO: Remove the condition protecting the slow path because even when the
-   * condition below is true permuted_lengths.sum() could still be needed. For
-   * instance if there are three features with indices `[0, 1, 2]`, `permute`
-   * can be `[0, 1, 1]` for which permuted lengths sum would be needed to
-   * create permuted_embeddings and `permuted_lengths_sum = embeddings.numel()
-   * would be incorrect.
-   */
-  if (num_embeddings != num_output_embeddings) {
-    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
+  return {permuted_lengths, permuted_embeddings};
+}
+
+template <typename Length_T, typename Data_T>
+__global__ void pack_segments_cuda_kernel(
+    const Data_T* const data_ptr,
+    const int64_t data_size_0,
+    const Length_T* const lengths_ptr,
+    const Length_T* const lengths_cum_sum,
+    const Length_T max_length,
+    const int64_t num_seq,
+    const int64_t cell_size,
+    const Data_T padding,
+    Data_T* const out_ptr) {
+  // PackSegments requires that the sum of the lengths is equal to the first
+  //  dimension of data
+  CUDA_KERNEL_ASSERT(
+      data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1]);
+
+  CUDA_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
+    const auto seq = (i / cell_size) / max_length;
+    const auto cell = (i / cell_size) % max_length;
+    const auto offset = i % cell_size;
+    if (cell >= lengths_ptr[seq]) {
+      out_ptr[i] = padding;
+    } else {
+      const auto idx = (lengths_cum_sum[seq] + cell) * cell_size + offset;
+      out_ptr[i] = data_ptr[idx];
+    }
+  }
+}
+
+/// Map N dim tensor to N+1 dim based on lengths tensor.
+/// Sequences that are shorter than the longest sequence are padded with
+/// zeros.
+/// @param t_in         N dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// output.
+/// @param max_length   The pre-defined max_length for the packed segments.
+/// @return packed_tensor
+///         packed_tensor  N + 1 dim Tensor where dim(1) is the max length,
+///                        dim(0) is the batch size.
+Tensor pack_segments_forward_cuda(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length) {
+  TENSOR_ON_CUDA_GPU(t_in);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSOR_NDIM_IS_GE(t_in, 1);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      t_in.dtype() == at::ScalarType::Float ||
+          t_in.dtype() == at::ScalarType::Double,
+      "t_in must be of type float or double");
+  TORCH_CHECK(max_length > 0, "max_length must be a positive number");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(t_in.get_device());
+
+  const auto t_in_c = t_in.contiguous();
+
+  Tensor packed_tensor;
+
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "pack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+    // Shape of output is batch_size x max_len x ...
+    auto shape = t_in_c.sizes().vec(); // Get copy of current shape
+    shape[0] = max_length; // Set first element to max_len
+    shape.insert(
+        shape.begin(), lengths.numel()); // Insert batch size at beginning
+    packed_tensor = at::zeros(shape, t_in_c.options());
+
+    if (t_in_c.size(0) == 0 || lengths.size(0) == 0) {
+      return; // Return empty output (with the proper shape)
+    }
+
+    auto lengths_prefix_sum =
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+    auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        t_in_c.scalar_type(),
+        "pack_segments_cuda-packing",
+        [&] {
+          const auto* const data_ptr = t_in_c.data_ptr<scalar_t>();
+          auto* const out_data = packed_tensor.data_ptr<scalar_t>();
+          const auto num_seq = lengths.size(0);
+          const auto cell_size = t_in_c.numel() / t_in_c.size(0);
+          pack_segments_cuda_kernel<index_t, scalar_t>
+              <<<cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+                 128,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  data_ptr,
+                  t_in_c.size(0),
+                  lengths_data,
+                  lps_data,
+                  max_length,
+                  num_seq,
+                  cell_size,
+                  static_cast<scalar_t>(0),
+                  out_data);
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+  });
+
+  return packed_tensor;
+}
+
+template <typename Length_T, typename Data_T>
+__global__ void unpack_segments_cuda_kernel(
+    const Data_T* const data_ptr,
+    const Length_T* const lengths_ptr,
+    const Length_T* const lengths_cum_sum,
+    const Length_T max_length,
+    const int64_t num_seq,
+    const int64_t cell_size,
+    Data_T* const out_ptr) {
+  CUDA_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
+    const auto seq = (i / cell_size) / max_length;
+    const auto cell = (i / cell_size) % max_length;
+    const auto offset = i % cell_size;
+    if (cell < lengths_ptr[seq]) {
+      const auto idx = (lengths_cum_sum[seq] + cell) * cell_size + offset;
+      out_ptr[idx] = data_ptr[i];
+    }
+  }
+}
+
+/// Map N+1 dim tensor to N dim based on lengths tensor
+/// Sequences that are shorter than the longest sequence are padded with
+/// zeros.
+/// @param data         N+1 dim Tensor.
+/// @param lengths      1D int/long tensor contains the length in each of the
+/// input.
+/// @param total_length Sum of elements in the 1D tensor legnths
+/// @param max_length   The pre-defined max_length for the packed segments.
+/// @return unpacked_tensor N-dimensional tensor
+Tensor pack_segments_backward_cuda(
+    const Tensor& data,
+    const Tensor& lengths,
+    int64_t total_length,
+    int64_t max_length) {
+  TENSOR_ON_CUDA_GPU(data);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSOR_NDIM_IS_GE(data, 2);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      data.size(0) == lengths.size(0),
+      "LENGTHS and DATA must match in dimension 0");
+  TORCH_CHECK(
+      data.dtype() == at::ScalarType::Float ||
+          data.dtype() == at::ScalarType::Double,
+      "data must be of type float or double");
+  TORCH_CHECK(
+      max_length == data.size(1),
+      "max_length should be equal to the second dimension of the packed segments");
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(data.get_device());
+
+  Tensor unpacked_tensor; // The output tensor
+
+  AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "unpack_segments_cuda", [&] {
+    const auto* const lengths_data = lengths.data_ptr<index_t>();
+
+    // Create output tensor of appropriate dimensions
+    auto shape = data.sizes().vec();
+    shape.erase(shape.begin());
+    shape[0] = total_length;
+    unpacked_tensor = at::empty(shape, data.options());
+
+    if (!(data.size(0) && data.size(1))) { // TODO: What does this mean?
+      return;
+    }
+
+    auto lengths_prefix_sum =
+        fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
+    auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
+
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        data.scalar_type(),
+        "unpack_segments_cuda-unpacking",
+        [&] {
+          const auto num_seq = lengths.size(0);
+          const auto cell_size = data.numel() / (data.size(0) * data.size(1));
+          const auto* const data_ptr = data.data_ptr<scalar_t>();
+          auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
+
+          unpack_segments_cuda_kernel<index_t, scalar_t>
+              <<<cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+                 128,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  data_ptr,
+                  lengths_data,
+                  lps_data,
+                  max_length,
+                  num_seq,
+                  cell_size,
+                  out_data);
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+  });
+
+  return unpacked_tensor;
+}
+
+constexpr int MAX_ELEMENTS_PER_THREAD = 4;
+
+template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
+__global__
+__launch_bounds__(kMaxThreads) void index_select_2d_with_sorted_indices_kernel(
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> input,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        sorted_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        orig_indices,
+    at::PackedTensorAccessor32<scalar_t, 2> output) {
+  const int N = sorted_indices.size(0);
+  const int input_size = input.size(0);
+  const int D = input.size(1);
+  CUDA_KERNEL_ASSERT(output.size(0) == N)
+
+  for (int row = blockIdx.x; row < N; row += gridDim.x) {
+    const index_t src_idx = sorted_indices[row];
+    const int64_t dst_idx = orig_indices[row];
+    CUDA_KERNEL_ASSERT(src_idx < input_size)
+    int col;
+    for (col = threadIdx.x * UNROLL_FACTOR;
+         col < D / UNROLL_FACTOR * UNROLL_FACTOR;
+         col += blockDim.x * UNROLL_FACTOR) {
+#pragma unroll
+      for (int i = 0; i < UNROLL_FACTOR; i++) {
+        output[dst_idx][col + i] = LDG(&input[src_idx][col + i]);
+      }
+    }
+    for (; col < D; ++col) {
+      output[dst_idx][col] = LDG(&input[src_idx][col]);
+    }
+  }
+}
+
+template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
+__global__
+__launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+        out_grad,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        unique_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        orig_indices,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<scalar_t, 2> in_deduped_grad,
+    const int stride_D,
+    const int rounded_D,
+    const int remaining_D,
+    const bool consecutive_indices,
+    const int consecutive_range_start) {
+  const int start_offset = blockIdx.x == 0 ? 0 : offsets[blockIdx.x - 1];
+  const int end_offset = offsets[blockIdx.x];
+  index_t dst_idx = consecutive_indices ? blockIdx.x + consecutive_range_start
+                                        : unique_indices[blockIdx.x];
+  const bool has_remainder = blockIdx.y == blockDim.y - 1 && remaining_D > 0 &&
+      threadIdx.x < remaining_D;
+
+  // Buffer for storing temporary results
+  scalar_t sum[MAX_ELEMENTS_PER_THREAD];
+  for (int i = 0; i < MAX_ELEMENTS_PER_THREAD; i++) {
+    sum[i] = 0;
   }
 
-  constexpr int32_t BT_blocks = 32;
-  dim3 threads_2(32, BT_blocks);
-  const auto blocks_2 =
-      cuda_calc_xblock_count(B * num_output_embeddings, BT_blocks);
-  permuted_embeddings = at::empty(permuted_lengths_sum, embeddings.options());
+  scalar_t sum_remainder = 0;
+
+  // Each thread block processes max of stride_D elements
+  int start_D = (blockIdx.y * stride_D) + (threadIdx.x * UNROLL_FACTOR);
+
+  // For each row
+  for (int row = start_offset; row < end_offset; row++) {
+    int64_t src_idx = orig_indices[row];
+    int col, i;
+    for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
+         col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
+#pragma unroll
+      for (int j = 0; j < UNROLL_FACTOR; j++) {
+        sum[i + j] += LDG(&out_grad[src_idx][col + j]);
+      }
+    }
+    if (has_remainder) {
+      sum_remainder += LDG(&out_grad[src_idx][rounded_D + threadIdx.x]);
+    }
+  } // for each row
+
+  // Write results to global memory
+  int col, i;
+  for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
+       col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
+#pragma unroll
+    for (int j = 0; j < UNROLL_FACTOR; j++) {
+      in_deduped_grad[dst_idx][col + j] = sum[i + j];
+    }
+  }
+  if (has_remainder) {
+    in_deduped_grad[dst_idx][rounded_D + threadIdx.x] += sum_remainder;
+  }
+}
+
+template <typename index_t>
+__global__
+__launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
+    index_t* input,
+    int64_t* output,
+    index_t start_input,
+    const int input_size) {
+  const int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+  if (i >= input_size) {
+    return;
+  }
+  // Atomic could become a bottleneck if frequencies are very skew
+  atomicAdd(&output[input[i] - start_input], 1);
+}
+
+void compute_frequency_sequence(
+    const Tensor& input,
+    Tensor& output,
+    const int start_input,
+    const int output_size) {
+  output = at::zeros({output_size}, input.options().dtype(at::kLong));
+
   AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_embeddings_kernel_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND(
-            at::ScalarType::Int,
-            embeddings.scalar_type(),
-            "permute_embeddings_kernel_2",
-            [&] {
-              permute_embeddings_kernel<index_t, scalar_t>
-                  <<<blocks_2,
-                     threads_2,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      permuted_lengths_sum,
-                      num_output_embeddings,
-                      B,
-                      embeddings_contig.data_ptr<scalar_t>(),
-                      permute_contig.data_ptr<int32_t>(),
-                      input_offsets.data_ptr<index_t>(),
-                      output_offsets.data_ptr<index_t>(),
-                      permuted_embeddings.data_ptr<scalar_t>());
+      input.scalar_type(), "compute_frequency_sequence_kernel_1", [&] {
+        compute_frequency_sequence_kernel<index_t>
+            <<<cuda_calc_xblock_count(input.numel(), kWarpSize),
+               kWarpSize,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                input.data_ptr<index_t>(),
+                output.data_ptr<int64_t>(),
+                start_input,
+                input.numel());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+}
+
+template <
+    typename scalar_t,
+    int ndim,
+    template <typename U> class PtrTraits = at::DefaultPtrTraits>
+at::PackedTensorAccessor32<scalar_t, ndim, PtrTraits>
+dummy_packed_accessor32() {
+  std::array<int64_t, ndim> zeros{};
+  return {nullptr, zeros.data(), zeros.data()};
+}
+
+Tensor index_select_with_sorted_indices_cuda(
+    const Tensor& input,
+    const Tensor& sorted_indices,
+    const Tensor& orig_indices,
+    const int consecutive_range_start,
+    const int consecutive_range_length) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(input.get_device());
+
+  const int N = sorted_indices.size(0);
+  auto output_shape = input.sizes().vec();
+  output_shape[0] = N;
+
+  if (input.numel() == 0 || N == 0) {
+    return at::empty(output_shape, input.options());
+  }
+
+  Tensor input_reshaped = input.reshape({input.size(0), -1});
+  const int D = input_reshaped.size(1);
+
+  Tensor output = at::empty({N, D}, input_reshaped.options());
+
+  const int UNROLL_FACTOR = 2;
+
+  AT_DISPATCH_INDEX_TYPES(
+      sorted_indices.scalar_type(), "index_add_2d_kernel_1", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            input_reshaped.scalar_type(), "index_add_2d_kernel_2", [&] {
+              index_select_2d_with_sorted_indices_kernel<
+                  index_t,
+                  scalar_t,
+                  UNROLL_FACTOR><<<
+                  cuda_calc_xblock_count(N, 1),
+                  std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  input_reshaped
+                      .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+                  sorted_indices
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  orig_indices
+                      .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                  output.packed_accessor32<scalar_t, 2>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
 
-  return {permuted_lengths, permuted_embeddings};
+  return output.reshape(output_shape);
+}
+
+Tensor index_add_with_unique_indices_cuda(
+    const Tensor& grad_output,
+    const Tensor& sorted_indices,
+    const Tensor& orig_indices,
+    std::vector<int64_t>& input_shape,
+    const int consecutive_range_start,
+    const int consecutive_range_length) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(grad_output.get_device());
+
+  const int N = grad_output.size(0);
+
+  if (grad_output.numel() == 0) {
+    return at::zeros(input_shape, grad_output.options());
+  }
+
+  const Tensor grad_output_reshaped = grad_output.reshape({N, -1});
+  const int D = grad_output_reshaped.size(1);
+
+  TORCH_CHECK(sorted_indices.size(0) == N);
+
+  Tensor input_grad = at::zeros({input_shape[0], D}, grad_output.options());
+  bool consecutive_indices =
+      consecutive_range_start >= 0 && consecutive_range_length > 0;
+
+  AT_DISPATCH_INDEX_TYPES(
+      sorted_indices.scalar_type(), "index_add_2d_kernel_1", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            grad_output.scalar_type(), "index_add_2d_kernel_2", [&] {
+              // UNROLL_FACTOR is determined based on the empirical study
+              const int UNROLL_FACTOR = std::is_same<scalar_t, float>() ? 4 : 2;
+              const int rounded_D = D / UNROLL_FACTOR * UNROLL_FACTOR;
+              const int remaining_D = D - rounded_D;
+              int block_size =
+                  std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads);
+              block_size = std::max(remaining_D, block_size);
+              // Number of elements per block
+              const int stride_D = MAX_ELEMENTS_PER_THREAD * block_size;
+
+              int num_unique_indices;
+              Tensor unique_indices, offsets;
+              if (consecutive_indices) {
+                TORCH_CHECK(
+                    consecutive_range_start < input_shape[0] &&
+                    consecutive_range_start + consecutive_range_length - 1 <
+                        input_shape[0]);
+
+                // Since indices are selected from consecutive range, we can
+                // infer the number of unique indices from
+                // consecutive_range_length
+                num_unique_indices = consecutive_range_length;
+                compute_frequency_sequence(
+                    sorted_indices,
+                    offsets,
+                    consecutive_range_start,
+                    num_unique_indices);
+                offsets = offsets.cumsum(0);
+              } else {
+                Tensor unique_count;
+                // Unique consecutive does D->H transfer internally
+                // (enforcing synchronization between host and device)
+                std::tie(unique_indices, std::ignore, unique_count) =
+                    at::unique_consecutive(sorted_indices, false, true, 0);
+
+                // This does D->H transfer
+                num_unique_indices = unique_indices.numel();
+                offsets = unique_count.cumsum(0);
+              }
+
+              const dim3 grid_size(
+                  cuda_calc_xblock_count(num_unique_indices, 1),
+                  (D + stride_D - 1) / stride_D,
+                  1);
+
+              index_add_2d_with_unique_indices_kernel<
+                  index_t,
+                  scalar_t,
+                  UNROLL_FACTOR><<<
+                  grid_size,
+                  block_size,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  grad_output_reshaped
+                      .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+                  consecutive_indices ? dummy_packed_accessor32<
+                                            index_t,
+                                            1,
+                                            at::RestrictPtrTraits>()
+                                      : unique_indices.packed_accessor32<
+                                            index_t,
+                                            1,
+                                            at::RestrictPtrTraits>(),
+                  orig_indices
+                      .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                  offsets
+                      .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                  input_grad.packed_accessor32<scalar_t, 2>(),
+                  stride_D, // Pass constants as kernel args
+                  rounded_D,
+                  remaining_D,
+                  consecutive_indices,
+                  consecutive_range_start);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+  return input_grad.reshape(input_shape);
 }
 
 } // namespace fbgemm_gpu

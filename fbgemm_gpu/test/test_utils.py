@@ -4,17 +4,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+import os
 import struct
-from typing import Callable, List, Tuple
+import unittest
+from functools import wraps
+from typing import Any, Callable, List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
-import os
-from functools import wraps
-import unittest
 
-TEST_WITH_ROCM = os.getenv('FBGEMM_TEST_WITH_ROCM', '0') == '1'
+TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[np.ndarray], np.ndarray] = np.vectorize(round)
 
@@ -187,13 +187,20 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
 def cpu_only() -> st.SearchStrategy[List[torch.device]]:
     return st.sampled_from([torch.device("cpu")])
 
-def skipIfRocm(reason="test doesn't currently work on the ROCm stack"):
-    def skipIfRocmDecorator(fn):
+
+# pyre-fixme[3]: Return annotation cannot be `Any`.
+def skipIfRocm(reason: str = "test doesn't currently work on the ROCm stack") -> Any:
+    # pyre-fixme[3]: Return annotation cannot be `Any`.
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    def skipIfRocmDecorator(fn: Callable) -> Any:
         @wraps(fn)
-        def wrapper(*args, **kwargs):
+        # pyre-fixme[3]: Return annotation cannot be `Any`.
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if TEST_WITH_ROCM:
                 raise unittest.SkipTest(reason)
             else:
                 fn(*args, **kwargs)
+
         return wrapper
+
     return skipIfRocmDecorator

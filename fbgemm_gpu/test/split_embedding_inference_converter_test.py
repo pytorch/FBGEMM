@@ -9,6 +9,7 @@
 
 import logging
 import math
+import random
 import unittest
 from typing import Optional, Tuple
 
@@ -17,10 +18,14 @@ import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embe
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    FP8QuantizationConfig,
+    QuantizationConfig,
+    SparseType,
+)
 from fbgemm_gpu.split_embedding_inference_converter import SplitEmbInferenceConverter
 from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
-from hypothesis import Verbosity, given, settings
+from hypothesis import given, settings, Verbosity
 from torch import nn
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
@@ -130,12 +135,13 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.FP8,
                 SparseType.INT8,
                 SparseType.INT4,
                 SparseType.INT2,
             ]
         ),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         pruning_ratio=st.sampled_from([None, 0.0]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -151,7 +157,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         pruning_ratio: Optional[float],
         use_cpu: bool,
     ) -> None:
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         Es = [E] * T
         D_alignment = 8 if not quantize_type == SparseType.INT2 else 16
         D = div_round_up(D, D_alignment)
@@ -161,6 +167,8 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         # indices: T, B, L; offsets: T * B + 1
         (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
         sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)
+
+        quantization_config = QuantizationConfig()
 
         # Fake quantize to make the original weight in FP32 all be exactly
         # representable by INT8 row-wise quantized values
@@ -184,6 +192,22 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                         bit_rate=quantize_type.bit_rate(),
                     )
                 )
+        elif quantize_type == SparseType.FP8:
+            quantization_config = FP8QuantizationConfig(random.choice([4, 5]), 7)
+
+            for t in range(T):
+                sparse_arch.emb_module.split_embedding_weights()[t].data.copy_(
+                    torch.ops.fbgemm.HFP8QuantizedToFloat(
+                        torch.ops.fbgemm.FloatToHFP8Quantized(
+                            sparse_arch.emb_module.split_embedding_weights()[t].data,
+                            quantization_config.get("exponent_bits"),
+                            quantization_config.get("exponent_bias"),
+                            quantization_config.get("max_position"),
+                        ),
+                        quantization_config.get("exponent_bits"),
+                        quantization_config.get("exponent_bias"),
+                    )
+                )
 
         emb_out = sparse_arch(indices, offsets)  # B, T, D
 
@@ -191,6 +215,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         split_emb_infer_converter = SplitEmbInferenceConverter(
             quantize_type=quantize_type,
             pruning_ratio=pruning_ratio,
+            quantization_config=quantization_config,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         assert (
@@ -209,7 +234,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
 
     @given(
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
         quantize_type=st.sampled_from(
             [
@@ -299,7 +324,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         pruning_ratio=st.floats(min_value=0.0, max_value=1.0, exclude_max=True),
-        use_cpu=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -312,7 +337,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         use_cpu: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        E = int(10 ** log_E)
+        E = int(10**log_E)
         D_alignment = 8
         D = div_round_up(D, D_alignment)
         sparse_arch = SparseArch(emb_dim=D, num_tables=T, num_rows=E, use_cpu=use_cpu)

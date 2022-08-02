@@ -434,6 +434,9 @@ def rowwise_adagrad() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
     }
     multiplier = shfl_sync(multiplier, 0);
@@ -461,6 +464,9 @@ def rowwise_adagrad() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] = correction * host_weights_data[embedding_begin + d] - grad_buffer[d] * multiplier;
@@ -549,6 +555,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
     }
     multiplier = shfl_sync(multiplier, 0);
@@ -576,6 +585,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         } else if (weight_decay_mode == 2) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
+        } else {
+            // default value
+            correction = 1.0;
         }
         for (int64_t d = 0; d < D; ++d) {
             host_weights_data[embedding_begin + d] = correction * host_weights_data[embedding_begin + d] - grad_buffer[d] * multiplier;
@@ -1236,13 +1248,16 @@ def forward_quantized() -> None:
     class elem_type:
         enum_name: str
         cpp_type_name: str
+        primitive_type: str
+        bit_width: int
 
     type_map = {
-        32: elem_type("FP32", "float"),
-        16: elem_type("FP16", "__half2"),
-        8: elem_type("INT8", "uint32_t"),
-        4: elem_type("INT4", "uint32_t"),
-        2: elem_type("INT2", "uint32_t"),
+        "FP32": elem_type("FP32", "float", "FP", 32),
+        "FP16": elem_type("FP16", "__half2", "FP", 16),
+        "FP8": elem_type("FP8", "uint32_t", "FP", 8),
+        "INT8": elem_type("INT8", "uint32_t", "INT", 8),
+        "INT4": elem_type("INT4", "uint32_t", "INT", 4),
+        "INT2": elem_type("INT2", "uint32_t", "INT", 2),
     }
 
     template = env.get_template("embedding_forward_quantized_split_template.cu")
@@ -1316,4 +1331,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    # hipify_gen()

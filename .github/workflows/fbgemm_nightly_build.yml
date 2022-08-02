@@ -117,6 +117,7 @@ jobs:
           --python-tag=${{ matrix.python-tag }} \
           -DTORCH_CUDA_ARCH_LIST="'7.0;8.0'" \
           --plat-name=manylinux1_x86_64
+        ls -lt dist/*.whl
     - name: Upload wheel as GHA artifact
       uses: actions/upload-artifact@v2
       with:
@@ -271,4 +272,5 @@ jobs:
             --username __token__ \
             --password "$PYPI_TOKEN" \
             --skip-existing \
+            --verbose \
             fbgemm_gpu_nightly-*.whl

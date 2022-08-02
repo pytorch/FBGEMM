@@ -14,6 +14,9 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
+
+/// @defgroup embedding-cpu Embedding CPU Operators
 
 void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,
@@ -176,6 +179,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
   }
 };
 
+///@ingroup embedding-cpu
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     Tensor host_weights,
     Tensor weights_placements,

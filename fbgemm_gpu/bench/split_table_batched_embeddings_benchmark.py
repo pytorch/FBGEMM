@@ -5,12 +5,11 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import itertools
+
 import logging
 import math
 import random
 import statistics
-import time
 from typing import Callable, List, Optional, Tuple
 
 import click
@@ -32,14 +31,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     ComputeDevice,
     DenseTableBatchedEmbeddingBagsCodegen,
     EmbeddingLocation,
+    IntNBitTableBatchedEmbeddingBagsCodegen,
     OptimType,
+    PoolingMode,
+    RecordCacheMetrics,
+    rounded_row_size_in_bytes,
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
-    IntNBitTableBatchedEmbeddingBagsCodegen,
-    PoolingMode,
-    rounded_row_size_in_bytes,
 )
-from numpy.random import default_rng
 from torch import Tensor
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
@@ -47,364 +46,28 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
+    from bench_utils import (
+        benchmark_pipelined_requests,
+        benchmark_requests,
+        benchmark_requests_refer,
+        benchmark_torch_function,
+        generate_requests,
+        get_device,
+        round_up,
+    )
 else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
+    from fbgemm_gpu.bench.bench_utils import (
+        benchmark_pipelined_requests,
+        benchmark_requests,
+        benchmark_requests_refer,
+        benchmark_torch_function,
+        generate_requests,
+        get_device,
+        round_up,
+    )
 
 
 logging.basicConfig(level=logging.DEBUG)
-
-
-def round_up(a: int, b: int) -> int:
-    return int((a + b - 1) // b) * b
-
-
-def get_device() -> torch.device:
-    return (
-        torch.cuda.current_device()
-        if torch.cuda.is_available()
-        else torch.device("cpu")
-    )
-
-
-# Merged indices with shape (T, B, L) -> (flattened indices with shape
-# (T * B * L), offsets with shape (T * B + 1))
-def get_table_batched_offsets_from_dense(
-    merged_indices: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    (T, B, L) = merged_indices.size()
-    lengths = np.ones((T, B)) * L
-    flat_lengths = lengths.flatten()
-    return (
-        merged_indices.long().contiguous().view(-1).to(get_device()),
-        torch.tensor(([0] + np.cumsum(flat_lengths).tolist())).long().to(get_device()),
-    )
-
-
-def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    (B, L) = indices.size()
-    return (
-        indices.contiguous().view(-1),
-        torch.tensor(
-            np.cumsum(np.asarray([0] + [L for _ in range(B)])[:-1]).astype(np.int64)
-        ),
-    )
-
-
-def b_indices(
-    b: Callable[..., torch.Tensor],
-    x: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor] = None,
-    use_cpu: bool = False,
-    do_pooling: bool = True,
-) -> torch.Tensor:
-    (indices, offsets) = get_offsets_from_dense(x)
-    if do_pooling:
-        return b(
-            indices.cuda(),
-            offsets.cuda(),
-            per_sample_weights=per_sample_weights,
-        )
-    else:
-        return b(indices.cuda())
-
-
-def generate_requests(
-    iters: int,
-    B: int,
-    T: int,
-    L: int,
-    E: int,
-    # inter-batch indices reuse rate
-    reuse: float = 0.0,
-    # alpha <= 1.0: use uniform distribution
-    # alpha > 1.0: use zipf distribution
-    alpha: float = 1.0,
-    weights_precision: SparseType = SparseType.FP32,
-    weighted: bool = False,
-    requests_data_file: Optional[str] = None,
-    # Comma-separated list of table numbers
-    tables: Optional[str] = None,
-) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
-    if requests_data_file is not None:
-        indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
-
-        average_L = 0
-        if tables is not None:
-            emb_tables = tuple(int(x) for x in tables.split(","))
-            indices = torch.zeros(0, dtype=indices_tensor.dtype)
-            offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
-            total_L = 0
-            for t in emb_tables:
-                t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
-                total_L += t_offsets[-1] - t_offsets[0]
-                indices = torch.cat(
-                    (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
-                )
-                offsets = torch.cat(
-                    (
-                        offsets,
-                        t_offsets[1:] - t_offsets[0] + offsets[-1],
-                    )
-                )
-            indices_tensor = indices
-            offsets_tensor = offsets
-            average_L = int(total_L / B)
-
-            assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
-                f"Requested tables: {emb_tables} "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-            logging.warning(
-                f"Using (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}) based "
-                f"on tables: {emb_tables}"
-            )
-        else:
-            average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
-            assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
-                f"Data file (indices = {indices_tensor.size()}, "
-                f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-
-        assert (
-            L == average_L
-        ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
-        assert E > max(indices_tensor), (
-            f"Number of embeddings is not enough to support maximum index "
-            f"provided by data file {E} vs. {max(indices_tensor)}"
-        )
-
-        weights_tensor = (
-            None
-            if not weighted
-            else torch.randn(indices_tensor.size(), device=get_device())
-        )
-        rs = []
-        for _ in range(iters):
-            rs.append(
-                (
-                    indices_tensor.to(get_device()),
-                    offsets_tensor.to(get_device()),
-                    weights_tensor,
-                )
-            )
-        return rs
-
-    if alpha <= 1.0:
-        all_indices = torch.randint(
-            low=0,
-            high=E,
-            size=(iters, T, B, L),
-            device=get_device(),
-            dtype=torch.int32,
-        )
-        # each bag is usually sorted
-        (all_indices, _) = torch.sort(all_indices)
-        all_indices = all_indices.reshape(iters, T, B * L)
-    else:
-        assert E >= L, "num-embeddings must be greater than equal to bag-size"
-        # oversample and then remove duplicates to obtain sampling without
-        # replacement
-        all_indices = (np.random.zipf(a=alpha, size=(iters, T, B, 3 * L)) - 1) % E
-        for index_tuple in itertools.product(range(iters), range(T), range(B)):
-            # sample without replacement from
-            # https://stats.stackexchange.com/questions/20590/how-do-i-sample-without-replacement-using-a-sampling-with-replacement-function
-            r = set()
-            for x in all_indices[index_tuple]:
-                if x not in r:
-                    r.add(x)
-                    if len(r) == L:
-                        break
-            assert (len(r)) == L, "too skewed distribution (alpha too big)"
-            all_indices[index_tuple][:L] = list(r)
-        # shuffle indices so we don't have unintended spatial locality
-        all_indices = torch.as_tensor(all_indices[:, :, :, :L])
-        rng = default_rng()
-        permutation = torch.as_tensor(
-            rng.choice(E, size=all_indices.max().item() + 1, replace=False)
-        )
-        all_indices = permutation.gather(0, all_indices.flatten())
-        all_indices = all_indices.to(get_device()).int().reshape(iters, T, B * L)
-    for it in range(iters - 1):
-        for t in range(T):
-            reused_indices = torch.randperm(B * L, device=get_device())[
-                : int(B * L * reuse)
-            ]
-            all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
-
-    rs = []
-    for it in range(iters):
-        weights_tensor = (
-            None if not weighted else torch.randn(T * B * L, device=get_device())
-        )
-        rs.append(
-            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-            + (weights_tensor,)
-        )
-    return rs
-
-
-def benchmark_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
-    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
-    flush_gpu_cache_size_mb: int = 0,
-    check_median: bool = False,
-) -> float:
-    times = []
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-    for (indices, offsets, weights) in requests:
-        start_time = time.time()
-        if torch.cuda.is_available():
-            if flush_gpu_cache_size_mb:
-                _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-                )
-                torch.cuda.synchronize()
-            start_event.record()
-        func(indices, offsets, weights)
-        if torch.cuda.is_available():
-            end_event.record()
-            torch.cuda.synchronize()
-            it_time = start_event.elapsed_time(end_event) * 1.0e-3
-            times.append(it_time)
-        else:
-            it_time = time.time() - start_time
-            times.append(it_time)
-    avg_time = sum(times) / len(requests)
-    median_time = statistics.median(times)
-    return median_time if check_median else avg_time
-
-
-def benchmark_requests_refer(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
-    T: int,
-    B: int,
-    L: int,
-    E: int,
-    D: int,
-    pooling_mode: str,
-    weighted: bool,
-    flush_gpu_cache_size_mb: int = 0,
-    check_median: bool = False,
-) -> float:
-    do_pooling = pooling_mode in ["sum", "mean"]
-    if do_pooling:
-        nn_embedding_list = [
-            torch.nn.EmbeddingBag(E, D, mode=pooling_mode, sparse=True).cuda()
-        ] * T
-    else:
-        nn_embedding_list = [torch.nn.Embedding(E, D, sparse=True).cuda()] * T
-
-    times = []
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-    for (indices, _, weights) in requests:
-        indices_list = indices.view(T, B, L).split(1)
-
-        if weighted:
-            assert weights is not None
-            weights_list = weights.view(T, B, L).split(1)
-
-        start_time = time.time()
-        if torch.cuda.is_available():
-            if flush_gpu_cache_size_mb:
-                _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-                )
-                torch.cuda.synchronize()
-            start_event.record()
-
-        nn_embedding_output = (
-            [
-                b_indices(nn_embedding, x, use_cpu=False, do_pooling=do_pooling)
-                for (nn_embedding, x) in zip(nn_embedding_list, indices_list)
-            ]
-            if not weighted
-            else [
-                b_indices(
-                    nn_embedding,
-                    x,
-                    per_sample_weights=xw.view(-1),
-                    use_cpu=False,
-                    do_pooling=do_pooling,
-                )
-                for (nn_embedding, x, xw) in zip(
-                    nn_embedding_list,
-                    indices_list,
-                    # pyre-fixme[61]: `weights_list` is undefined, or not always
-                    #  defined.
-                    weights_list,
-                )
-            ]
-        )
-        if do_pooling:
-            final_output = torch.cat(
-                [f.view(B, -1) for f in nn_embedding_output], dim=1
-            )
-        else:
-            final_output = torch.cat(nn_embedding_output, dim=0).view(-1, D)
-
-        if torch.cuda.is_available():
-            end_event.record()
-            torch.cuda.synchronize()
-            it_time = start_event.elapsed_time(end_event) * 1.0e-3
-            times.append(it_time)
-        else:
-            it_time = time.time() - start_time
-            times.append(it_time)
-    avg_time = sum(times) / len(requests)
-    median_time = statistics.median(times)
-    return median_time if check_median else avg_time
-
-
-def benchmark_pipelined_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
-    func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
-    func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
-    flush_gpu_cache_size_mb: int = 0,
-) -> Tuple[float, float]:
-    torch.cuda.synchronize()
-    start_events = [
-        (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
-        for _ in requests
-    ]
-    end_events = [
-        (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
-        for _ in requests
-    ]
-    for ((indices, offsets, indices_weights), start_event, end_event) in zip(
-        requests, start_events, end_events
-    ):
-        if flush_gpu_cache_size_mb:
-            _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-            )
-            torch.cuda.synchronize()
-        start_event[0].record()
-        func1(indices, offsets, indices_weights)
-        end_event[0].record()
-        start_event[1].record()
-        func2(indices, offsets, indices_weights)
-        end_event[1].record()
-    torch.cuda.synchronize()
-    return (
-        sum(
-            start_event[0].elapsed_time(end_event[0]) * 1.0e-3
-            for start_event, end_event in zip(start_events, end_events)
-        )
-        / len(requests),
-        sum(
-            start_event[1].elapsed_time(end_event[1]) * 1.0e-3
-            for start_event, end_event in zip(start_events, end_events)
-        )
-        / len(requests),
-    )
 
 
 @click.group()
@@ -428,7 +91,9 @@ def cli() -> None:
 @click.option("--reuse", default=0.0)
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
+@click.option("--pooling", type=str, default="sum")
 @click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
@@ -449,7 +114,9 @@ def device(  # noqa C901
     reuse: float,
     row_wise: bool,
     weighted: bool,
+    pooling: str,
     weighted_num_requires_grad: Optional[int],
+    bounds_check_mode: int,
     flush_gpu_cache_size_mb: int,
     dense: bool,
     output_dtype: SparseType,
@@ -496,6 +163,17 @@ def device(  # noqa C901
     else:
         managed_option = EmbeddingLocation.MANAGED
 
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+
     if dense:
         emb = DenseTableBatchedEmbeddingBagsCodegen(
             [
@@ -505,6 +183,7 @@ def device(  # noqa C901
                 )
                 for d in Ds
             ],
+            pooling_mode=pooling_mode,
             use_cpu=not torch.cuda.is_available(),
         )
     else:
@@ -526,6 +205,8 @@ def device(  # noqa C901
             weights_precision=weights_precision,
             stochastic_rounding=stoc,
             output_dtype=output_dtype,
+            pooling_mode=pooling_mode,
+            bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         )
     emb = emb.to(get_device())
 
@@ -534,6 +215,18 @@ def device(  # noqa C901
 
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    if do_pooling:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds)
+            + param_size_multiplier * B * sum(Ds) * L
+        )
+    else:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) * L
+            + param_size_multiplier * B * sum(Ds) * L
+        )
+
     logging.info(
         f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
         f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
@@ -570,7 +263,7 @@ def device(  # noqa C901
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -578,7 +271,10 @@ def device(  # noqa C901
         # backward bench not representative
         return
 
-    grad_output = torch.randn(B, sum(Ds)).to(get_device())
+    if do_pooling:
+        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+    else:
+        grad_output = torch.randn(B * T * L, D).to(get_device())
     # backward
     time_per_iter = benchmark_requests(
         requests,
@@ -592,7 +288,7 @@ def device(  # noqa C901
     )
     logging.info(
         f"ForwardBackward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"BW: {3 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -1068,6 +764,8 @@ def benchmark_cpu_requests(
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cpu(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1087,6 +785,8 @@ def nbit_cpu(  # noqa C901
     requests_data_file: Optional[str],
     tables: Optional[str],
     output_dtype: SparseType,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1110,6 +810,8 @@ def nbit_cpu(  # noqa C901
         device="cpu",
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
         output_dtype=output_dtype,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cpu()
     emb.fill_random_weights()
 
@@ -1177,8 +879,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--pooling", type=str, default="sum")
-@click.option("--weighted-num-requires-grad", type=int, default=None)
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
 @click.option("--pruning-ratio", type=float, default=None)
 @click.option("--load-factor", default=0.75)
 @click.option("--use-array-for-index-remapping", is_flag=True, default=True)
@@ -1191,6 +892,8 @@ def nbit_cpu(  # noqa C901
 @click.option("--run-reference", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1206,7 +909,6 @@ def nbit_device(  # noqa C901
     row_wise: bool,
     weighted: bool,
     pooling: str,
-    weighted_num_requires_grad: Optional[int],
     bounds_check_mode: int,
     pruning_ratio: Optional[float],
     load_factor: float,
@@ -1220,6 +922,8 @@ def nbit_device(  # noqa C901
     run_reference: bool,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1280,6 +984,8 @@ def nbit_device(  # noqa C901
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
         pooling_mode=pooling_mode,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
 
@@ -1455,6 +1161,8 @@ def nbit_device(  # noqa C901
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1476,6 +1184,8 @@ def nbit_uvm(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1522,6 +1232,8 @@ def nbit_uvm(
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1538,6 +1250,8 @@ def nbit_uvm(
                 for d in Ds[T_uvm:]
             ],
             output_dtype=output_dtype,
+            fp8_exponent_bits=fp8_exponent_bits,
+            fp8_exponent_bias=fp8_exponent_bias,
         ).cuda()
         emb_gpu.fill_random_weights()
 
@@ -1560,6 +1274,8 @@ def nbit_uvm(
             cache_load_factor=cache_load_factor,
             cache_algorithm=cache_alg,
             enforce_hbm=enforce_hbm,
+            fp8_exponent_bits=fp8_exponent_bits,
+            fp8_exponent_bias=fp8_exponent_bias,
         ).cuda()
         emb_mixed.fill_random_weights()
 
@@ -1603,13 +1319,15 @@ def nbit_uvm(
     if T_gpu > 0:
         nparams_byte = sum(w.numel() for (w, _) in emb_mixed.split_embedding_weights())
         logging.info(
-            f"{weights_precision} Embedding tables: {E * T + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
+            f"{weights_precision} Embedding tables: {E * T_gpu + E_uvm * T_uvm} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
             f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
         )
         logging.info(
-            f"Accessed weights per batch: {B * (T * L + T_uvm * L_uvm)} rows, "
-            f"{B * (T * L * sum(Ds[T_uvm:]) + T_uvm * L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
+            f"Accessed weights per batch: {B * (T_gpu * L + T_uvm * L_uvm)} rows, "
+            f"{B * (L * sum(Ds[T_uvm:]) + L_uvm * sum(Ds[:T_uvm])) * param_size_multiplier / 1.0e9: .2f} GB"
         )
+    torch.cuda.cudart().cudaProfilerStart()
+    torch.cuda.nvtx.range_push("uvm forward")
 
     time_per_iter = benchmark_requests(
         requests_uvm,
@@ -1626,7 +1344,8 @@ def nbit_uvm(
         f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
     )
-
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.cudart().cudaProfilerStop()
     if T_gpu > 0:
         requests = []
         assert requests_gpu is not None
@@ -1694,9 +1413,6 @@ def nbit_uvm(
                 indices,
                 offsets,
             ),
-            # pyre-fixme[6]: Expected `(Tensor, Tensor, Optional[Tensor]) -> None` for
-            #  3rd param but got `(indices: Any, offsets: Any, indices_weights: Any) ->
-            #  Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
                 offsets,
@@ -1734,6 +1450,10 @@ def nbit_uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--record-cache-miss-counter", is_flag=True, default=False)
+@click.option("--record-tablewise-cache-miss", is_flag=True, default=False)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1751,6 +1471,10 @@ def nbit_cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     output_dtype: SparseType,
     enforce_hbm: bool,
+    record_cache_miss_counter: bool,
+    record_tablewise_cache_miss: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1782,6 +1506,8 @@ def nbit_cache(  # noqa C901
         ],
         output_dtype=output_dtype,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb_nc.fill_random_weights()
 
@@ -1796,10 +1522,15 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
+        record_cache_metrics=RecordCacheMetrics(
+            record_cache_miss_counter, record_tablewise_cache_miss
+        ),
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         output_dtype=output_dtype,
         enforce_hbm=enforce_hbm,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
 
@@ -1807,7 +1538,11 @@ def nbit_cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
-        output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+        param_size_multiplier
+        * B
+        * sum(Ds)
+        * L
+        # output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -1837,14 +1572,20 @@ def nbit_cache(  # noqa C901
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
-    # exchanged_cache_lines = [100]
     # warm up
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices.int(), offsets.int())
+
     # get cache miss rate (forward only) and exchanged cache lines (prefetch)
     cache_misses = []
     exchanged_cache_lines = []
+    unique_indices = []
+    input_indices = []
     NOT_FOUND = -1
+    # reset the cache miss counters after warmup
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.reset_cache_miss_counter()
+
     for indices, offsets, _ in requests:
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.clone)[[Named(self,
@@ -1862,6 +1603,14 @@ def nbit_cache(  # noqa C901
             (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()
         )
         emb.forward(indices, offsets)
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            emb.cache_hash_size_cumsum,
+            indices,
+            offsets,
+        )
+        unique_indices.append(len(torch.unique(linear_cache_indices, sorted=False)))
+        input_indices.append(len(indices))
+
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -1870,20 +1619,35 @@ def nbit_cache(  # noqa C901
         f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
-
+    logging.info(
+        f"input_indices -- mean: {sum(input_indices)/len(requests)}, "
+        f"max: {max(input_indices)}, min: {min(input_indices)}"
+    )
+    logging.info(
+        f"unique_indices -- mean: {sum(unique_indices)/len(requests)}, "
+        f"max: {max(unique_indices)}, min: {min(unique_indices)}"
+    )
+    unique_miss_rate = [a / b for (a, b) in zip(exchanged_cache_lines, unique_indices)]
+    logging.info(
+        f"unique_miss_rate -- mean: {sum(unique_miss_rate)/len(requests)}, "
+        f"max: {max(unique_miss_rate)}, min: {min(unique_miss_rate)}"
+    )
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.print_cache_miss_counter()
     # benchmark prefetch
-    emb.reset_cache_states()
+    if record_cache_miss_counter or record_tablewise_cache_miss:
+        emb.reset_cache_states()
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices, offsets)
+
+    torch.cuda.cudart().cudaProfilerStart()
+    torch.cuda.nvtx.range_push("pipeline")
     prefetch_time, forward_time = benchmark_pipelined_requests(
         requests,
         lambda indices, offsets, indices_weights: emb.prefetch(
             indices,
             offsets,
         ),
-        # pyre-fixme[6]: Expected `(Tensor, Tensor, Optional[Tensor]) -> None` for
-        #  3rd param but got `(indices: Any, offsets: Any, indices_weights: Any) ->
-        #  Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,
             offsets,
@@ -1892,6 +1656,7 @@ def nbit_cache(  # noqa C901
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
     )
     e2e_time = prefetch_time + forward_time
+    torch.cuda.nvtx.range_pop()
 
     logging.info(
         f"Forward(LXU) {weights_precision}, reuse: {reuse}, alpha: {alpha}, B: {B}, "
@@ -1903,6 +1668,7 @@ def nbit_cache(  # noqa C901
         f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
         f"{read_write_bytes / forward_time / 1.0e9: .2f} GB/s"
     )
+    torch.cuda.cudart().cudaProfilerStop()
 
 
 @cli.command()
@@ -1956,7 +1722,7 @@ def hashtable(  # noqa C901
     )
     hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
 
-    assert hash_table.numel() * 4 < 2 ** 32
+    assert hash_table.numel() * 4 < 2**32
     # initialize
     hash_table[:, :] = -1
     torch.ops.fbgemm.pruned_hashmap_insert(
@@ -2154,6 +1920,8 @@ def bounds_check_indices(  # noqa C901
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--iters", type=int, default=100)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
 def emb_inplace_update(  # noqa C901
     num_tables: int,
     embedding_dim: int,
@@ -2162,6 +1930,8 @@ def emb_inplace_update(  # noqa C901
     weights_precision: SparseType,
     output_dtype: SparseType,
     iters: int,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
 ) -> None:
     if open_source:
         logging.warning(
@@ -2206,6 +1976,8 @@ def emb_inplace_update(  # noqa C901
         embedding_specs=embedding_specs,
         output_dtype=output_dtype,
         device=torch.cuda.current_device(),
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
     )
     # Initilize the random weights for int nbit table split embedding bag
     op.fill_random_weights()
@@ -2241,6 +2013,8 @@ def emb_inplace_update(  # noqa C901
         high=255,
         size=(update_weight_size,),
         dtype=torch.uint8,
+        # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
     )
 
@@ -2282,16 +2056,22 @@ def emb_inplace_update(  # noqa C901
 
     update_table_idx = torch.tensor(
         update_table_idx,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_row_idx = torch.tensor(
         update_row_idx,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_offsets = torch.tensor(
         update_offsets,
+        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
+        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int64,
     )

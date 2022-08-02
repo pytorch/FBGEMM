@@ -17,6 +17,47 @@
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+// Custom PackSegments operator that is based on the Caffe2 PackSegments and
+// UnpackSegments.
+// Needed this to support backward pass.
+class PackSegments : public torch::autograd::Function<PackSegments> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      const int64_t max_length) {
+    const int64_t total_length = t_in.contiguous().size(0);
+    ctx->saved_data["max_length"] = max_length;
+    ctx->saved_data["total_length"] = total_length;
+    ctx->save_for_backward({lengths});
+
+    // Run the forward pass.
+    const auto& res = pack_segments_forward_cuda(t_in, lengths, max_length);
+
+    torch::autograd::variable_list outputs(1);
+    outputs[0] = res;
+    return outputs;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toInt();
+    const auto& total_length = ctx->saved_data["total_length"].toInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+    grad_inputs[0] =
+        pack_segments_backward_cuda(grad, lengths, total_length, max_length);
+    return grad_inputs;
+  }
+};
 
 class LookupFunctionBatchedUnaryEmbeddingOp
     : public torch::autograd::Function<LookupFunctionBatchedUnaryEmbeddingOp> {
@@ -103,6 +144,72 @@ class StackedJagged2DToDenseGPUOp
   }
 };
 
+class IndexSelectDim0GPUOp
+    : public torch::autograd::Function<IndexSelectDim0GPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& input,
+      const Tensor& indices,
+      const int consecutive_range_start,
+      const int consecutive_range_length) {
+    TENSOR_ON_CUDA_GPU(input);
+    TENSOR_ON_CUDA_GPU(indices);
+    TENSORS_ON_SAME_DEVICE(input, indices);
+
+    // Sort indices to promote locality
+    Tensor sorted_indices, orig_indices;
+    std::tie(sorted_indices, orig_indices) = indices.sort();
+
+    ctx->save_for_backward({sorted_indices, orig_indices});
+    ctx->saved_data["input_shape"] = input.sizes();
+    ctx->saved_data["consecutive_range_start"] = consecutive_range_start;
+    ctx->saved_data["consecutive_range_length"] = consecutive_range_length;
+
+    return {index_select_with_sorted_indices_cuda(
+        input,
+        sorted_indices,
+        orig_indices,
+        consecutive_range_start,
+        consecutive_range_length)};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    TORCH_CHECK(grad_outputs.size() == 1);
+    TENSOR_ON_CUDA_GPU(grad_outputs[0]);
+
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor sorted_indices = *savedItr++;
+    Tensor orig_indices = *savedItr++;
+    TENSOR_ON_CUDA_GPU(sorted_indices);
+    TENSOR_ON_CUDA_GPU(orig_indices);
+    Tensor grad_output = grad_outputs[0];
+    TENSORS_ON_SAME_DEVICE(grad_output, sorted_indices);
+    auto input_shape = ctx->saved_data["input_shape"].toIntVector();
+    int consecutive_range_start =
+        ctx->saved_data["consecutive_range_start"].toInt();
+    int consecutive_range_length =
+        ctx->saved_data["consecutive_range_length"].toInt();
+
+    Tensor undef;
+    return {
+        index_add_with_unique_indices_cuda(
+            grad_output,
+            sorted_indices,
+            orig_indices,
+            input_shape,
+            consecutive_range_start,
+            consecutive_range_length),
+        torch::autograd::Variable(), // indices
+        undef, // consecutive_range_start
+        undef, // consecutive_range_length
+    };
+  }
+};
+
 std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
     Tensor values,
     Tensor lengths,
@@ -117,6 +224,25 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
       values, lengths, offset_per_key, max_lengths_per_key);
 }
 
+Tensor pack_segments_cuda(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length) {
+  const auto& res = PackSegments::apply(t_in, lengths, max_length);
+  return res[0];
+}
+
+Tensor index_select_dim0_gpu(
+    const Tensor& input,
+    const Tensor& indices,
+    c10::optional<int64_t> consecutive_range_start,
+    c10::optional<int64_t> consecutive_range_length) {
+  return IndexSelectDim0GPUOp::apply(
+      input,
+      indices,
+      consecutive_range_start ? *consecutive_range_start : 0,
+      consecutive_range_length ? *consecutive_range_length : 0)[0];
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -186,4 +312,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cuda);
+  DISPATCH_TO_CUDA("pack_segments", fbgemm_gpu::pack_segments_cuda);
+  DISPATCH_TO_CUDA("index_select_dim0", fbgemm_gpu::index_select_dim0_gpu);
 }

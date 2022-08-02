@@ -33,17 +33,7 @@ def cli() -> None:
     pass
 
 
-@cli.command()
-@click.option("--flush-gpu-cache-size-mb", default=0)
-@click.option("--iters", default=100)
-@click.option("--warmup-runs", default=2)
-@settings(max_examples=10, deadline=None)
-# pyre-ignore
-@given(
-    num_columns=st.sampled_from([2 ** n for n in range(4, 10)]),
-    num_rows=st.sampled_from([2 ** n for n in range(4, 10)]),
-)
-def bench(
+def bench_impl(
     flush_gpu_cache_size_mb: int,
     iters: int,
     num_columns: int,
@@ -57,11 +47,17 @@ def bench(
         "int2_quant": 0.0,
         "fp8_143_quant": 0.0,
         "fp8_152_quant": 0.0,
+        "fp16_quant": 0.0,
+        "bf16_quant_fbgemm": 0.0,
+        "bf16_quant_pytorch": 0.0,
         "int8_dequant": 0.0,
         "int4_dequant": 0.0,
         "int2_dequant": 0.0,
         "fp8_143_dequant": 0.0,
         "fp8_152_dequant": 0.0,
+        "fp16_dequant": 0.0,
+        "bf16_dequant_fbgemm": 0.0,
+        "bf16_dequant_pytorch": 0.0,
     }
 
     benchmark = functools.partial(
@@ -72,6 +68,8 @@ def bench(
     )
 
     input_data = torch.rand(num_rows, num_columns).float()
+    if torch.cuda.is_available():
+        input_data = input_data.cuda()
 
     quant_data_8bit = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(input_data)
     quant_data_4bit = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
@@ -86,9 +84,11 @@ def bench(
     quant_data_fp8_152 = torch.ops.fbgemm.FloatToHFP8Quantized(
         input_data, 5, 30, (2 - 2 ** (-2))
     )
-
-    if torch.cuda.is_available():
-        input_data = input_data.cuda()
+    quant_data_fp16 = input_data.half()
+    quant_data_bf16_fbgemm = torch.ops.fbgemm.FloatToBfloat16Quantized(
+        input_data.contiguous()
+    )
+    quant_data_bf16_pytorch = input_data.bfloat16().view(torch.half)
 
     average_time["int8_quant"], _ = benchmark(
         torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized,
@@ -98,7 +98,6 @@ def bench(
         torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
         (input_data, 4),
     )
-
     average_time["int2_quant"], _ = benchmark(
         torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf,
         (input_data, 2),
@@ -111,12 +110,23 @@ def bench(
         torch.ops.fbgemm.FloatToHFP8Quantized,
         (input_data, 5, 30, (2 - 2 ** (-2))),
     )
+    average_time["fp16_quant"], _ = benchmark(
+        lambda tensor: tensor.half(),
+        (input_data,),
+    )
+    average_time["bf16_quant_fbgemm"], _ = benchmark(
+        torch.ops.fbgemm.FloatToBfloat16Quantized,
+        (input_data,),
+    )
+    average_time["bf16_quant_pytorch"], _ = benchmark(
+        lambda tensor: tensor.bfloat16().view(torch.half),
+        (input_data,),
+    )
 
     average_time["int8_dequant"], _ = benchmark(
         torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat,
         (quant_data_8bit,),
     )
-
     average_time["int4_dequant"], _ = benchmark(
         torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat,
         (quant_data_4bit, 4),
@@ -133,9 +143,73 @@ def bench(
         torch.ops.fbgemm.HFP8QuantizedToFloat,
         (quant_data_fp8_152, 5, 30),
     )
+    average_time["fp16_dequant"], _ = benchmark(
+        lambda tensor: tensor.float(),
+        (quant_data_fp16,),
+    )
+    average_time["bf16_dequant_fbgemm"], _ = benchmark(
+        torch.ops.fbgemm.Bfloat16QuantizedToFloat,
+        (quant_data_bf16_fbgemm,),
+    )
+    average_time["bf16_dequant_pytorch"], _ = benchmark(
+        lambda tensor: tensor.view(torch.bfloat16).float(),
+        (quant_data_bf16_pytorch,),
+    )
+
     logging.info(f"-------------- ncols={num_columns}, nrows={num_rows}-------------")
     for k, t_time in average_time.items():
         logging.info(f"{k} time per iter: {t_time * 1.0e6:.0f}us")
+
+
+@settings(max_examples=10, deadline=None)
+# pyre-ignore
+@given(
+    num_columns=st.sampled_from([2**n for n in range(4, 10)]),
+    num_rows=st.sampled_from([2**n for n in range(4, 10)]),
+)
+def bench_spectrum(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    num_columns: int,
+    num_rows: int,
+    warmup_runs: int,
+) -> None:
+    bench_impl(
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        iters=iters,
+        num_columns=num_columns,
+        num_rows=num_rows,
+        warmup_runs=warmup_runs,
+    )
+
+
+@cli.command()
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--iters", default=100)
+@click.option("--num-columns", default=-1)
+@click.option("--num-rows", default=-1)
+@click.option("--warmup-runs", default=2)
+def bench(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    num_columns: int,
+    num_rows: int,
+    warmup_runs: int,
+) -> None:
+    if num_columns == -1 or num_rows == -1:
+        bench_spectrum(
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            warmup_runs=warmup_runs,
+        )
+    else:
+        bench_impl(
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            num_columns=num_columns,
+            num_rows=num_rows,
+            warmup_runs=warmup_runs,
+        )
 
 
 @cli.command()
