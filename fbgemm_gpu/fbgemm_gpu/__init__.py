@@ -11,8 +11,8 @@ import torch
 
 try:
     torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))
-except Exception:
-    print("File fbgemm_gpu_py.so not found")
+except Exception as e:
+    print(e)
 
 # __init__.py is only used in OSS
 # Use existence to check if fbgemm_gpu_py.so has already been loaded
