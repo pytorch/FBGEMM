@@ -16,6 +16,8 @@
 
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include <unistd.h>
+#include <limits.h>
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
@@ -502,6 +504,85 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     if (B == 0) {
         return output;
     }
+
+#ifdef __HIP_PLATFORM_HCC__  // HIP Optimal - asm kernel
+    /*
+     * limitations to update
+     1. sparse with bag
+     2. 1 emb table
+     3. weights-precision: fp16
+     4. embedding dims in [64, 128, 192, 256, 512]
+     5. unweighted
+     6. no mixed embedding dims yet ( !no guard! )
+     */
+    {% if not nobag %}
+    {% if not dense %}
+    {% if not weighted %}
+
+    std::set<int> D_emb_s {64, 128, 192, 256, 512};
+    bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
+
+    if ( T == 1 && dev_weights.scalar_type() == at::ScalarType::Half && dims_opt) {
+        static int init_asm = 0;
+        static hipModule_t asm_kernel_module;
+        static hipFunction_t asm_kernel_func;
+
+        if (init_asm == 0) {
+            hipError_t hip_err = hipModuleLoad(&asm_kernel_module, "atx_embeddingbag_split_asm_kernel.hsaco");  // kernel object
+            if (hip_err != hipSuccess) {
+                char cwd[PATH_MAX];
+                getcwd(cwd, sizeof(cwd));
+                printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
+                exit(1);
+            }
+            std::string asm_kernel_name = std::string("emebdding_bag_split_") + "fp16" + "_asm" + "" + "_kernel_v2" + "_e" + std::to_string(max_D);
+
+            hip_err = hipModuleGetFunction(&asm_kernel_func, asm_kernel_module, asm_kernel_name.c_str());
+            printf("asm kernel function: %s\n", asm_kernel_name.c_str());
+            if (hip_err != hipSuccess) {
+                printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
+                exit(1);
+            }
+            init_asm = 1;
+        }
+
+        {
+            uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
+            uint32_t grids[3] = {num_cu * 4, 1, 1};
+            uint32_t blocks[3] = {256, 1, 1};
+
+            struct {
+                void    *   output;
+                void    *   emb_table;
+                void    *   indices;
+                void    *   offsets;
+                uint32_t    emb_dim;
+                uint32_t    batch;
+                uint32_t    block_stride;
+                uint32_t    __pack_0;
+            } args;
+            size_t arg_size = sizeof(args);
+            void* kconf[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, &args, HIP_LAUNCH_PARAM_BUFFER_SIZE,
+                &arg_size, HIP_LAUNCH_PARAM_END};
+            args.output    = output.packed_accessor32<float,2,at::RestrictPtrTraits>().data();
+            args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
+            args.indices   = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.offsets   = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.emb_dim   = (uint32_t) max_D;
+            args.batch     = (uint32_t) B;
+            args.block_stride = grids[0];
+
+            hipModuleLaunchKernel(asm_kernel_func,
+                grids[0], grids[1], grids[2],
+                blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
+
+            return output;
+        }
+    }
+    {% endif %}  // not weighted
+    {% endif %}  // not dense
+    {% endif %}  // not nobag
+#endif  // HIP Optimal asm kernel
 
     {% if not dense %}
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
