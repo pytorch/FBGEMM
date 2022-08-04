@@ -224,10 +224,8 @@ jobs:
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        # "11.5" -> "115"
-        cuda_torch_version=$(echo "${{ matrix.cuda_version }}" | sed "s/\.//")
-        # Install PyTorch (nightly) as required by fbgemm_gpu
-        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu${cuda_torch_version}/torch_nightly.html
+        # Install pytorch built with CUDA 11.3 in all cases
+        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
 
     - name: Checkout submodules
       shell: bash
