@@ -515,8 +515,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {% endif %}
         "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
         {% if not nobag %}
-        {% for kMaxVecsPerThread in range(1, max_embedding_dim // ITEMS_PER_CTA + 1) %}
-        if (max_D <= {{ ITEMS_PER_CTA * kMaxVecsPerThread }}) {
+        {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
+        if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
             {% if not dense %}
             split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, {{ kMaxVecsPerThread }}><<<
             {% else %}
