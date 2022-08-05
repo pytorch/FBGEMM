@@ -16,9 +16,11 @@
 #endif
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
+#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
 
 ///@defgroup embedding-cpu Embedding CPU Operators
 ///
@@ -56,6 +58,21 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias);
 
+Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
+    Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    int64_t D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    int64_t row_alignment,
+    int64_t output_dtype,
+    int64_t fp8_exponent_bits,
+    int64_t fp8_exponent_bias);
+
 ///@ingroup embedding-cpu
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor dev_weights,
@@ -83,6 +100,30 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     c10::optional<int64_t> max_float8_D,
     c10::optional<int64_t> fp8_exponent_bits,
     c10::optional<int64_t> fp8_exponent_bias) {
+  if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
+    std::vector<int64_t> max_D_list{
+        max_int2_D,
+        max_int4_D,
+        max_int8_D,
+        max_float8_D ? *max_float8_D : 0,
+        max_float16_D,
+        max_float32_D};
+    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
+        dev_weights,
+        uvm_weights,
+        weights_placements,
+        weights_offsets,
+        weights_tys,
+        max_D,
+        indices,
+        offsets,
+        pooling_mode,
+        row_alignment ? *row_alignment : 1,
+        output_dtype,
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1);
+  }
   if (!indice_weights) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
         dev_weights,

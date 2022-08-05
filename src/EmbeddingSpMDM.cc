@@ -956,7 +956,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool use_offsets,
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
-        bool scale_bias_last /*=true*/) {
+        bool scale_bias_last /*=true*/,
+        bool no_bag /*=false*/) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
@@ -973,6 +974,35 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     }
   }
   const inst_set_t isa = fbgemmInstructionSet();
+  if (no_bag == true) {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const offsetType* offsets_or_lengths,
+               const float* weights,
+               outType* out) {
+      return EmbeddingSpMDM_ref(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag);
+    };
+  }
+
   if ((std::is_same<inType, float>::value ||
        std::is_same<inType, float16>::value) &&
       block_size == 1 && isYmm(isa) && output_stride == block_size &&
@@ -1340,7 +1370,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       bool use_offsets,                                       \
       int64_t output_stride,                                  \
       int64_t input_stride,                                   \
-      bool scale_bias_last);
+      bool scale_bias_last,                                   \
+      bool no_bag);
 
 #define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)       \
   template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \

@@ -1200,13 +1200,15 @@ bool EmbeddingSpMDM_ref(
     bool use_offsets,
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
-    bool scale_bias_last) {
+    bool scale_bias_last,
+    bool no_bag) {
   bool is8bit = is_same<InType, uint8_t>::value;
   if (output_stride == -1) {
     output_stride = block_size;
   }
 
   vector<float> buf(block_size);
+
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
@@ -1218,6 +1220,52 @@ bool EmbeddingSpMDM_ref(
       input_stride = block_size + scale_bias_offset;
     }
     int64_t current = 0;
+
+    if (no_bag) {
+      for (int m = 0; m < output_size; ++m) {
+        memset(buf.data(), 0, sizeof(float) * block_size);
+        int64_t idx = indices[m];
+
+        if (idx < 0 || idx >= data_size) {
+          return false;
+        }
+
+        const float* scale_bias = reinterpret_cast<const float*>(
+            input + input_stride * idx + (scale_bias_last ? block_size : 0));
+
+        float weight = 1.0f;
+        if (weights) {
+          weight = weights[m];
+        }
+
+        float scale, bias;
+        if (scale_bias_last) {
+          scale = weight * scale_bias[0];
+          bias = weight * scale_bias[1];
+        } else {
+          scale = weight *
+              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
+          bias = weight *
+              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+        }
+
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] = std::fma(
+              scale,
+              input
+                  [input_stride * idx + j +
+                   (scale_bias_last ? 0 : 2 * sizeof(float16))],
+              buf[j] + bias);
+        }
+        for (int j = 0; j < block_size; ++j) {
+          out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
+                                                    : buf[j];
+        }
+        out += output_stride;
+      } // m
+      return true;
+    } // no_bag
+
     for (int m = 0; m < output_size; ++m) {
       memset(buf.data(), 0, sizeof(float) * block_size);
       int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
@@ -1277,6 +1325,35 @@ bool EmbeddingSpMDM_ref(
     if (input_stride == -1) {
       input_stride = block_size;
     }
+
+    if (no_bag) {
+      for (int m = 0; m < output_size; ++m) {
+        memset(buf.data(), 0, sizeof(float) * block_size);
+        int64_t idx = indices[m];
+        if (idx < 0 || idx >= data_size) {
+          return false;
+        }
+
+        float w = 1.f;
+        if (weights) {
+          w = weights[m];
+        }
+
+        for (int j = 0; j < block_size; ++j) {
+          const InType* inptr = input + input_stride * idx + j;
+          buf[j] = std::fma(
+              w,
+              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              buf[j]);
+        }
+        for (int j = 0; j < block_size; ++j) {
+          out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
+                                                    : buf[j];
+        }
+        out += output_stride;
+      } // m
+      return true;
+    } // no_bag
 
     // Reference implementation of FP32 SLS
     int64_t current = 0;
@@ -1504,8 +1581,8 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
   bool is8bit = is_same<InType, uint8_t>::value;
 
   if (is8bit) {
-    // block_size is the number of elements and fused_block_size is the size of
-    // an entire row, including scale and bias.
+    // block_size is the number of elements and fused_block_size is the size
+    // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);
     const int64_t fused_block_size = block_size + scale_bias_offset;
     int64_t current = 0;
@@ -1771,11 +1848,10 @@ int rowwise_sparse_adagrad_ref(
 
     float final_sum = 0.0f;
     // Note the following code assumes fbgemm will generate AVX2 code for
-    // horizontal reduction, which is OK for now because fbgemm always uses AVX2
-    // for SparseAdagrad due to its performance is bounded by memory bandwidth
-    // hence no speedup from AVX512.
-    // Non-vectorized version would be just
-    // for (auto j = 0; j < block_size; ++j) {
+    // horizontal reduction, which is OK for now because fbgemm always uses
+    // AVX2 for SparseAdagrad due to its performance is bounded by memory
+    // bandwidth hence no speedup from AVX512. Non-vectorized version would be
+    // just for (auto j = 0; j < block_size; ++j) {
     //   float gj = g_[j];
     //   final_sum += gj * gj;
     // }
@@ -1843,11 +1919,10 @@ int rowwise_sparse_adagrad_fused_ref(
     }
     const float* g_ = g + m * grad_stride;
     // Note the following code assumes fbgemm will generate AVX2 code for
-    // horizontal reduction, which is OK for now because fbgemm always uses AVX2
-    // for SparseAdagrad due to its performance is bounded by memory bandwidth
-    // hence no speedup from AVX512.
-    // Non-vectorized version would be just
-    // for (auto j = 0; j < block_size; ++j) {
+    // horizontal reduction, which is OK for now because fbgemm always uses
+    // AVX2 for SparseAdagrad due to its performance is bounded by memory
+    // bandwidth hence no speedup from AVX512. Non-vectorized version would be
+    // just for (auto j = 0; j < block_size; ++j) {
     //   float gj = g_[j];
     //   final_sum += gj * gj;
     // }
@@ -1974,7 +2049,8 @@ template FBGEMM_API void transposeConvWeights(
       bool use_offsets,                                                    \
       int64_t input_stride,                                                \
       int64_t output_stride,                                               \
-      bool scale_bias_last);
+      bool scale_bias_last,                                                \
+      bool no_bag);
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)   \
