@@ -4538,6 +4538,62 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     equal_nan=True,
                 )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.just(1),
+        D=st.sampled_from([64, 128, 192, 256]),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.just(SparseType.FP16),
+        mixed=st.just(False),
+        use_cache=st.just(False),
+        use_cpu=st.just(False),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+            ),
+        output_dtype=st.just(SparseType.FP32),
+        pooling_mode=st.just(split_table_batched_embeddings_ops.PoolingMode.SUM),
+        weighted=st.just(False)
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_rocm_forward_asm_fp16(
+        self,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        weights_precision:SparseType,
+        use_cpu: bool,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        log_E: int,
+        use_cache: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        output_dtype: SparseType,
+        mixed: bool,
+        weighted: bool,
+    ) -> None:
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            output_dtype,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
