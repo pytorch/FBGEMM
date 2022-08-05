@@ -429,8 +429,8 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
                   nrows,
                   ncols,
                   output.data_ptr<std::uint8_t>());
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     // range_tensor is used to store the range for each embedding row.
     // We save range/255.0f as row scale, and use 255.0f / (range + kEpsilon) to
@@ -468,8 +468,8 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
                     ncols,
                     output.data_ptr<std::uint8_t>(),
                     range_tensor.data_ptr<float>());
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
 
     {
@@ -488,8 +488,8 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
                     nrows,
                     ncols,
                     output.data_ptr<std::uint8_t>());
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
   }
 
@@ -570,8 +570,8 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
                 nrows,
                 ncols,
                 output.data_ptr<scalar_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return output;
 }
@@ -715,8 +715,8 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
                 nrows,
                 ncols,
                 output.data_ptr<std::uint8_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return output;
 }
@@ -803,8 +803,8 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
                 nrows,
                 ncols,
                 output.data_ptr<scalar_t>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return output;
 }

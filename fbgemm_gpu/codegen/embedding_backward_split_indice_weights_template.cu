@@ -7,6 +7,8 @@
 // clang-format off
 #include "codegen/embedding_forward_template_helpers.cuh"
 
+#include <c10/cuda/CUDAException.h>
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -276,12 +278,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 grad_indice_weights.packed_accessor32<at::acc_type<scalar_t, true>, 1, at::RestrictPtrTraits>()
                 {% endif %}
             );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
             }
             {% endfor %}
         });
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return grad_indice_weights;
 }
     // clang-format on
