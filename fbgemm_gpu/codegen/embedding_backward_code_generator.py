@@ -7,11 +7,11 @@
 
 import argparse
 import os
-import torch
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import jinja2
+import torch
 
 args: argparse.Namespace
 _: List[str]
