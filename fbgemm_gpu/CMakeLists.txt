@@ -171,8 +171,8 @@ if(USE_ROCM)
 message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource --is_rocm")
   execute_process(
     COMMAND
-      "${PYTHON_EXECUTABLE}" 
-      "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" 
+      "${PYTHON_EXECUTABLE}"
+      "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
       "--opensource" "--is_rocm" DEPENDS "${codegen_dependencies}")
 
   set(header_include_dir
