@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import jinja2
-import torch
 
 args: argparse.Namespace
 _: List[str]
@@ -28,6 +27,7 @@ parser = argparse.ArgumentParser()
 # The install dir is by default the same as the current folder.
 parser.add_argument("--install_dir", default=".", help="where to put generated file")
 parser.add_argument("--opensource", action="store_false", dest="is_fbcode")
+parser.add_argument("--is_rocm", action="store_true")
 args, _ = parser.parse_known_args()
 
 
@@ -43,7 +43,7 @@ env = jinja2.Environment(
 # Note that if we increase max_D, it will increase the compilation time significantly.
 env.globals["max_embedding_dim"] = 1024
 # An optimization for ROCm
-env.globals["items_per_warp"] = 128 if torch.version.hip is None else 256
+env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
 
 
