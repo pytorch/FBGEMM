@@ -84,6 +84,7 @@ def cli() -> None:
 @click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
+@click.option("--warmup-runs", default=0)
 @click.option("--managed", default="device")
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
@@ -107,6 +108,7 @@ def device(  # noqa C901
     weights_precision: SparseType,
     stoc: bool,
     iters: int,
+    warmup_runs: int,
     managed: str,
     mixed: bool,
     num_embeddings: int,
@@ -259,6 +261,7 @@ def device(  # noqa C901
             feature_requires_grad=feature_requires_grad,
         ),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        num_warmups=warmup_runs,
     )
     logging.info(
         f"Forward, B: {B}, "
