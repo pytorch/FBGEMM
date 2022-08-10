@@ -522,23 +522,50 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     std::set<int> D_emb_s {64, 128, 192, 256, 512};
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
-    if ( T == 1 && dev_weights.scalar_type() == at::ScalarType::Half && dims_opt) {
+    if ((dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)&& dims_opt) {
         static int init_asm = 0;
         static hipModule_t asm_kernel_module;
         static hipFunction_t asm_kernel_func;
 
+        uint32_t bags_per_workgroup = 256 / 64;
+        uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
+        uint32_t blocks[3] = {256, 1, 1};
+        int64_t E = dev_weights.numel() / T / max_D;
+
+        bool persistent_kernel = false;
+        persistent_kernel = [&](){
+            char * v = getenv("TBE_KERNEL_PERSISTENT");
+            if(v){
+                if(atoi(v) == 1)
+                    return true;
+                else
+                    return false;
+            }
+            else
+                return persistent_kernel;
+        }();
+
+        if(persistent_kernel){
+            uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
+            grids[0] = 4 * num_cu;
+            grids[1] = 1;
+        }
+
         if (init_asm == 0) {
-            hipError_t hip_err = hipModuleLoad(&asm_kernel_module, "atx_embeddingbag_split_asm_kernel.hsaco");  // kernel object
+            hipError_t hip_err = hipModuleLoad(&asm_kernel_module, "split_tbe_fwd_kernel.hsaco");  // kernel object
             if (hip_err != hipSuccess) {
                 char cwd[PATH_MAX];
                 getcwd(cwd, sizeof(cwd));
                 printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
                 exit(1);
             }
-            std::string asm_kernel_name = std::string("emebdding_bag_split_") + "fp16" + "_asm" + "" + "_kernel_v2" + "_e" + std::to_string(max_D);
+            std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+            std::string asm_kernel_name = std::string("split_tbe_fwd_kernel_") + prec + "_e" + std::to_string(max_D);
 
             hip_err = hipModuleGetFunction(&asm_kernel_func, asm_kernel_module, asm_kernel_name.c_str());
-            printf("asm kernel function: %s\n", asm_kernel_name.c_str());
+            printf("asm kernel function: %s, persistent:%s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
+                asm_kernel_name.c_str(), persistent_kernel?"y":"n", dev_weights.numel(), E, B, T,
+                blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
             if (hip_err != hipSuccess) {
                 printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
                 exit(1);
@@ -547,10 +574,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         }
 
         {
-            uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
-            uint32_t grids[3] = {num_cu * 4, 1, 1};
-            uint32_t blocks[3] = {256, 1, 1};
-
+            
             struct {
                 void    *   output;
                 void    *   emb_table;
@@ -558,19 +582,23 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 void    *   offsets;
                 uint32_t    emb_dim;
                 uint32_t    batch;
-                uint32_t    block_stride;
-                uint32_t    __pack_0;
+                uint32_t    num_rows;
+                uint32_t    num_tables;
             } args;
             size_t arg_size = sizeof(args);
             void* kconf[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, &args, HIP_LAUNCH_PARAM_BUFFER_SIZE,
                 &arg_size, HIP_LAUNCH_PARAM_END};
             args.output    = output.packed_accessor32<float,2,at::RestrictPtrTraits>().data();
-            args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
+            if(dev_weights.scalar_type() == at::ScalarType::Half)
+                args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
+            else
+                args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
             args.indices   = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
             args.offsets   = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
             args.emb_dim   = (uint32_t) max_D;
             args.batch     = (uint32_t) B;
-            args.block_stride = grids[0];
+            args.num_rows = persistent_kernel ? grids[0] : E;
+            args.num_tables = (uint32_t)T;
 
             hipModuleLaunchKernel(asm_kernel_func,
                 grids[0], grids[1], grids[2],

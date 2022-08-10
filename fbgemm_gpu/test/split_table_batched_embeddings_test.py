@@ -327,7 +327,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.choice(
                     [
                         split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -387,6 +387,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
+
+        for E in Es:
+            print("xxx E:{}".format(E))
 
         cc = emb_op(
             embedding_specs=[
@@ -742,35 +745,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        T = random.randint(1, 10)
-        D = random.randint(2, 256)
-        B = random.randint(1, 128)
-        L = random.randint(0, 20)
-        log_E = random.randint(3, 5)
+        T = 5
+        D = 192 // 4
+        B = random.randint(1, 1024)
+        # B = 789
+        #L = random.randint(0, 32)
+        L = 26
+        log_E = 5
 
-        use_cache = True
+        print('T:{}, bag:{}, L:{}, E:{}'.format(T, B, L, log_E))
+        use_cache = False
 
-        pooling_mode = random.choice(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        )
-        output_dtype = random.choice(
-            [
-                SparseType.FP32,
-                SparseType.FP16,
-            ]
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
-            mixed = False
-        else:
-            mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
-            weighted = random.choice([True, False])
-        else:
-            weighted = False
+        pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
+        output_dtype = SparseType.FP32
+        mixed = False
+        weighted = False
         self.execute_forward_(
             T,
             D,
@@ -4542,11 +4531,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         T=st.just(1),
         # D=st.sampled_from([[64, 128, 192, 256]]) fails the tests
-        D=st.just(random.choice([64, 128, 192, 256])),
-        B=st.integers(min_value=1, max_value=128),
+        D=st.just(random.choice([64//4, 128//4, 192//4, 256//4])),
+        #D=st.just(256//4),
+        B=st.integers(min_value=1, max_value=1024),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.just(SparseType.FP16),
+        #weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weights_precision=st.just(random.choice([SparseType.FP32, SparseType.FP16])),
         mixed=st.just(False),
         use_cache=st.just(False),
         use_cpu=st.just(False),
