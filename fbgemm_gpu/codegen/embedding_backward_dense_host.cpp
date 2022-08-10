@@ -174,9 +174,14 @@ class SplitLookupFunction_Dense_Op
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
         grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
       grad_output = grad_output.contiguous();
+    }
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
     }
 
     if (!indice_weights.defined()) {
@@ -324,9 +329,14 @@ class SplitNoBagLookupFunction_Dense_Op
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
+    // FIXME: to support aligned memory access in Vec4T load/store function
+    // 16 for FP32 and 8 for FP16
     if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
         grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
       grad_output = grad_output.contiguous();
+    }
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
     }
 
     auto grad_dev_weights =

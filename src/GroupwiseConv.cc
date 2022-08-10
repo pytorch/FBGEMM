@@ -19,6 +19,7 @@
 #include "./TransposeUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
+#include "fbgemm/SimdUtils.h"
 
 namespace fbgemm {
 
