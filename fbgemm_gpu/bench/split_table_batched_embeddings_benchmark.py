@@ -1793,6 +1793,7 @@ def hashtable(  # noqa C901
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=100)
 @click.option("--pruning-ratio", default=0.9)
+@click.option("--device", default="cuda")
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 def pruned_array(  # noqa C901
@@ -1802,6 +1803,7 @@ def pruned_array(  # noqa C901
     num_embeddings: int,
     num_tables: int,
     pruning_ratio: float,
+    device: str,
     requests_data_file: Optional[str],
     tables: Optional[str],
 ) -> None:
@@ -1814,14 +1816,14 @@ def pruned_array(  # noqa C901
     assert pruning_ratio > 0 and pruning_ratio <= 1
     original_E = int(E / (1.0 - pruning_ratio))
     index_remappings = torch.tensor(
-        [-1] * original_E * T, dtype=torch.int32, device="cuda"
+        [-1] * original_E * T, dtype=torch.int32, device=device
     )
-    index_remappings_offsets = torch.empty(T + 1, dtype=torch.int32, device="cuda")
+    index_remappings_offsets = torch.empty(T + 1, dtype=torch.int64, device=device)
     index_remappings_offsets[0] = 0
-    dense_indices = torch.tensor(range(E), dtype=torch.int32, device="cuda")
+    dense_indices = torch.tensor(range(E), dtype=torch.int32, device=device)
     for t in range(T):
         selected_indices = torch.add(
-            torch.randperm(original_E, device="cuda"), t * original_E
+            torch.randperm(original_E, device=device), t * original_E
         )[:E]
         index_remappings[selected_indices] = dense_indices
         index_remappings_offsets[t + 1] = index_remappings_offsets[t] + original_E
@@ -1835,7 +1837,7 @@ def pruned_array(  # noqa C901
         requests_data_file=requests_data_file,
         tables=tables,
     )
-    requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
+    requests = [(a.int().to(device), b.int().to(device), c) for (a, b, c) in requests]
 
     time_per_iter = benchmark_requests(
         requests,
