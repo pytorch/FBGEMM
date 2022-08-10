@@ -18,6 +18,7 @@
 
 #include <immintrin.h>
 #include <emmintrin.h>
+#include <cstring>
 
 using namespace fbgemm_gpu;
 
@@ -517,9 +518,16 @@ Tensor pruned_array_lookup_cpu(
         int64_t capacity = index_remappings_end - index_remappings_start;
         int32_t indices_start = offsets_acc[t * B];
         int32_t indices_end = offsets_acc[(t + 1) * B];
-        for (int32_t i = indices_start; i < indices_end; ++i) {
-            int32_t idx = indices_acc[i];
-            dense_indices[i] = capacity ? index_remappings_acc[index_remappings_start + idx] : idx;
+        if (capacity > 0) {
+            for (int32_t i = indices_start; i < indices_end; ++i) {
+                int32_t idx = indices_acc[i];
+                dense_indices_acc[i] = index_remappings_acc[index_remappings_start + idx];
+            }
+        } else {
+            std::memcpy(
+                dense_indices_acc + indices_start,
+                indices_acc + indices_start,
+                (indices_end - indices_start) * sizeof(int32_t));
         }
     }
     return dense_indices;
