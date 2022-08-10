@@ -143,6 +143,381 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
   }
 }
 
+
+// brute-force offset generation kernel - not used, performance can be tuned
+// can be used to overcome shared memory size constraints
+template <typename index_t>
+__global__ void dense_offset_to_jagged_map(
+  index_t* dense_offsets,
+  index_t* dense_to_jagged_map,
+  int32_t num_offsets,
+  int32_t jagged_dim_stride,
+  int32_t e_dim_stride) {
+
+  int32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+  if (idx < (num_offsets-1)) {
+    index_t start_offset = dense_offsets[idx];
+    index_t nnz = dense_offsets[idx + 1] - start_offset;
+
+    index_t stride = (idx * jagged_dim_stride);
+
+    for (index_t k = 0; k < nnz; k++) {
+      dense_to_jagged_map[start_offset + k] = stride + (k * e_dim_stride);
+    }
+  }
+}
+
+template <typename index_t>
+__global__ void dense_offset_to_jagged_map_opt_kernel_(
+  index_t* dense_offsets,
+  index_t* dense_to_jagged_map,
+  int32_t num_offsets,
+  int32_t total_jagged_rows,
+  int32_t jagged_dim_stride,
+  int32_t e_dim_stride) {
+
+  extern __shared__ index_t smem_dense_offsets[];
+
+  // should just stream from L2 to all smem's
+  for (int32_t i = threadIdx.x; i < num_offsets; i += blockDim.x) {
+    smem_dense_offsets[i] = dense_offsets[i];
+  }
+  __syncthreads();
+
+  for (index_t idx = (threadIdx.x + blockIdx.x * blockDim.x); idx < total_jagged_rows;
+          idx += (blockDim.x * gridDim.x)) {
+    // search for idx in smem_dense_offsets
+    index_t mid = num_offsets / 2;
+    index_t lower = 0, upper = (num_offsets-1); // offset shoud have atleast 2 values
+    index_t res = 0;
+
+    while (lower <= upper) {
+      if (idx >= smem_dense_offsets[mid]) {
+        lower = mid + 1;
+        res = mid;
+      } else {
+        upper = mid - 1;
+      }
+      mid = (lower + upper) / 2;
+    }
+    // warp sync ?
+    index_t ix = idx - smem_dense_offsets[res];
+    index_t stride = (res * jagged_dim_stride); // res is row in dense-0th dim
+    dense_to_jagged_map[idx] = stride + (ix * e_dim_stride);
+  }
+}
+
+template <typename scalar_t>
+struct VecType128{};  // 128 bit load-store vector type
+
+template <>
+struct VecType128<c10::Half> {
+  typedef float4 TType; // Transaction Type
+  typedef struct __align__(16) {
+    __half a, b, c, d, w, x, y, z;
+  } half8;
+
+  union Data {
+    half8 val;
+    TType mask;
+  } data;
+
+  __device__ VecType128() {
+    data.mask = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+
+};
+
+template <>
+struct VecType128<c10::BFloat16> {
+  typedef float4 TType; // Transaction Type
+  typedef struct __align__(16) {
+    __nv_bfloat16 a, b, c, d, w, x, y, z;
+  } half8;
+
+  union Data {
+    half8 val;
+    TType mask;
+  } data;
+
+  __device__ VecType128() {
+    data.mask = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+
+};
+
+template <>
+struct VecType128<float> {
+  typedef float4 TType; // Transaction Type
+
+  union Data {
+    float4 val;
+    TType mask;
+  } data;
+
+  __device__ VecType128() {
+    data.mask = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+
+};
+
+template <>
+struct VecType128<double> {
+  typedef double2 TType; // Transaction Type
+
+  union Data {
+    double2 val;
+    TType mask;
+  } data;
+
+  __device__ VecType128() {
+    data.mask = make_double2(0.0f, 0.0f);
+  }
+
+};
+
+template <>
+struct VecType128<int64_t> {
+  typedef longlong2 TType; // Transaction Type
+
+  union Data {
+    longlong2 val;
+    TType mask;
+  } data;
+
+  __device__ VecType128() {
+    data.mask = make_longlong2(0.0f, 0.0f);
+  }
+};
+
+template <typename scalar_t>
+struct VecType64{};  // 64 bit load-store vector type
+
+template <>
+struct VecType64<c10::Half> {
+  typedef float2 TType; // Transaction Type
+  typedef struct __align__(8) {
+    __half a, b, c, d;
+  } half4;
+
+  union Data {
+    half4 val;
+    TType mask;
+  } data;
+
+  __device__ VecType64() {
+    data.mask = make_float2(0.0f, 0.0f);
+  }
+};
+
+template <>
+struct VecType64<c10::BFloat16> {
+  typedef float2 TType; // Transaction Type
+  typedef struct __align__(8) {
+    __nv_bfloat16 a, b, c, d;
+  } half4;
+
+  union Data {
+    half4 val;
+    TType mask;
+  } data;
+
+  __device__ VecType64() {
+    data.mask = make_float2(0.0f, 0.0f);
+  }
+};
+
+template <>
+struct VecType64<float> {
+  typedef float2 TType; // Transaction Type
+
+  union Data {
+    float2 val;
+    TType mask;
+  } data;
+
+  __device__ VecType64() {
+    data.mask = make_float2(0.0f, 0.0f);
+  }
+};
+
+template <>
+struct VecType64<double> {
+  typedef double TType; // Transaction Type
+
+  union Data {
+    double val;
+    TType mask;
+  } data;
+
+  __device__ VecType64() {
+    data.mask = 0.0;
+  }
+};
+
+template <>
+struct VecType64<int64_t> {
+  typedef int64_t TType; // Transaction Type
+
+  union Data {
+    int64_t val;
+    TType mask;
+  } data;
+
+  __device__ VecType64() {
+    data.mask = 0.0;
+  }
+};
+
+template <typename scalar_t>
+struct VecType32{};  // 64 bit load-store vector type
+
+template <>
+struct VecType32<c10::Half> {
+  typedef float TType; // Transaction Type
+
+  union Data {
+    __half2 val;
+    TType mask;
+  } data;
+
+  __device__ VecType32() {
+    data.mask = 0.0f;
+  }
+};
+
+template <>
+struct VecType32<c10::BFloat16> {
+  typedef float TType; // Transaction Type
+
+  union Data {
+    __nv_bfloat162 val;
+    TType mask;
+  } data;
+
+  __device__ VecType32() {
+    data.mask = 0.0f;
+  }
+};
+
+template <>
+struct VecType32<float> {
+  typedef float TType; // Transaction Type
+
+  union Data {
+    float val;
+    TType mask;
+  } data;
+
+  __device__ VecType32() {
+    data.mask = 0.0f;
+  }
+};
+
+template <>
+struct VecType32<double> {
+  typedef double TType; // Transaction Type
+};
+
+template <>
+struct VecType32<int64_t> {
+  typedef int64_t TType; // Transaction Type
+};
+
+template <typename index_t, typename scalar_t>
+__global__ void jagged_dense_elementwise_jagged_out_opt_kernel_(
+  index_t* dense_to_jagged_map,
+  scalar_t* dense,
+  scalar_t* jagged,
+  int32_t jagged_dim_max_length,
+  int32_t e_dim,
+  int32_t total_jagged_rows
+) {
+  // for some reason out rows in jagged can be larger than in dense
+  // for now assume same as elements in dense_to_jagged_map
+
+  typedef typename VecType128<scalar_t>::TType vec128;
+  typedef typename VecType64<scalar_t>::TType vec64;
+  typedef typename VecType32<scalar_t>::TType vec32; //  no-op for double
+
+  // 128 bit alignment check
+  if (((e_dim * sizeof(scalar_t)) << 3 ) % 128 == 0) {
+    vec128* dense_vec = reinterpret_cast<vec128*>(dense);
+    vec128* jagged_vec = reinterpret_cast<vec128*>(jagged);
+
+    int32_t count_of_vector  = 128 / (sizeof(scalar_t) << 3);
+    for (int32_t row_idx = (threadIdx.y + blockIdx.x * blockDim.y); row_idx < total_jagged_rows;
+              row_idx+=(blockDim.x * gridDim.x)) {
+
+      index_t read_offset = dense_to_jagged_map[row_idx];
+      index_t write_offset = row_idx * e_dim;
+
+      index_t vec_read_offset = read_offset / count_of_vector;
+      index_t vec_write_offset = write_offset / count_of_vector;
+
+      for (int32_t col_idx = (threadIdx.x%blockDim.x); col_idx < (e_dim / count_of_vector);
+            col_idx += blockDim.x) {
+        jagged_vec[vec_write_offset + col_idx] = dense_vec[vec_read_offset + col_idx];
+      }
+    }
+  } else if (((e_dim * sizeof(scalar_t)) << 3 ) % 64 == 0) {
+    // 64 bit alignment check
+    vec64* dense_vec = reinterpret_cast<vec64*>(dense);
+    vec64* jagged_vec = reinterpret_cast<vec64*>(jagged);
+
+    int32_t count_of_vector  = 64 / (sizeof(scalar_t) << 3);
+
+    for (int32_t row_idx = (threadIdx.y + blockIdx.x * blockDim.y); row_idx < total_jagged_rows;
+              row_idx+=(blockDim.x * gridDim.x)) {
+
+      index_t read_offset = dense_to_jagged_map[row_idx];
+      index_t write_offset = row_idx * e_dim;
+
+      index_t vec_read_offset = read_offset / count_of_vector;
+      index_t vec_write_offset = write_offset / count_of_vector;
+
+      for (int32_t col_idx = (threadIdx.x%blockDim.x); col_idx < (e_dim / count_of_vector);
+            col_idx += blockDim.x) {
+        jagged_vec[vec_write_offset + col_idx] = dense_vec[vec_read_offset + col_idx];
+      }
+    }
+  } else  {
+    // defer to 32 bit alignement (((e_dim * sizeof(scalar_t)) << 3 ) % 32 == 0)
+    int32_t count_of_vector  = 32 / (sizeof(scalar_t) << 3);
+
+    // dont need this if FP16 odd shaped e_dim is always allocated with algned (4byte) pitch
+    if (e_dim % count_of_vector) {
+      for (int32_t row_idx = (threadIdx.y + blockIdx.x * blockDim.y); row_idx < total_jagged_rows;
+              row_idx+=(blockDim.x * gridDim.x)) {
+        index_t read_offset = dense_to_jagged_map[row_idx];
+        index_t write_offset = row_idx * e_dim;
+
+        for (int32_t col_idx = (threadIdx.x%blockDim.x); col_idx < e_dim; col_idx += blockDim.x) {
+          jagged[write_offset + col_idx] = dense[read_offset + col_idx];
+        }
+      }
+    } else {
+      vec32* dense_vec = reinterpret_cast<vec32*>(dense);
+      vec32* jagged_vec = reinterpret_cast<vec32*>(jagged);
+
+      for (int32_t row_idx = (threadIdx.y + blockIdx.x * blockDim.y); row_idx < total_jagged_rows;
+              row_idx+=(blockDim.x * gridDim.x)) {
+
+        index_t read_offset = dense_to_jagged_map[row_idx];
+        index_t write_offset = row_idx * e_dim;
+
+        index_t vec_read_offset = read_offset / count_of_vector;
+        index_t vec_write_offset = write_offset / count_of_vector;
+
+        for (int32_t col_idx = (threadIdx.x%blockDim.x); col_idx < (e_dim / count_of_vector);
+              col_idx += blockDim.x) {
+          jagged_vec[vec_write_offset + col_idx] = dense_vec[vec_read_offset + col_idx];
+        }
+      }
+    }
+  }
+}
+
 std::tuple<dim3, dim3, StackArray<int64_t>> check_shape_and_partition_(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
@@ -369,6 +744,59 @@ void jagged_dense_elementwise_jagged_output_(
     return;
   }
 
+  // assuming jagged_dim = 1, make generic later.
+  // dont need zero'd
+  // size of x_values is { total_rows_in_jagged, e_dim }
+  auto offset_staging_tensor = at::empty({x_values.size(0)}, x_offsets[0].options());
+
+  auto props = at::cuda::getCurrentDeviceProperties();//props->multiProcessorCount;
+  // run kernel to compute offset values from
+  using index_t = int32_t;//x_offsets[0].scalar_type();
+  int32_t num_offsets = (int32_t)x_offsets[0].numel();  // 1025 for 1024 batch
+  dim3 block = {1024, 1, 1};
+  dim3 grid = {1, 1, 1};
+  int32_t resident_blocks = 0;
+  // you have a problem if this runs over 48 KB - so 12288 offsets of 4 bytes
+  size_t dynamic_smem_size = x_offsets[0].numel() * sizeof(index_t);
+  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&resident_blocks,
+                dense_offset_to_jagged_map_opt_kernel_<index_t>,
+                block.x,
+                dynamic_smem_size);
+
+  grid.x = resident_blocks * props->multiProcessorCount;
+  dense_offset_to_jagged_map_opt_kernel_<<<grid, block,
+                dynamic_smem_size, at::cuda::getCurrentCUDAStream()>>>(
+                x_offsets[0].contiguous().template data_ptr<index_t>(),
+                offset_staging_tensor.contiguous().template data_ptr<index_t>(),
+                num_offsets,
+                x_values.size(0),
+                y.stride(0),
+                y.stride(1)
+                        );
+
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  block.x = 16; // unrolls across embedding vector dimension
+  block.y = 16; // as many rows to write in jagged output
+
+  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&resident_blocks,
+            jagged_dense_elementwise_jagged_out_opt_kernel_<index_t, scalar_t>,
+            block.x*block.y,
+            0);
+  grid.x = resident_blocks * props->multiProcessorCount;
+
+  jagged_dense_elementwise_jagged_out_opt_kernel_
+                <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
+                offset_staging_tensor.contiguous().template data_ptr<index_t>(),
+                y.template data_ptr<scalar_t>(),
+                output_values.contiguous().template data_ptr<scalar_t>(),
+                y.size(1),
+                y.size(-1),
+                x_values.size(0)
+                );
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+/*
   dim3 threads, blocks;
   StackArray<int64_t> jagged_dims_tensor;
   std::tie(threads, blocks, jagged_dims_tensor) =
@@ -379,7 +807,7 @@ void jagged_dense_elementwise_jagged_output_(
 
   // Canonicalize y to 3D, collapsing jagged dimensions.
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
-
+*/
 #define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                 \
   {                                                                            \
     std::vector<Tensor> x_offsets_contig;                                      \
@@ -408,8 +836,8 @@ void jagged_dense_elementwise_jagged_output_(
             -> scalar_t { return f_(x, y); });                                 \
   }
 
-  JAGGED_TENSOR_DISPATCH_DIMS();
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  // JAGGED_TENSOR_DISPATCH_DIMS();
+  // C10_CUDA_KERNEL_LAUNCH_CHECK();
 
 #undef INVOKE_KERNEL_WITH_DIM
 }
