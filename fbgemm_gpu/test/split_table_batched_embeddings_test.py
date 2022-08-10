@@ -388,9 +388,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
-        for E in Es:
-            print("xxx E:{}".format(E))
-
         cc = emb_op(
             embedding_specs=[
                 (
@@ -4529,7 +4526,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.just(1),
+        T=st.just(random.choice([1,2,3])),
         # D=st.sampled_from([[64, 128, 192, 256]]) fails the tests
         D=st.just(random.choice([64//4, 128//4, 192//4, 256//4])),
         #D=st.just(256//4),
