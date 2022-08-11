@@ -328,6 +328,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     [
                         split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
                         # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # NOTE: since we only implement GPU kernel with device location, comment out others here
                     ]
                 )
                 for _ in range(T)
@@ -742,13 +743,35 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        T = 5
-        D = 192 // 4
-        B = random.randint(1, 1024)
-        # B = 789
-        #L = random.randint(0, 32)
-        L = 26
-        log_E = 5
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        use_cache = True
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        output_dtype = random.choice(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mixed = False
+        else:
+            mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
 
         print('T:{}, bag:{}, L:{}, E:{}'.format(T, B, L, log_E))
         use_cache = False
