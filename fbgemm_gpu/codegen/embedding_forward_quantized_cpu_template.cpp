@@ -18,6 +18,7 @@
 
 #include <immintrin.h>
 #include <emmintrin.h>
+#include <cstring>
 
 using namespace fbgemm_gpu;
 
@@ -102,14 +103,20 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     return;
 }
 
-Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
+{% for nobag in [True, False] %}
+{% if not nobag or not weighted %}
+Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_cpu(
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor weights_placements,
     Tensor weights_offsets,
     Tensor weights_tys,
+    {% if not nobag %}
     Tensor D_offsets,
     int64_t total_D,
+    {% else %}
+    const int64_t D,
+    {% endif %}
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -126,19 +133,30 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     TENSOR_ON_CPU(weights_placements);
     TENSOR_ON_CPU(weights_offsets);
     TENSOR_ON_CPU(weights_tys);
+    {% if not nobag %}
     TENSOR_ON_CPU(D_offsets);
+    {% endif %}
     TENSOR_ON_CPU(indices);
     TENSOR_ON_CPU(offsets);
     {% if weighted %}
     TENSOR_EMPTY_OR_ON_CPU(indice_weights);
     {% endif %}
 
-    int32_t T = D_offsets.numel() - 1;
+    {% if not nobag %}
+    const int32_t T = D_offsets.numel() - 1;
+    {% else %}
+    const int32_t total_L = indices.numel();
+    const int32_t T = weights_offsets.numel();
+    {% endif %}
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
+    {% if not nobag %}
     TORCH_CHECK(total_D > 0);
+    {% else %}
+    TORCH_CHECK(D > 0);
+    {% endif %}
     bool pinned_memory = false;
     if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
       pinned_memory = true;
@@ -148,11 +166,21 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    {% if not nobag %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
-        total_adjusted_D += T * kINT8QparamsBytes;
+      total_adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    {% else %}
+    int64_t adjusted_D = D;
+    if (o_dtype == SparseType::INT8) {
+      adjusted_D += T * kINT8QparamsBytes;
+    }
+    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+
+    {% endif %}
+
 
     if (B == 0) {
         return output;
@@ -163,23 +191,32 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
 
     const auto* weights_tys_acc = weights_tys.data_ptr<uint8_t>();
 
-    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding_codegen_forward_kernel", [&] {
-        auto* output_acc = output.data_ptr<output_t>();
+    DISPATCH_OUTPUT_TYPES(output.scalar_type(), "intn_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", [&] {
         {% if weighted %}
         const float* indice_weights_acc = indice_weights.data_ptr<float>();
         {% endif %}
 
-        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding_codegen_forward_", [&] {
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_", [&] {
             const auto* indices_acc = indices.data_ptr<index_t>();
             const auto* offsets_acc = offsets.data_ptr<index_t>();
-            const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
             const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
+            int32_t total_output_size = 0;
 
+            auto* output_acc = output.data_ptr<output_t>();
             int32_t num_indices_m_1 = indices.numel() - 1;
 
+            int32_t D_start_ = 0;
             for (int32_t t = 0; t < T; ++t) {
+
+                {% if not nobag %}
+                const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
-                const int32_t D = D_offsets_acc[t+1] - D_offsets_acc[t];
+                const int32_t D_end = D_offsets_acc[t + 1];
+                const int32_t D = D_end - D_start;
+                {% else %}
+                const int32_t D_start = offsets_acc[t * B] * D;
+                {% endif %}
+
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
                 TORCH_CHECK(placement != PlacementType::DEVICE);
                 Tensor weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
@@ -217,11 +254,24 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
+                        {% if not nobag %}
                         /*output_stride=*/total_D,
+                        {% else %}
+                        /*output_stride=*/D,
+                        {% endif %}
                         /*input_stride=*/D_bytes / sizeof(float),
+                        {% if not nobag %}
                         /*scale_bias_last=*/false);
+                        {% else %}
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/true);
+                        {% endif %}
                     success = kernel(
+                        {% if not nobag %}
                         B,
+                        {% else %}
+                        index_size,
+                        {% endif %}
                         index_size,
                         num_rows,
                         reinterpret_cast<const float*>(weights),
@@ -237,11 +287,24 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
+                        {% if not nobag %}
                         /*output_stride=*/total_D,
+                        {% else %}
+                        /*output_stride=*/D,
+                        {% endif %}
                         /*input_stride=*/D_bytes / sizeof(float16),
+                        {% if not nobag %}
                         /*scale_bias_last=*/false);
+                        {% else %}
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/true);
+                        {% endif %}
                     success = kernel(
+                        {% if not nobag %}
                         B,
+                        {% else %}
+                        index_size,
+                        {% endif %}
                         index_size,
                         num_rows,
                         reinterpret_cast<const float16*>(weights),
@@ -256,7 +319,11 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         normalize_by_lengths,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
+                        {% if not nobag %}
                         /*output_stride=*/total_D,
+                        {% else %}
+                        /*output_stride=*/D,
+                        {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
                         /*exponent_bits=*/fp8_exponent_bits,
                         /*exponent_bias=*/fp8_exponent_bias);
@@ -277,11 +344,24 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
+                        {% if not nobag %}
                         /*output_stride=*/total_D,
+                        {% else %}
+                        /*output_stride=*/D,
+                        {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        {% if not nobag %}
                         /*scale_bias_last=*/false);
+                        {% else %}
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/true);
+                        {% endif %}
                     success = kernel(
+                        {% if not nobag %}
                         B,
+                        {% else %}
+                        index_size,
+                        {% endif %}
                         index_size,
                         num_rows,
                         weights,
@@ -309,7 +389,11 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
                         /*prefetch=*/16,
                         /*is_weight_positional=*/false,
                         /*use_offsets=*/true,
+                        {% if not nobag %}
                         /*output_stride=*/total_D,
+                        {% else %}
+                        /*output_stride=*/D,
+                        {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
                         /*scale_bias_last=*/false);
                     success = kernel(
@@ -341,6 +425,8 @@ Tensor int_nbit_split_embedding_codegen_forward_{{ wdesc }}_cpu(
     });
     return output;
 }
+{% endif %} // if not nobag or not weighted
+{% endfor %} // for nobag in [True, False]
 
 Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     Tensor indices,
@@ -432,9 +518,16 @@ Tensor pruned_array_lookup_cpu(
         int64_t capacity = index_remappings_end - index_remappings_start;
         int32_t indices_start = offsets_acc[t * B];
         int32_t indices_end = offsets_acc[(t + 1) * B];
-        for (int32_t i = indices_start; i < indices_end; ++i) {
-            int32_t idx = indices_acc[i];
-            dense_indices[i] = capacity ? index_remappings_acc[index_remappings_start + idx] : idx;
+        if (capacity > 0) {
+            for (int32_t i = indices_start; i < indices_end; ++i) {
+                int32_t idx = indices_acc[i];
+                dense_indices_acc[i] = index_remappings_acc[index_remappings_start + idx];
+            }
+        } else {
+            std::memcpy(
+                dense_indices_acc + indices_start,
+                indices_acc + indices_start,
+                (indices_end - indices_start) * sizeof(int32_t));
         }
     }
     return dense_indices;
