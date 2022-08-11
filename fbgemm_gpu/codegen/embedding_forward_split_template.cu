@@ -527,9 +527,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         static hipModule_t asm_kernel_module;
         static hipFunction_t asm_kernel_func;
 
-        uint32_t bags_per_workgroup = 256 / 64;
+        constexpr uint32_t workgroup_size = 256;
+        constexpr uint32_t wave_size = 64;
+
+        uint32_t bags_per_workgroup = workgroup_size / wave_size;
         uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
-        uint32_t blocks[3] = {256, 1, 1};
+        uint32_t blocks[3] = {workgroup_size, 1, 1};
         int64_t E = dev_weights.numel() / T / max_D;
 
         bool persistent_kernel = false;
@@ -546,8 +549,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         }();
 
         if(persistent_kernel){
-            uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
-            grids[0] = 4 * num_cu;
+            constexpr uint32_t workgroups_per_cu = 4;
+            constexpr uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
+            grids[0] = workgroups_per_cu * num_cu;
             grids[1] = 1;
         }
 
