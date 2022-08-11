@@ -773,13 +773,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             weighted = False
 
-        print('T:{}, bag:{}, L:{}, E:{}'.format(T, B, L, log_E))
-        use_cache = False
-
-        pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
-        output_dtype = SparseType.FP32
-        mixed = False
-        weighted = False
         self.execute_forward_(
             T,
             D,
