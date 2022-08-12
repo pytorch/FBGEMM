@@ -10,20 +10,16 @@ high-performance CUDA GPU operator library for GPU training and inference.
 The library provides efficient table batched embedding bag,
 data layout transformation, and quantization supports.
 
-
-Currently tested with PyTorch 1.11 and CUDA 11.3
-(previously tested with PyTorch 1.9 and automated CI testing planned)
+Currently tested with CUDA 11.3, 11.5, and 11.6 in CI. In all cases, we test with PyTorch packages which are built with CUDA 11.3.
 
 Only Intel/AMD with AVX2 extensions are currently supported.
 
 General build and install instructions are as follows:
 
-Build dependencies: "pytorch", "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
+Build dependencies: "scikit-build","cmake","ninja","jinja2","torch>0.9","cudatoolkit",
 and for testing: "hypothesis".
 
 ```
-# requires PyTorch 1.11 or later
-conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
 conda install scikit-build jinja2 ninja cmake hypothesis
 ```
 
@@ -41,10 +37,18 @@ conda install -c conda-forge cudatoolkit-dev
 Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
-pip install fbgemm-gpu-nightly (nightly build version)
+# Release
+conda install pytorch cudatoolkit=11.3 -c pytorch
 pip install fbgemm-gpu (release version)
-pip install fbgemm-gpu-nightly-cpu (nightly build with CPU only)
+OR
 pip install fbgemm-gpu-cpu (release version with CPU only)
+
+# Nightly
+conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
+pip install fbgemm-gpu-nightly (nightly build version)
+OR
+pip install fbgemm-gpu-nightly-cpu (nightly build with CPU only)
+
 ```
 
 ## Build from source
@@ -52,6 +56,8 @@ pip install fbgemm-gpu-cpu (release version with CPU only)
 Additional dependencies: currently cuDNN is required to be installed.
 
 ```
+# Requires PyTorch 1.13 or later
+conda install pytorch cudatoolkit=11.3 -c pytorch-nightly
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM/fbgemm_gpu
 # if you are updating an existing checkout
