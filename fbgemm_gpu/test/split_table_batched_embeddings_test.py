@@ -327,7 +327,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.choice(
                     [
                         split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # NOTE: since we only implement GPU kernel with device location, comment out others here
                     ]
                 )
                 for _ in range(T)
@@ -771,6 +772,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weighted = random.choice([True, False])
         else:
             weighted = False
+
         self.execute_forward_(
             T,
             D,
@@ -4540,14 +4542,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.just(1),
+        T=st.sampled_from([1,2,3]),
         # D=st.sampled_from([[16, 32, 48, 64]]) fails the tests
         # D*4 later in SplitTableBatchedEmbeddingsTest
         D=st.just(random.choice([64, 128, 192, 256])//4),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.just(SparseType.FP16),
+        #weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weights_precision=st.just(random.choice([SparseType.FP32, SparseType.FP16])),
         mixed=st.just(False),
         use_cache=st.just(False),
         use_cpu=st.just(False),
@@ -4564,7 +4567,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_forward_rocm_forward_asm_fp16(
+    def test_forward_rocm_forward_asm(
         self,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         weights_precision:SparseType,
