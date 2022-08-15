@@ -4542,7 +4542,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.just(random.choice([1,2,3])),
+        T=st.sampled_from([1,2,3]),
         # D=st.sampled_from([[16, 32, 48, 64]]) fails the tests
         # D*4 later in SplitTableBatchedEmbeddingsTest
         D=st.just(random.choice([64, 128, 192, 256])//4),
@@ -4567,7 +4567,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_forward_rocm_forward_asm_fp16(
+    def test_forward_rocm_forward_asm(
         self,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         weights_precision:SparseType,
