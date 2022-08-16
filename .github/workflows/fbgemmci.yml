@@ -246,9 +246,9 @@ jobs:
       run: |
         cd fbgemm_gpu
         cd test
-        python input_combine_test.py
-        python quantize_ops_test.py
-        python sparse_ops_test.py
+        python input_combine_test.py -v
+        python quantize_ops_test.py -v
+        python sparse_ops_test.py -v
         python -c "import fbgemm_gpu"
         python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
@@ -306,9 +306,9 @@ jobs:
       run: |
         cd fbgemm_gpu
         cd test
-        python3 input_combine_test.py
-        python3 quantize_ops_test.py
-        python3 sparse_ops_test.py
+        python3 input_combine_test.py -v
+        python3 quantize_ops_test.py -v
+        python3 sparse_ops_test.py -v
         python3 -c "import fbgemm_gpu"
         python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
@@ -397,10 +397,10 @@ jobs:
       run: |
         cd fbgemm_gpu
         cd test
-        python batched_unary_embeddings_test.py
-        python input_combine_test.py
-        python layout_transform_ops_test.py
-        python merge_pooled_embeddings_test.py
-        python permute_pooled_embedding_modules_test.py
-        python quantize_ops_test.py
-        python sparse_ops_test.py
+        python batched_unary_embeddings_test.py -v
+        python input_combine_test.py -v
+        python layout_transform_ops_test.py -v
+        python merge_pooled_embeddings_test.py -v
+        python permute_pooled_embedding_modules_test.py -v
+        python quantize_ops_test.py -v
+        python sparse_ops_test.py -v
