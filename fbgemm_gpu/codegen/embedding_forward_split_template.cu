@@ -511,6 +511,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
      1. sparse bag and unweighted
      2. embedding dims in [64, 128, 192, 256, 512]
      3. yet to support mixed embedding dims (loosely guarded below)
+     4. yet to support non-uniform table locations (all be on devs)
+     5. yet to support exact optim (fbgemm_gpu/split_embedding_configs.py)
      */
     {% if not nobag %}
     {% if not dense %}
@@ -524,6 +526,17 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     bool mixed_ls = (total_D != (max_D * T));
     // execution guards
     bool guard_ex = (wcnts > 0 && !mixed_ls);
+
+    // all Ts on device
+    bool all_devs = (weights_placements.sum() == 0).item<bool>();
+    // no duplicate in weight offsets (in case not exact optimizer)
+    std::vector<int64_t> woffs(weights_offsets.data_ptr<int64_t>(), weights_offsets.data_ptr<int64_t>() + weights_offsets.numel());
+    std::vector<int64_t>::iterator it = std::unique(woffs.begin(), woffs.end());
+    // not support exact optim yet
+    bool no_exact = (it == woffs.end());
+
+    if (guard_ex)  guard_ex = all_devs && no_exact;
+
     // row dims options
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
