@@ -507,22 +507,27 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
 #ifdef __HIP_PLATFORM_HCC__  // HIP Optimal - asm kernel
     /*
-     * limitations to update
-     1. sparse with bag
-     2. 1 emb table
-     3. weights-precision: fp16
-     4. embedding dims in [64, 128, 192, 256, 512]
-     5. unweighted
-     6. no mixed embedding dims yet ( !no guard! )
+     * current limitations
+     1. sparse bag and unweighted
+     2. embedding dims in [64, 128, 192, 256, 512]
+     3. yet to support mixed embedding dims (loosely guarded below)
      */
     {% if not nobag %}
     {% if not dense %}
     {% if not weighted %}
 
     std::set<int> D_emb_s {64, 128, 192, 256, 512};
+
+    // weight param cnt
+    int64_t wcnts = dev_weights.numel();
+    // mixed hypothesis
+    bool mixed_ls = (total_D != (max_D * T));
+    // execution guards
+    bool guard_ex = (wcnts > 0 && !mixed_ls);
+    // row dims options
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
-    if ((dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)&& dims_opt) {
+    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
         static int init_asm = 0;
         static hipModule_t asm_kernel_module;
         static hipFunction_t asm_kernel_func;
@@ -533,7 +538,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         uint32_t bags_per_workgroup = workgroup_size / wave_size;
         uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
         uint32_t blocks[3] = {workgroup_size, 1, 1};
-        int64_t E = dev_weights.numel() / T / max_D;
+        int64_t E = wcnts / T / max_D;
 
         bool persistent_kernel = false;
         persistent_kernel = [&](){
@@ -568,7 +573,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
             hip_err = hipModuleGetFunction(&asm_kernel_func, asm_kernel_module, asm_kernel_name.c_str());
             printf("asm kernel function: %s, persistent:%s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
-                asm_kernel_name.c_str(), persistent_kernel?"y":"n", dev_weights.numel(), E, B, T,
+                asm_kernel_name.c_str(), persistent_kernel?"y":"n", wcnts, E, B, T,
                 blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
             if (hip_err != hipSuccess) {
                 printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
