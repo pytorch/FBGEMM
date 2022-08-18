@@ -512,7 +512,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
      2. embedding dims in [64, 128, 192, 256, 512]
      3. yet to support mixed embedding dims (loosely guarded below)
      4. yet to support non-uniform table locations (all be on devs)
-     5. yet to support exact optim (fbgemm_gpu/split_embedding_configs.py)
+     5. yet to support duplicate tables from some cases in exact optim (fbgemm_gpu/split_embedding_configs.py)
      */
     {% if not nobag %}
     {% if not dense %}
@@ -528,14 +528,15 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     bool guard_ex = (wcnts > 0 && !mixed_ls);
 
     // all Ts on device
-    bool all_devs = (weights_placements.sum() == 0).item<bool>();
-    // no duplicate in weight offsets (in case not exact optimizer)
+    std::vector<int32_t> wplas(weights_placements.data_ptr<int32_t>(), weights_placements.data_ptr<int32_t>() + weights_placements.numel());
+    bool all_devs = std::accumulate(wplas.begin(), wplas.end(), 0) == 0;
+    // no duplicate in weight offsets (which is the case exact optim used sometimes)
     std::vector<int64_t> woffs(weights_offsets.data_ptr<int64_t>(), weights_offsets.data_ptr<int64_t>() + weights_offsets.numel());
     std::vector<int64_t>::iterator it = std::unique(woffs.begin(), woffs.end());
-    // not support exact optim yet
-    bool no_exact = (it == woffs.end());
+    // not support duplicated weights table yet
+    bool no_dupt = (it == woffs.end());
 
-    if (guard_ex)  guard_ex = all_devs && no_exact;
+    if (guard_ex)  guard_ex = all_devs && no_dupt;
 
     // row dims options
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
