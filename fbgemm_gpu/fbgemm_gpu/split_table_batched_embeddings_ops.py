@@ -65,6 +65,7 @@ class BoundsCheckMode(enum.IntEnum):
 
 
 class WeightDecayMode(enum.IntEnum):
+    NONE = 0
     L2 = 1
     DECOUPLE = 2
 

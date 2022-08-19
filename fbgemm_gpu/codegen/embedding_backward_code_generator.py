@@ -481,7 +481,7 @@ def rowwise_adagrad() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -503,7 +503,7 @@ def rowwise_adagrad() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -602,7 +602,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -624,7 +624,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
