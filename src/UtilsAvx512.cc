@@ -15,9 +15,9 @@ namespace {
 // 16 * 6 = 96 instructions
 inline void transpose_kernel_16x16_avx512(
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   // a: a0  a1  a2  a3  a4  a5  a6  a7  a8  a9  a10 a11 a12 a13 a14 a15
   // b: b0  b1  b2  b3  b4  b5  b6  b7  b8  b9  b10 b11 b12 b13 b14 b15
@@ -230,9 +230,9 @@ template <int M>
 void transpose_kernel_mxn_avx512(
     int N,
     const float* src,
-    int ld_src,
+    int64_t ld_src,
     float* dst,
-    int ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   __mmask16 src_mask = (1 << N) - 1;
   __m512 input[16];
@@ -309,18 +309,18 @@ void transpose_avx512_contiguous_thin(
     const int64_t M,
     const int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template<typename T>
 void transpose_avx512_contiguous_wide(
     const int64_t M,
     const int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 // Permute elements in 128 bit lane
 // e.g., if a 128-bit lane has the following elements:
@@ -497,7 +497,7 @@ static inline void core_transpose_16x16_block(__m512i r[], __m512i u[]) {
 
 static inline void load_with_remainders_i16(
     const uint16_t* src,
-    int ld_src,
+    int64_t ld_src,
     __m512i r[],
     int mrem,
     int nrem) {
@@ -527,7 +527,7 @@ static inline void load_with_remainders_i16(
 
 static inline void load_with_remainders_i8(
     const uint8_t* src,
-    int ld_src,
+    int64_t ld_src,
     __m512i r[],
     int mrem,
     int nrem) {
@@ -557,7 +557,7 @@ static inline void load_with_remainders_i8(
 
 static inline void store_with_remainders_i16(
     uint16_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     __m512i u[],
     int mrem,
     int nrem) {
@@ -607,7 +607,7 @@ static inline void store_with_remainders_i16(
 
 static inline void store_with_remainders_i8(
     uint8_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     __m512i u[],
     int mrem,
     int nrem) {
@@ -734,7 +734,7 @@ static inline void store_with_remainders_i8(
 static inline void transpose_contiguous_4x16_block(
     const float* src,
     float* dst,
-    int ld_src,
+    int64_t ld_src,
     int nrem = 16) {
   __m512i r[4];
   //load
@@ -792,7 +792,7 @@ static inline void transpose_contiguous_4x16_block(
 static inline void transpose_contiguous_4x32_block(
     const uint16_t* src,
     uint16_t* dst,
-    int ld_src,
+    int64_t ld_src,
     int nrem = 32) {
   __m512i r[4], d[4];
   //load
@@ -844,7 +844,7 @@ static inline void transpose_contiguous_4x32_block(
 static inline void transpose_contiguous_16x4_block(
     const float* src,
     float* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 16) {
   __m512i r[4], d[4];
   int i = 0;
@@ -903,7 +903,7 @@ static inline void transpose_contiguous_16x4_block(
 static inline void transpose_contiguous_16x2_block(
     const float* src,
     float* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 16) {
   __m512i r[2], d[2];
   int i = 0;
@@ -951,7 +951,7 @@ static inline void transpose_contiguous_16x2_block(
 static inline void transpose_contiguous_64x4_block(
     const uint8_t* src,
     uint8_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 64) {
   __m512i r[4], d[4];
   // normal load
@@ -1035,7 +1035,7 @@ static inline void transpose_contiguous_64x4_block(
 static inline void transpose_contiguous_32x4_block(
     const uint16_t* src,
     uint16_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 32) {
   __m512i r[4], d[4];
   int i = 0;
@@ -1106,7 +1106,7 @@ static inline void transpose_contiguous_32x4_block(
 static inline void transpose_contiguous_2x16_block(
     const float* src,
     float* dst,
-    int ld_src,
+    int64_t ld_src,
     int nrem = 16) {
   __m512i r0, r1;
   //load
@@ -1150,7 +1150,7 @@ static inline void transpose_contiguous_2x16_block(
 static inline void transpose_contiguous_64x2_block(
     const uint8_t* src,
     uint8_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 64) {
   __m512i r[2], d[2];
   // normal load
@@ -1195,7 +1195,7 @@ static inline void transpose_contiguous_64x2_block(
 static inline void transpose_contiguous_4x64_block(
     const uint8_t* src,
     uint8_t* dst,
-    unsigned ld_src,
+    int64_t ld_src,
     int nrem = 64) {
   __m512i r[4], d[4];
   //load
@@ -1258,7 +1258,7 @@ __m512i index = _mm512_set_epi32(
 static inline void transpose_contiguous_2x64_block(
     const uint8_t* src,
     uint8_t* dst,
-    unsigned ld_src,
+    int64_t ld_src,
     int nrem = 64) {
   __m512i r[2];
   __m512i d[2];
@@ -1301,7 +1301,7 @@ static inline void transpose_contiguous_2x64_block(
 static inline void transpose_contiguous_2x32_block(
     const uint16_t* src,
     uint16_t* dst,
-    int ld_src,
+    int64_t ld_src,
     int nrem = 32) {
   __m512i r0, r1;
   __m512i d0, d1;
@@ -1343,7 +1343,7 @@ static inline void transpose_contiguous_2x32_block(
 static inline void transpose_contiguous_32x2_block(
     const uint16_t* src,
     uint16_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 32) {
   __m512i r[2], d[2];
   // load
@@ -1391,9 +1391,9 @@ static inline void transpose_contiguous_32x2_block(
 template <bool MREM = false, bool NREM = false>
 void transpose_16x16_block(
     const uint16_t* src,
-    int ld_src,
+    int64_t ld_src,
     uint16_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 16,
     int nrem = 16) {
   __m512i r[8];
@@ -1517,9 +1517,9 @@ void transpose_16x16_block(
 template <bool MREM = false, bool NREM = false>
 void transpose_16x32_block(
     const uint8_t* src,
-    int ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    int ld_dst,
+    int64_t ld_dst,
     int mrem = 16,
     int nrem = 32) {
   // Treat the numbers in a row as 4-Byte integers.
@@ -1718,14 +1718,14 @@ void transpose_16x32_block(
 
 template <>
 void transpose_avx512_contiguous_thin(
-  const int64_t M,
-  const int64_t N,
+  int64_t M,
+  int64_t N,
   const float* src,
-  unsigned ld_src,
+  int64_t ld_src,
   float* dst,
-  unsigned ld_dst) {
+  int64_t ld_dst) {
   if (N == 2) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 16 * 16; i += 16) {
       transpose_contiguous_16x2_block(
           src + i * ld_src, dst + i, ld_dst);
@@ -1736,7 +1736,7 @@ void transpose_avx512_contiguous_thin(
           src + i * ld_src, dst + i, ld_dst, mrem);
     }
   } else if (N == 4) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 16 * 16; i += 16) {
       transpose_contiguous_16x4_block(
           src + i * ld_src, dst + i, ld_dst);
@@ -1751,14 +1751,14 @@ void transpose_avx512_contiguous_thin(
 
 template <>
 void transpose_avx512_contiguous_thin(
-  const int64_t M,
-  const int64_t N,
+  int64_t M,
+  int64_t N,
   const uint16_t * src,
-  unsigned ld_src,
+  int64_t ld_src,
   uint16_t* dst,
-  unsigned ld_dst) {
+  int64_t ld_dst) {
   if (N == 2) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 32 * 32; i += 32) {
       transpose_contiguous_32x2_block(
           src + i * ld_src, dst + i, ld_dst);
@@ -1769,7 +1769,7 @@ void transpose_avx512_contiguous_thin(
           src + i * ld_src, dst + i, ld_dst, mrem);
     }
   } else if (N == 4) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 32 * 32; i += 32) {
       transpose_contiguous_32x4_block(
           src + i * ld_src, dst + i, ld_dst);
@@ -1784,14 +1784,14 @@ void transpose_avx512_contiguous_thin(
 
 template <>
 void transpose_avx512_contiguous_thin(
-    const int64_t M,
-    const int64_t N,
+    int64_t M,
+    int64_t N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
     if (N == 2) {
-      int i = 0;
+      int64_t i = 0;
       for (; i < M / 64 * 64; i += 64) {
         transpose_contiguous_64x2_block(
             src + i * ld_src, dst + i, ld_dst);
@@ -1802,7 +1802,7 @@ void transpose_avx512_contiguous_thin(
             src + i * ld_src, dst + i, ld_dst, mrem);
       }
     } else if (N == 4) {
-      int i = 0;
+      int64_t i = 0;
       for (; i < M / 64 * 64; i += 64) {
         transpose_contiguous_64x4_block(
             src + i * ld_src, dst + i, ld_dst);
@@ -1817,14 +1817,14 @@ void transpose_avx512_contiguous_thin(
 
 template <>
 void transpose_avx512_contiguous_wide(
-  const int64_t M,
-  const int64_t N,
+  int64_t M,
+  int64_t N,
   const float* src,
-  unsigned ld_src,
+  int64_t ld_src,
   float* dst,
-  unsigned ld_dst) {
+  int64_t ld_dst) {
   if (M == 2) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < N / 16 * 16; i += 16) {
       transpose_contiguous_2x16_block(
           src + i, dst + i * ld_dst, ld_src);
@@ -1835,7 +1835,7 @@ void transpose_avx512_contiguous_wide(
           src + i, dst + i * ld_dst, ld_src, nrem);
     }
   } else if (M == 4) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < N / 16 * 16; i += 16) {
       transpose_contiguous_4x16_block(
           src + i, dst + i * ld_dst, ld_src);
@@ -1850,14 +1850,14 @@ void transpose_avx512_contiguous_wide(
 
 template <>
 void transpose_avx512_contiguous_wide(
-  const int64_t M,
-  const int64_t N,
+  int64_t M,
+  int64_t N,
   const uint16_t* src,
-  unsigned ld_src,
+  int64_t ld_src,
   uint16_t* dst,
-  unsigned ld_dst) {
+  int64_t ld_dst) {
   if (M == 2) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < N / 32 * 32; i += 32) {
       transpose_contiguous_2x32_block(
           src + i, dst + i * ld_dst, ld_src);
@@ -1868,7 +1868,7 @@ void transpose_avx512_contiguous_wide(
           src + i, dst + i * ld_dst, ld_src, nrem);
     }
   } else if (M == 4) {
-    int i = 0;
+    int64_t i = 0;
     for (; i < N / 32 * 32; i += 32) {
       transpose_contiguous_4x32_block(
           src + i, dst + i * ld_dst, ld_src);
@@ -1883,14 +1883,14 @@ void transpose_avx512_contiguous_wide(
 
 template <>
 void transpose_avx512_contiguous_wide(
-    const int64_t M,
-    const int64_t N,
+    int64_t M,
+    int64_t N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
     if (M == 2) {
-      int i = 0;
+      int64_t i = 0;
       for (; i < N / 64 * 64; i += 64) {
         transpose_contiguous_2x64_block(
             src + i, dst + i * ld_dst, ld_src);
@@ -1901,7 +1901,7 @@ void transpose_avx512_contiguous_wide(
             src + i, dst + i * ld_dst, ld_src, nrem);
       }
     } else if (M == 4) {
-      int i = 0;
+      int64_t i = 0;
       for (; i < N / 64 * 64; i += 64) {
         transpose_contiguous_4x64_block(
             src + i, dst + i * ld_dst, ld_src);
@@ -1919,15 +1919,15 @@ void transpose_avx512(
     int64_t M,
     int64_t N,
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   if (M == ld_dst && (M == 2 || M == 4)) {
     transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
   } else if (N == ld_src && (N == 2 || N == 4)) {
     transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
   } else {
-    unsigned ib = 0, jb = 0;
+    int64_t ib = 0, jb = 0;
     if (N % 16 > 0 && N % 16 < 4) {
       // If the remainder has n < 4 columns, we use the SSE kernel for the
       // remainder because it requires 4 * (2 * 4 + 2 * N) = 32 + 8N instructions
@@ -1938,7 +1938,7 @@ void transpose_avx512(
           transpose_kernel_16x16_avx512(
               &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
-        for (unsigned i = ib; i < ib + 16; i += 4) {
+        for (int64_t i = ib; i < ib + 16; i += 4) {
           transpose_kernel_mxn_sse<4>(
               N - jb,
               &src[i * ld_src + jb],
@@ -1956,7 +1956,7 @@ void transpose_avx512(
           transpose_kernel_16x16_avx512(
               &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
-        for (unsigned i = ib; i < ib + 16; i += 4) {
+        for (int64_t i = ib; i < ib + 16; i += 4) {
           transpose_kernel_4x4_sse(
               &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
         }
@@ -1970,7 +1970,7 @@ void transpose_avx512(
           transpose_kernel_16x16_avx512(
               &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
-        for (unsigned i = ib; i < ib + 16; i += 8) {
+        for (int64_t i = ib; i < ib + 16; i += 8) {
           transpose_kernel_8x8_avx2(
               &src[i * ld_src + jb], ld_src, &dst[i + jb * ld_dst], ld_dst);
         }
@@ -2000,7 +2000,7 @@ void transpose_avx512(
     // on m.
     switch (M - ib) {
       case 1:
-        for (unsigned j = 0; j < N; ++j) {
+        for (int64_t j = 0; j < N; ++j) {
           dst[ib + j * ld_dst] = src[ib * ld_src + j];
         }
         break;
@@ -2206,20 +2206,20 @@ void transpose_avx512(
 
 template <>
 void transpose_avx512(
-    const int64_t M,
-    const int64_t N,
+    int64_t M,
+    int64_t N,
     const uint16_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint16_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   if (M == ld_dst && (M == 2 || M == 4)) {
     transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
   } else if (N == ld_src && (N == 2 || N == 4)) {
     transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
   } else {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 16 * 16; i += 16) {
-      int j = 0;
+      int64_t j = 0;
       for (; j < N / 16 * 16; j += 16) {
         transpose_16x16_block<false, false>(
             src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst);
@@ -2250,20 +2250,20 @@ void transpose_avx512(
 
 template <>
 void transpose_avx512(
-    const int64_t M,
-    const int64_t N,
+    int64_t M,
+    int64_t N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   if (M == ld_dst && (M == 2 || M == 4)) {
     transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
   } else if (N == ld_src && (N == 2 || N == 4)) {
     transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
   } else {
-    int i = 0;
+    int64_t i = 0;
     for (; i < M / 16 * 16; i += 16) {
-      int j = 0;
+      int64_t j = 0;
       for (; j < N / 32 * 32; j += 32) {
         transpose_16x32_block<false, false>(
             src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst);
@@ -2279,7 +2279,7 @@ void transpose_avx512(
     // handle i rem
     int mrem = M - i;
     if (mrem > 0) {
-      int j = 0;
+      int64_t j = 0;
       for (; j < N / 32 * 32; j += 32) {
         transpose_16x32_block<true, false>(
             src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst, mrem, 32);
