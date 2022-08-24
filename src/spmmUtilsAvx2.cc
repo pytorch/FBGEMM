@@ -6,7 +6,10 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/spmmUtilsAvx2.h"
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include <cassert> //for assert
 #include "./MaskAvx2.h"
 
