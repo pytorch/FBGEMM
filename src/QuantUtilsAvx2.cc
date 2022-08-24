@@ -6,7 +6,10 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include <algorithm> //for std::min/std::max
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
