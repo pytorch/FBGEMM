@@ -61,11 +61,11 @@ def device(
         torch.ops.fbgemm.jagged_2d_to_dense, (values_2d, offsets, max_len), iters=1000
     )
 
-    num_bytes = (
-        offsets.numel() * offsets.element_size()
-        + values_2d.numel() * values_2d.element_size()
-        + output.numel() * output.element_size()
-    )
+    offsets_nbytes = offsets.numel() * offsets.element_size()
+    values_nbytes = values_2d.numel() * values_2d.element_size()
+    dense_nbytes = output.numel() * output.element_size()
+
+    num_bytes = offsets_nbytes + values_nbytes + dense_nbytes
     logging.info(f"jagged_2d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
 
     total_L = values_2d.size(0)
@@ -73,17 +73,46 @@ def device(
         torch.ops.fbgemm.dense_to_jagged, (output, [offsets], total_L), iters=1000
     )
 
-    # Recompute num_bytes to disinclude entire dense tensor
-    num_bytes = offsets.numel() * offsets.element_size() + 2 * (
-        values_2d.numel() * values_2d.element_size()
-    )
+    num_bytes = offsets_nbytes + 2 * values_nbytes
     logging.info(f"dense_to_jagged (2d) {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output,
+        (values_2d, [offsets], output),
+        iters=1000,
+    )
+    num_bytes = offsets_nbytes + 3 * values_nbytes
+    logging.info(
+        f"jagged_dense_elementwise_add_jagged_output {time} sec {num_bytes / time / 1e9} GB/s"
+    )
+
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_elementwise_mul,
+        (values_2d, [offsets], output),
+        iters=1000,
+    )
+    num_bytes = offsets_nbytes + 3 * values_nbytes
+    logging.info(
+        f"jagged_dense_elementwise_mul {time} sec {num_bytes / time / 1e9} GB/s"
+    )
+
+    output_sq = output * output
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
+        (values_2d, [offsets], output, output_sq),
+        iters=1000,
+    )
+    num_bytes = offsets_nbytes + 4 * values_nbytes
+    logging.info(
+        f"jagged_dense_dense_elementwise_add_jagged_output {time} sec {num_bytes / time / 1e9} GB/s"
+    )
 
     # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
     #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
     values_1d = torch.rand(total_lengths)
     if torch.cuda.is_available():
         values_1d = values_1d.cuda()
+    values_nbytes = values_1d.numel() * values_1d.element_size()
 
     time, output = benchmark_torch_function(
         lambda: torch.ops.fbgemm.jagged_1d_to_dense(
@@ -92,12 +121,9 @@ def device(
         (),
         iters=1000,
     )
+    dense_nbytes = output.numel() * output.element_size()
 
-    num_bytes = (
-        offsets.numel() * offsets.element_size()
-        + values_1d.numel() * values_1d.element_size()
-        + output.numel() * output.element_size()
-    )
+    num_bytes = offsets_nbytes + values_nbytes + dense_nbytes
     logging.info(f"jagged_1d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
 
     total_L = values_1d.size(0)
@@ -106,10 +132,7 @@ def device(
         torch.ops.fbgemm.dense_to_jagged, (output_1d, [offsets], total_L), iters=1000
     )
 
-    # Recompute num_bytes to disinclude entire dense tensor
-    num_bytes = offsets.numel() * offsets.element_size() + 2 * (
-        values_1d.numel() * values_1d.element_size()
-    )
+    num_bytes = offsets_nbytes + 2 * values_nbytes
     logging.info(f"dense_to_jagged (1d) {time} sec {num_bytes / time / 1e9} GB/s")
 
 

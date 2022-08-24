@@ -17,6 +17,30 @@ function(get_filelist name outputvar)
   set(${outputvar} ${_tempvar} PARENT_SCOPE)
 endfunction()
 
+##############################################################################
+# CHeck if given flag is supported and append it to provided outputvar
+# Also define HAS_UPPER_CASE_FLAG_NAME variable
+# From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
+# Usage:
+#   append_cxx_flag_if_supported("-Werror" CMAKE_CXX_FLAGS)
+function(append_cxx_flag_if_supported flag outputvar)
+    string(TOUPPER "HAS${flag}" _FLAG_NAME)
+    string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
+    check_cxx_compiler_flag("${flag}" ${_FLAG_NAME})
+    if(${_FLAG_NAME})
+        string(APPEND ${outputvar} " ${flag}")
+        set(${outputvar} "${${outputvar}}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(target_compile_options_if_supported target flag)
+  set(_compile_options "")
+  append_cxx_flag_if_supported("${flag}" _compile_options)
+  if(NOT "${_compile_options}" STREQUAL "")
+    target_compile_options(${target} PRIVATE ${flag})
+  endif()
+endfunction()
+
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 
 set(FBGEMM_LIBRARY_TYPE "default" CACHE STRING
@@ -185,6 +209,12 @@ if(NOT TARGET asmjit)
   # add a flag required for mac build
   if(NOT MSVC)
     target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
+  endif()
+
+  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
+    # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
+    target_compile_options_if_supported(asmjit -Wno-deprecated-copy)
+    target_compile_options_if_supported(asmjit -Wno-unused-but-set-variable)
   endif()
 endif()
 
