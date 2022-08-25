@@ -1044,8 +1044,8 @@ static inline void transpose_contiguous_32x4_block(
     r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 32));
   }
   if (i * 32 < mrem * 4) {
-    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 32)) - 1;
-    r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 32);
+    __mmask32 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 32)) - 1;
+    r[i] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + i * 32);
   }
   // transpose
   __m512i index = _mm512_set_epi32(
