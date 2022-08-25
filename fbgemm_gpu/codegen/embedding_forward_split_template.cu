@@ -542,7 +542,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
     if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
-        static int init_asm = 0;
+        static int init_hsaco = 0;
         static hipModule_t asm_kernel_module;
         static hipFunction_t asm_kernel_func;
 
@@ -554,8 +554,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         uint32_t blocks[3] = {workgroup_size, 1, 1};
         int64_t E = wcnts / T / max_D;
 
-        bool persistent_kernel = false;
-        persistent_kernel = [&](){
+        static bool persistent_kernel = [&](){
             char * v = getenv("TBE_KERNEL_PERSISTENT");
             if(v){
                 if(atoi(v) == 1)
@@ -567,6 +566,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 return persistent_kernel;
         }();
 
+        static int hsaco_type = [&](){ // 0 - hip hsaco, 1 - asm hsaco
+            char * v = getenv("HSACO_TYPE");
+            if(v)
+                return atoi(v);
+            return 0;
+        }();
+
         if(persistent_kernel){
             constexpr uint32_t workgroups_per_cu = 4;
             constexpr uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
@@ -574,8 +580,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             grids[1] = 1;
         }
 
-        if (init_asm == 0) {
-            hipError_t hip_err = hipModuleLoad(&asm_kernel_module, "split_tbe_fwd_kernel.hsaco");  // kernel object
+        if (init_hsaco == 0) {
+            hipError_t hip_err = hipModuleLoad(&asm_kernel_module, hsaco_type == 0 ?
+                            "split_tbe_fwd_hip_kernel.hsaco":"split_tbe_fwd_kernel.hsaco");  // kernel object
             if (hip_err != hipSuccess) {
                 char cwd[PATH_MAX];
                 getcwd(cwd, sizeof(cwd));
@@ -583,17 +590,17 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 exit(1);
             }
             std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
-            std::string asm_kernel_name = std::string("split_tbe_fwd_kernel_") + prec + "_e" + std::to_string(max_D);
+            std::string asm_kernel_name = std::string(hsaco_type == 0 ? "split_tbe_fwd_hip_kernel_" : "split_tbe_fwd_kernel_") + prec + "_e" + std::to_string(max_D);
 
             hip_err = hipModuleGetFunction(&asm_kernel_func, asm_kernel_module, asm_kernel_name.c_str());
-            printf("asm kernel function: %s, persistent:%s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
+            printf("kernel function: %s, persistent:%s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
                 asm_kernel_name.c_str(), persistent_kernel?"y":"n", wcnts, E, B, T,
                 blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
             if (hip_err != hipSuccess) {
                 printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
                 exit(1);
             }
-            init_asm = 1;
+            init_hsaco = 1;
         }
 
         {
