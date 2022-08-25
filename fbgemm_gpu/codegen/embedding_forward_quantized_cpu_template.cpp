@@ -16,8 +16,10 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
+#if defined(__x86_64__) || defined(__i386__) || (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #include <emmintrin.h>
+#endif
 #include <cstring>
 
 using namespace fbgemm_gpu;

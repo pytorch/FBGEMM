@@ -7,7 +7,10 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 
 #include "./MaskAvx2.h"
 #include "fbgemm/UtilsAvx2.h"
