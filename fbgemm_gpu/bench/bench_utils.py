@@ -3,6 +3,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import itertools
 import logging
 import statistics
@@ -20,6 +21,20 @@ from torch import Tensor
 logging.basicConfig(level=logging.DEBUG)
 
 
+def args_restore_copy(
+    # pyre-fixme[2]: Parameter must be annotated.
+    args,
+    # pyre-fixme[2]: Parameter must be annotated.
+    args_copy,
+) -> None:
+    if not isinstance(args_copy, List):
+        return
+    for i in range(len(args)):
+        if isinstance(args[i], torch.Tensor):
+            args[i].copy_(args_copy[i])
+    return
+
+
 def benchmark_torch_function(
     # pyre-fixme[2]: Parameter must be annotated.
     f,
@@ -28,10 +43,14 @@ def benchmark_torch_function(
     flush_gpu_cache_size_mb: int = 40,
     iters: int = 10,
     num_warmups: int = 2,
+    args_require_deepcopy: bool = False,
 ) -> Tuple[float, Tensor]:
     for _ in range(num_warmups):
         output = f(*args)
 
+    args_copy = None
+    if args_require_deepcopy:
+        args_copy = copy.deepcopy(args)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -44,6 +63,8 @@ def benchmark_torch_function(
             torch.cuda.synchronize()
         start_event.record()
         for _ in range(iters):
+            if args_require_deepcopy:
+                args_restore_copy(args, args_copy)
             output = f(*args)
         end_event.record()
         torch.cuda.synchronize()
@@ -51,6 +72,8 @@ def benchmark_torch_function(
     else:
         start_time = time.time()
         for _ in range(iters):
+            if args_require_deepcopy:
+                args_restore_copy(args, args_copy)
             output = f(*args)
         elapsed_time = time.time() - start_time
 
