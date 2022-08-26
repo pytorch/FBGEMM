@@ -106,3 +106,42 @@ DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
       reinterpret_cast<unsigned long long int*>(p),
       static_cast<unsigned long long int>(1)));
 }
+
+template <typename grad_t>
+__global__ __launch_bounds__(fbgemm_gpu::kMaxThreads) void grad_mean_kernel(
+    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
+        grad_output,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        D_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
+        grad_output_mean) {
+  int32_t B = grad_output.size(0);
+  int32_t T = D_offsets.size(0) - 1;
+  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  int32_t b = b_t % B;
+  int32_t t = b_t / B;
+
+  if (b_t >= B * T) {
+    return;
+  }
+  int32_t D_start = D_offsets[t];
+  int32_t D_end = D_offsets[t + 1];
+  int32_t D = D_end - D_start;
+  int64_t indices_start = offsets[t * B + b];
+  int64_t indices_end = offsets[t * B + b + 1];
+  int32_t L = indices_end - indices_start;
+
+  if (L != 0) {
+    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+      fbgemm_gpu::Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      grad_out_vec.mul_(1.0 / L);
+      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
+    }
+  } else {
+    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+      fbgemm_gpu::Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
+    }
+  }
+}

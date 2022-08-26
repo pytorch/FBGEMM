@@ -128,6 +128,28 @@ __global__ __launch_bounds__(kMaxThreads) void nobag_linearize_index_kernel(
   }
 }
 
+__global__
+__launch_bounds__(fbgemm_gpu::kMaxThreads) void split_embedding_backward_codegen_find_long_segments(
+
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_num_runs,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_run_lengths,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        num_long_run_ids,
+    int32_t max_segment_length_per_warp) {
+  const int32_t num_runs = sorted_linear_indices_num_runs[0];
+  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs;
+       run_id += blockDim.x * gridDim.x) {
+    if (sorted_linear_indices_run_lengths[run_id] >=
+        max_segment_length_per_warp) {
+      auto long_run_idx = gpuAtomicIncrement(&num_long_run_ids[0]);
+      long_run_ids[long_run_idx] = run_id;
+    }
+  }
+}
+
 std::tuple<
     Tensor /*linear_indices*/,
     Tensor /*linear_indices_sorted*/,
