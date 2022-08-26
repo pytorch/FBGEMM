@@ -44,7 +44,7 @@ template <typename T = std::uint8_t, bool LEGACY = true>
 void QuantizeAvx2(
     const float* src,
     T* dst,
-    int len,
+    int64_t len,
     const TensorQuantizationParams& qparams);
 
 template <typename T = std::uint8_t>
@@ -63,7 +63,7 @@ uint32_t FBGEMM_API Xor128(void);
 /**
  * @brief Find the min and max value in a float matrix.
  */
-void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int len);
+void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
 
 void RequantizeFixedPointAvx2(
     const std::int32_t* src,
