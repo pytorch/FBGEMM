@@ -1324,9 +1324,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         torch.testing.assert_close(
             cc.weights.grad,
@@ -1584,9 +1584,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1).contiguous()
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         if use_cache:
             cc.flush()
@@ -1817,7 +1817,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
         split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
@@ -2637,7 +2637,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
-            goc = torch.cat(gos, dim=0).contiguous()
+            goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
         cc.flush()
 
@@ -3105,11 +3105,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # NOTE: No bag ops only work on GPUs, no mixed
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
         assume(
             not mixed
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -3436,9 +3431,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         )
         mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            nbit_weights_ty = random.choice(
+                [
+                    SparseType.FP32,
+                    SparseType.FP16,
+                    # CPU sequence embedding does not support FP8/INT4/INT2 yet
+                    # SparseType.FP8,
+                    SparseType.INT8,
+                    # SparseType.INT4,
+                    # SparseType.INT2,
+                ]
+            )
+
         if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:

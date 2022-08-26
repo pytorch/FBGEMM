@@ -5,16 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 #include "./FbgemmFP16UKernelsAvx2.h"
+#include "./InlineAsmDefines.h"
 
 namespace fbgemm {
 
 void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters
@@ -132,11 +133,11 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters
@@ -275,11 +276,11 @@ void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters
@@ -437,11 +438,11 @@ void NOINLINE gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters
@@ -618,11 +619,11 @@ void NOINLINE gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters
@@ -818,11 +819,11 @@ void NOINLINE gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 void NOINLINE gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
-#if !defined(__clang__) || __clang_major__ >= 14
-      "mov r14, %[gp]\t\n"
-#else
+#if FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK
       "mov %[gp], %%r14\t\n"
       ".intel_syntax noprefix\t\n"
+#else
+      "mov r14, %[gp]\t\n"
 #endif
 
       // Copy parameters

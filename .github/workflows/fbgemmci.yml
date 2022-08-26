@@ -192,16 +192,17 @@ jobs:
         set -e
         ./bazel test --compilation_mode opt :*
 
-  build_gpu:
+  build_nvidia_gpu:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest]
+        cuda_version: [11.3, 11.5, 11.6] # 11.7
 
     steps:
     - uses: actions/checkout@v2
 
-    - name: Install CUDA 11.3
+    - name: Install CUDA
       shell: bash
       run: |
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
@@ -212,7 +213,9 @@ jobs:
         # sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub
         sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
         sudo apt-get update
-        sudo apt-get -y install cuda-minimal-build-11-3 cuda-nvrtc-dev-11-3 cuda-nvtx-11-3 cuda-libraries-dev-11-3
+        # "11.5 -> 11-5"
+        cuda_apt_version=$(echo "${{ matrix.cuda_version }}" | sed "s/\./-/")
+        sudo apt-get -y install cuda-minimal-build-${cuda_apt_version} cuda-nvrtc-dev-${cuda_apt_version} cuda-nvtx-${cuda_apt_version} cuda-libraries-dev-${cuda_apt_version}
         sudo apt-get -y install libcudnn8-dev
 
     - name: Install dependencies
@@ -221,7 +224,7 @@ jobs:
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        # Install pytorch 1.11 as required by fbgemm_gpu
+        # Install pytorch built with CUDA 11.3 in all cases
         sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
 
     - name: Checkout submodules
@@ -235,16 +238,17 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        sudo CUDACXX=/usr/local/cuda-11.3/bin/nvcc python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
+        CUDA_PATH="/usr/local/cuda-${{ matrix.cuda_version }}"
+        sudo CUDACXX="${CUDA_PATH}/bin/nvcc" python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
 
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
         cd fbgemm_gpu
         cd test
-        python input_combine_test.py
-        python quantize_ops_test.py
-        python sparse_ops_test.py
+        python input_combine_test.py -v
+        python quantize_ops_test.py -v
+        python sparse_ops_test.py -v
         python -c "import fbgemm_gpu"
         python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
@@ -253,6 +257,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
+        rocm_version: [5.1.1]
 
     steps:
     - name: Free space
@@ -260,14 +265,14 @@ jobs:
 
     - uses: actions/checkout@v2
 
-    - name: Install ROCm 5.1.1
+    - name: Install ROCm
       shell: bash
       run: |
         sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
         wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
         export DEBIAN_FRONTEND=noninteractive
         sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
-        amdgpu-install -y --usecase=hiplibsdk,rocm
+        amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
         sudo rm amdgpu-install_22.10.1.50101-1_all.deb
 
     - name: Install dependencies
@@ -278,7 +283,7 @@ jobs:
         sudo apt-get install -y hipify-clang || true
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
-        # Install pytorch 1.11 as required by fbgemm_gpu
+        # Install PyTorch (nightly) as required by fbgemm_gpu
         sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
 
     - name: Checkout submodules
@@ -301,9 +306,9 @@ jobs:
       run: |
         cd fbgemm_gpu
         cd test
-        python3 input_combine_test.py
-        python3 quantize_ops_test.py
-        python3 sparse_ops_test.py
+        python3 input_combine_test.py -v
+        python3 quantize_ops_test.py -v
+        python3 sparse_ops_test.py -v
         python3 -c "import fbgemm_gpu"
         python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
@@ -370,7 +375,7 @@ jobs:
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        # Install pytorch 1.11 as required by fbgemm_gpu
+        # Install PyTorch (nightly) as required by fbgemm_gpu
         sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
 
     - name: Checkout submodules
@@ -392,10 +397,10 @@ jobs:
       run: |
         cd fbgemm_gpu
         cd test
-        python batched_unary_embeddings_test.py
-        python input_combine_test.py
-        python layout_transform_ops_test.py
-        python merge_pooled_embeddings_test.py
-        python permute_pooled_embedding_modules_test.py
-        python quantize_ops_test.py
-        python sparse_ops_test.py
+        python batched_unary_embeddings_test.py -v
+        python input_combine_test.py -v
+        python layout_transform_ops_test.py -v
+        python merge_pooled_embeddings_test.py -v
+        python permute_pooled_embedding_modules_test.py -v
+        python quantize_ops_test.py -v
+        python sparse_ops_test.py -v

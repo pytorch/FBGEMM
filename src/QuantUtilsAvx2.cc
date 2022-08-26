@@ -6,7 +6,10 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include <algorithm> //for std::min/std::max
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
@@ -2164,8 +2167,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     }
 
     for (; col < output_columns; ++col) {
-      float output_value = std::fma(
-          input_row[col], input_row_scale_bias[0], input_row_scale_bias[1]);
+      float output_value =
+          input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
       if (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {

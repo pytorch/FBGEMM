@@ -33,29 +33,34 @@ def benchmark_torch_function(
         output = f(*args)
 
     if torch.cuda.is_available():
+        cache = torch.empty(
+            int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
+            dtype=torch.float,
+            device="cuda",
+        )
+        start_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
+        end_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
         torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        # flush the cache
-        if flush_gpu_cache_size_mb:
-            _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-            )
-            torch.cuda.synchronize()
-        start_event.record()
-        for _ in range(iters):
+        for i in range(iters):
+            # flush the cache
+            if flush_gpu_cache_size_mb:
+                cache.zero_()
+            start_event[i].record()
             output = f(*args)
-        end_event.record()
+            end_event[i].record()
         torch.cuda.synchronize()
-        elapsed_time = start_event.elapsed_time(end_event) * 1.0e-3
+        times = torch.tensor(
+            [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
+        )
+        elapsed_time = torch.mean(times).item() * 1.0e-3
     else:
         start_time = time.time()
         for _ in range(iters):
             output = f(*args)
-        elapsed_time = time.time() - start_time
+        elapsed_time = (time.time() - start_time) / iters
 
     # pyre-fixme[61]: `output` is undefined, or not always defined.
-    return float(elapsed_time) / iters, output
+    return float(elapsed_time), output
 
 
 def round_up(a: int, b: int) -> int:
@@ -244,8 +249,15 @@ def benchmark_requests(
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
+    num_warmups: int = 0,
 ) -> float:
     times = []
+
+    if num_warmups > 0:
+        indices, offsets, weights = requests[0]
+        for _ in range(num_warmups):
+            func(indices, offsets, weights)
+
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -255,7 +267,9 @@ def benchmark_requests(
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
                 _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                    dtype=torch.float,
+                    device="cuda",
                 )
                 torch.cuda.synchronize()
             start_event.record()
@@ -309,7 +323,9 @@ def benchmark_requests_refer(
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
                 _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                    dtype=torch.float,
+                    device="cuda",
                 )
                 torch.cuda.synchronize()
             start_event.record()
@@ -378,7 +394,9 @@ def benchmark_pipelined_requests(
     ):
         if flush_gpu_cache_size_mb:
             _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                dtype=torch.float,
+                device="cuda",
             )
             torch.cuda.synchronize()
         start_event[0].record()
