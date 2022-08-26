@@ -554,31 +554,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         uint32_t blocks[3] = {workgroup_size, 1, 1};
         int64_t E = wcnts / T / max_D;
 
-        static bool persistent_kernel = [&](){
-            char * v = getenv("TBE_KERNEL_PERSISTENT");
-            if(v){
-                if(atoi(v) == 1)
-                    return true;
-                else
-                    return false;
-            }
-            else
-                return persistent_kernel;
-        }();
-
         static int hsaco_type = [&](){ // 0 - hip hsaco, 1 - asm hsaco
             char * v = getenv("HSACO_TYPE");
             if(v)
                 return atoi(v);
             return 0;
         }();
-
-        if(persistent_kernel){
-            constexpr uint32_t workgroups_per_cu = 4;
-            constexpr uint32_t num_cu = 104;   // hardcode cu number of 90a (MI210/MI250, but MI250x)
-            grids[0] = workgroups_per_cu * num_cu;
-            grids[1] = 1;
-        }
 
         if (init_hsaco == 0) {
             hipError_t hip_err = hipModuleLoad(&asm_kernel_module, hsaco_type == 0 ?
@@ -593,8 +574,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             std::string asm_kernel_name = std::string(hsaco_type == 0 ? "split_tbe_fwd_hip_kernel_" : "split_tbe_fwd_kernel_") + prec + "_e" + std::to_string(max_D);
 
             hip_err = hipModuleGetFunction(&asm_kernel_func, asm_kernel_module, asm_kernel_name.c_str());
-            printf("kernel function: %s, persistent:%s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
-                asm_kernel_name.c_str(), persistent_kernel?"y":"n", wcnts, E, B, T,
+            printf("kernel function: %s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
+                asm_kernel_name.c_str(), wcnts, E, B, T,
                 blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
             if (hip_err != hipSuccess) {
                 printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
@@ -627,7 +608,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             args.offsets   = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
             args.emb_dim   = (uint32_t) max_D;
             args.batch     = (uint32_t) B;
-            args.num_rows = persistent_kernel ? grids[0] : E;
+            args.num_rows  = E;
             args.num_tables = (uint32_t)T;
 
             hipModuleLaunchKernel(asm_kernel_func,
