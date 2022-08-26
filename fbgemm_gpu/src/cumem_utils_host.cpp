@@ -29,7 +29,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
-      "cuda_mem_advise(Tensor t, int advice) -> ()",
+      "cuda_mem_advise(Tensor t, int advice, Tensor? device_t) -> ()",
       TORCH_FN(uvm_cuda_mem_advise));
   m.def(
       "cuda_mem_prefetch_async(Tensor t, Tensor? device_t) -> ()",
@@ -55,7 +55,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   m.def(
-      "cuda_mem_advise(Tensor t, int advice) -> ()",
+      "cuda_mem_advise(Tensor t, int advice, Tensor? device_t) -> ()",
       TORCH_FN(uvm_cuda_mem_advise));
   m.def(
       "cuda_mem_prefetch_async(Tensor t, Tensor? device_t) -> ()",
@@ -65,7 +65,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       TORCH_FN(uvm_mem_advice_dont_fork));
 
   m.def("uvm_to_cpu_clone(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu_clone));
+
+#ifndef __HIP_PLATFORM_HCC__
+  // FIXME: some advanced "cudaMemAdvise" flags are not supported by HIP.
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
+#endif
 }
 
 } // namespace fbgemm_gpu

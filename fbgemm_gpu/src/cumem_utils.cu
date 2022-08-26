@@ -160,13 +160,13 @@ Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes) {
   auto adjusted = adjust_to_page_boundaries(ptr, size_bytes);
   int result =
       madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
-  TORCH_CHECK(result == 0)
+  TORCH_CHECK(result == 0);
 
   return t;
 }
 
 // Allocate a cuda Tensor with unified managed memory (UVM) without the
-// additional steps taked by new_managed_tensor above
+// additional steps taken by new_managed_tensor above
 Tensor new_vanilla_managed_tensor(
     Tensor self,
     const std::vector<std::int64_t>& sizes) {
@@ -265,18 +265,25 @@ int64_t uvm_get_guard_index(Tensor& t) {
 }
 } // namespace
 
-void uvm_cuda_mem_advise(Tensor t, int64_t cuda_memory_advise) {
-  // Call cudaMemAdvise on vm tensor
+void uvm_cuda_mem_advise(
+    Tensor t,
+    int64_t cuda_memory_advise,
+    c10::optional<Tensor> device_t) {
+  // Call cudaMemAdvise on uvm tensor
   // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
   // namespace) for valid values and interface stub.
   at::cuda::OptionalCUDAGuard device_guard;
   int64_t cuda_device_index = uvm_get_guard_index(t);
   int hint_device;
-  if (t.is_cpu()) {
-    hint_device = cudaCpuDeviceId;
+  if (!device_t.has_value()) {
+    if (t.is_cpu()) {
+      hint_device = cudaCpuDeviceId;
+    } else {
+      TORCH_CHECK(t.is_cuda());
+      hint_device = static_cast<int>(cuda_device_index);
+    }
   } else {
-    TORCH_CHECK(t.is_cuda());
-    hint_device = static_cast<int>(cuda_device_index);
+    hint_device = static_cast<int>(device_t.value().get_device());
   }
 
   void* ptr = t.data_ptr();
@@ -354,6 +361,22 @@ Tensor uvm_to_cpu_clone(Tensor t) {
 
   return cpu_clone;
 }
+
+// From https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html
+// 1. cudaMemAdviseSetReadMostly = 1
+// Data will mostly be read and only occassionally be written to
+// 2. cudaMemAdviseUnsetReadMostly = 2
+// Undo the effect of cudaMemAdviseSetReadMostly
+// 3. cudaMemAdviseSetPreferredLocation = 3
+// Set the preferred location for the data as the specified device
+// 4. cudaMemAdviseUnsetPreferredLocation = 4
+// Clear the preferred location for the data
+// 5. cudaMemAdviseSetAccessedBy = 5
+// Data will be accessed by the specified device, so prevent page faults as much
+// as possible
+// 6. cudaMemAdviseUnsetAccessedBy = 6
+// Let the Unified Memory subsystem decide on the page faulting policy for the
+// specified device
 
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
 
