@@ -508,8 +508,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 #ifdef __HIP_PLATFORM_HCC__  // HIP Optimal - asm kernel
     /*
      * current limitations
-     1. sparse bag and unweighted
-     2. embedding dims in [64, 128, 192, 256, 512]
+     1. sparse, bag and unweighted
+     2. embedding dims in [64, 128, 192, 256]
      3. yet to support mixed embedding dims (loosely guarded below)
      4. yet to support non-uniform table locations (all be on devs)
      5. yet to support duplicate tables from some cases in exact optim (fbgemm_gpu/split_embedding_configs.py)
@@ -518,7 +518,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% if not dense %}
     {% if not weighted %}
 
-    std::set<int> D_emb_s {64, 128, 192, 256, 512};
+    std::set<int> D_emb_s {64, 128, 192, 256};
 
     // weight param cnt
     int64_t wcnts = dev_weights.numel();
