@@ -1,0 +1,14 @@
+# The configuration file is in a YAML format,
+# so the document starts with (---) and ends with (...)
+---
+# Get options for config files in parent directories,
+# but override them if there's a conflict.
+InheritParentConfig: true
+CheckOptions:
+ - key: facebook-cuda-safe-api-call-check.HandlerName
+   # This is PyTorch's handler; you may need to define your own
+   value: C10_CUDA_CHECK
+ - key: facebook-cuda-safe-kernel-call-check.HandlerName
+   # This is PyTorch's handler; you may need to define your own
+   value: C10_CUDA_KERNEL_LAUNCH_CHECK
+...
