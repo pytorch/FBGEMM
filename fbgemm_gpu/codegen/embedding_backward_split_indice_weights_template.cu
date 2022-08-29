@@ -230,8 +230,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
-            {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
-            if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
+            {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
+            if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
                 {% if not dense %}
                 emb_t,
