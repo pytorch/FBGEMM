@@ -405,47 +405,52 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state) {
-  const int32_t N = unique_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
 
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  if (n >= *N_unique) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] = C; // invalid index, used as sentinel
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    int64_t idx = unique_indices[n];
+    if (idx == max_indices) {
+      // cache_sets are initialized with sentinel values in
+      // lru_cache_find_uncached_cuda
+      continue;
     }
-    return;
-  }
-  int64_t idx = unique_indices[n];
-  if (idx == max_indices) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] = C; // invalid index, used as sentinel
-    }
-    return;
-  }
-  int32_t cache_set = cache_slot(idx, C);
+    int32_t cache_set = cache_slot(idx, C);
 
-  const auto slot = threadIdx.x;
-  const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
-  if (found) {
-    // mark it as existing.
-    cache_sets[n] = C; // invalid index, used as sentinel
-    // mark it as recently accessed so we don't evict.
-    lru_state[cache_set][slot] = time_stamp;
-  }
+    const auto slot = threadIdx.x;
+    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
+    if (found) {
+      // mark it as recently accessed so we don't evict.
+      lru_state[cache_set][slot] = time_stamp;
+    }
 
 #ifdef __HIP_PLATFORM_HCC__
-  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
-  if (!__any_sync(0xFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFF, found)) {
 #endif
-    if (threadIdx.x == 0) {
-      cache_sets[n] = cache_set;
+      if (threadIdx.x == 0) {
+        cache_sets[n] = cache_set;
+      }
     }
   }
 }
+
+namespace {
+
+// Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
+// not sensitive to grid size as long as the number thread blocks per SM is not
+// too small nor too big.
+constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
+
+int get_max_thread_blocks_for_cache_kernels_() {
+  cudaDeviceProp* deviceProp =
+      at::cuda::getDeviceProperties(c10::cuda::current_device());
+  return deviceProp->multiProcessorCount *
+      MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
+}
+
+} // namespace
 
 std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
     Tensor unique_indices,
@@ -462,8 +467,11 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
-  auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(at::kInt));
+  // Fill with sentinel value
+  auto cache_sets = full_like(
+      unique_indices,
+      lxu_cache_state.size(0),
+      unique_indices.options().dtype(at::kInt));
   const int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -472,7 +480,9 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
-            div_round_up(N, kMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -1128,50 +1138,34 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
     uint64_t* __restrict__ cache_sets,
     const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         lfu_state) {
-  const int32_t N = unique_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  if (n >= *N_unique) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] =
-          (static_cast<uint64_t>(C)
-           << kLFUCounterBits); // invalid index, used as sentinel
-    }
-    return;
-  }
-  const int64_t idx = unique_indices[n];
-  if (idx == max_indices) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] =
-          (static_cast<uint64_t>(C)
-           << kLFUCounterBits); // invalid index, used as sentinel
-    }
-    return;
-  }
-  const uint32_t cache_set = cache_slot(idx, C);
 
-  const auto slot = threadIdx.x;
-  const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
-  if (found) {
-    // mark it as existing.
-    cache_sets[n] =
-        (static_cast<uint64_t>(C)
-         << kLFUCounterBits); // invalid index, used as sentinel
-  }
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    const int64_t idx = unique_indices[n];
+    if (idx == max_indices) {
+      // cache_sets are initialized with sentinel values in
+      // lfu_cache_find_uncached_cuda
+      continue;
+    }
+    const uint32_t cache_set = cache_slot(idx, C);
+
+    const auto slot = threadIdx.x;
+    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
 
 #ifdef __HIP_PLATFORM_HCC__
-  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
-  if (!__any_sync(0xFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFF, found)) {
 #endif
-    if (threadIdx.x == 0) {
-      // sort so the highest LFUs come first in the segment.
-      // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1
-      cache_sets[n] = ((static_cast<uint64_t>(cache_set) << kLFUCounterBits)) |
-          ((static_cast<uint64_t>(1) << kLFUCounterBits) - 1 - lfu_state[idx]);
+      if (threadIdx.x == 0) {
+        // sort so the highest LFUs come first in the segment.
+        // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1
+        cache_sets[n] =
+            ((static_cast<uint64_t>(cache_set) << kLFUCounterBits)) |
+            ((static_cast<uint64_t>(1) << kLFUCounterBits) - 1 -
+             lfu_state[idx]);
+      }
     }
   }
 }
@@ -1190,8 +1184,11 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
-  auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(at::kLong));
+  auto cache_sets = full_like(
+      unique_indices,
+      static_cast<int64_t>(
+          static_cast<uint64_t>(lxu_cache_state.size(0)) << kLFUCounterBits),
+      unique_indices.options().dtype(at::kLong));
   const int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -1200,7 +1197,9 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
       unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lfu_cache_find_uncached_kernel<<<
-            div_round_up(N, kMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
