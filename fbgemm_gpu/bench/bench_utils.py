@@ -16,6 +16,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import SparseType
 # pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
 from numpy.random import default_rng
 from torch import Tensor
+from torch.profiler import profile, ProfilerActivity
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -250,6 +251,7 @@ def benchmark_requests(
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
+    profile_trace: bool = False,
 ) -> float:
     times = []
 
@@ -284,6 +286,13 @@ def benchmark_requests(
             times.append(it_time)
     avg_time = sum(times) / len(requests)
     median_time = statistics.median(times)
+
+    if profile_trace:
+        indices, offsets, weights = requests[0]
+        with profile(activities=[ProfilerActivity.CUDA]) as prof:
+            func(indices, offsets, weights)
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
     return median_time if check_median else avg_time
 
 

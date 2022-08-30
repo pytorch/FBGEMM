@@ -1340,6 +1340,7 @@ def nbit_uvm(
             per_sample_weights,
         ),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        profile_trace=True,
     )
     logging.info(
         f"UVM NBit Forward, {weights_precision}, B: {B}, "
