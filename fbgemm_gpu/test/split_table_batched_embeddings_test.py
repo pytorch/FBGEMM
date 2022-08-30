@@ -4541,6 +4541,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(not TEST_WITH_ROCM, "skip test_rocm_tbe_forward if not AMD ROCm stack.")
     @given(
         T=st.sampled_from([1,2,3]),
         # D=st.sampled_from([[16, 32, 48, 64]]) fails the tests
@@ -4567,7 +4568,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_forward_rocm_forward_asm(
+    def test_rocm_tbe_forward(
         self,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         weights_precision:SparseType,
