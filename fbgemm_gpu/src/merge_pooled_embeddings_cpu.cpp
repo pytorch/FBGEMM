@@ -33,7 +33,16 @@ Tensor merge_pooled_embeddings_cpu(
     r.resize_(0);
     return at::cat_out(r, ts, cat_dim); // concat the tensor list in dim = 1
   };
-  return cat_host_0(pooled_embeddings);
+  auto result = cat_host_0(pooled_embeddings);
+
+  // There is some corner case, the target_device is not CPU. So we move the
+  // target results to the target device. This would allow sample inputs
+  // staying on CPU.
+  if (!target_device.is_cpu()) {
+    result = result.to(target_device, true);
+  }
+
+  return result;
 }
 
 } // namespace fbgemm_gpu
