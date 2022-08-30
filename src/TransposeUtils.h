@@ -23,12 +23,12 @@ namespace fbgemm {
  */
 template <typename T>
 FBGEMM_API void transpose_ref(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 namespace internal {
 
@@ -39,12 +39,12 @@ namespace internal {
  */
 template <typename T>
 void transpose_avx2(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 /**
  * @brief Transpose a matrix using Intel AVX512.
@@ -56,9 +56,9 @@ void transpose_avx512(
     int64_t M,
     int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 } // namespace internal
 
