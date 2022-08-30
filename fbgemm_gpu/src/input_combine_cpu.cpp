@@ -48,6 +48,33 @@ Tensor _cat_int_tensors(
   return combined_tensors;
 }
 
+Tensor _cat_int_tensors_with_padding(
+    const std::vector<Tensor>& tensor_list,
+    int64_t total_num,
+    bool use_pin_memory,
+    int64_t batch_size) {
+  auto combined_tensors = at::zeros(
+      {total_num},
+      at::TensorOptions()
+          .dtype(c10::kInt)
+          .device(tensor_list[0].device())
+          .pinned_memory(use_pin_memory));
+
+  auto combined_tensors_acc = combined_tensors.accessor<int32_t, 1>();
+
+  for (size_t i = 0; i < tensor_list.size(); i++) {
+    size_t idx = i * batch_size;
+    AT_DISPATCH_INDEX_TYPES(
+        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&] {
+          auto indices_acc = tensor_list[i].accessor<index_t, 1>();
+          for (auto j = 0; j < tensor_list[i].numel(); j++) {
+            combined_tensors_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
+          }
+        });
+  }
+  return combined_tensors;
+}
+
 Tensor _cat_per_sample_weights_list(
     const std::vector<Tensor>& per_sample_weights,
     const std::vector<Tensor>& indices_list,
@@ -292,6 +319,65 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   return {combined_indices, combined_offsets, at::empty({0})};
 }
 
+/// padding_fused_tbe_input_combine_with_length_cpu is similar to
+/// tbe_input_combine_with_length_cpu, but padding all the lengths to the size
+/// specified by batch_size.
+///
+/// @param indices_list list of indices.
+/// @param lengths_list list of lengths.
+/// @param per_sample_weights list of per_sample_weights
+/// @return tuple of combined indices, lengths, and per_sample_weights
+std::tuple<Tensor, Tensor, Tensor>
+padding_fused_tbe_input_combine_with_length_cpu(
+    const std::vector<Tensor>& indices_list,
+    const std::vector<Tensor>& lengths_list,
+    const std::vector<Tensor>& per_sample_weights,
+    int64_t batch_size) {
+  TORCH_CHECK(indices_list.size() > 0);
+  TORCH_CHECK(lengths_list.size() == indices_list.size());
+  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  int64_t total_indices = 0;
+  int64_t total_lengths = batch_size * indices_list.size();
+  bool need_weights = false;
+  bool pin_memory = false;
+
+  for (size_t i = 0; i < indices_list.size(); i++) {
+    TORCH_CHECK(
+        indices_list[i].dtype() == c10::kInt ||
+        indices_list[i].dtype() == c10::kLong);
+    TORCH_CHECK(
+        lengths_list[i].dtype() == c10::kInt ||
+        lengths_list[i].dtype() == c10::kLong);
+    TORCH_CHECK(indices_list[i].ndimension() == 1);
+    TORCH_CHECK(lengths_list[i].ndimension() == 1);
+    TORCH_CHECK(indices_list[i].is_contiguous());
+    TORCH_CHECK(lengths_list[i].is_contiguous());
+    total_indices += indices_list[i].numel();
+
+    if (per_sample_weights[i].numel() > 0) {
+      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
+      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK(per_sample_weights[i].is_contiguous());
+      need_weights = true;
+    }
+  }
+
+  auto combined_indices =
+      _cat_int_tensors(indices_list, total_indices, pin_memory);
+
+  auto combined_lengths = _cat_int_tensors_with_padding(
+      lengths_list, total_lengths, pin_memory, batch_size);
+
+  if (need_weights) {
+    return {
+        std::move(combined_indices),
+        std::move(combined_lengths),
+        _cat_per_sample_weights_list(
+            per_sample_weights, indices_list, total_indices, pin_memory)};
+  }
+  return {combined_indices, combined_lengths, at::empty({0})};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -301,6 +387,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)");
   m.def(
       "padding_fused_tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets, int batch_size) -> (Tensor, Tensor, Tensor)");
+  m.def(
+      "padding_fused_tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights, int batch_size) -> (Tensor, Tensor, Tensor)");
   DISPATCH_TO_CPU("tbe_input_combine", fbgemm_gpu::tbe_input_combine_cpu);
   DISPATCH_TO_CPU(
       "tbe_input_combine_with_length",
@@ -308,4 +396,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "padding_fused_tbe_input_combine",
       fbgemm_gpu::padding_fused_tbe_input_combine_cpu);
+  DISPATCH_TO_CPU(
+      "padding_fused_tbe_input_combine_with_length",
+      fbgemm_gpu::padding_fused_tbe_input_combine_with_length_cpu);
 }
