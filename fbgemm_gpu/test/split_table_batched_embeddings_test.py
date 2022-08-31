@@ -3107,11 +3107,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
             or not weighted
         )
-        # NOTE: No bag ops only work on GPUs, no mixed
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
         assume(
             not mixed
             or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
@@ -3438,9 +3433,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
                 split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         )
         mixed = random.choice([True, False])
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            nbit_weights_ty = random.choice(
+                [
+                    SparseType.FP32,
+                    SparseType.FP16,
+                    # CPU sequence embedding does not support FP8/INT4/INT2 yet
+                    # SparseType.FP8,
+                    SparseType.INT8,
+                    # SparseType.INT4,
+                    # SparseType.INT2,
+                ]
+            )
+
         if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:

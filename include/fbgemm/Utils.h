@@ -15,8 +15,6 @@
 #include <string>
 #include <type_traits>
 
-#include <asmjit/asmjit.h>
-
 namespace fbgemm {
 
 /**
@@ -72,50 +70,6 @@ enum class impl_type_t { ref, opt };
 enum class FBGEMM_ENUM_CLASS_API layout_t { KCX, KXC };
 
 /**
- * @brief Some commonly used variables for different instruction sets
- */
-template <inst_set_t inst_set>
-struct simd_info;
-
-template <>
-struct simd_info<inst_set_t::avx2> {
-  static constexpr int WIDTH_BITS = 256;
-  static constexpr int WIDTH_BYTES = 32;
-  static constexpr int WIDTH_32BIT_ELEMS = 8;
-  static constexpr int NUM_VEC_REGS = 16;
-
-  using vec_reg_t = asmjit::x86::Ymm;
-};
-
-template <>
-struct simd_info<inst_set_t::avx512> {
-  static constexpr int WIDTH_BITS = 512;
-  static constexpr int WIDTH_BYTES = 64;
-  static constexpr int WIDTH_32BIT_ELEMS = 16;
-  static constexpr int NUM_VEC_REGS = 32;
-
-  using vec_reg_t = asmjit::x86::Zmm;
-};
-
-template <>
-struct simd_info<inst_set_t::avx512_vnni>
-    : public simd_info<inst_set_t::avx512> {};
-
-template <>
-struct simd_info<inst_set_t::avx512_ymm> {
-  static constexpr int WIDTH_BITS = 256;
-  static constexpr int WIDTH_BYTES = 32;
-  static constexpr int WIDTH_32BIT_ELEMS = 8;
-  static constexpr int NUM_VEC_REGS = 32;
-
-  using vec_reg_t = asmjit::x86::Ymm;
-};
-
-template <>
-struct simd_info<inst_set_t::avx512_vnni_ymm>
-    : public simd_info<inst_set_t::avx512_ymm> {};
-
-/**
  * @brief A function to compare data in two buffers for closeness/equality.
  */
 template <typename T>
@@ -148,12 +102,12 @@ void printMatrix(
  */
 template <typename T>
 FBGEMM_API void transpose_simd(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 /**
  * @brief Explicitly set instruction set to be used

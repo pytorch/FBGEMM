@@ -15,6 +15,7 @@
 
 #include "./EmbeddingSpMDMTestUtils.h"
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 #include "src/RefImplementations.h"
 

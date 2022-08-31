@@ -6,7 +6,10 @@
  */
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx2.h"
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include <algorithm> //for std::min/std::max
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
@@ -26,7 +29,7 @@ template <typename T, bool LEGACY>
 void QuantizeAvx2(
     const float* src,
     T* dst,
-    int len,
+    int64_t len,
     const TensorQuantizationParams& qparams) {
 #if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
   constexpr int VLEN = 8;
@@ -86,7 +89,7 @@ void QuantizeAvx2(
 
   // Handle remainder using mask instructions so that
   // the main loop and remainder loop have the same behavior
-  int rem = len - i;
+  int64_t rem = len - i;
   if (rem > 0) {
     __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
         internal::avx2_ps_or_epi32_masks[rem]));
@@ -145,7 +148,7 @@ uint32_t Xor128(void) {
   template void QuantizeAvx2<T, LEGACY>(   \
       const float* src,                    \
       T* dst,                              \
-      int len,                             \
+      int64_t len,                         \
       const TensorQuantizationParams& qparams);
 SPECIALIZE_QUANTIZEAVX2(uint8_t, true)
 SPECIALIZE_QUANTIZEAVX2(int8_t, true)
@@ -274,7 +277,7 @@ SPECIALIZE_FUSEDDQAVX2(int8_t)
 
 #undef SPECIALIZE_FUSEDDQAVX2
 
-void FindMinMax(const float* a, float* min, float* max, int len) {
+void FindMinMax(const float* a, float* min, float* max, int64_t len) {
   if (len <= 0) {
     *min = 0.0f;
     *max = 0.0f;
@@ -282,7 +285,7 @@ void FindMinMax(const float* a, float* min, float* max, int len) {
   }
 
   float temp_min = *a, temp_max = *a;
-  int i = 0;
+  int64_t i = 0;
 
 #ifdef __AVX__
   __m256 min_v = _mm256_set1_ps(*a), max_v = _mm256_set1_ps(*a);

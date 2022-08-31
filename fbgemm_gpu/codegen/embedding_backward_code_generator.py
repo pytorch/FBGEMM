@@ -27,6 +27,7 @@ parser = argparse.ArgumentParser()
 # The install dir is by default the same as the current folder.
 parser.add_argument("--install_dir", default=".", help="where to put generated file")
 parser.add_argument("--opensource", action="store_false", dest="is_fbcode")
+parser.add_argument("--is_rocm", action="store_true")
 args, _ = parser.parse_known_args()
 
 
@@ -41,6 +42,8 @@ env = jinja2.Environment(
 # Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
 # Note that if we increase max_D, it will increase the compilation time significantly.
 env.globals["max_embedding_dim"] = 1024
+# An optimization for ROCm
+env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
 
 
@@ -481,7 +484,7 @@ def rowwise_adagrad() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -503,7 +506,7 @@ def rowwise_adagrad() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -602,7 +605,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,
@@ -624,7 +627,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
                 (FLOAT, "eps"),
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 1),
+                (INT, "weight_decay_mode", 0),
             ]
         ),
         split_precomputation=split_precomputation,

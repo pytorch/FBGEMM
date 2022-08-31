@@ -13,14 +13,14 @@ namespace fbgemm {
 
 template <typename T>
 void transpose_ref(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst) {
-  for (unsigned j = 0; j < N; j++) {
-    for (unsigned i = 0; i < M; i++) {
+    int64_t ld_dst) {
+  for (int64_t j = 0; j < N; j++) {
+    for (int64_t i = 0; i < M; i++) {
       dst[i + j * ld_dst] = src[i * ld_src + j];
     }
   } // for each output row
@@ -28,12 +28,12 @@ void transpose_ref(
 
 template <typename T>
 void transpose_simd(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const T* src,
-    unsigned ld_src,
+    int64_t ld_src,
     T* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   if (M == 0 || N == 0) {
     return;
   }
@@ -56,50 +56,50 @@ void transpose_simd(
 }
 
 template void transpose_ref<float>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template void transpose_ref<uint16_t>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const uint16_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint16_t* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template void transpose_ref<uint8_t>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template FBGEMM_API void transpose_simd<float>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template FBGEMM_API void transpose_simd<uint8_t>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 
 template FBGEMM_API void transpose_simd<uint16_t>(
-    unsigned M,
-    unsigned N,
+    int64_t M,
+    int64_t N,
     const uint16_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint16_t* dst,
-    unsigned ld_dst);
+    int64_t ld_dst);
 } // namespace fbgemm
