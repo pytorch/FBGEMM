@@ -577,7 +577,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         }
 
         {
-            
             struct {
                 void    *   output;
                 void    *   emb_table;

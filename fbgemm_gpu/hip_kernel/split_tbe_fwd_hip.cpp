@@ -249,7 +249,7 @@ __device__ void split_tbe_forward_unweighted_hip_kernel(
     uint64_t out_bag_stride = num_tables * emb_dim;
     p_emb_table += blockIdx.y * emb_table_stride;
     p_output += blockIdx.y * emb_dim + bag_id * out_bag_stride;
-    
+
     #pragma unroll
     for(int i=0; i < dword_output_per_row; i++)
     {
