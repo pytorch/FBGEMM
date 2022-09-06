@@ -97,11 +97,17 @@ def get_fbgemm_avx2_srcs(msvc = False):
         "src/UtilsAvx2.cc",
     ]
 
-def get_fbgemm_inline_avx2_srcs(msvc = False):
-    return [
-        #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-        "src/FbgemmFP16UKernelsAvx2.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx2.cc",
-    ]
+def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
+    intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]
+
+    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+    asm_srcs = ["src/FbgemmFP16UKernelsAvx2.cc"]
+    if buck:
+        return select({
+            "DEFAULT": asm_srcs if not msvc else intrinsics_srcs,
+            "ovr_config//cpu:arm64": intrinsics_srcs,
+        })
+    return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_avx512_srcs(msvc = False):
     return [
@@ -116,12 +122,21 @@ def get_fbgemm_avx512_srcs(msvc = False):
         "src/UtilsAvx512.cc",
     ]
 
-def get_fbgemm_inline_avx512_srcs(msvc = False):
-    return [
-        #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-        "src/FbgemmFP16UKernelsAvx512.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
-        "src/FbgemmFP16UKernelsAvx512_256.cc" if not msvc else "src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc",
+def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
+    intrinsics_srcs = [
+        "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
+        "src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc",
     ]
+    asm_srcs = [
+        "src/FbgemmFP16UKernelsAvx512.cc",
+        "src/FbgemmFP16UKernelsAvx512_256.cc",
+    ]
+    if buck:
+        return select({
+            "DEFAULT": asm_srcs if not msvc else intrinsics_srcs,
+            "ovr_config//cpu:arm64": intrinsics_srcs,
+        })
+    return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
