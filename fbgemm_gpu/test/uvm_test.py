@@ -80,7 +80,7 @@ class UvmTest(unittest.TestCase):
         # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
-    @skipIfRocm
+    @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -124,7 +124,7 @@ class UvmTest(unittest.TestCase):
 
         torch.cuda.synchronize(torch.device("cuda:0"))
 
-    @skipIfRocm
+    @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable or torch.cuda.device_count() < 2)
     @given(
         sizes=st.lists(
@@ -156,7 +156,7 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(second_t)
         assert second_t.device == device_prototype.device
 
-    @skipIfRocm
+    @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
@@ -186,7 +186,7 @@ class UvmTest(unittest.TestCase):
             assert torch.ops.fbgemm.is_uvm_tensor(uvm_slice)
             assert torch.ops.fbgemm.uvm_storage(cpu_slice)
 
-    @skipIfRocm
+    @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
