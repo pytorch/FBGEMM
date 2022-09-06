@@ -1048,7 +1048,7 @@ at::Tensor jagged_to_padded_dense_backward(
       at::ScalarType::Half,
       at::ScalarType::BFloat16,
       grad_padded_values.scalar_type(),
-      "jagged_2d_to_dense_backward_kernel",
+      "jagged_to_dense_backward_kernel",
       [&] {
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_values, // dummy not used in the lambda function
@@ -1932,7 +1932,8 @@ stacked_jagged_2d_to_dense_forward_cuda(
     Tensor values,
     Tensor lengths,
     const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key) {
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(lengths.dim() == 2);
   at::cuda::OptionalCUDAGuard device_guard;
@@ -1978,7 +1979,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
-        /*padding_value=*/0));
+        padding_value));
   }
 
   return std::make_tuple(padded_values_per_key, offsets_tensor_per_key);
@@ -2065,13 +2066,12 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
               at::cuda::getCurrentCUDAStream()));
         });
 
-    padded_values_per_key.push_back(jagged_1d_to_dense_gpu(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
-        offsets,
-        max_L,
+        {offsets},
+        {max_L},
         padding_value));
   }
-
   return padded_values_per_key;
 }
 
@@ -2395,7 +2395,8 @@ class StackedJagged2DToDenseGPUOp
       Tensor values,
       Tensor lengths,
       const std::vector<int64_t>& offset_per_key,
-      const std::vector<int64_t>& max_lengths_per_key) {
+      const std::vector<int64_t>& max_lengths_per_key,
+      int64_t padding_value) {
     int64_t total_L = values.size(0);
     ctx->saved_data["B"] = lengths.size(1);
     ctx->saved_data["D"] = values.size(1);
@@ -2404,7 +2405,11 @@ class StackedJagged2DToDenseGPUOp
 
     auto [padded_values_per_key, offsets_tensor_per_key] =
         stacked_jagged_2d_to_dense_forward_cuda(
-            values, lengths, offset_per_key, max_lengths_per_key);
+            values,
+            lengths,
+            offset_per_key,
+            max_lengths_per_key,
+            padding_value);
     ctx->saved_data["offsets_tensor_per_key"] = offsets_tensor_per_key;
 
     return padded_values_per_key;
@@ -2427,7 +2432,8 @@ class StackedJagged2DToDenseGPUOp
         grad_values,
         Variable(), // lengths
         Variable(), // offset_per_key
-        Variable() // max_lengths_per_key
+        Variable(), // max_lengths_per_key
+        Variable(), // padding_value
     };
   }
 };
@@ -2436,14 +2442,15 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
     Tensor values,
     Tensor lengths,
     const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key) {
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
   TENSOR_ON_CUDA_GPU(values);
   TENSOR_ON_CUDA_GPU(lengths);
   TENSORS_ON_SAME_DEVICE(values, lengths);
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(lengths.dim() == 2);
   return StackedJagged2DToDenseGPUOp::apply(
-      values, lengths, offset_per_key, max_lengths_per_key);
+      values, lengths, offset_per_key, max_lengths_per_key, padding_value);
 }
 
 } // namespace fbgemm_gpu
