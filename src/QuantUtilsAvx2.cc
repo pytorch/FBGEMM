@@ -166,6 +166,9 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   float inverse_scale = 1.f / qparams.scale;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
+  (void)inverse_scale; // Suppress unused variable warning
+  (void)min_val; // Suppress unused variable warning
+  (void)max_val; // Suppress unused variable warning
 #if defined(__AVX2__) && (defined(__FMA__) || defined(_MSC_VER))
 
   constexpr int VLEN = 8;
