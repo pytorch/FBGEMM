@@ -3440,11 +3440,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 [
                     SparseType.FP32,
                     SparseType.FP16,
-                    # CPU sequence embedding does not support FP8/INT4/INT2 yet
+                    # CPU sequence embedding does not support FP8 yet
                     # SparseType.FP8,
                     SparseType.INT8,
-                    # SparseType.INT4,
-                    # SparseType.INT2,
+                    SparseType.INT4,
+                    SparseType.INT2,
                 ]
             )
 
