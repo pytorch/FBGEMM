@@ -987,6 +987,85 @@ Tensor jagged_1d_to_dense_cpu(
 
   return jagged_to_padded_dense(values, {offsets}, {max_L}, padding_value);
 }
+
+std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
+    Tensor values,
+    Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(lengths.dim() == 2);
+
+  const auto lengths_contig = lengths.contiguous();
+  int32_t B = lengths.size(1);
+  int32_t T = lengths.size(0);
+  auto offsets = at::empty({B + 1}, lengths.options());
+  offsets[0].zero_();
+  std::vector<Tensor> padded_values_per_key;
+  for (int32_t t = 0; t < T; t++) {
+    int64_t max_L = max_lengths_per_key[t];
+    AT_DISPATCH_INDEX_TYPES(
+        lengths_contig.scalar_type(), "length_to_offset_cpu_kernel", [&] {
+          index_t cumsum = 0;
+          const auto* input_ptr = &(lengths_contig.data_ptr<index_t>()[t * B]);
+          auto* output_ptr = offsets.data_ptr<index_t>() + 1;
+          for (const auto i : c10::irange(B)) {
+            cumsum += input_ptr[i];
+            output_ptr[i] = cumsum;
+          }
+        });
+    padded_values_per_key.push_back(jagged_to_padded_dense(
+        values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
+        {offsets},
+        {max_L},
+        padding_value));
+  }
+
+  return padded_values_per_key;
+}
+
+// stacked ops
+std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
+    Tensor values,
+    Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 2);
+  TORCH_CHECK(lengths.dim() == 2);
+
+  const auto lengths_contig = lengths.contiguous();
+  int32_t B = lengths.size(1);
+  int32_t T = lengths.size(0);
+  std::vector<Tensor> padded_values_per_key;
+  std::vector<Tensor> offsets_tensor_per_key;
+  for (int32_t t = 0; t < T; t++) {
+    int64_t max_L = max_lengths_per_key[t];
+    auto offsets = at::empty({B + 1}, lengths.options());
+    offsets[0].zero_();
+    AT_DISPATCH_INDEX_TYPES(
+        lengths_contig.scalar_type(), "length_to_offset_cpu_kernel", [&] {
+          index_t cumsum = 0;
+          const auto* input_ptr = &(lengths_contig.data_ptr<index_t>()[t * B]);
+          auto* output_ptr = offsets.data_ptr<index_t>() + 1;
+          for (const auto i : c10::irange(B)) {
+            cumsum += input_ptr[i];
+            output_ptr[i] = cumsum;
+          }
+        });
+    offsets_tensor_per_key.push_back(offsets);
+
+    padded_values_per_key.push_back(jagged_to_padded_dense(
+        values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
+        {offsets},
+        {max_L},
+        padding_value));
+  }
+
+  return padded_values_per_key;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -998,13 +1077,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
   m.def(
-      "stacked_jagged_2d_to_dense_forward(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> (Tensor[], Tensor[])");
+      "stacked_jagged_2d_to_dense_forward(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> (Tensor[], Tensor[])");
   m.def(
       "stacked_jagged_2d_to_dense_backward(int B, int D, int total_L, Tensor[] grad_padded_values_per_key, Tensor[] offsets_tensor_per_key, int[] offset_per_key) -> Tensor");
   m.def(
       "stacked_jagged_1d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value) -> Tensor[]");
   m.def(
-      "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key) -> Tensor[]");
+      "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> Tensor[]");
   m.def(
       "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
   // jagged + dense -> dense
@@ -1042,4 +1121,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "batched_dense_vec_jagged_2d_mul",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
+  DISPATCH_TO_CPU(
+      "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_cpu);
+  DISPATCH_TO_CPU(
+      "stacked_jagged_2d_to_dense", fbgemm_gpu::stacked_jagged_2d_to_dense_cpu);
 }
