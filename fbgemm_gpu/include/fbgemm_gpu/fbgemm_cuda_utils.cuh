@@ -98,10 +98,21 @@ struct Vec4T<float> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
