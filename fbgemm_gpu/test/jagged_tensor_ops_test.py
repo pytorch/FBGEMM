@@ -678,6 +678,36 @@ class JaggedTensorOpsTest(unittest.TestCase):
             precompute_total_L,
         )
 
+    # (8000+1) * 8 (size of the element of LongTensor/int64_t offsets)
+    # = ~62.5KB > 48KB default shared memory on V100/A100.
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.just(1),
+        outer_dense_size=st.just(8000),
+        inner_dense_size=st.just(16),
+        dtype=st.just(torch.half),
+        use_cpu=st.just(False),
+        precompute_total_L=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=1, deadline=None)
+    def test_dense_to_jagged_opt_large_batch(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        use_cpu: bool,
+        precompute_total_L: bool,
+    ) -> None:
+        self._test_dense_to_jagged(
+            num_jagged_dim,
+            outer_dense_size,
+            inner_dense_size,
+            dtype,
+            use_cpu,
+            precompute_total_L,
+        )
+
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 5),
