@@ -165,6 +165,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   {% else %}
   const int64_t D,
   {% endif %}
+  FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
@@ -191,7 +192,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   const int32_t B = (offsets.size(0) - 1) / T;
   {% endif %}
   const int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+  if (bb_t >= fd_B.D() * T) {
     return;
   }
   static_assert(
@@ -199,7 +200,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     "output_t can only be float or half or bytes now"
   );
 
-  const uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+  int32_t t;
+  int32_t bb;
+  fd_B.DivMod(bb_t, &t, &bb);
 
   {% if not nobag %}
   const int32_t D_start = D_offsets[t];
@@ -218,7 +221,6 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
 
-  const uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
 
   const int64_t weights_offset = weights_offsets[t];
   const int32_t D_total = padded_D(D, weight_ty);
@@ -668,6 +670,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -712,6 +715,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -759,6 +763,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -809,6 +814,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -861,6 +867,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -911,6 +918,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
