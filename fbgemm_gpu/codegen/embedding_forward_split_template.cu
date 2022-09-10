@@ -48,6 +48,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     int64_t D,
+    FixedDivisor fd_B,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {% if not dense %}
@@ -63,12 +64,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     int32_t T = weights_offsets.size(0);
     int32_t B = (offsets.size(0) - 1) / T;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-
     if (b_t >= B * T) {
         return;
     }
+    int32_t t;
+    int32_t b;
+    fd_B.DivMod(b_t, &t, &b);
     int64_t weights_offset = weights_offsets[t];
     index_t indices_start = offsets[t * B + b];
     index_t indices_end = offsets[t * B + b + 1];
@@ -175,6 +176,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {% else %}
     int64_t D,
     {% endif %}
+    FixedDivisor fd_B,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {% if not nobag %}
@@ -202,12 +204,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     int32_t B = (offsets.size(0) - 1) / T;
     {% endif %}
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-
     if (b_t >= B * T) {
         return;
     }
+    int32_t t;
+    int32_t b;
+    fd_B.DivMod(b_t, &t, &b);
     int64_t weights_offset = weights_offsets[t];
     {% if not nobag %}
     int32_t D_start = D_offsets[t];
@@ -534,6 +536,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 {% endif %}
                 weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                FixedDivisor(B),
                 indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 pooling_mode,
@@ -578,6 +581,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             {% endif %}
             weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             D,
+            FixedDivisor(B),
             indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
@@ -615,6 +619,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             {% endif %}
             weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             D,
+            FixedDivisor(B),
             indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
