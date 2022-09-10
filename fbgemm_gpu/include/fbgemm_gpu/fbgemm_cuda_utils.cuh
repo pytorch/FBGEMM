@@ -2494,6 +2494,9 @@ class FixedDivisor {
     *q = Div(n);
     *r = n - d_ * *q;
   }
+  DEVICE_INLINE int32_t D() const {
+    return d_;
+  }
 
  private:
   // Calculates magic multiplicative value and shift amount for calculating `q =
