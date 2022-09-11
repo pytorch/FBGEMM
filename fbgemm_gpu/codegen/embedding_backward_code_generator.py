@@ -405,7 +405,7 @@ def rowwise_adagrad() -> None:
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
         auto gx = grad_sum[i].acc.x;
         auto gy = grad_sum[i].acc.y;
@@ -413,7 +413,7 @@ def rowwise_adagrad() -> None:
         auto gw = grad_sum[i].acc.w;
         if (weight_decay_mode == 1) {
             // L2 regularization
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
@@ -423,7 +423,12 @@ def rowwise_adagrad() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -442,8 +447,8 @@ def rowwise_adagrad() -> None:
             correction = 1.0;
         }
     }
-    multiplier = shfl_sync(multiplier, 0);
-    correction = shfl_sync(correction, 0);
+    multiplier = SHFL_SYNC(multiplier, 0);
+    correction = SHFL_SYNC(correction, 0);
     """
     split_weight_update_cpu = """
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
@@ -526,7 +531,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
         auto gx = grad_sum[i].acc.x;
         auto gy = grad_sum[i].acc.y;
@@ -534,7 +539,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         auto gw = grad_sum[i].acc.w;
         if (weight_decay_mode == 1) {
             // L2 regularization
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
             Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
@@ -544,7 +549,12 @@ def rowwise_adagrad_with_weight_decay() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -563,8 +573,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
             correction = 1.0;
         }
     }
-    multiplier = shfl_sync(multiplier, 0);
-    correction = shfl_sync(correction, 0);
+    multiplier = SHFL_SYNC(multiplier, 0);
+    correction = SHFL_SYNC(correction, 0);
     """
     split_weight_update_cpu = """
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
@@ -658,16 +668,16 @@ def rowwise_adagrad_with_counter() -> None:
             l2_wd = 1.0;
         }
     }
-    freq = shfl_sync(freq, 0);
-    l2_wd = shfl_sync(l2_wd, 0);
+    freq = SHFL_SYNC(freq, 0);
+    l2_wd = SHFL_SYNC(l2_wd, 0);
 
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
 
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
         Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
         auto gx = grad_sum[i].acc.x + l2_wd * freq * weight_decay * weight.acc.x;
         auto gy = grad_sum[i].acc.y + l2_wd * freq * weight_decay * weight.acc.y;
@@ -677,7 +687,12 @@ def rowwise_adagrad_with_counter() -> None:
     }
 
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> adjusted_multiplier;
@@ -718,9 +733,9 @@ def rowwise_adagrad_with_counter() -> None:
             }
         }
     }
-    multiplier = shfl_sync(multiplier, 0);
-    adjusted_multiplier = shfl_sync(adjusted_multiplier, 0);
-    exp_reg_correction = shfl_sync(exp_reg_correction, 0);
+    multiplier = SHFL_SYNC(multiplier, 0);
+    adjusted_multiplier = SHFL_SYNC(adjusted_multiplier, 0);
+    exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
     """
     split_weight_update_cpu = """
         at::acc_type<grad_t, true> g_local_sum_square = 0.0;
@@ -815,9 +830,9 @@ def rowwise_weighted_adagrad() -> None:
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
         Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
         auto gx = grad_sum[i].acc.x + weight_decay * weight.acc.x;
         auto gy = grad_sum[i].acc.y + weight_decay * weight.acc.y;
@@ -826,7 +841,12 @@ def rowwise_weighted_adagrad() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -837,8 +857,8 @@ def rowwise_weighted_adagrad() -> None:
         multiplier = learning_rate * lambda / (cbrtf(new_sum_square_grads) + eps);
         correction = 1.0 - multiplier * weight_decay;
     }
-    multiplier = shfl_sync(multiplier, 0);
-    correction = shfl_sync(correction, 0);
+    multiplier = SHFL_SYNC(multiplier, 0);
+    correction = SHFL_SYNC(correction, 0);
     """
     split_weight_update_cpu = """
         // weight_decay not supported for cpu version
@@ -919,9 +939,9 @@ def lamb() -> None:
   }
 #pragma unroll 1
   for (int32_t i = 0;
-      i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+      i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
       ++i) {
-    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+    int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
     Vec4T<at::acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
     Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
 
@@ -948,9 +968,17 @@ def lamb() -> None:
     rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
+#else
       sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
+#endif
   const auto rtw_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, tile));
+#else
       sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
+#endif
    const auto true_ratio = weight_norm / rtw_norm;
 """
     split_weight_update = """
@@ -984,7 +1012,7 @@ def partial_rowwise_lamb() -> None:
 
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
     g_local_sum_square += grad_sum[i].acc.x * grad_sum[i].acc.x +
         grad_sum[i].acc.y * grad_sum[i].acc.y +
@@ -992,14 +1020,19 @@ def partial_rowwise_lamb() -> None:
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> m2;
     if (threadIdx.x == 0) {
         m2 = beta2 * momentum2[idx] + (1.0 - beta2) * g_avg_square;
         momentum2[idx] = m2;
     }
-    m2 = shfl_sync(m2, 0);
+    m2 = SHFL_SYNC(m2, 0);
     at::acc_type<cache_t, true> m2_hat = 1.0 / (sqrtf((m2 / (1.0 - powf(beta2, iter)))) + eps);
 
     at::acc_type<cache_t, true> weight_sum_sq = 0.0;
@@ -1011,9 +1044,9 @@ def partial_rowwise_lamb() -> None:
     }
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
 
         Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
         m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
@@ -1033,9 +1066,17 @@ def partial_rowwise_lamb() -> None:
         rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const auto weight_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
+#else
         sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
+#endif
     const auto rtw_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, tile));
+#else
         sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
+#endif
     const auto true_ratio = weight_norm / rtw_norm;
     """
 
@@ -1119,7 +1160,7 @@ def partial_rowwise_adam() -> None:
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
     g_local_sum_square += grad_sum[i].acc.x * grad_sum[i].acc.x +
         grad_sum[i].acc.y * grad_sum[i].acc.y +
@@ -1127,7 +1168,12 @@ def partial_rowwise_adam() -> None:
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square) / D;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
+#else
+        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
+#endif
+        / D;
 
     at::acc_type<cache_t, true> v_hat_t;
     if (threadIdx.x == 0) {
@@ -1135,7 +1181,7 @@ def partial_rowwise_adam() -> None:
         momentum2[idx] = v_t;
         v_hat_t = v_t / (1.0 - powf(beta2, iter));
     }
-    v_hat_t = shfl_sync(v_hat_t, 0);
+    v_hat_t = SHFL_SYNC(v_hat_t, 0);
     """
 
     split_weight_update = """
@@ -1186,17 +1232,25 @@ def lars_sgd() -> None:
   }
 #pragma unroll kMaxVecsPerThread
   for (int32_t i = 0;
-      i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+      i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
       ++i) {
-    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+    int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
     Vec4T<at::acc_type<cache_t,true>> weight = weight_row.load(d, qparams);
     weight_sum_sq += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
     grad_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
+#else
       sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
+#endif
   const auto grad_norm =
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(grad_sum_sq, tile));
+#else
       sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(grad_sum_sq));
+#endif
    const at::acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
 """
 

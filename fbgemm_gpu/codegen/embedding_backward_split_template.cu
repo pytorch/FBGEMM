@@ -9,6 +9,14 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+// We could use cooperative_groups and tile.sync(val, srcLane) but
+// __shfl_sync is ~10% faster.
+#define SHFL_SYNC(val, srcLane) __shfl_sync(shfl_sync_mask, val, srcLane, kThreadGroupSize)
+#else
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
+#endif
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -132,6 +140,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     FixedDivisor fd,
     {% endif %}
     {{ args.split_kernel_args | join(", ") }}) {
+  constexpr int kThreadGroupSize = kWarpSize;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+  using namespace cooperative_groups;
+  thread_block_tile<kThreadGroupSize> tile = tiled_partition<kThreadGroupSize>(this_thread_block());
+  const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#endif
   {% if not nobag %}
   int32_t T = D_offsets.size(0) - 1;
   const int32_t B = grad_output.size(0);
@@ -431,7 +447,8 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    size_t kMaxVecsPerThread>
+    size_t kMaxVecsPerThread,
+    size_t kThreadGroupSize = kWarpSize>
 __global__
 __launch_bounds__(kBackwardMaxThreads)
 void
@@ -525,11 +542,20 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
     int64_t idx = linear_index - hash_size;
 
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+    using namespace cooperative_groups;
+    thread_block_tile<kThreadGroupSize> tile = tiled_partition<kThreadGroupSize>(this_thread_block());
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#endif
+    constexpr int VEC_WIDTH = 4;
+
     const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
     const int32_t sl_start = 0;
     const int32_t sl_end = SL;
     Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
-    for (int32_t sl = sl_start; sl < sl_end; sl += kWarpSize) {
+    for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
         int32_t sl_j = sl + threadIdx.x;
         {% if not nobag %}
         int32_t b_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
@@ -545,22 +571,22 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         at::acc_type<cache_t, true> idx_weight = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
         {% endif %}
 
-        for (int32_t j = 0; j < kWarpSize && sl + j < sl_end; ++j) {
+        for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
-            int32_t b_j = shfl_sync(b, j);
-            int32_t D_start_j = shfl_sync(D_start, j);
+            int32_t b_j = SHFL_SYNC(b, j);
+            int32_t D_start_j = SHFL_SYNC(D_start, j);
             {% else %}
-            int32_t l_j = shfl_sync(l, j);
+            int32_t l_j = SHFL_SYNC(l, j);
             {% endif %}
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
             {% endif %}
 
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
-                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
-                int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+                int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                 {% if not nobag %}
                 Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
                     &grad_output[b_j][0] + D_start_j + d);
@@ -631,14 +657,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     float2 qparams_new;
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
         auto& grad = grad_sum[i];
         {{ split_weight_update }}
         if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
-            shared_weight_update_row[threadIdx.x + i * kWarpSize + threadIdx.y * kMaxVecsPerThread * kWarpSize] = weight_new;
+            shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize] = weight_new;
         } else {
             weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if type is not int8
         }
@@ -646,24 +672,24 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
         // calculate new qparams after row update
-        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kWarpSize], D);
+        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kThreadGroupSize], D);
         weight_row_template.store_qparams(qparams_new);
 
         // fetch cached updated row from shared mem and quantize on-the-fly when saving to lowp embedding
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-                i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-            weight_row_template.store(shared_weight_update_row[threadIdx.x  + i * kWarpSize + threadIdx.y * kMaxVecsPerThread * kWarpSize], d, qparams_new);
+            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+            weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, qparams_new);
         }
     }
     {% else %}
 #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         auto& grad = grad_sum[i];
         grad.store(&grad_dev_weights[weights_offset + idx * D + d]);
     }
@@ -930,14 +956,25 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                         ->philox_cuda_state(4);
             }
             {% endif %}
-            {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
+            // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
+            // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
+            {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
             {% if not nobag %}
-            if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
+            if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
             {% else %}
-            if (D <= {{ items_per_warp * kMaxVecsPerThread }}) {
+            if (D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
             {% endif %}
+            // hipcc can't use max in constexpr
+            constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
+            // If max_D is small, use fewer number of threads than kWarpSize.
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+            constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
+#else
+            constexpr int kThreadGroupSize = kWarpSize;
+#endif
             // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB), BT_block_size must be a power of two.
-            while (BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * {{ kMaxVecsPerThread }} >= used_shared_bytes) {
+            while (BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize * kMaxVecsPerThread >= used_shared_bytes) {
                 BT_block_size /= 2;
             }
             TORCH_CHECK(BT_block_size >= 1);
@@ -981,7 +1018,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
-                {{ kMaxVecsPerThread }}>,
+                kMaxVecsPerThread>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
 #endif
@@ -997,11 +1034,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
-                {{ kMaxVecsPerThread }}>
+                kMaxVecsPerThread>
                 <<<div_round_up(long_run_ids.numel(), kMaxThreads),
                     dim3(kWarpSize, BT_block_size),
                     BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
-                        {{ kMaxVecsPerThread }},
+                        kMaxVecsPerThread,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
                     {% if not dense %}
@@ -1060,7 +1097,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
-                {{ kMaxVecsPerThread }}>,
+                kMaxVecsPerThread,
+                kThreadGroupSize>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
 #endif
@@ -1075,9 +1113,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 at::acc_type<scalar_t, true>,
                 scalar_t,
                 {% endif %}
-                {{ kMaxVecsPerThread }}>
-                <<<div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kWarpSize),
-                    dim3(kWarpSize, kBackwardMaxThreads / kWarpSize),
+                kMaxVecsPerThread,
+                kThreadGroupSize>
+                <<<div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                    dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
                     BT_block_size * sizeof(
                     at::acc_type<
                     {% if not dense %}
@@ -1086,7 +1125,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     scalar_t
                     {% endif %},
                     true>) * 4 * kWarpSize *
-                        {{ kMaxVecsPerThread }},
+                        kMaxVecsPerThread,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
                     {% if not dense %}
@@ -1136,6 +1175,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         }
+        {% endif %}
         {% endfor %}
         });
 
