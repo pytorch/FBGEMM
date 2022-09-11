@@ -17,6 +17,16 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
+// This #if block MUST be after the includes above!
+#if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
+#else
+#define CAN_USE_SUBWARP_SHUFFLE
+// We could use cooperative_groups and tile.sync(val, srcLane) but
+// __shfl_sync is ~10% faster.
+#define SHFL_SYNC(val, srcLane) __shfl_sync(shfl_sync_mask, val, srcLane, kThreadGroupSize)
+#endif
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -91,7 +101,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
         D_emb += kINT8QparamsBytes;
     }
 
-    constexpr int32_t kNumThreadGroup = kWarpSize / kThreadGroupSize;
     const int32_t group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
     const int32_t group_end = group_start + kThreadGroupSize;
     const int32_t d = threadIdx.x % kThreadGroupSize * 4;
@@ -115,7 +124,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
                 const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
                 D,
                 nullptr);
-            float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+            // assume cache is fp16/fp32 which doesn't require qparams
+            float2 qparams_cache = make_float2(0.0f, 0.0f);
 
             {% endif %}
             auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
@@ -156,10 +166,11 @@ template <
     typename output_t,
     bool use_lxu_cache,
     {% endif %}
-    typename index_t
+    typename index_t,
     {% if not nobag %}
-    ,size_t kMaxVecsPerThread
+    size_t kMaxVecsPerThread,
     {% endif %}
+    size_t kThreadGroupSize = kWarpSize
     >
 __launch_bounds__(kForwardMaxThreads)
 __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel(
@@ -237,10 +248,15 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         D_emb += kINT8QparamsBytes;
     }
 
+    constexpr int VEC_WIDTH = 4;
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+
     {% if not nobag %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {% endif %}
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
+    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {% if not dense %}
@@ -249,17 +265,17 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         {% if weighted %}
         at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
         {% endif %}
-        for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = shfl_sync(idx, j);
+        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
+            int64_t idx_j = SHFL_SYNC(idx, j);
             {% if nobag %}
             int64_t output_j = indices_start + l_start + j;
             {% endif %}
             {% if not dense %}
-            int32_t cache_idx_j = use_lxu_cache ? shfl_sync(cache_idx, j) : 0;
+            int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
             {% endif %}
 
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
             {% endif %}
 
             {% if not dense %}
@@ -270,14 +286,15 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
                     D,
                     nullptr);
-                float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+                // assume cache is fp16/fp32 which doesn't require qparams
+                float2 qparams_cache = make_float2(0.0f, 0.0f);
 
                 {% if not nobag %}
                 #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0;
-                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
-                    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -286,8 +303,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% endif %}
                 }
                 {% else %}
-                for (int32_t i = 0; i < D; i+=4 * kWarpSize) {
-                    int32_t d = i + threadIdx.x * 4;
+                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
+                    int32_t d = i + threadIdx.x * VEC_WIDTH;
                     if (d < D) {
                         Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                         weight.store(&output[output_j][d]);
@@ -309,9 +326,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                 {% if not nobag %}
                 #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0;
-                    i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
-                    int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -320,8 +337,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% endif %}
                 }
                 {% else %}
-                for (int32_t i = 0; i < D; i+=4 * kWarpSize) {
-                    int32_t d = i + threadIdx.x * 4;
+                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
+                    int32_t d = i + threadIdx.x * VEC_WIDTH;
                     if (d < D) {
                         Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                         weight.store(&output[output_j][d]);
@@ -339,12 +356,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     if (!std::is_same<output_t, uint8_t>::value) {
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].mul_(1.0 / L);
             }
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             accumulators[i].store(&output[b][D_start + d]);
         }
     } else {
@@ -355,7 +372,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].mul_(1.0 / L);
@@ -370,9 +387,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             nearest_rounding_vector<output_t, cache_t>(&output[b][output_D_start + d], accumulators[i], qparams);
         }
         if (threadIdx.x == 0) {
@@ -384,9 +401,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     // no pooled embedding quantization fusion for dense embeddings
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
             accumulators[i].mul_(1.0 / L);
         }
@@ -529,15 +546,26 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {% if not dense %}
         if (use_lxu_cache == {{ use_cache }}) {
         {% endif %}
-            {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
-            if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
+            // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
+            // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
+            {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+            if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
+                // hipcc can't use max in constexpr
+                constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
+                // If max_D is small, use fewer number of threads than kWarpSize.
+#ifdef CAN_USE_SUBWARP_SHUFFLE
+                constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
+#else
+                constexpr int kThreadGroupSize = kWarpSize;
+#endif
                 {% if not dense %}
-                split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, {{ kMaxVecsPerThread }}><<<
+                split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% else %}
-                dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, {{ kMaxVecsPerThread }}><<<
+                dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% endif %}
-                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                    dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
                     dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
@@ -572,6 +600,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
                 return;
             }
+            {% endif %}
             {% endfor %}
         {% if not dense %}
         } // if (use_lxu_cache == {{ use_cache }})
