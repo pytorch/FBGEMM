@@ -17,14 +17,12 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
-// This #if block MUST be after the includes above!
-#if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
-#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
-#else
-#define CAN_USE_SUBWARP_SHUFFLE
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
 // We could use cooperative_groups and tile.sync(val, srcLane) but
 // __shfl_sync is ~10% faster.
 #define SHFL_SYNC(val, srcLane) __shfl_sync(shfl_sync_mask, val, srcLane, kThreadGroupSize)
+#else
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
 #endif
 
 {% if not dense %}
@@ -554,7 +552,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 // hipcc can't use max in constexpr
                 constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
                 // If max_D is small, use fewer number of threads than kWarpSize.
-#ifdef CAN_USE_SUBWARP_SHUFFLE
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
                 constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
 #else
                 constexpr int kThreadGroupSize = kWarpSize;

@@ -13,6 +13,11 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#if !defined(__HIP_PLATFORM_HCC__) && defined(CUDA_VERSION) && \
+    CUDA_VERSION >= 9000
+#define FBGEMM_USE_SUBWARP_SHUFFLE
+#include <cooperative_groups.h>
+#endif
 
 namespace {
 using fint32 = union fint32 {
@@ -697,6 +702,18 @@ DEVICE_INLINE T warpReduceAllSum(T val) {
   }
   return val;
 }
+
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+template <typename T, int tile_sz>
+DEVICE_INLINE T
+warpReduceAllSum(T val, cooperative_groups::thread_block_tile<tile_sz> g) {
+#pragma unroll
+  for (int mask = tile_sz / 2; mask > 0; mask >>= 1) {
+    val += g.shfl_xor(val, mask);
+  }
+  return val;
+}
+#endif
 
 // Correct for cases where x is not subnormal.
 static DEVICE_INLINE __half
