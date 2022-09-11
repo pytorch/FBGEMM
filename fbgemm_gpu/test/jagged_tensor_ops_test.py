@@ -653,8 +653,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
-        outer_dense_size=st.integers(0, 8),
-        inner_dense_size=st.sampled_from([16, 64, 96, 192]),
+        outer_dense_size=st.integers(0, 6000),
+        inner_dense_size=st.sampled_from([8, 16, 23, 24, 48, 50, 64, 72, 96, 192]),
         dtype=st.just(torch.half),
         use_cpu=st.just(False),
         precompute_total_L=st.booleans(),
