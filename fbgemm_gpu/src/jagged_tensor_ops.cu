@@ -703,8 +703,8 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
         y_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),    \
         output_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
         jagged_dims_tensor,                                                    \
-        [f_ = f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)       \
-            -> scalar_t { return f_(x, y); });                                 \
+        [f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)            \
+            -> scalar_t { return f(x, y); });                                  \
   }
 
 ///@addtogroup jagged-tensor-ops-cuda
@@ -830,8 +830,8 @@ void jagged_dense_elementwise_jagged_output_opt_(
                       .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
                   nnz,
                   E,
-                  [_f = f] __device__(__half x, __half y0, __half) -> __half {
-                    return _f(x, y0);
+                  [f] __device__(__half x, __half y0, __half) -> __half {
+                    return f(x, y0);
                   });
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         }); // AT_DISPATCH
@@ -1034,8 +1034,9 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
                       .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
                   nnz,
                   E,
-                  [_f = f] __device__(__half x, __half y0, __half y1)
-                      -> __half { return _f(x, y0, y1); });
+                  [f] __device__(__half x, __half y0, __half y1) -> __half {
+                    return f(x, y0, y1);
+                  });
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         }); // AT_DISPATCH
   } else {
