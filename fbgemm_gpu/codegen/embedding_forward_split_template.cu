@@ -247,9 +247,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     }
 
     constexpr int VEC_WIDTH = 4;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
         (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#endif
 
     {% if not nobag %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
