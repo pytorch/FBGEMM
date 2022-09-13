@@ -223,6 +223,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[torch.device] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
+        max_segment_length: int = -1,  #  Max segment length per index in a single batch: approximate result
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -230,6 +231,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
+        self.max_SL: int = max_segment_length
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -650,6 +652,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_locations,
             output_dtype=self.output_dtype,
+            max_SL=self.max_SL,
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
@@ -1352,6 +1355,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_table_map: Optional[List[int]] = None,  # [T]
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
+        max_segment_length: int = -1,  #  Max segment length per index in a single batch: approximate result
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1377,6 +1381,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D = D_offsets[-1]
         self.max_D = max(dims)
+        self.max_SL = max_segment_length
         self.register_buffer(
             "D_offsets",
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
@@ -1456,6 +1461,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
+            max_SL=self.max_SL,
         )
 
     @torch.jit.export

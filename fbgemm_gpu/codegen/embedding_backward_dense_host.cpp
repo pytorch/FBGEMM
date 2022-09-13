@@ -61,6 +61,7 @@ Tensor split_embedding_backward_codegen_dense_unweighted_exact_cuda(
     int64_t pooling_mode,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    int64_t max_segment_length_per_cta,
     double unused);
 
 Tensor split_embedding_backward_codegen_dense_weighted_exact_cuda(
@@ -77,6 +78,7 @@ Tensor split_embedding_backward_codegen_dense_weighted_exact_cuda(
     Tensor indice_weights,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    int64_t max_segment_length_per_cta,
     double unused);
 
 class SplitLookupFunction_Dense_Op
@@ -84,6 +86,7 @@ class SplitLookupFunction_Dense_Op
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
+      int64_t max_SL,
       Tensor dev_weights,
       Tensor weights_offsets,
       Tensor D_offsets,
@@ -109,6 +112,7 @@ class SplitLookupFunction_Dense_Op
 
     ctx->saved_data["total_D"] = total_D;
     ctx->saved_data["max_D"] = max_D;
+    ctx->saved_data["max_SL"] = max_SL;
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["pooling_mode"] = pooling_mode;
 
@@ -159,6 +163,7 @@ class SplitLookupFunction_Dense_Op
 
     auto total_D = ctx->saved_data["total_D"].toInt();
     auto max_D = ctx->saved_data["max_D"].toInt();
+    auto max_SL = ctx->saved_data["max_SL"].toInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
 
@@ -171,6 +176,7 @@ class SplitLookupFunction_Dense_Op
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;
 #endif
+    const int32_t max_segment_length_per_cta = 512;
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
@@ -199,8 +205,10 @@ class SplitLookupFunction_Dense_Op
               pooling_mode,
               BT_block_size,
               max_segment_length_per_warp,
+              max_SL,
               /* unused=*/0.0);
       return {
+          Variable(), // max_SL
           grad_dev_weights,
           Variable(), // weights_offsets
           Variable(), // D_offsets
@@ -240,8 +248,10 @@ class SplitLookupFunction_Dense_Op
               indice_weights,
               BT_block_size,
               max_segment_length_per_warp,
+              max_SL,
               /* unused=*/0.0);
       return {
+          Variable(), // max_SL
           grad_dev_weights,
           Variable(), // weights_offsets
           Variable(), // D_offsets
@@ -279,6 +289,7 @@ Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
     Tensor offsets,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    int64_t max_segment_length_per_cta,
     double unused);
 
 class SplitNoBagLookupFunction_Dense_Op
@@ -286,6 +297,7 @@ class SplitNoBagLookupFunction_Dense_Op
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
+      int64_t max_SL,
       Tensor dev_weights,
       Tensor weights_offsets,
       int64_t D,
@@ -302,6 +314,7 @@ class SplitNoBagLookupFunction_Dense_Op
     });
 
     ctx->saved_data["D"] = D;
+    ctx->saved_data["max_SL"] = max_SL;
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
 
     return {dense_embedding_nobag_codegen_forward_unweighted_cuda(
@@ -320,12 +333,18 @@ class SplitNoBagLookupFunction_Dense_Op
     auto offsets = *savedItr++;
 
     auto D = ctx->saved_data["D"].toInt();
+    auto max_SL = ctx->saved_data["max_SL"].toInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
 
     TORCH_CHECK(grad_outputs.size() == 1);
 
+#ifdef __HIP_PLATFORM_HCC__
+    constexpr int32_t BT_block_size = 64;
+    constexpr int32_t max_segment_length_per_warp = 64;
+#else
     constexpr int32_t BT_block_size = 32;
     constexpr int32_t max_segment_length_per_warp = 32;
+#endif
     using torch::autograd::Variable;
 
     auto grad_output = grad_outputs[0];
@@ -351,8 +370,10 @@ class SplitNoBagLookupFunction_Dense_Op
             offsets,
             BT_block_size,
             max_segment_length_per_warp,
+            max_SL,
             0);
     return {
+        Variable(), // max_SL
         grad_dev_weights, // grad_dev_weights
         Variable(), // weights_offsets
         Variable(), // D
@@ -376,9 +397,11 @@ Tensor split_embedding_codegen_lookup_dense_function(
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad) {
+    c10::optional<Tensor> feature_requires_grad,
+    int64_t max_SL = -1) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_Dense_Op::apply(
+        max_SL,
         dev_weights,
         weights_offsets,
         max_D,
@@ -388,6 +411,7 @@ Tensor split_embedding_codegen_lookup_dense_function(
         offsets)[0];
   } else {
     return SplitLookupFunction_Dense_Op::apply(
+        max_SL,
         dev_weights,
         weights_offsets,
         D_offsets,

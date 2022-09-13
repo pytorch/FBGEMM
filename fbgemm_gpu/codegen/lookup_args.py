@@ -30,6 +30,7 @@ class CommonArgs(NamedTuple):
     feature_requires_grad: Optional[torch.Tensor]
     lxu_cache_locations: torch.Tensor
     output_dtype: int
+    max_SL: int
 
 
 class OptimizerArgs(NamedTuple):

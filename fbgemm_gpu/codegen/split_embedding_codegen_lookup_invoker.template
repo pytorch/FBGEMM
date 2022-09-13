@@ -169,4 +169,5 @@ def invoke(
             iter=iter,
             {% endif %}
             output_dtype=common_args.output_dtype,
+            max_SL=common_args.max_SL,
         )

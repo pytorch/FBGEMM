@@ -106,8 +106,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
-    int32_t B,
-    int64_t D,
+    const int32_t B,
+    const int64_t D,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
@@ -131,8 +131,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {% endif %}
+    const int32_t max_segment_length_per_cta,
     {% if not dense %}
-    bool stochastic_rounding,
+    const bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
@@ -163,7 +164,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             sorted_linear_indices_cumulative_run_lengths[current_run_id];
         const int32_t segment_end =
             sorted_linear_indices_cumulative_run_lengths[current_run_id + 1];
-        const int32_t SL = segment_end - segment_start;
+        const int32_t SL = max_segment_length_per_cta == -1 ? segment_end - segment_start : min(segment_end - segment_start, max_segment_length_per_cta);
         const int32_t warp_id = threadIdx.y;
         const int32_t lane_id = threadIdx.x;
 
@@ -729,6 +730,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
     int64_t unused_,
     int64_t max_segment_length_per_warp,
+    int64_t max_segment_length_per_cta, // will output results with approximations
     {% if not dense %}
     bool stochastic_rounding,
     {% endif %}
@@ -1019,8 +1021,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 kThreadGroupSize>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
-#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
             // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 {% if not dense %}
@@ -1073,6 +1075,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if weighted %}
                     indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
                     {% endif %}
+                    max_segment_length_per_cta,
                     {% if not dense %}
                     stochastic_rounding,
                     rng_engine_inputs,
@@ -1100,8 +1103,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 kThreadGroupSize>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
-#endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
                 emb_t,
