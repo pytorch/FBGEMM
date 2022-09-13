@@ -294,10 +294,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     // equivalent to fence + wait.
     cp_async_wait<0>();
 #ifdef __HIP_PLATFORM_HCC__
-    // performance: replace global __syncthreads with per CU __threadfence_block
-    // __threadfence_block is perfectly fine replacement for __syncwarp, because
+    // Performance - replace a block level __syncthreads with per CU __threadfence_block
+    // __threadfence_block is fine replacement for __syncwarp on AMD GPUs, it is because
     // a. memory fencing: __threadfence_block ops. at CU level, same as __syncwarp at SM
-    // b. thread re-converge: __syncwarp at scope of warp; AMD wave executes in lockstep
+    // b. threads re-converge: wave executes in lockstep, no need __syncwarp re-converge
     __threadfence_block();
 #else
     __syncwarp();
