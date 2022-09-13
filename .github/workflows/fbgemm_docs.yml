@@ -69,6 +69,7 @@ jobs:
         which doxygen
     - name: Build the docset
       run: |
+        cp /opt/buildhome/python3.8/lib/python3.8/site-packages/fbgemm_gpu/fbgemm_gpu_py.so ./fbgemm_gpu/fbgemm_gpu/fbgemm_gpu_py.so
         conda run -n build_binary python -m pip install -r fbgemm_gpu/docs/requirements.txt
         cd ./fbgemm_gpu/docs
         conda run -n build_binary doxygen Doxyfile.in
