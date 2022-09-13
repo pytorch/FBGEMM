@@ -59,6 +59,13 @@ jobs:
     - name: Install fbgemm_gpu nightly
       run: |
         conda run -n build_binary python -m pip install fbgemm-gpu-nightly-cpu
+    - name: Test fbgemm_gpu installation
+      shell: bash
+      run: |
+        cd fbgemm_gpu/docs
+        conda run -n build_binary \
+          python -c "import fbgemm_gpu"
+        cd -
     - name: Install Doxygen
       run: |
         conda install -n build_binary -c conda-forge doxygen
