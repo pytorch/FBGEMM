@@ -36,7 +36,6 @@ jobs:
     - name: create conda env
       run: |
         conda create --name build_binary python=3.9
-        echo "\n\n\n\n\nconda info\n\n\n\n\n"
         conda info
     - name: check python version
       run: |
@@ -62,10 +61,8 @@ jobs:
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
-        cd ..
         conda run -n build_binary \
           python -c "import fbgemm_gpu"
-        cd -
     - name: Install Doxygen
       run: |
         conda install -n build_binary -c conda-forge doxygen
