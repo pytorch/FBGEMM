@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 jobs:
   build_docs_job:
     runs-on: linux.2xlarge
@@ -69,7 +72,6 @@ jobs:
         which doxygen
     - name: Build the docset
       run: |
-        conda run -n build_binary python fbgemm_gpu/setup.py install
         conda run -n build_binary python -m pip install -r fbgemm_gpu/docs/requirements.txt
         cd ./fbgemm_gpu/docs
         conda run -n build_binary doxygen Doxyfile.in
