@@ -62,7 +62,7 @@ jobs:
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
-        cd fbgemm_gpu/docs
+        cd ..
         conda run -n build_binary \
           python -c "import fbgemm_gpu"
         cd -
