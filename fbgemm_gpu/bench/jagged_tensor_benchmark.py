@@ -136,5 +136,50 @@ def device(
     logging.info(f"dense_to_jagged (1d) {time} sec {num_bytes / time / 1e9} GB/s")
 
 
+@cli.command()
+@click.option("--batch-size", type=int, default=1)
+@click.option("--h-dim", type=int, default=3)
+@click.option("--embedding-dim", type=int, default=16)
+@click.option("--max-len", type=int, default=10)
+@click.option("--elem-type", type=str, default="half")
+def batched_dense_vec_jagged_2d_mul(
+    batch_size: int,
+    h_dim: int,
+    embedding_dim: int,
+    max_len: int,
+    elem_type: str,
+) -> None:
+
+    lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
+    total_lengths = lengths.sum().item()
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    dtype = (
+        torch.float16
+        if elem_type == "half" or elem_type == "float16"
+        else torch.float32
+    )
+    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+    values_2d = torch.rand(total_lengths, h_dim * embedding_dim, dtype=dtype)
+    dense = torch.rand(batch_size * h_dim, max_len, dtype=dtype)
+    if torch.cuda.is_available():
+        offsets = offsets.cuda()
+        values_2d = values_2d.cuda()
+        dense = dense.cuda()
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
+        (dense, values_2d, offsets),
+        iters=1000,
+    )
+
+    # Account for the fact that each matmul inner dim was limited to max_len
+    computed_lengths = torch.minimum(lengths, torch.ones(batch_size) * max_len)
+    total_computed_lengths = computed_lengths.sum().item()
+    num_flops = total_computed_lengths * h_dim * embedding_dim * 2.0
+    logging.info(
+        f"batched_dense_vec_jagged_2d_mul {time} sec {num_flops / time / 1e9} GFLOP/s"
+    )
+
+
 if __name__ == "__main__":
     cli()
