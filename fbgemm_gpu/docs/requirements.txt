@@ -10,4 +10,3 @@ docutils==0.16
 bs4
 lxml
 six
-fbgemm_gpu
