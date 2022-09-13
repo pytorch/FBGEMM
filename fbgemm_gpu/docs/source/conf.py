@@ -20,12 +20,12 @@ import sys
 import pytorch_sphinx_theme
 
 
-for dir_i in os.listdir("../.."):
-    if dir_i == "fbgemm_gpu":
-        continue
-    possible_dir = os.path.join("../..", dir_i)
-    if os.path.isdir(possible_dir):
-        sys.path.insert(0, possible_dir)
+# for dir_i in os.listdir("../.."):
+#     if dir_i == "fbgemm_gpu":
+#         continue
+#     possible_dir = os.path.join("../..", dir_i)
+#     if os.path.isdir(possible_dir):
+#         sys.path.insert(0, possible_dir)
 
 # Doxygen
 subprocess.call("doxygen Doxyfile.in", shell=True)
