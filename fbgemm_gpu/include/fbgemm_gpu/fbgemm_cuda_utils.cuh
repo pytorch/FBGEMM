@@ -237,10 +237,21 @@ struct Vec4T<at::Half> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
@@ -419,10 +430,42 @@ struct Vec4T<at::BFloat16> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
+#ifdef __HIP_PLATFORM_HCC__
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(p));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(p));
+#endif
+
+    float2 a = __half22float2(out.a);
+    float2 b = __half22float2(out.b);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
+#endif
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -548,10 +591,21 @@ struct Vec4T<double> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
