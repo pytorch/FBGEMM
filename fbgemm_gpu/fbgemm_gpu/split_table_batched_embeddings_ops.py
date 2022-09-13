@@ -216,7 +216,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         momentum: float = 0.9,  # used by LARS-SGD
         weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad
         # used by Rowwise Adagrad. LARS-SGD, LAMB and ADAM only supports decoupled weight decay
-        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
