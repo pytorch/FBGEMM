@@ -36,6 +36,7 @@ jobs:
     - name: create conda env
       run: |
         conda create --name build_binary python=3.9
+        echo "\n\n\n\n\nconda info\n\n\n\n\n"
         conda info
     - name: check python version
       run: |
