@@ -9,13 +9,7 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-// We could use cooperative_groups and tile.sync(val, srcLane) but
-// __shfl_sync is ~10% faster.
-#define SHFL_SYNC(val, srcLane) __shfl_sync(shfl_sync_mask, val, srcLane, kThreadGroupSize)
-#else
-#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
-#endif
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
@@ -167,11 +161,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const bool use_deterministic_algorithms,
     {{ args.split_kernel_args | join(", ") }}) {
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-  using namespace cooperative_groups;
-  thread_block_tile<kThreadGroupSize> tile = tiled_partition<kThreadGroupSize>(this_thread_block());
   const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
         (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+  const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
   constexpr int VEC_WIDTH = 4;
   {% if not nobag %}
@@ -619,11 +613,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int64_t idx = linear_index - hash_size;
 
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-    using namespace cooperative_groups;
-    thread_block_tile<kThreadGroupSize> tile = tiled_partition<kThreadGroupSize>(this_thread_block());
     const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
         (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
     constexpr int VEC_WIDTH = 4;
 

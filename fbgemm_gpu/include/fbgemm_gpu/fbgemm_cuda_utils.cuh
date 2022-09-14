@@ -16,7 +16,6 @@
 #if !defined(__HIP_PLATFORM_HCC__) && defined(CUDA_VERSION) && \
     CUDA_VERSION >= 9000
 #define FBGEMM_USE_SUBWARP_SHUFFLE
-#include <cooperative_groups.h>
 #endif
 
 namespace {
@@ -730,44 +729,40 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 }
 
 template <typename T>
-DEVICE_INLINE T shfl_xor(const T val, int laneMask, int width = kWarpSize) {
+DEVICE_INLINE T shfl_xor(
+    const T val,
+    int laneMask,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = 0xffffffffu) {
 #if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl_xor(val, laneMask, width);
 #else
-  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
+  return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
 #endif
 }
 
 template <typename T>
-DEVICE_INLINE T shfl_sync(const T val, int srcLane = 0, int width = kWarpSize) {
+DEVICE_INLINE T shfl_sync(
+    const T val,
+    int srcLane = 0,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = 0xffffffffu) {
 #if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl(val, srcLane, width);
 #else
-  return __shfl_sync(0xffffffff, val, srcLane, width);
+  return __shfl_sync(shfl_sync_mask, val, srcLane, width);
 #endif
 }
 
 /// Sums a register value across all warp threads
 template <typename T, int ReduceWidth = kWarpSize>
-DEVICE_INLINE T warpReduceAllSum(T val) {
+DEVICE_INLINE T warpReduceAllSum(T val, unsigned shfl_sync_mask = 0xffffffffu) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-    val += shfl_xor(val, mask);
+    val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
   }
   return val;
 }
-
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-template <typename T, int tile_sz>
-DEVICE_INLINE T
-warpReduceAllSum(T val, cooperative_groups::thread_block_tile<tile_sz> g) {
-#pragma unroll
-  for (int mask = tile_sz / 2; mask > 0; mask >>= 1) {
-    val += g.shfl_xor(val, mask);
-  }
-  return val;
-}
-#endif
 
 // Correct for cases where x is not subnormal.
 static DEVICE_INLINE __half
