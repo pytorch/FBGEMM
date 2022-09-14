@@ -423,12 +423,7 @@ def rowwise_adagrad() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -549,12 +544,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -687,12 +677,7 @@ def rowwise_adagrad_with_counter() -> None:
     }
 
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> adjusted_multiplier;
@@ -841,12 +826,7 @@ def rowwise_weighted_adagrad() -> None:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -968,17 +948,9 @@ def lamb() -> None:
     rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
-#else
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, shfl_sync_mask));
   const auto rtw_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, tile));
-#else
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, shfl_sync_mask));
    const auto true_ratio = weight_norm / rtw_norm;
 """
     split_weight_update = """
@@ -1020,12 +992,7 @@ def partial_rowwise_lamb() -> None:
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
 
     at::acc_type<cache_t, true> m2;
     if (threadIdx.x == 0) {
@@ -1066,17 +1033,9 @@ def partial_rowwise_lamb() -> None:
         rtw_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const auto weight_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
-#else
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
     const auto rtw_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, tile));
-#else
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(rtw_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq));
     const auto true_ratio = weight_norm / rtw_norm;
     """
 
@@ -1168,12 +1127,7 @@ def partial_rowwise_adam() -> None:
         grad_sum[i].acc.w * grad_sum[i].acc.w;
     }
     const at::acc_type<cache_t, true> g_avg_square =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, tile)
-#else
-        warpReduceAllSum<at::acc_type<cache_t, true>>(g_local_sum_square)
-#endif
-        / D;
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
     if (threadIdx.x == 0) {
@@ -1240,17 +1194,9 @@ def lars_sgd() -> None:
     grad_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }
   const auto weight_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, tile));
-#else
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(weight_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
   const auto grad_norm =
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(grad_sum_sq, tile));
-#else
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>>(grad_sum_sq));
-#endif
+      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(grad_sum_sq));
    const at::acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
 """
 

@@ -17,13 +17,7 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-// We could use cooperative_groups and tile.sync(val, srcLane) but
-// __shfl_sync is ~10% faster.
-#define SHFL_SYNC(val, srcLane) __shfl_sync(shfl_sync_mask, val, srcLane, kThreadGroupSize)
-#else
-#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane)
-#endif
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
@@ -251,6 +245,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
         (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
 
     {% if not nobag %}
