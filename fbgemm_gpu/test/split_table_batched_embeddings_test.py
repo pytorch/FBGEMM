@@ -1349,42 +1349,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             param.requires_grad = False
         torch.autograd.gradcheck(cc, (indices, offsets, per_sample_weights))
 
-    @given(
-        T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=256),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
-        weighted=st.booleans(),
-        mixed=st.booleans(),
-        use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        long_segments=st.booleans(),
-        pooling_mode=st.sampled_from(
-            [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
-            ]
-        ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
-        exact=st.booleans(),
-        output_dtype=st.just(SparseType.FP32),
-    )
-    @settings(
-        verbosity=Verbosity.verbose,
-        max_examples=MAX_EXAMPLES,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
-    )
-    def test_backward_sgd(  # noqa C901
+    def execute_backward_sgd_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1597,11 +1562,128 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 new_weights[t].half()
                 if weights_precision == SparseType.FP16 and not use_cpu
                 else new_weights[t],
-                atol=(1.0e-2 if long_segments else 5.0e-3)
-                if weights_precision == SparseType.FP16
-                else 1.0e-5,
-                rtol=2.0e-2 if weights_precision == SparseType.FP16 else 1.0e-5,
+                atol=1.0e-2
+                if long_segments
+                else (5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5),
+                rtol=1.0e-1
+                if long_segments
+                else (2.0e-2 if weights_precision == SparseType.FP16 else 1.0e-5),
             )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
+        exact=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_sgd(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+        exact: bool,
+    ) -> None:
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            exact,
+            SparseType.FP32,  # output_dtype
+        )
+
+    @given(
+        D=st.integers(min_value=2, max_value=10),
+        B=st.sampled_from([1152, 2048]),
+        L=st.integers(min_value=1, max_value=4),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+        ),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_sgd_really_long_segments(  # noqa C901
+        self,
+        D: int,
+        B: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+    ) -> None:
+        self.execute_backward_sgd_(
+            2,  # T
+            D,
+            B,
+            1,  # log_E,
+            L,
+            SparseType.FP32,  # weights_precision
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            True,  # long_segments
+            split_table_batched_embeddings_ops.PoolingMode.SUM,  # pooling_mode
+            False,  # use_cpu
+            True,  # exact
+            SparseType.FP32,  # output_dtype
+        )
 
     def execute_backward_adagrad_(  # noqa C901
         self,

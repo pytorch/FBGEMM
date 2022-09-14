@@ -34,14 +34,34 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
         sorted_linear_indices_run_lengths,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
-    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
-    int32_t max_segment_length_per_warp) {
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        long_run_id_to_really_long_run_ids,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        num_really_long_run_ids,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        grad_accum_counter,
+    const int32_t max_segment_length_per_warp,
+    const int32_t max_segment_length_per_cta,
+    const bool use_deterministic_algorithms) {
   const int32_t num_runs = sorted_linear_indices_num_runs[0];
   for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs; run_id += blockDim.x * gridDim.x) {
     if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
-        auto long_run_idx = gpuAtomicIncrement(&num_long_run_ids[0]);
-        long_run_ids[long_run_idx] = run_id;
+        // A segment with length > max_segment_length_per_cta is handled by more than 1 thread block.
+        int num_ctas_for_run =
+            use_deterministic_algorithms ? 1 : div_round_up(sorted_linear_indices_run_lengths[run_id], max_segment_length_per_cta);
+        auto long_run_idx = gpuAtomicAdd(&num_long_run_ids[0], num_ctas_for_run);
+        for (int i = 0; i < num_ctas_for_run; ++i) {
+            long_run_ids[long_run_idx + i] = run_id;
+        }
+        if (num_ctas_for_run > 1) {
+            auto really_long_run_idx = gpuAtomicAdd(&num_really_long_run_ids[0], 1);
+            grad_accum_counter[really_long_run_idx] = num_ctas_for_run;
+            for (int i = 0; i < num_ctas_for_run; ++i) {
+                long_run_id_to_really_long_run_ids[long_run_idx + i] = really_long_run_idx;
+            }
+        }
     }
   }
 }
@@ -117,7 +137,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         sorted_linear_indices_cumulative_run_lengths,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -140,6 +160,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     FixedDivisor fd,
     {% endif %}
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const int32_t max_segment_length_per_cta,
+    const bool use_deterministic_algorithms,
     {{ args.split_kernel_args | join(", ") }}) {
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
   using namespace cooperative_groups;
@@ -158,11 +183,28 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
   const int32_t num_long_runs = num_long_run_ids[0];
   for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
         int32_t current_run_id = long_run_ids[long_run_id];
+
+        // Count the number of thread blocks working on the current run
+        int cta_rank_on_current_run = 0;
+        if (!use_deterministic_algorithms) {
+            for (int i = long_run_id - 1;
+                i >= 0 && current_run_id == long_run_ids[i];
+                --i, ++cta_rank_on_current_run);
+        }
+        int num_ctas_on_current_run = cta_rank_on_current_run + 1;
+        if (!use_deterministic_algorithms) {
+            for (int i = long_run_id + 1;
+                i < num_long_runs && current_run_id == long_run_ids[i];
+                ++i, ++num_ctas_on_current_run);
+        }
+
         const int64_t linear_index = sorted_linear_indices_run[current_run_id];
         const int32_t segment_start =
-            sorted_linear_indices_cumulative_run_lengths[current_run_id];
-        const int32_t segment_end =
-            sorted_linear_indices_cumulative_run_lengths[current_run_id + 1];
+            sorted_linear_indices_cumulative_run_lengths[current_run_id] +
+            cta_rank_on_current_run * max_segment_length_per_cta;
+        const int32_t segment_end = std::min(
+            use_deterministic_algorithms ? INT_MAX : segment_start + max_segment_length_per_cta,
+            sorted_linear_indices_cumulative_run_lengths[current_run_id + 1]);
         const int32_t SL = segment_end - segment_start;
         const int32_t warp_id = threadIdx.y;
         const int32_t lane_id = threadIdx.x;
@@ -234,7 +276,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 }
             }
         }
-        // do shared memory reduction only if we used multiple blocks.
+        // do shared memory reduction only if we used multiple warps.
         if (SL > SL_per_warp) {
             struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> smem;
             Vec4T<at::acc_type<cache_t, true>>* shared_grad_sums = smem.getPointer();
@@ -346,6 +388,37 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
         if (warp_id != 0) {
             continue;
+        }
+
+        if (num_ctas_on_current_run > 1) {
+            int really_long_run_id = long_run_id_to_really_long_run_ids[long_run_id];
+            Vec4T<at::acc_type<cache_t, true>> *temp_grad_accum_ptr =
+                reinterpret_cast<Vec4T<at::acc_type<cache_t, true>>*>(&temp_grad_accum[really_long_run_id][0]);
+#pragma unroll kMaxVecsPerThread
+            for (int32_t i = 0;
+                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                ++i) {
+                gpuAtomicAdd(&temp_grad_accum_ptr[lane_id + i * kThreadGroupSize].acc.x, grad_sum[i].acc.x);
+                gpuAtomicAdd(&temp_grad_accum_ptr[lane_id + i * kThreadGroupSize].acc.y, grad_sum[i].acc.y);
+                gpuAtomicAdd(&temp_grad_accum_ptr[lane_id + i * kThreadGroupSize].acc.z, grad_sum[i].acc.z);
+                gpuAtomicAdd(&temp_grad_accum_ptr[lane_id + i * kThreadGroupSize].acc.w, grad_sum[i].acc.w);
+            }
+            int counter;
+            if (threadIdx.x == 0) {
+                counter = gpuAtomicAdd(&grad_accum_counter[really_long_run_id], -1);
+            }
+            counter = SHFL_SYNC(counter, 0);
+            // Only the thread block accumulated the gradient last does the weight update.
+            if (counter > 1) {
+                continue;
+            }
+            CUDA_KERNEL_ASSERT(counter == 1 && "Invalid grad_accum_counter. Race condition?");
+#pragma unroll kMaxVecsPerThread
+            for (int32_t i = 0;
+                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                ++i) {
+                grad_sum[i] = temp_grad_accum_ptr[lane_id + i * kThreadGroupSize];
+            }
         }
 
         int64_t weights_offset = weights_offsets[t_0];
@@ -981,7 +1054,23 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
 
             auto long_run_ids = at::empty_like(sorted_linear_indices_run_lengths);
-            auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kLong));
+            auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
+
+            const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
+            const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 1024;
+            Tensor long_run_id_to_really_long_run_ids;
+            if (use_deterministic_algorithms) {
+                long_run_id_to_really_long_run_ids =
+                    at::empty(0, sorted_linear_indices_run_lengths.options());
+            } else {
+                long_run_id_to_really_long_run_ids =
+                    at::empty_like(sorted_linear_indices_run_lengths);
+            }
+            auto num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
+            auto grad_accum_counter = at::empty(
+                use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
+                indices.options().dtype(at::kInt));
+
             split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments<<<
                 div_round_up(indices.numel(), kMaxThreads),
                 kMaxThreads,
@@ -991,9 +1080,19 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 sorted_linear_indices_run_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                num_long_run_ids.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                max_segment_length_per_warp);
+                num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                num_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                max_segment_length_per_warp,
+                max_segment_length_per_cta,
+                use_deterministic_algorithms);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+            // A temp buffer to accumulate gradients with atomics.
+            auto temp_grad_accum = at::zeros(
+                {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
+                grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
             // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
             // "Compute capability 7.x devices allow a single thread block to
@@ -1061,7 +1160,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     sorted_linear_indices_cumulative_run_lengths
                         .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    num_long_run_ids.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% if not nobag %}
                     infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
@@ -1082,6 +1181,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if not nobag %}
                     FixedDivisor(B),
                     {% endif %}
+                    long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
+                    grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    max_segment_length_per_cta,
+                    use_deterministic_algorithms,
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 #ifndef __HIP_PLATFORM_HCC__
