@@ -13,6 +13,10 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#if !defined(__HIP_PLATFORM_HCC__) && defined(CUDA_VERSION) && \
+    CUDA_VERSION >= 9000
+#define FBGEMM_USE_SUBWARP_SHUFFLE
+#endif
 
 namespace {
 using fint32 = union fint32 {
@@ -98,10 +102,21 @@ struct Vec4T<float> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
@@ -221,10 +236,21 @@ struct Vec4T<at::Half> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
@@ -403,10 +429,42 @@ struct Vec4T<at::BFloat16> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
+#ifdef __HIP_PLATFORM_HCC__
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(p));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(p));
+#endif
+
+    float2 a = __half22float2(out.a);
+    float2 b = __half22float2(out.b);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
+#endif
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -532,10 +590,21 @@ struct Vec4T<double> {
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
-    acc.x = __half2float(p[0]);
-    acc.y = __half2float(p[1]);
-    acc.z = __half2float(p[2]);
-    acc.w = __half2float(p[3]);
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+    float2 b = __half22float2(tmp_out.h[1]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+    acc.z = b.x;
+    acc.w = b.y;
 #else
     Half4 out;
 #if CUDA_VERSION >= 9000
@@ -660,29 +729,37 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 }
 
 template <typename T>
-DEVICE_INLINE T shfl_xor(const T val, int laneMask, int width = kWarpSize) {
+DEVICE_INLINE T shfl_xor(
+    const T val,
+    int laneMask,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = 0xffffffffu) {
 #if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl_xor(val, laneMask, width);
 #else
-  return __shfl_xor_sync(0xffffffff, val, laneMask, width);
+  return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
 #endif
 }
 
 template <typename T>
-DEVICE_INLINE T shfl_sync(const T val, int srcLane = 0, int width = kWarpSize) {
+DEVICE_INLINE T shfl_sync(
+    const T val,
+    int srcLane = 0,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = 0xffffffffu) {
 #if defined(__HIP_PLATFORM_HCC__) || CUDA_VERSION < 9000
   return __shfl(val, srcLane, width);
 #else
-  return __shfl_sync(0xffffffff, val, srcLane, width);
+  return __shfl_sync(shfl_sync_mask, val, srcLane, width);
 #endif
 }
 
 /// Sums a register value across all warp threads
 template <typename T, int ReduceWidth = kWarpSize>
-DEVICE_INLINE T warpReduceAllSum(T val) {
+DEVICE_INLINE T warpReduceAllSum(T val, unsigned shfl_sync_mask = 0xffffffffu) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-    val += shfl_xor(val, mask);
+    val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
   }
   return val;
 }
@@ -2459,5 +2536,81 @@ __device__ int __any_sync(uint64_t mask, int predicate) {
   return (predicate_bit_pattern & mask) > 0;
 }
 #endif
+
+class FixedDivisor {
+ public:
+  explicit FixedDivisor(const int32_t d) : d_(d) {
+    CalcSignedMagic();
+  }
+
+  /// Calculates `q = n / d`.
+  DEVICE_INLINE int32_t Div(const int32_t n) const {
+    // In lieu of a mulhi instruction being available, perform the
+    // work in uint64
+    return (int32_t)((magic_ * (uint64_t)n) >> shift_);
+  }
+
+  /// Calculates `r = n % d`.
+  DEVICE_INLINE int32_t Mod(const int32_t n) const {
+    return n - d_ * Div(n);
+  }
+
+  /// Calculates `q = n / d` and `r = n % d` together.
+  DEVICE_INLINE void DivMod(const int32_t n, int32_t* q, int32_t* r) const {
+    *q = Div(n);
+    *r = n - d_ * *q;
+  }
+  DEVICE_INLINE int32_t D() const {
+    return d_;
+  }
+
+ private:
+  // Calculates magic multiplicative value and shift amount for calculating `q =
+  // n / d` for signed 32-bit integers.
+  // Implementation taken from Hacker's Delight section 10.
+  void CalcSignedMagic() {
+    if (d_ == 1) {
+      magic_ = UINT64_C(0x1) << 32;
+      shift_ = 32;
+      return;
+    }
+
+    const uint32_t two31 = UINT32_C(0x80000000);
+    const uint32_t ad = std::abs(d_);
+    const uint32_t t = two31 + ((uint32_t)d_ >> 31);
+    const uint32_t anc = t - 1 - t % ad; // Absolute value of nc.
+    uint32_t p = 31; // Init. p.
+    uint32_t q1 = two31 / anc; // Init. q1 = 2**p/|nc|.
+    uint32_t r1 = two31 - q1 * anc; // Init. r1 = rem(2**p, |nc|).
+    uint32_t q2 = two31 / ad; // Init. q2 = 2**p/|d|.
+    uint32_t r2 = two31 - q2 * ad; // Init. r2 = rem(2**p, |d|).
+    uint32_t delta = 0;
+    do {
+      ++p;
+      q1 <<= 1; // Update q1 = 2**p/|nc|.
+      r1 <<= 1; // Update r1 = rem(2**p, |nc|).
+      if (r1 >= anc) { // (Must be an unsigned comparison here).
+        ++q1;
+        r1 -= anc;
+      }
+      q2 <<= 1; // Update q2 = 2**p/|d|.
+      r2 <<= 1; // Update r2 = rem(2**p, |d|).
+      if (r2 >= ad) { // (Must be an unsigned comparison here).
+        ++q2;
+        r2 -= ad;
+      }
+      delta = ad - r2;
+    } while (q1 < delta || (q1 == delta && r1 == 0));
+    int32_t magic = q2 + 1;
+    if (d_ < 0) {
+      magic = -magic;
+    }
+    shift_ = p;
+    magic_ = (uint64_t)(uint32_t)magic;
+  }
+  int32_t d_ = 1;
+  uint64_t magic_;
+  int shift_;
+};
 
 } // namespace fbgemm_gpu

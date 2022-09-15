@@ -119,6 +119,18 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 self.assertEqual(o.device, dst_device)
                 torch.testing.assert_close(o.cpu(), i)
 
+    def test_merge_pooled_embeddings_cpu_with_different_target_device(self) -> None:
+        uncat_size = 2
+        pooled_embeddings = [torch.ones(uncat_size, 4), torch.ones(uncat_size, 8)]
+        output_meta = torch.ops.fbgemm.merge_pooled_embeddings(
+            pooled_embeddings,
+            uncat_size,
+            torch.device("meta"),
+            1,
+        )
+        self.assertFalse(output_meta.is_cpu)
+        self.assertTrue(output_meta.is_meta)
+
 
 if __name__ == "__main__":
     unittest.main()

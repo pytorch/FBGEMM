@@ -331,9 +331,9 @@ at::Tensor batch_auc(
     AT_DISPATCH_ALL_TYPES_AND(
         at::ScalarType::Half, labels.scalar_type(), "auc_wrapper_2", [&] {
           using label_t = scalar_t;
-          using acc_t = at::acc_type<scalar_t, true>;
           AT_DISPATCH_FLOATING_TYPES_AND_HALF(
               weights.scalar_type(), "auc_wrapper_3", [&] {
+                using acc_t = at::acc_type<scalar_t, true>;
                 if (padded_section_size == 1) {
                   LAUNCH_AUC_KERNEL(1)
                 } else {

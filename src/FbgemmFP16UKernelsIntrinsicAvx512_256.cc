@@ -5,8 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#ifdef _MSC_VER
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include "./FbgemmFP16UKernelsAvx512_256.h"
 
 namespace fbgemm {
@@ -118,4 +120,3 @@ void NOINLINE gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 } // namespace fbgemm
-#endif // _MSC_VER

@@ -368,6 +368,14 @@ at::Tensor stacked_jagged_2d_to_dense_backward_cuda(
     const std::vector<at::Tensor>& offsets_tensor_per_key,
     const std::vector<int64_t>& offset_per_key);
 
+///@ingroup sparse-data-cpu
+std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
+    at::Tensor values,
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value);
+
 ///@ingroup sparse-data-cuda
 at::Tensor jagged_1d_to_dense_gpu(
     at::Tensor values,
@@ -408,6 +416,14 @@ at::Tensor jagged_2d_to_dense_gpu_backward(
 
 ///@ingroup sparse-data-gpu
 std::vector<at::Tensor> stacked_jagged_1d_to_dense_gpu(
+    at::Tensor values,
+    at::Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value);
+
+///@ingroup sparse-data-cpu
+std::vector<at::Tensor> stacked_jagged_1d_to_dense_cpu(
     at::Tensor values,
     at::Tensor lengths,
     const std::vector<int64_t>& offset_per_key,

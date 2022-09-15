@@ -19,6 +19,7 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/detail/KernelUtils.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -405,47 +406,52 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state) {
-  const int32_t N = unique_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
 
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  if (n >= *N_unique) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] = C; // invalid index, used as sentinel
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    int64_t idx = unique_indices[n];
+    if (idx == max_indices) {
+      // cache_sets are initialized with sentinel values in
+      // lru_cache_find_uncached_cuda
+      continue;
     }
-    return;
-  }
-  int64_t idx = unique_indices[n];
-  if (idx == max_indices) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] = C; // invalid index, used as sentinel
-    }
-    return;
-  }
-  int32_t cache_set = cache_slot(idx, C);
+    int32_t cache_set = cache_slot(idx, C);
 
-  const auto slot = threadIdx.x;
-  const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
-  if (found) {
-    // mark it as existing.
-    cache_sets[n] = C; // invalid index, used as sentinel
-    // mark it as recently accessed so we don't evict.
-    lru_state[cache_set][slot] = time_stamp;
-  }
+    const auto slot = threadIdx.x;
+    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
+    if (found) {
+      // mark it as recently accessed so we don't evict.
+      lru_state[cache_set][slot] = time_stamp;
+    }
 
 #ifdef __HIP_PLATFORM_HCC__
-  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
-  if (!__any_sync(0xFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFF, found)) {
 #endif
-    if (threadIdx.x == 0) {
-      cache_sets[n] = cache_set;
+      if (threadIdx.x == 0) {
+        cache_sets[n] = cache_set;
+      }
     }
   }
 }
+
+namespace {
+
+// Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
+// not sensitive to grid size as long as the number thread blocks per SM is not
+// too small nor too big.
+constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
+
+int get_max_thread_blocks_for_cache_kernels_() {
+  cudaDeviceProp* deviceProp =
+      at::cuda::getDeviceProperties(c10::cuda::current_device());
+  return deviceProp->multiProcessorCount *
+      MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
+}
+
+} // namespace
 
 std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
     Tensor unique_indices,
@@ -462,8 +468,11 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
-  auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(at::kInt));
+  // Fill with sentinel value
+  auto cache_sets = full_like(
+      unique_indices,
+      lxu_cache_state.size(0),
+      unique_indices.options().dtype(at::kInt));
   const int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -472,7 +481,9 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
-            div_round_up(N, kMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -544,146 +555,145 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     const bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= *N_unique) {
-    return;
-  }
-  // check if this warp is responsible for this whole segment.
-  const bool segment_start =
-      (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    // check if this warp is responsible for this whole segment.
+    const bool segment_start =
+        (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
 
-  if (!segment_start) {
-    // don't have *warp* divergence since we launch full warps in blockDim.x,
-    // so we can just exit this warp entirely.
-    return;
-  }
-  const int32_t cache_set = sorted_cache_sets[n];
-  if (cache_set == C) {
-    // ignore the already-existing elements
-    return;
-  }
-
-  int32_t SL = 1;
-  while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
-    SL += 1;
-  }
-
-  // now, we need to insert the (unique!) values in indices[n:n + SL] into
-  // our slots.
-  const int32_t slot = threadIdx.x;
-  const int64_t slot_time = lru_state[cache_set][slot];
-  int64_t costs[1] = {slot_time};
-  int32_t slots[1] = {slot};
-
-  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-  const int32_t sorted_slot = slots[0];
-  const int64_t sorted_lru_cost = costs[0];
-
-  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-    const int32_t insert_slot = shfl_sync(sorted_slot, l);
-    const int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
-    if (insert_current_lru_cost == time_stamp) {
-      return;
+    if (!segment_start) {
+      // don't have *warp* divergence since we launch full warps in blockDim.x,
+      // so we can just exit this warp entirely.
+      continue;
     }
-    const int64_t insert_idx = cache_set_sorted_indices[n + l];
-    const int32_t t_insert = cache_index_table_map[insert_idx];
-    const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
-    const int64_t weights_offset_insert = weights_offsets[t_insert];
-    const int32_t D_start_insert = D_offsets[t_insert];
-    const int32_t D_end_insert = D_offsets[t_insert + 1];
-    const int32_t D_insert = D_end_insert - D_start_insert;
+    const int32_t cache_set = sorted_cache_sets[n];
+    if (cache_set == C) {
+      // ignore the already-existing elements
+      continue;
+    }
 
-    // ensure that threadIdx.x is the only thread reading/writing to
-    // lxu_cache_state
-    int64_t current_idx =
-        threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-    current_idx = shfl_sync(current_idx, 0);
+    int32_t SL = 1;
+    while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
+      SL += 1;
+    }
 
-    // not empty
-    if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
-      // evict from slot to backing storage
-      const int32_t t_current = cache_index_table_map[current_idx];
-      const int64_t idx_current =
-          current_idx - cache_hash_size_cumsum[t_current];
-      const int64_t weights_offset_current = weights_offsets[t_current];
-      const int32_t D_start_current = D_offsets[t_current];
-      const int32_t D_end_current = D_offsets[t_current + 1];
-      const int32_t D_current = D_end_current - D_start_current;
-      int32_t D_emb = D_current;
+    // now, we need to insert the (unique!) values in indices[n:n + SL] into
+    // our slots.
+    const int32_t slot = threadIdx.x;
+    const int64_t slot_time = lru_state[cache_set][slot];
+    int64_t costs[1] = {slot_time};
+    int32_t slots[1] = {slot};
+
+    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const int32_t sorted_slot = slots[0];
+    const int64_t sorted_lru_cost = costs[0];
+
+    for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
+      if (insert_current_lru_cost == time_stamp) {
+        break;
+      }
+      const int64_t insert_idx = cache_set_sorted_indices[n + l];
+      const int32_t t_insert = cache_index_table_map[insert_idx];
+      const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+      const int64_t weights_offset_insert = weights_offsets[t_insert];
+      const int32_t D_start_insert = D_offsets[t_insert];
+      const int32_t D_end_insert = D_offsets[t_insert + 1];
+      const int32_t D_insert = D_end_insert - D_start_insert;
+
+      // ensure that threadIdx.x is the only thread reading/writing to
+      // lxu_cache_state
+      int64_t current_idx =
+          threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+      current_idx = shfl_sync(current_idx, 0);
+
+      // not empty
+      if (current_idx != static_cast<int64_t>(kCacheStateInvalid)) {
+        // evict from slot to backing storage
+        const int32_t t_current = cache_index_table_map[current_idx];
+        const int64_t idx_current =
+            current_idx - cache_hash_size_cumsum[t_current];
+        const int64_t weights_offset_current = weights_offsets[t_current];
+        const int32_t D_start_current = D_offsets[t_current];
+        const int32_t D_end_current = D_offsets[t_current + 1];
+        const int32_t D_current = D_end_current - D_start_current;
+        int32_t D_emb = D_current;
+        if (std::is_same<emb_t, uint8_t>::value) {
+          D_emb += kINT8QparamsBytes;
+        }
+        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
+            &weights[weights_offset_current + idx_current * D_emb + 0],
+            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+            D_current,
+            nullptr);
+        if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
+          StochasticRoundingRNGState state;
+          // different for every *run* and every *thread*.
+          auto stochastic_rounding_seeds =
+              at::cuda::philox::unpack(stochastic_rounding_philox_args);
+          stochastic_rounding_init(
+              std::get<0>(stochastic_rounding_seeds) ^
+                  std::get<1>(stochastic_rounding_seeds),
+              (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
+               threadIdx.x) *
+                      kWarpSize +
+                  l,
+              &state);
+          weight_row.set_stoc_state(&state);
+        }
+        float2 qparams;
+        at::acc_type<cache_t, true> local_min =
+            std::numeric_limits<at::acc_type<cache_t, true>>::max();
+        at::acc_type<cache_t, true> local_max =
+            std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
+        if (std::is_same<emb_t, uint8_t>::value) {
+          for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+            Vec4T<cache_t> cache_weights_vec =
+                weight_row.load(d * 4, qparams); // qparams not used
+            local_max = max(local_max, vec4_max(cache_weights_vec));
+            local_min = min(local_min, vec4_min(cache_weights_vec));
+          }
+          qparams = warp_find_qparams(local_min, local_max);
+          if (threadIdx.x == 0) {
+            weight_row.store_qparams(qparams);
+          }
+        }
+        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
+          weight_row.evict(
+              cache_weights_vec, d * 4, qparams); // FP32 -> FP16/FP32
+        }
+      }
+      int32_t D_emb = D_insert;
       if (std::is_same<emb_t, uint8_t>::value) {
         D_emb += kINT8QparamsBytes;
       }
-      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-          &weights[weights_offset_current + idx_current * D_emb + 0],
+      // insert into cache
+      auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_insert + idx_insert * D_emb + 0],
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-          D_current,
+          D_insert,
           nullptr);
-      if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
-        StochasticRoundingRNGState state;
-        // different for every *run* and every *thread*.
-        auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(stochastic_rounding_philox_args);
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-                std::get<1>(stochastic_rounding_seeds),
-            (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
-             threadIdx.x) *
-                    kWarpSize +
-                l,
-            &state);
-        weight_row.set_stoc_state(&state);
-      }
+
+      auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_insert + idx_insert * D_emb + 0],
+          nullptr,
+          D_insert,
+          nullptr);
+
       float2 qparams;
-      at::acc_type<cache_t, true> local_min =
-          std::numeric_limits<at::acc_type<cache_t, true>>::max();
-      at::acc_type<cache_t, true> local_max =
-          std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec =
-              weight_row.load(d * 4, qparams); // qparams not used
-          local_max = max(local_max, vec4_max(cache_weights_vec));
-          local_min = min(local_min, vec4_min(cache_weights_vec));
-        }
-        qparams = warp_find_qparams(local_min, local_max);
-        if (threadIdx.x == 0) {
-          weight_row.store_qparams(qparams);
-        }
+        qparams = weight_row_emb.load_qparams();
       }
-      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
-        weight_row.evict(
-            cache_weights_vec, d * 4, qparams); // FP32 -> FP16/FP32
+      for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
+        auto row = weight_row_emb.load(d * 4, qparams);
+        weight_row_cache.store(row, d * 4, qparams);
       }
-    }
-    int32_t D_emb = D_insert;
-    if (std::is_same<emb_t, uint8_t>::value) {
-      D_emb += kINT8QparamsBytes;
-    }
-    // insert into cache
-    auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_emb + 0],
-        &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-        D_insert,
-        nullptr);
-
-    auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_emb + 0],
-        nullptr,
-        D_insert,
-        nullptr);
-
-    float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
-      qparams = weight_row_emb.load_qparams();
-    }
-    for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
-      auto row = weight_row_emb.load(d * 4, qparams);
-      weight_row_cache.store(row, d * 4, qparams);
-    }
-    if (threadIdx.x == 0) {
-      lxu_cache_state[cache_set][insert_slot] = insert_idx;
-      lru_state[cache_set][insert_slot] = time_stamp;
+      if (threadIdx.x == 0) {
+        lxu_cache_state[cache_set][insert_slot] = insert_idx;
+        lru_state[cache_set][insert_slot] = time_stamp;
+      }
     }
   }
 }
@@ -859,70 +869,70 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= *N_unique) {
-    return;
-  }
-  // check if this warp is responsible for this whole segment.
-  const bool segment_start =
-      (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    // check if this warp is responsible for this whole segment.
+    const bool segment_start =
+        (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
 
-  if (!segment_start) {
-    // don't have *warp* divergence since we launch full warps in blockDim.x,
-    // so we can just exit this warp entirely.
-    return;
-  }
-  const int32_t cache_set = sorted_cache_sets[n];
-  if (cache_set == C) {
-    // ignore the already-existing elements
-    return;
-  }
-
-  int32_t SL = 1;
-  while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
-    SL += 1;
-  }
-
-  // now, we need to insert the (unique!) values in indices[n:n + SL] into
-  // our slots.
-  const int32_t slot = threadIdx.x;
-  const int64_t slot_time = lru_state[cache_set][slot];
-  int64_t costs[1] = {slot_time};
-  int32_t slots[1] = {slot};
-
-  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-  const int32_t sorted_slot = slots[0];
-  const int64_t sorted_lru_cost = costs[0];
-
-  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-    const int32_t insert_slot = shfl_sync(sorted_slot, l);
-    const int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
-    if (insert_current_lru_cost == time_stamp) {
-      return;
+    if (!segment_start) {
+      // don't have *warp* divergence since we launch full warps in blockDim.x,
+      // so we can just exit this warp entirely.
+      continue;
     }
-    index_t insert_idx = cache_set_sorted_indices[n + l];
-    const int32_t t_insert = cache_index_table_map[insert_idx];
-    SparseType weight_ty_insert =
-        static_cast<SparseType>(weights_tys[t_insert]);
-    const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
-    const int64_t weights_offset_insert = weights_offsets[t_insert];
-    const int32_t D_start_insert = D_offsets[t_insert];
-    const int32_t D_end_insert = D_offsets[t_insert + 1];
-    const int32_t D_insert = D_end_insert - D_start_insert;
-
-    const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
-        D_insert, weight_ty_insert, row_alignment);
-
-    auto row =
-        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
-    auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-    for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
-      cache_row[d] = row[d];
+    const int32_t cache_set = sorted_cache_sets[n];
+    if (cache_set == C) {
+      // ignore the already-existing elements
+      continue;
     }
 
-    if (threadIdx.x == 0) {
-      lxu_cache_state[cache_set][insert_slot] = insert_idx;
-      lru_state[cache_set][insert_slot] = time_stamp;
+    int32_t SL = 1;
+    while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
+      SL += 1;
+    }
+
+    // now, we need to insert the (unique!) values in indices[n:n + SL] into
+    // our slots.
+    const int32_t slot = threadIdx.x;
+    const int64_t slot_time = lru_state[cache_set][slot];
+    int64_t costs[1] = {slot_time};
+    int32_t slots[1] = {slot};
+
+    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const int32_t sorted_slot = slots[0];
+    const int64_t sorted_lru_cost = costs[0];
+
+    for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
+      if (insert_current_lru_cost == time_stamp) {
+        break;
+      }
+      index_t insert_idx = cache_set_sorted_indices[n + l];
+      const int32_t t_insert = cache_index_table_map[insert_idx];
+      SparseType weight_ty_insert =
+          static_cast<SparseType>(weights_tys[t_insert]);
+      const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+      const int64_t weights_offset_insert = weights_offsets[t_insert];
+      const int32_t D_start_insert = D_offsets[t_insert];
+      const int32_t D_end_insert = D_offsets[t_insert + 1];
+      const int32_t D_insert = D_end_insert - D_start_insert;
+
+      const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
+          D_insert, weight_ty_insert, row_alignment);
+
+      auto row =
+          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
+      auto cache_row =
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+      for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+        cache_row[d] = row[d];
+      }
+
+      if (threadIdx.x == 0) {
+        lxu_cache_state[cache_set][insert_slot] = insert_idx;
+        lru_state[cache_set][insert_slot] = time_stamp;
+      }
     }
   }
 }
@@ -965,7 +975,9 @@ void lru_cache_insert_byte_cuda(
       "lru_cache_insert_byte_cuda",
       [&] {
         lru_cache_insert_byte_kernel<<<
-            div_round_up(N, kMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -1074,12 +1086,10 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_update_counts_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         unique_indices_count,
     at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
-  const int32_t n = blockIdx.x * blockDim.x + threadIdx.x;
-  if (n >= *N_unique) {
-    return;
+  CUDA_KERNEL_LOOP(n, *N_unique) {
+    const auto idx = unique_indices[n];
+    lfu_state[idx] += unique_indices_count[n];
   }
-  const auto idx = unique_indices[n];
-  lfu_state[idx] += unique_indices_count[n];
 }
 
 void lfu_update_counts_cuda(
@@ -1099,7 +1109,9 @@ void lfu_update_counts_cuda(
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lfu_update_counts_cuda", [&] {
         lfu_update_counts_kernel<<<
-            div_round_up(N, kMaxThreads),
+            std::min(
+                div_round_up(N, kMaxThreads),
+                get_max_thread_blocks_for_cache_kernels_()),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -1128,50 +1140,34 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
     uint64_t* __restrict__ cache_sets,
     const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         lfu_state) {
-  const int32_t N = unique_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  if (n >= *N_unique) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] =
-          (static_cast<uint64_t>(C)
-           << kLFUCounterBits); // invalid index, used as sentinel
-    }
-    return;
-  }
-  const int64_t idx = unique_indices[n];
-  if (idx == max_indices) {
-    if (threadIdx.x == 0) {
-      cache_sets[n] =
-          (static_cast<uint64_t>(C)
-           << kLFUCounterBits); // invalid index, used as sentinel
-    }
-    return;
-  }
-  const uint32_t cache_set = cache_slot(idx, C);
 
-  const auto slot = threadIdx.x;
-  const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
-  if (found) {
-    // mark it as existing.
-    cache_sets[n] =
-        (static_cast<uint64_t>(C)
-         << kLFUCounterBits); // invalid index, used as sentinel
-  }
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    const int64_t idx = unique_indices[n];
+    if (idx == max_indices) {
+      // cache_sets are initialized with sentinel values in
+      // lfu_cache_find_uncached_cuda
+      continue;
+    }
+    const uint32_t cache_set = cache_slot(idx, C);
+
+    const auto slot = threadIdx.x;
+    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
 
 #ifdef __HIP_PLATFORM_HCC__
-  if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
 #else
-  if (!__any_sync(0xFFFFFFFF, found)) {
+    if (!__any_sync(0xFFFFFFFF, found)) {
 #endif
-    if (threadIdx.x == 0) {
-      // sort so the highest LFUs come first in the segment.
-      // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1
-      cache_sets[n] = ((static_cast<uint64_t>(cache_set) << kLFUCounterBits)) |
-          ((static_cast<uint64_t>(1) << kLFUCounterBits) - 1 - lfu_state[idx]);
+      if (threadIdx.x == 0) {
+        // sort so the highest LFUs come first in the segment.
+        // assume lfu_state[idx] <= 2^40 - 1 and cache_set < 2^24 -1
+        cache_sets[n] =
+            ((static_cast<uint64_t>(cache_set) << kLFUCounterBits)) |
+            ((static_cast<uint64_t>(1) << kLFUCounterBits) - 1 -
+             lfu_state[idx]);
+      }
     }
   }
 }
@@ -1190,8 +1186,11 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
 
-  auto cache_sets =
-      empty_like(unique_indices, unique_indices.options().dtype(at::kLong));
+  auto cache_sets = full_like(
+      unique_indices,
+      static_cast<int64_t>(
+          static_cast<uint64_t>(lxu_cache_state.size(0)) << kLFUCounterBits),
+      unique_indices.options().dtype(at::kLong));
   const int32_t N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
@@ -1200,7 +1199,9 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
       unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
         // Find uncached indices
         lfu_cache_find_uncached_kernel<<<
-            div_round_up(N, kMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -1270,157 +1271,156 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= *N_unique) {
-    return;
-  }
-  // check if this warp is responsible for this whole segment.
-  const bool segment_start =
-      (n == 0 ||
-       (sorted_cache_sets[n - 1] >> kLFUCounterBits) !=
-           (sorted_cache_sets[n] >> kLFUCounterBits));
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    // check if this warp is responsible for this whole segment.
+    const bool segment_start =
+        (n == 0 ||
+         (sorted_cache_sets[n - 1] >> kLFUCounterBits) !=
+             (sorted_cache_sets[n] >> kLFUCounterBits));
 
-  if (!segment_start) {
-    // don't have *warp* divergence since we launch full warps in blockDim.x,
-    // so we can just exit this warp entirely.
-    return;
-  }
-  const uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
-  if (cache_set == C) {
-    // ignore the already-existing elements
-    return;
-  }
-
-  int32_t SL = 1;
-  while (n + SL < *N_unique &&
-         (sorted_cache_sets[n + SL] >> kLFUCounterBits) == cache_set) {
-    SL += 1;
-  }
-
-  // now, we need to insert the (unique!) values in indices[n:n + SL] into
-  // our slots.
-  const int32_t slot = threadIdx.x;
-  const int64_t current_idx = lxu_cache_state[cache_set][slot];
-  const int64_t current_lfu_cost =
-      (current_idx != static_cast<int64_t>(kCacheStateInvalid))
-      ? lfu_state[current_idx]
-      : -1;
-  int64_t costs[1] = {current_lfu_cost};
-  int32_t slots[1] = {slot};
-
-  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-  const int32_t sorted_slot = slots[0];
-  const int64_t sorted_lfu_cost = costs[0];
-
-  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-    const int32_t insert_slot = shfl_sync(sorted_slot, l);
-    const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
-    const int64_t insert_idx = cache_set_sorted_indices[n + l];
-    const int64_t insert_lfu_cost = lfu_state[insert_idx];
-
-    if (insert_current_lfu_cost > insert_lfu_cost) {
-      // don't insert.
-      // all subsequent `current_lfu_cost` values are greater, and all
-      // subsequent `insert_lfu_cost` values are smaller, so we can exit
-      // early here.
-      return;
+    if (!segment_start) {
+      // don't have *warp* divergence since we launch full warps in blockDim.x,
+      // so we can just exit this warp entirely.
+      continue;
     }
-    const int32_t t_insert = cache_index_table_map[insert_idx];
-    const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
-    const int64_t weights_offset_insert = weights_offsets[t_insert];
-    const int32_t D_start_insert = D_offsets[t_insert];
-    const int32_t D_end_insert = D_offsets[t_insert + 1];
-    const int32_t D_insert = D_end_insert - D_start_insert;
+    const uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
+    if (cache_set == C) {
+      // ignore the already-existing elements
+      continue;
+    }
 
-    // not empty
-    if (insert_current_lfu_cost != -1) {
-      // ensure that threadIdx.x is the only thread reading/writing to
-      // lxu_cache_state
-      int64_t current_idx =
-          threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-      current_idx = shfl_sync(current_idx, 0);
-      const int32_t t_current = cache_index_table_map[current_idx];
-      const int64_t idx_current =
-          current_idx - cache_hash_size_cumsum[t_current];
-      const int64_t weights_offset_current = weights_offsets[t_current];
-      const int32_t D_start_current = D_offsets[t_current];
-      const int32_t D_end_current = D_offsets[t_current + 1];
-      const int32_t D_current = D_end_current - D_start_current;
+    int32_t SL = 1;
+    while (n + SL < *N_unique &&
+           (sorted_cache_sets[n + SL] >> kLFUCounterBits) == cache_set) {
+      SL += 1;
+    }
 
-      int32_t D_emb = D_current;
+    // now, we need to insert the (unique!) values in indices[n:n + SL] into
+    // our slots.
+    const int32_t slot = threadIdx.x;
+    const int64_t current_idx = lxu_cache_state[cache_set][slot];
+    const int64_t current_lfu_cost =
+        (current_idx != static_cast<int64_t>(kCacheStateInvalid))
+        ? lfu_state[current_idx]
+        : -1;
+    int64_t costs[1] = {current_lfu_cost};
+    int32_t slots[1] = {slot};
+
+    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const int32_t sorted_slot = slots[0];
+    const int64_t sorted_lfu_cost = costs[0];
+
+    for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
+      const int64_t insert_idx = cache_set_sorted_indices[n + l];
+      const int64_t insert_lfu_cost = lfu_state[insert_idx];
+
+      if (insert_current_lfu_cost > insert_lfu_cost) {
+        // don't insert.
+        // all subsequent `current_lfu_cost` values are greater, and all
+        // subsequent `insert_lfu_cost` values are smaller, so we can exit
+        // early here.
+        break;
+      }
+      const int32_t t_insert = cache_index_table_map[insert_idx];
+      const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+      const int64_t weights_offset_insert = weights_offsets[t_insert];
+      const int32_t D_start_insert = D_offsets[t_insert];
+      const int32_t D_end_insert = D_offsets[t_insert + 1];
+      const int32_t D_insert = D_end_insert - D_start_insert;
+
+      // not empty
+      if (insert_current_lfu_cost != -1) {
+        // ensure that threadIdx.x is the only thread reading/writing to
+        // lxu_cache_state
+        int64_t current_idx =
+            threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
+        current_idx = shfl_sync(current_idx, 0);
+        const int32_t t_current = cache_index_table_map[current_idx];
+        const int64_t idx_current =
+            current_idx - cache_hash_size_cumsum[t_current];
+        const int64_t weights_offset_current = weights_offsets[t_current];
+        const int32_t D_start_current = D_offsets[t_current];
+        const int32_t D_end_current = D_offsets[t_current + 1];
+        const int32_t D_current = D_end_current - D_start_current;
+
+        int32_t D_emb = D_current;
+        if (std::is_same<emb_t, uint8_t>::value) {
+          D_emb += kINT8QparamsBytes;
+        }
+        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
+            &weights[weights_offset_current + idx_current * D_emb + 0],
+            &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+            D_current,
+            nullptr);
+        if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
+          StochasticRoundingRNGState state;
+          // different for every *run* and every *thread*.
+          auto stochastic_rounding_seeds =
+              at::cuda::philox::unpack(stochastic_rounding_philox_args);
+          stochastic_rounding_init(
+              std::get<0>(stochastic_rounding_seeds) ^
+                  std::get<1>(stochastic_rounding_seeds),
+              (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
+               threadIdx.x) *
+                      kWarpSize +
+                  l,
+              &state);
+          weight_row.set_stoc_state(&state);
+        }
+
+        float2 qparams;
+        at::acc_type<cache_t, true> local_min =
+            std::numeric_limits<at::acc_type<cache_t, true>>::max();
+        at::acc_type<cache_t, true> local_max =
+            std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
+        if (std::is_same<emb_t, uint8_t>::value) {
+          for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+            Vec4T<cache_t> cache_weights_vec =
+                weight_row.load(d * 4, qparams); // qparams not used
+            local_max = max(local_max, vec4_max(cache_weights_vec));
+            local_min = min(local_min, vec4_min(cache_weights_vec));
+          }
+          qparams = warp_find_qparams(local_min, local_max);
+          if (threadIdx.x == 0) {
+            weight_row.store_qparams(qparams);
+          }
+        }
+        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
+          Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
+          weight_row.evict(cache_weights_vec, d * 4, qparams);
+        }
+      }
+      // insert into cache
+      int32_t D_emb = D_insert;
       if (std::is_same<emb_t, uint8_t>::value) {
         D_emb += kINT8QparamsBytes;
       }
-      auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
-          &weights[weights_offset_current + idx_current * D_emb + 0],
+      auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_insert + idx_insert * D_emb + 0],
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-          D_current,
+          D_insert,
           nullptr);
-      if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
-        StochasticRoundingRNGState state;
-        // different for every *run* and every *thread*.
-        auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(stochastic_rounding_philox_args);
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-                std::get<1>(stochastic_rounding_seeds),
-            (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
-             threadIdx.x) *
-                    kWarpSize +
-                l,
-            &state);
-        weight_row.set_stoc_state(&state);
-      }
+
+      auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
+          &weights[weights_offset_insert + idx_insert * D_emb + 0],
+          nullptr,
+          D_insert,
+          nullptr);
 
       float2 qparams;
-      at::acc_type<cache_t, true> local_min =
-          std::numeric_limits<at::acc_type<cache_t, true>>::max();
-      at::acc_type<cache_t, true> local_max =
-          std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
       if (std::is_same<emb_t, uint8_t>::value) {
-        for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-          Vec4T<cache_t> cache_weights_vec =
-              weight_row.load(d * 4, qparams); // qparams not used
-          local_max = max(local_max, vec4_max(cache_weights_vec));
-          local_min = min(local_min, vec4_min(cache_weights_vec));
-        }
-        qparams = warp_find_qparams(local_min, local_max);
-        if (threadIdx.x == 0) {
-          weight_row.store_qparams(qparams);
-        }
+        qparams = weight_row_emb.load_qparams();
       }
-      for (int32_t d = threadIdx.x; d * 4 < D_current; d += blockDim.x) {
-        Vec4T<cache_t> cache_weights_vec = weight_row.load(d * 4, qparams);
-        weight_row.evict(cache_weights_vec, d * 4, qparams);
+      for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
+        auto row = weight_row_emb.load(d * 4, qparams);
+        weight_row_cache.store(row, d * 4, qparams);
       }
-    }
-    // insert into cache
-    int32_t D_emb = D_insert;
-    if (std::is_same<emb_t, uint8_t>::value) {
-      D_emb += kINT8QparamsBytes;
-    }
-    auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_emb + 0],
-        &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-        D_insert,
-        nullptr);
-
-    auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-        &weights[weights_offset_insert + idx_insert * D_emb + 0],
-        nullptr,
-        D_insert,
-        nullptr);
-
-    float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
-      qparams = weight_row_emb.load_qparams();
-    }
-    for (int32_t d = threadIdx.x; d * 4 < D_insert; d += blockDim.x) {
-      auto row = weight_row_emb.load(d * 4, qparams);
-      weight_row_cache.store(row, d * 4, qparams);
-    }
-    if (threadIdx.x == 0) {
-      lxu_cache_state[cache_set][insert_slot] = insert_idx;
+      if (threadIdx.x == 0) {
+        lxu_cache_state[cache_set][insert_slot] = insert_idx;
+      }
     }
   }
 }
@@ -1469,7 +1469,9 @@ void lfu_cache_insert_cuda(
         }
 
         lfu_cache_insert_kernel<emb_t, cache_t>
-            <<<div_round_up(N, kCacheMaxThreads / kWarpSize),
+            <<<std::min(
+                   div_round_up(N, kCacheMaxThreads / kWarpSize),
+                   get_max_thread_blocks_for_cache_kernels_()),
                dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
@@ -1610,82 +1612,82 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
         lfu_state,
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= *N_unique) {
-    return;
-  }
-  // check if this warp is responsible for this whole segment.
-  const bool segment_start =
-      (n == 0 ||
-       (sorted_cache_sets[n - 1] >> kLFUCounterBits) !=
-           (sorted_cache_sets[n] >> kLFUCounterBits));
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+       n += gridDim.x * blockDim.y) {
+    // check if this warp is responsible for this whole segment.
+    const bool segment_start =
+        (n == 0 ||
+         (sorted_cache_sets[n - 1] >> kLFUCounterBits) !=
+             (sorted_cache_sets[n] >> kLFUCounterBits));
 
-  if (!segment_start) {
-    // don't have *warp* divergence since we launch full warps in blockDim.x,
-    // so we can just exit this warp entirely.
-    return;
-  }
-  const uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
-  if (cache_set == C) {
-    // ignore the already-existing elements
-    return;
-  }
-
-  int32_t SL = 1;
-  while (n + SL < *N_unique &&
-         (sorted_cache_sets[n + SL] >> kLFUCounterBits) == cache_set) {
-    SL += 1;
-  }
-
-  // now, we need to insert the (unique!) values in indices[n:n + SL] into
-  // our slots.
-  const int32_t slot = threadIdx.x;
-  const int64_t current_idx = lxu_cache_state[cache_set][slot];
-  const int64_t current_lfu_cost =
-      (current_idx != static_cast<int64_t>(kCacheStateInvalid))
-      ? lfu_state[current_idx]
-      : -1;
-  int64_t costs[1] = {current_lfu_cost};
-  int32_t slots[1] = {slot};
-
-  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-  const int32_t sorted_slot = slots[0];
-  const int64_t sorted_lfu_cost = costs[0];
-
-  for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-    const int32_t insert_slot = shfl_sync(sorted_slot, l);
-    const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
-    const index_t insert_idx = cache_set_sorted_indices[n + l];
-    const int64_t insert_lfu_cost = lfu_state[insert_idx];
-
-    if (insert_current_lfu_cost > insert_lfu_cost) {
-      // don't insert.
-      // all subsequent `current_lfu_cost` values are greater, and all
-      // subsequent `insert_lfu_cost` values are smaller, so we can exit
-      // early here.
-      return;
+    if (!segment_start) {
+      // don't have *warp* divergence since we launch full warps in blockDim.x,
+      // so we can just exit this warp entirely.
+      continue;
     }
-    const int32_t t_insert = cache_index_table_map[insert_idx];
-    const SparseType weight_ty_insert =
-        static_cast<SparseType>(weights_tys[t_insert]);
-    const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
-    const int64_t weights_offset_insert = weights_offsets[t_insert];
-    const int32_t D_start_insert = D_offsets[t_insert];
-    const int32_t D_end_insert = D_offsets[t_insert + 1];
-    const int32_t D_insert = D_end_insert - D_start_insert;
-
-    const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
-        D_insert, weight_ty_insert, row_alignment);
-
-    // insert into cache
-    auto row =
-        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
-    auto cache_row = &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-    for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
-      cache_row[d] = row[d];
+    const uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
+    if (cache_set == C) {
+      // ignore the already-existing elements
+      continue;
     }
-    if (threadIdx.x == 0) {
-      lxu_cache_state[cache_set][insert_slot] = insert_idx;
+
+    int32_t SL = 1;
+    while (n + SL < *N_unique &&
+           (sorted_cache_sets[n + SL] >> kLFUCounterBits) == cache_set) {
+      SL += 1;
+    }
+
+    // now, we need to insert the (unique!) values in indices[n:n + SL] into
+    // our slots.
+    const int32_t slot = threadIdx.x;
+    const int64_t current_idx = lxu_cache_state[cache_set][slot];
+    const int64_t current_lfu_cost =
+        (current_idx != static_cast<int64_t>(kCacheStateInvalid))
+        ? lfu_state[current_idx]
+        : -1;
+    int64_t costs[1] = {current_lfu_cost};
+    int32_t slots[1] = {slot};
+
+    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const int32_t sorted_slot = slots[0];
+    const int64_t sorted_lfu_cost = costs[0];
+
+    for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
+      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
+      const index_t insert_idx = cache_set_sorted_indices[n + l];
+      const int64_t insert_lfu_cost = lfu_state[insert_idx];
+
+      if (insert_current_lfu_cost > insert_lfu_cost) {
+        // don't insert.
+        // all subsequent `current_lfu_cost` values are greater, and all
+        // subsequent `insert_lfu_cost` values are smaller, so we can exit
+        // early here.
+        break;
+      }
+      const int32_t t_insert = cache_index_table_map[insert_idx];
+      const SparseType weight_ty_insert =
+          static_cast<SparseType>(weights_tys[t_insert]);
+      const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
+      const int64_t weights_offset_insert = weights_offsets[t_insert];
+      const int32_t D_start_insert = D_offsets[t_insert];
+      const int32_t D_end_insert = D_offsets[t_insert + 1];
+      const int32_t D_insert = D_end_insert - D_start_insert;
+
+      const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
+          D_insert, weight_ty_insert, row_alignment);
+
+      // insert into cache
+      auto row =
+          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
+      auto cache_row =
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
+      for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+        cache_row[d] = row[d];
+      }
+      if (threadIdx.x == 0) {
+        lxu_cache_state[cache_set][insert_slot] = insert_idx;
+      }
     }
   }
 }
@@ -1727,7 +1729,9 @@ void lfu_cache_insert_byte_cuda(
       "lfu_cache_insert_byte_cuda",
       [&] {
         lfu_cache_insert_byte_kernel<<<
-            div_round_up(N, kCacheMaxThreads / kWarpSize),
+            std::min(
+                div_round_up(N, kCacheMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
             dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
