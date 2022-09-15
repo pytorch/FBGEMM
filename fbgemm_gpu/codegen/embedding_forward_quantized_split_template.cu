@@ -152,7 +152,7 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 {% if not nobag or not weighted %}
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 {% for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"] %}
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
   const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -165,6 +165,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   {% else %}
   const int64_t D,
   {% endif %}
+  FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
   const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
@@ -191,7 +192,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   const int32_t B = (offsets.size(0) - 1) / T;
   {% endif %}
   const int32_t bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= div_round_up(B, OutputRowsPerThread) * T) {
+  if (bb_t >= fd_B.D() * T) {
     return;
   }
   static_assert(
@@ -199,7 +200,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     "output_t can only be float or half or bytes now"
   );
 
-  const uint32_t t = bb_t / div_round_up(B, OutputRowsPerThread);
+  int32_t t;
+  int32_t bb;
+  fd_B.DivMod(bb_t, &t, &bb);
 
   {% if not nobag %}
   const int32_t D_start = D_offsets[t];
@@ -218,7 +221,6 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
 
-  const uint32_t bb = bb_t % div_round_up(B, OutputRowsPerThread);
 
   const int64_t weights_offset = weights_offsets[t];
   const int32_t D_total = padded_D(D, weight_ty);
@@ -239,7 +241,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   }
 
   const uint8_t* __restrict__ weights;
-  const auto placement = static_cast<PlacementType>(weights_placements[t]);
+  const auto placement = DeviceOnly ? PlacementType::DEVICE : static_cast<PlacementType>(weights_placements[t]);
   if (placement == PlacementType::DEVICE) {
       weights = &dev_weights[weights_offset];
   } else {
@@ -272,12 +274,12 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls[i];
-        bool cache_valid = (placement == PlacementType::MANAGED_CACHING && valid);
+        bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
-        int32_t cache_idx = cache_valid ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
         const uint4* row;
-        if (cache_valid && cache_idx != kCacheLocationMissing) {
+        if (!DeviceOnly && cache_valid && cache_idx != kCacheLocationMissing) {
           row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
         } else if (valid) {
           row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
@@ -651,9 +653,17 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     constexpr int32_t kWarpsPerBlock = 4;
 
+    const auto device_only = lxu_cache_weights.numel() == 0 && uvm_weights.numel() == 0;
+    #define Y(...) \
+      if (device_only) { \
+        X(true, __VA_ARGS__) \
+      } else { \
+        X(false, __VA_ARGS__) \
+      };
+
     // launch 2-bit kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -668,6 +678,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -686,18 +697,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_int2_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int2_D, SparseType::INT2, row_alignment), 128);
         TORCH_CHECK(max_int2_128b_rows <= 2);
         if (max_int2_128b_rows > 0) {
-          X(2, 16, 0, 1);
+          Y(2, 16, 0, 1);
         }
         if (max_int2_128b_rows > 1) {
-          X(2, 8, 1, 2);
+          Y(2, 8, 1, 2);
         }
       }
     }));
     #undef X
 
     // launch 4-bit kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -712,6 +723,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -730,21 +742,21 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
-          X(2, 8, 0, 1);
+          Y(2, 8, 0, 1);
         }
         if (max_int4_128b_rows > 1) {
-          X(2, 4, 1, 2);
+          Y(2, 4, 1, 2);
         }
         if (max_int4_128b_rows > 2) {
-          X(1, 4, 2, 4);
+          Y(1, 4, 2, 4);
         }
       }
     }));
     #undef X
 
     // launch 8-bit int kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -759,6 +771,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -777,24 +790,24 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int8_D, SparseType::INT8, row_alignment), 128);
         TORCH_CHECK(max_int8_128b_rows <= 8);
         if (max_int8_128b_rows > 0) {
-          X(2, 8, 0, 1);
+          Y(2, 8, 0, 1);
         }
         if (max_int8_128b_rows > 1) {
-          X(2, 4, 1, 2);
+          Y(2, 4, 1, 2);
         }
         if (max_int8_128b_rows > 2) {
-          X(2, 4, 2, 4);
+          Y(2, 4, 2, 4);
         }
         if (max_int8_128b_rows > 4) {
-          X(2, 4, 4, 8);
+          Y(2, 4, 4, 8);
         }
       }
     }));
     #undef X
 
     // launch 8-bit float kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -809,6 +822,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -829,24 +843,24 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_fp8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float8_D, SparseType::FP8, row_alignment), 128);
         TORCH_CHECK(max_fp8_128b_rows <= 8);
         if (max_fp8_128b_rows > 0) {
-          X(2, 8, 0, 1);
+          Y(2, 8, 0, 1);
         }
         if (max_fp8_128b_rows > 1) {
-          X(2, 4, 1, 2);
+          Y(2, 4, 1, 2);
         }
         if (max_fp8_128b_rows > 2) {
-          X(2, 4, 2, 4);
+          Y(2, 4, 2, 4);
         }
         if (max_fp8_128b_rows > 4) {
-          X(2, 4, 4, 8);
+          Y(2, 4, 4, 8);
         }
       }
     }));
     #undef X
 
     // launch 16-bit kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -861,6 +875,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -879,24 +894,24 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_fp16_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float16_D, SparseType::FP16, row_alignment), 128);
         TORCH_CHECK(max_fp16_128b_rows <= 16);
         if (max_fp16_128b_rows > 0) {
-          X(2, 8, 0, 2);
+          Y(2, 8, 0, 2);
         }
         if (max_fp16_128b_rows > 2) {
-          X(2, 8, 2, 4);
+          Y(2, 8, 2, 4);
         }
         if (max_fp16_128b_rows > 4) {
-          X(2, 4, 4, 8);
+          Y(2, 4, 4, 8);
         }
         if (max_fp16_128b_rows > 8) {
-          X(2, 2, 8, 16);
+          Y(2, 2, 8, 16);
         }
       }
     }));
     #undef X
 
     // launch 32-bit kernel
-    #define X(OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows><<< \
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
@@ -911,6 +926,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         {% else %} \
         D, \
         {% endif %} \
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
         {% if not nobag %} \
@@ -929,13 +945,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_fp32_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_float32_D, SparseType::FP32, row_alignment), 128);
         TORCH_CHECK(max_fp32_128b_rows <= 32);
         if (max_fp32_128b_rows > 0) {
-          X(2, 4, 0, 4);
+          Y(2, 4, 0, 4);
         }
         if (max_fp32_128b_rows > 4) {
-          X(2, 2, 4, 16);
+          Y(2, 2, 4, 16);
         }
         if (max_fp32_128b_rows > 16) {
-          X(1, 1, 16, 32);
+          Y(1, 1, 16, 32);
         }
       }
     }));

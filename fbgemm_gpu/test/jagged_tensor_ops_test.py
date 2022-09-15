@@ -253,6 +253,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=64),
         D=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=300),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     def test_stacked_jagged_2d_to_dense(
         self,
@@ -260,13 +261,15 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B: int,
         D: int,
         max_sequence_length: int,
+        use_cpu: bool,
     ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
         D = D * 4
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B * T)
         total_lengths = lengths_.sum()
-        lengths = torch.from_numpy(lengths_).cuda()
+        lengths = torch.from_numpy(lengths_).to(device)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-        ref_values = torch.rand(total_lengths, D).cuda()
+        ref_values = torch.rand(total_lengths, D, device=device)
         ref_output_values = var_list_to_coo(
             lengths,
             ref_values,
@@ -430,6 +433,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=500),
         padding_value=st.integers(min_value=-100000, max_value=100000),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     def test_stacked_jagged_1d_to_dense(
         self,
@@ -437,7 +441,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B: int,
         max_sequence_length: int,
         padding_value: int,
+        use_cpu: bool,
     ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+
         def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
             return torch.repeat_interleave(
                 torch._dim_arange(lengths, 0).long(),
@@ -470,10 +477,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B * T)
         total_lengths = lengths_.sum()
-        lengths = torch.from_numpy(lengths_).cuda()
+        lengths = torch.from_numpy(lengths_).to(device)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
         lengths = lengths.view(T, B)
-        ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,)).cuda()
+        ref_values = torch.randint(
+            low=0, high=1000000000, size=(total_lengths,), device=device
+        )
 
         values = ref_values.clone().detach().requires_grad_(False)
         output_values_per_table = torch.ops.fbgemm.stacked_jagged_1d_to_dense(
@@ -644,14 +653,44 @@ class JaggedTensorOpsTest(unittest.TestCase):
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
-        outer_dense_size=st.integers(0, 8),
-        inner_dense_size=st.sampled_from([16, 64, 96, 192]),
+        outer_dense_size=st.integers(0, 6000),
+        inner_dense_size=st.sampled_from([8, 16, 23, 24, 48, 50, 64, 72, 96, 192]),
         dtype=st.just(torch.half),
         use_cpu=st.just(False),
         precompute_total_L=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_dense_to_jagged_opt(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        use_cpu: bool,
+        precompute_total_L: bool,
+    ) -> None:
+        self._test_dense_to_jagged(
+            num_jagged_dim,
+            outer_dense_size,
+            inner_dense_size,
+            dtype,
+            use_cpu,
+            precompute_total_L,
+        )
+
+    # (8000+1) * 8 (size of the element of LongTensor/int64_t offsets)
+    # = ~62.5KB > 48KB default shared memory on V100/A100.
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.just(1),
+        outer_dense_size=st.just(8000),
+        inner_dense_size=st.just(16),
+        dtype=st.just(torch.half),
+        use_cpu=st.just(False),
+        precompute_total_L=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=1, deadline=None)
+    def test_dense_to_jagged_opt_large_batch(
         self,
         num_jagged_dim: int,
         outer_dense_size: int,

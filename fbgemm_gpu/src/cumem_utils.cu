@@ -74,7 +74,7 @@ std::vector<int64_t> defaultStrides(IntArrayRef sizes) {
 
 // Allocate the ATen Tensor with unified managed memory (UVM)
 Tensor new_managed_tensor_internal(
-    Tensor self,
+    const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
@@ -138,7 +138,9 @@ std::tuple<void*, size_t> adjust_to_page_boundaries(void* ptr, size_t size) {
 // Allocate a cuda Tensor with unified managed memory (UVM)
 // Then set the preferred data location to CPU (host memory)
 // And establish mappings on the cuda device to the host memory
-Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes) {
+Tensor new_managed_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
 
@@ -168,7 +170,7 @@ Tensor new_managed_tensor(Tensor self, const std::vector<std::int64_t>& sizes) {
 // Allocate a cuda Tensor with unified managed memory (UVM) without the
 // additional steps taked by new_managed_tensor above
 Tensor new_vanilla_managed_tensor(
-    Tensor self,
+    const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
@@ -177,13 +179,13 @@ Tensor new_vanilla_managed_tensor(
 }
 
 // Check if a tensor is allocated with UVM (CPU or GPU Tensor)
-bool uvm_storage(Tensor t) {
+bool uvm_storage(const Tensor& t) {
   auto deleter = t.storage().data_ptr().get_deleter();
   return deleter == &CUDAManagedIndirectContext::release;
 }
 
 // Check if a tensor is allocated with UVM but is not a CPU Tensor
-bool is_uvm_tensor(Tensor t) {
+bool is_uvm_tensor(const Tensor& t) {
   if (t.device().is_cpu()) {
     return false;
   }
@@ -191,7 +193,7 @@ bool is_uvm_tensor(Tensor t) {
 }
 
 // Convert a UVM tensor to a CPU tensor
-Tensor uvm_to_cpu(Tensor t) {
+Tensor uvm_to_cpu(const Tensor& t) {
   TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
   auto* tcontext =
@@ -217,7 +219,7 @@ Tensor uvm_to_cpu(Tensor t) {
 
 // Create a new UVM tensor sharing storage with t on the same device as
 // prototype
-Tensor uvm_to_device(Tensor t, Tensor prototype) {
+Tensor uvm_to_device(const Tensor& t, const Tensor& prototype) {
   TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
   auto* tcontext =
@@ -244,7 +246,7 @@ Tensor uvm_to_device(Tensor t, Tensor prototype) {
 }
 
 namespace {
-int64_t uvm_get_guard_index(Tensor& t) {
+int64_t uvm_get_guard_index(const Tensor& t) {
   TORCH_CHECK(uvm_storage(t));
   int cuda_device_index;
   if (t.is_cpu()) {
@@ -265,7 +267,7 @@ int64_t uvm_get_guard_index(Tensor& t) {
 }
 } // namespace
 
-void uvm_cuda_mem_advise(Tensor t, int64_t cuda_memory_advise) {
+void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
   // Call cudaMemAdvise on vm tensor
   // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
   // namespace) for valid values and interface stub.
@@ -294,7 +296,9 @@ void uvm_cuda_mem_advise(Tensor t, int64_t cuda_memory_advise) {
   return;
 }
 
-void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t) {
+void uvm_cuda_mem_prefetch_async(
+    const Tensor& t,
+    c10::optional<Tensor> device_t) {
   // Call cudaMemPrefetchAsync on Tensor
   at::cuda::OptionalCUDAGuard device_guard;
   TORCH_CHECK(uvm_storage(t));
@@ -304,7 +308,7 @@ void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t) {
   int prefetch_device =
       (t.is_cpu()) ? cudaCpuDeviceId : static_cast<int>(t.get_device());
 
-  Tensor& context_t = device_t.has_value() ? device_t.value() : t;
+  const Tensor& context_t = device_t.has_value() ? device_t.value() : t;
 
   void* ptr = t.data_ptr();
   size_t size_bytes = at::detail::computeStorageNbytes(
@@ -319,7 +323,7 @@ void uvm_cuda_mem_prefetch_async(Tensor t, c10::optional<Tensor> device_t) {
   return;
 }
 
-void uvm_mem_advice_dont_fork(Tensor t) {
+void uvm_mem_advice_dont_fork(const Tensor& t) {
   // During fork() the uvm driver is called to copy VMA for UVM space.
   // The uvm driver then removes pmap entries for both child and parent.
   // Re-establishing the mappings for the paretn is slow.
@@ -336,12 +340,12 @@ void uvm_mem_advice_dont_fork(Tensor t) {
   int result =
       madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
 
-  TORCH_CHECK(result == 0)
+  TORCH_CHECK(result == 0);
 
   return;
 }
 
-Tensor uvm_to_cpu_clone(Tensor t) {
+Tensor uvm_to_cpu_clone(const Tensor& t) {
   TORCH_CHECK(uvm_storage(t));
   TORCH_CHECK(t.is_contiguous());
 

@@ -12,7 +12,10 @@
 #include <cstdint>
 #include <type_traits> // for is_same
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 
 namespace fbgemm {
 

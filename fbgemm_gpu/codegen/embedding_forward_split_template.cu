@@ -17,6 +17,8 @@
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
+#define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -48,6 +50,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     int64_t D,
+    FixedDivisor fd_B,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {% if not dense %}
@@ -63,12 +66,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     int32_t T = weights_offsets.size(0);
     int32_t B = (offsets.size(0) - 1) / T;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-
     if (b_t >= B * T) {
         return;
     }
+    int32_t t;
+    int32_t b;
+    fd_B.DivMod(b_t, &t, &b);
     int64_t weights_offset = weights_offsets[t];
     index_t indices_start = offsets[t * B + b];
     index_t indices_end = offsets[t * B + b + 1];
@@ -90,7 +93,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
         D_emb += kINT8QparamsBytes;
     }
 
-    constexpr int32_t kNumThreadGroup = kWarpSize / kThreadGroupSize;
     const int32_t group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
     const int32_t group_end = group_start + kThreadGroupSize;
     const int32_t d = threadIdx.x % kThreadGroupSize * 4;
@@ -114,7 +116,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
                 const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
                 D,
                 nullptr);
-            float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+            // assume cache is fp16/fp32 which doesn't require qparams
+            float2 qparams_cache = make_float2(0.0f, 0.0f);
 
             {% endif %}
             auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
@@ -153,11 +156,13 @@ template <
     typename cache_t,
     {% if not dense %}
     typename output_t,
+    bool use_lxu_cache,
     {% endif %}
-    typename index_t
+    typename index_t,
     {% if not nobag %}
-    ,size_t kMaxVecsPerThread
+    size_t kMaxVecsPerThread,
     {% endif %}
+    size_t kThreadGroupSize = kWarpSize
     >
 __launch_bounds__(kForwardMaxThreads)
 __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel(
@@ -175,6 +180,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {% else %}
     int64_t D,
     {% endif %}
+    FixedDivisor fd_B,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {% if not nobag %}
@@ -202,12 +208,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     int32_t B = (offsets.size(0) - 1) / T;
     {% endif %}
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-
     if (b_t >= B * T) {
         return;
     }
+    int32_t t;
+    int32_t b;
+    fd_B.DivMod(b_t, &t, &b);
     int64_t weights_offset = weights_offsets[t];
     {% if not nobag %}
     int32_t D_start = D_offsets[t];
@@ -234,65 +240,91 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         D_emb += kINT8QparamsBytes;
     }
 
+    constexpr int VEC_WIDTH = 4;
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
+#endif
+
     {% if not nobag %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {% endif %}
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
+    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {% if not dense %}
-        int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {% endif %}
         {% if weighted %}
         at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
         {% endif %}
-        for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = shfl_sync(idx, j);
+        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
+            int64_t idx_j = SHFL_SYNC(idx, j);
             {% if nobag %}
             int64_t output_j = indices_start + l_start + j;
             {% endif %}
             {% if not dense %}
-            int32_t cache_idx_j = shfl_sync(cache_idx, j);
+            int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
             {% endif %}
 
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = shfl_sync(idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
             {% endif %}
 
             {% if not dense %}
-            auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-                const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
-                D,
-                nullptr);
-            float2 qparams_cache; // assume cache is fp16/fp32 which doesn't require qparams
+            // use_lxu_cache is a compile time condition
+            if (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
+                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                    const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
+                    D,
+                    nullptr);
+                // assume cache is fp16/fp32 which doesn't require qparams
+                float2 qparams_cache = make_float2(0.0f, 0.0f);
 
-            {% endif %}
-            auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-                const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                nullptr,
-                D,
-                nullptr);
-            float2 qparams_emb;
-            if (std::is_same<emb_t, uint8_t>::value) {
-                qparams_emb = weight_row_emb.load_qparams();
-            }
-
-            {% if not nobag %}
-            #pragma unroll kMaxVecsPerThread
-            for (int32_t i = 0;
-                i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-                ++i) {
-                int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-                {% if not dense %}
-                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                {% if not nobag %}
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
                     accumulators[i].add_(weight);
                     {% endif %}
-                } else {
+                }
+                {% else %}
+                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
+                    int32_t d = i + threadIdx.x * VEC_WIDTH;
+                    if (d < D) {
+                        Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
+                        weight.store(&output[output_j][d]);
+                    }
+                }
+                {% endif %}
+            }
+            else { // else row is not in cache
+            {% endif %}
+                auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
+                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                    nullptr,
+                    D,
+                    nullptr);
+                float2 qparams_emb;
+                if (std::is_same<emb_t, uint8_t>::value) {
+                    qparams_emb = weight_row_emb.load_qparams();
+                }
+                {% if not nobag %}
+                #pragma unroll kMaxVecsPerThread
+                for (int32_t i = 0;
+                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                    ++i) {
+                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
@@ -301,32 +333,16 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     {% endif %}
                 }
                 {% else %}
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
-                    {% if weighted %}
-                    accumulators[i].fma_(weight, idx_weight_j);
-                    {% else %}
-                    accumulators[i].add_(weight);
-                    {% endif %}
-                {% endif %}
-            }
-            {% else %}
-            for (int32_t i = 0; i < D; i+=4 * kWarpSize) {
-                int32_t d = i + threadIdx.x * 4;
-                if (d < D) {
-                    {% if not dense %}
-                    if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                        Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
-                        weight.store(&output[output_j][d]);
-                    } else {
+                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
+                    int32_t d = i + threadIdx.x * VEC_WIDTH;
+                    if (d < D) {
                         Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
                         weight.store(&output[output_j][d]);
                     }
-                    {% else %}
-                        Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
-                        weight.store(&output[output_j][d]);
-                    {% endif %}
                 }
-            }
+                {% endif %}
+            {% if not dense %}
+            } // else row is not in cache
             {% endif %}
         }
     }
@@ -336,12 +352,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     if (!std::is_same<output_t, uint8_t>::value) {
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].mul_(1.0 / L);
             }
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             accumulators[i].store(&output[b][D_start + d]);
         }
     } else {
@@ -352,7 +368,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
                 accumulators[i].mul_(1.0 / L);
@@ -367,9 +383,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
-            int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             nearest_rounding_vector<output_t, cache_t>(&output[b][output_D_start + d], accumulators[i], qparams);
         }
         if (threadIdx.x == 0) {
@@ -381,9 +397,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     // no pooled embedding quantization fusion for dense embeddings
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
             accumulators[i].mul_(1.0 / L);
         }
@@ -514,50 +530,79 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         output.scalar_type(),
         {% endif %}
         "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
+        {% if not dense %}
+        // Check if LXU cache is used
+        bool use_lxu_cache = lxu_cache_weights.numel() > 0;
+        {% endif %}
         {% if not nobag %}
-        {% for kMaxVecsPerThread in range(1, max_embedding_dim // 128 + 1) %}
-        if (max_D <= {{ 128 * kMaxVecsPerThread }}) {
-            {% if not dense %}
-            split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, {{ kMaxVecsPerThread }}><<<
-            {% else %}
-            dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, {{ kMaxVecsPerThread }}><<<
-            {% endif %}
-                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-                0,
-                at::cuda::getCurrentCUDAStream()>>>(
-                dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+        {% for use_cache in ["false", "true"] %}
+        // The dense case does not have cache so we have to generate code for
+        // only one case (value of use_cache does not matter)
+        {% if (not dense) or (use_cache == "true") %}
+        {% if not dense %}
+        if (use_lxu_cache == {{ use_cache }}) {
+        {% endif %}
+            // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
+            // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
+            {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+            if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
+                // hipcc can't use max in constexpr
+                constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
+                // If max_D is small, use fewer number of threads than kWarpSize.
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+                constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
+#else
+                constexpr int kThreadGroupSize = kWarpSize;
+#endif
                 {% if not dense %}
-                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                {% endif %}
-                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                pooling_mode,
-                {% if weighted %}
-                indice_weights.packed_accessor32<at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, at::RestrictPtrTraits>(),
-                {% endif %}
-                {% if not dense %}
-                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                output.packed_accessor32<
-                    output_t,
-                    2,
-                    at::RestrictPtrTraits>()
-                );
+                split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% else %}
-                output.packed_accessor32<
-                    at::acc_type<scalar_t, true>,
-                    2,
-                    at::RestrictPtrTraits>()
-                );
+                dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% endif %}
+                    div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                    dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    FixedDivisor(B),
+                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    pooling_mode,
+                    {% if weighted %}
+                    indice_weights.packed_accessor32<at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    {% if not dense %}
+                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    output.packed_accessor32<
+                        output_t,
+                        2,
+                        at::RestrictPtrTraits>()
+                    );
+                    {% else %}
+                    output.packed_accessor32<
+                        at::acc_type<scalar_t, true>,
+                        2,
+                        at::RestrictPtrTraits>()
+                    );
+                    {% endif %}
 
-            return;
-        }
-        {% endfor %}
+                return;
+            }
+            {% endif %}
+            {% endfor %}
+        {% if not dense %}
+        } // if (use_lxu_cache == {{ use_cache }})
+        {% endif %}
+        {% endif %} // if (not dense) or (use_cache == "true")
+        {% endfor %} // for use_cache in ["false", "true"]
         {% else %}
         {% for kEmbeddingSize in [4, 8, 16, 32] %}
         if (D <= {{ kEmbeddingSize }}) {
@@ -578,6 +623,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             {% endif %}
             weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             D,
+            FixedDivisor(B),
             indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
@@ -598,41 +644,52 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             return;
         }
         {% endfor %}
+        {% for use_cache in ["false", "true"] %}
+        // The dense case does not have cache so we have to generate code for
+        // only one case (value of use_cache does not matter)
+        {% if (not dense) or (use_cache == "true") %}
         {% if not dense %}
-        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t><<<
+        if (use_lxu_cache == {{ use_cache }}) {
+            split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t><<<
         {% else %}
-        dense_embedding_nobag_codegen_forward_unweighted_kernel<scalar_t, scalar_t, int64_t><<<
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<scalar_t, scalar_t, int64_t><<<
         {% endif %}
-            div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
-            {% if not dense %}
-            uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-            weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            {% endif %}
-            weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            D,
-            indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            {% if not dense %}
-            lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            output.packed_accessor32<
-                output_t,
-                2,
-                at::RestrictPtrTraits>()
-            );
-            {% else %}
-            output.packed_accessor32<
-                at::acc_type<scalar_t, true>,
-                2,
-                at::RestrictPtrTraits>()
-            );
-            {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                output.packed_accessor32<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+                {% else %}
+                output.packed_accessor32<
+                    at::acc_type<scalar_t, true>,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+                {% endif %}
 
-            return;
+                return;
+        {% if not dense %}
+        } // if (use_lxu_cache == {{ use_cache }})
+        {% endif %}
+        {% endif %} // if (not dense) or (use_cache == "true")
+        {% endfor %} // for use_cache in ["false", "true"]
         {% endif %}
         });
 

@@ -264,6 +264,40 @@ class InputCombineTest(unittest.TestCase):
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
         self.assertTrue(ref_lengths.allclose(outputs[1]))
 
+    def _run_padding_fused_test_with_length(self, dtypes, batch_size) -> None:
+        (
+            indices_list,
+            offsets_list,
+            per_sample_weights,
+            empty_per_sample_weights,
+            include_last_offsets,
+        ) = self._get_inputs(dtypes)
+        ref_mod = TBEInputPrepareReference(include_last_offsets)
+
+        lengths_list = [
+            self._offsets_to_lengths(offsets, indices, include_last_offsets)
+            for offsets, indices, include_last_offsets in zip(
+                offsets_list, indices_list, include_last_offsets
+            )
+        ]
+        outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine_with_length(
+            indices_list,
+            lengths_list,
+            per_sample_weights,
+            batch_size,
+        )
+
+        ref_outputs = ref_mod(
+            indices_list, offsets_list, per_sample_weights, batch_size
+        )
+        # indices
+        self.assertTrue(ref_outputs[0].allclose(outputs[0]))
+        # per sample weights
+        self.assertTrue(ref_outputs[2].allclose(outputs[2]))
+
+        ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
+        self.assertTrue(ref_lengths.allclose(outputs[1]))
+
     def test_input_combine_int64(self) -> None:
         self._run_test((torch.int64, torch.int64))
 
@@ -290,6 +324,15 @@ class InputCombineTest(unittest.TestCase):
 
     def test_padding_fused_input_combined_mix(self) -> None:
         self._run_padding_fused_test((torch.int64, torch.int32), 64)
+
+    def test_padding_fused_input_combine_int64_with_length(self) -> None:
+        self._run_padding_fused_test_with_length((torch.int64, torch.int64), 64)
+
+    def test_padding_fused_input_combine_int32_with_length(self) -> None:
+        self._run_padding_fused_test_with_length((torch.int32, torch.int32), 64)
+
+    def test_padding_fused_input_combined_mix_with_length(self) -> None:
+        self._run_padding_fused_test_with_length((torch.int64, torch.int32), 64)
 
 
 if __name__ == "__main__":

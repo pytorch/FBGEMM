@@ -613,6 +613,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
 bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
     const int& num_jagged_dim,
     const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
     const Tensor& y_0_reshaped,
     const Tensor& y_1_reshaped,
     const Tensor& output_values) {
@@ -641,6 +642,35 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
   matches &= (y_0_reshaped.size(0) < INT_MAX);
   matches &= (y_0_reshaped.size(1) < INT_MAX);
 
+  int max_shared_bytes;
+#ifndef __HIP_PLATFORM_HCC__
+  cudaDeviceGetAttribute(
+      &max_shared_bytes,
+      cudaDevAttrMaxSharedMemoryPerBlockOptin,
+      y_0_reshaped.get_device());
+#else
+  // MI100 has 64 KB local memory (shared memory) per workgroup
+  max_shared_bytes = 64 << 10;
+#endif
+  int shared_kb = max_shared_bytes >> 10;
+#ifndef __HIP_PLATFORM_HCC__
+  // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+  int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+  TORCH_CHECK(used_shared_kb > 0);
+#else
+  // MI100 has independent shared mem and L1
+  int used_shared_kb = shared_kb;
+#endif
+  int used_shared_bytes = used_shared_kb << 10;
+  AT_DISPATCH_INDEX_TYPES(
+      x_offsets[0].scalar_type(), "check_shared_memory", [&] {
+        auto B = y_0_reshaped.size(0);
+        // the default shared memory on V100/A100 is 48 KB from
+        // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-8-x
+        if ((B + 1) * sizeof(index_t) >= used_shared_bytes) {
+          matches = false;
+        }
+      });
   return matches;
 }
 
@@ -673,8 +703,8 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
         y_reshaped.packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),    \
         output_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
         jagged_dims_tensor,                                                    \
-        [f_ = f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)       \
-            -> scalar_t { return f_(x, y); });                                 \
+        [f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)            \
+            -> scalar_t { return f(x, y); });                                  \
   }
 
 ///@addtogroup jagged-tensor-ops-cuda
@@ -705,7 +735,12 @@ void jagged_dense_elementwise_jagged_output_opt_(
   // Canonicalize y to 3D, collapsing jagged dimensions.
   const Tensor y_reshaped = y.view({y.size(0), -1, y.size(-1)});
   if (jagged_dense_dense_elementwise_jagged_output_matches_opt(
-          num_jagged_dim, x_values, y_reshaped, y_reshaped, output_values)) {
+          num_jagged_dim,
+          x_values,
+          x_offsets,
+          y_reshaped,
+          y_reshaped,
+          output_values)) {
     AT_DISPATCH_INDEX_TYPES(
         x_offsets[0].scalar_type(), "jagged_indices_fast_path", [=] {
           auto nnz = output_values.size(0);
@@ -722,6 +757,39 @@ void jagged_dense_elementwise_jagged_output_opt_(
 
           // Binary search
           size_t dynamic_smem_size = (B + 1) * sizeof(index_t);
+          auto cur_max_shared_bytes =
+              at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+          if (dynamic_smem_size > cur_max_shared_bytes) {
+            int max_shared_bytes;
+#ifndef __HIP_PLATFORM_HCC__
+            cudaDeviceGetAttribute(
+                &max_shared_bytes,
+                cudaDevAttrMaxSharedMemoryPerBlockOptin,
+                y_reshaped.get_device());
+#else
+            // MI100 has 64 KB local memory (shared memory) per workgroup
+            max_shared_bytes = 64 << 10;
+#endif
+            int shared_kb = max_shared_bytes >> 10;
+#ifndef __HIP_PLATFORM_HCC__
+            // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+            int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+            TORCH_CHECK(used_shared_kb > 0);
+#else
+            // MI100 has independent shared mem and L1
+            int used_shared_kb = shared_kb;
+#endif
+            int used_shared_bytes = used_shared_kb << 10;
+#ifndef __HIP_PLATFORM_HCC__
+            cudaFuncSetAttribute(
+                jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
+                    index_t>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
+          }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
           jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
@@ -762,8 +830,8 @@ void jagged_dense_elementwise_jagged_output_opt_(
                       .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
                   nnz,
                   E,
-                  [_f = f] __device__(__half x, __half y0, __half) -> __half {
-                    return _f(x, y0);
+                  [f] __device__(__half x, __half y0, __half) -> __half {
+                    return f(x, y0);
                   });
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         }); // AT_DISPATCH
@@ -871,6 +939,7 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
   if (jagged_dense_dense_elementwise_jagged_output_matches_opt(
           num_jagged_dim,
           x_values,
+          x_offsets,
           y_0_reshaped,
           y_1_reshaped,
           output_values)) {
@@ -892,6 +961,39 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
 
           // Binary search
           size_t dynamic_smem_size = (B + 1) * sizeof(index_t);
+          auto cur_max_shared_bytes =
+              at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+          if (dynamic_smem_size > cur_max_shared_bytes) {
+            int max_shared_bytes;
+#ifndef __HIP_PLATFORM_HCC__
+            cudaDeviceGetAttribute(
+                &max_shared_bytes,
+                cudaDevAttrMaxSharedMemoryPerBlockOptin,
+                y_0_reshaped.get_device());
+#else
+            // MI100 has 64 KB local memory (shared memory) per workgroup
+            max_shared_bytes = 64 << 10;
+#endif
+            int shared_kb = max_shared_bytes >> 10;
+#ifndef __HIP_PLATFORM_HCC__
+            // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+            int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+            TORCH_CHECK(used_shared_kb > 0);
+#else
+            // MI100 has independent shared mem and L1
+            int used_shared_kb = shared_kb;
+#endif
+            int used_shared_bytes = used_shared_kb << 10;
+#ifndef __HIP_PLATFORM_HCC__
+            cudaFuncSetAttribute(
+                jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
+                    index_t>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+#endif
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
+          }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
           jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
@@ -932,8 +1034,9 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
                       .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
                   nnz,
                   E,
-                  [_f = f] __device__(__half x, __half y0, __half y1)
-                      -> __half { return _f(x, y0, y1); });
+                  [f] __device__(__half x, __half y0, __half y1) -> __half {
+                    return f(x, y0, y1);
+                  });
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         }); // AT_DISPATCH
   } else {
@@ -1048,7 +1151,7 @@ at::Tensor jagged_to_padded_dense_backward(
       at::ScalarType::Half,
       at::ScalarType::BFloat16,
       grad_padded_values.scalar_type(),
-      "jagged_2d_to_dense_backward_kernel",
+      "jagged_to_dense_backward_kernel",
       [&] {
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_values, // dummy not used in the lambda function
@@ -1932,7 +2035,8 @@ stacked_jagged_2d_to_dense_forward_cuda(
     Tensor values,
     Tensor lengths,
     const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key) {
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(lengths.dim() == 2);
   at::cuda::OptionalCUDAGuard device_guard;
@@ -1978,7 +2082,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
-        /*padding_value=*/0));
+        padding_value));
   }
 
   return std::make_tuple(padded_values_per_key, offsets_tensor_per_key);
@@ -2065,13 +2169,12 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
               at::cuda::getCurrentCUDAStream()));
         });
 
-    padded_values_per_key.push_back(jagged_1d_to_dense_gpu(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
-        offsets,
-        max_L,
+        {offsets},
+        {max_L},
         padding_value));
   }
-
   return padded_values_per_key;
 }
 
@@ -2386,6 +2489,73 @@ std::vector<Tensor> jagged_index_select_2d_gpu(
     const Tensor& indices) {
   return JaggedIndexSelect2dGPUOp::apply(values, lengths, indices);
 }
+
+class StackedJagged2DToDenseGPUOp
+    : public torch::autograd::Function<StackedJagged2DToDenseGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      Tensor values,
+      Tensor lengths,
+      const std::vector<int64_t>& offset_per_key,
+      const std::vector<int64_t>& max_lengths_per_key,
+      int64_t padding_value) {
+    int64_t total_L = values.size(0);
+    ctx->saved_data["B"] = lengths.size(1);
+    ctx->saved_data["D"] = values.size(1);
+    ctx->saved_data["total_L"] = total_L;
+    ctx->saved_data["offset_per_key"] = offset_per_key;
+
+    auto [padded_values_per_key, offsets_tensor_per_key] =
+        stacked_jagged_2d_to_dense_forward_cuda(
+            values,
+            lengths,
+            offset_per_key,
+            max_lengths_per_key,
+            padding_value);
+    ctx->saved_data["offsets_tensor_per_key"] = offsets_tensor_per_key;
+
+    return padded_values_per_key;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto B = ctx->saved_data["B"].toInt();
+    auto D = ctx->saved_data["D"].toInt();
+    auto total_L = ctx->saved_data["total_L"].toInt();
+    auto offset_per_key = ctx->saved_data["offset_per_key"].toIntVector();
+    auto offsets_tensor_per_key =
+        ctx->saved_data["offsets_tensor_per_key"].toTensorVector();
+
+    using torch::autograd::Variable;
+    auto grad_values = stacked_jagged_2d_to_dense_backward_cuda(
+        B, D, total_L, grad_outputs, offsets_tensor_per_key, offset_per_key);
+    return {
+        grad_values,
+        Variable(), // lengths
+        Variable(), // offset_per_key
+        Variable(), // max_lengths_per_key
+        Variable(), // padding_value
+    };
+  }
+};
+
+std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
+    Tensor values,
+    Tensor lengths,
+    const std::vector<int64_t>& offset_per_key,
+    const std::vector<int64_t>& max_lengths_per_key,
+    int64_t padding_value) {
+  TENSOR_ON_CUDA_GPU(values);
+  TENSOR_ON_CUDA_GPU(lengths);
+  TENSORS_ON_SAME_DEVICE(values, lengths);
+  TORCH_CHECK(values.dim() == 2);
+  TORCH_CHECK(lengths.dim() == 2);
+  return StackedJagged2DToDenseGPUOp::apply(
+      values, lengths, offset_per_key, max_lengths_per_key, padding_value);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -2407,4 +2577,17 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
   DISPATCH_TO_CUDA(
       "jagged_index_select", fbgemm_gpu::jagged_index_select_2d_gpu);
+
+  DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_2d_to_dense", fbgemm_gpu::stacked_jagged_2d_to_dense_gpu);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_2d_to_dense_forward",
+      fbgemm_gpu::stacked_jagged_2d_to_dense_forward_cuda);
+  DISPATCH_TO_CUDA(
+      "stacked_jagged_2d_to_dense_backward",
+      fbgemm_gpu::stacked_jagged_2d_to_dense_backward_cuda);
 }

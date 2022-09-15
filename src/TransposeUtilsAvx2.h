@@ -6,7 +6,10 @@
  */
 #pragma once
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 #include <cassert>
 #include <cstdint>
 
@@ -23,9 +26,9 @@ namespace internal {
 // 4 * 4 = 16 instructions
 static inline void transpose_kernel_4x4_sse(
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   // a : a0 a1 a2 a3
   // b : b0 b1 b2 b3
@@ -56,9 +59,9 @@ template <unsigned M>
 static void transpose_kernel_mxn_sse(
     unsigned N,
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // clang-format off
   alignas(64) static const int masks[5][4] = {
     {  0,  0,  0,  0, },
@@ -106,9 +109,9 @@ static void transpose_kernel_mxn_sse(
 // 8 * 5 = 40 instructions
 static inline void transpose_kernel_8x8_avx2(
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   // a : a0 a1 a2 a3 a4 a5 a6 a7
   // b : b0 b1 b2 b3 b4 b5 b6 b7
@@ -200,9 +203,9 @@ template <unsigned M>
 static void transpose_kernel_mxn_avx2(
     unsigned N,
     const float* src,
-    unsigned ld_src,
+    int64_t ld_src,
     float* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   __m256i mask_v = _mm256_load_si256(
       reinterpret_cast<const __m256i*>(internal::avx2_ps_or_epi32_masks[N]));
@@ -265,9 +268,9 @@ inline __m256i permute_row(__m256i row) {
 // template <>
 inline static void transpose_kernel_8x32_avx2(
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   // a : a0 a1 a2 a3 a4 a5 a6 a7 ... a31
   // b : b0 b1 b2 b3 b4 b5 b6 b7 ... b31
@@ -450,7 +453,7 @@ inline static void transpose_kernel_8x32_avx2(
 
 static inline void load_with_remainders_i16(
     const uint16_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     __m256i r[],
     unsigned mrem,
     unsigned nrem) {
@@ -481,7 +484,7 @@ static inline void load_with_remainders_i16(
 
 static inline void store_with_remainders_i16(
     uint16_t* dst,
-    unsigned ld_dst,
+    int64_t ld_dst,
     __m256i u[],
     unsigned mrem,
     unsigned nrem) {
@@ -514,7 +517,7 @@ static inline void store_with_remainders_i16(
     unsigned i = 0;
     for (; i < nrem; i += 1) {
       // normal store
-      int reg_idx = i % 8;
+      unsigned reg_idx = i % 8;
       if (i >= 8) {
         _mm_storeu_si128(
             reinterpret_cast<__m128i*>(dst + i * ld_dst),
@@ -531,9 +534,9 @@ static inline void store_with_remainders_i16(
 template <bool MREM = false, bool NREM = false>
 inline static void transpose_kernel_8x16_avx2(
     const uint16_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint16_t* dst,
-    unsigned ld_dst,
+    int64_t ld_dst,
     unsigned mrem = 8,
     unsigned nrem = 16) {
   __m256i r[8];
@@ -716,9 +719,9 @@ template <unsigned M>
 static void transpose_kernel_mxn_avx2_uint8(
     unsigned N,
     const uint8_t* src,
-    unsigned ld_src,
+    int64_t ld_src,
     uint8_t* dst,
-    unsigned ld_dst) {
+    int64_t ld_dst) {
   // load from src to registers
   // first load masks
   __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(

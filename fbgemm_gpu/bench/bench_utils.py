@@ -33,29 +33,34 @@ def benchmark_torch_function(
         output = f(*args)
 
     if torch.cuda.is_available():
+        cache = torch.empty(
+            int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
+            dtype=torch.float,
+            device="cuda",
+        )
+        start_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
+        end_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
         torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        # flush the cache
-        if flush_gpu_cache_size_mb:
-            _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
-            )
-            torch.cuda.synchronize()
-        start_event.record()
-        for _ in range(iters):
+        for i in range(iters):
+            # flush the cache
+            if flush_gpu_cache_size_mb:
+                cache.zero_()
+            start_event[i].record()
             output = f(*args)
-        end_event.record()
+            end_event[i].record()
         torch.cuda.synchronize()
-        elapsed_time = start_event.elapsed_time(end_event) * 1.0e-3
+        times = torch.tensor(
+            [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
+        )
+        elapsed_time = torch.mean(times).item() * 1.0e-3
     else:
         start_time = time.time()
         for _ in range(iters):
             output = f(*args)
-        elapsed_time = time.time() - start_time
+        elapsed_time = (time.time() - start_time) / iters
 
     # pyre-fixme[61]: `output` is undefined, or not always defined.
-    return float(elapsed_time) / iters, output
+    return float(elapsed_time), output
 
 
 def round_up(a: int, b: int) -> int:
@@ -210,10 +215,24 @@ def generate_requests(
         assert E >= L, "num-embeddings must be greater than equal to bag-size"
         # oversample and then remove duplicates to obtain sampling without
         # replacement
-        all_indices = (np.random.zipf(a=alpha, size=(iters, T, B, 3 * L)) - 1) % E
-        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(
-            torch.as_tensor(all_indices), L
-        )
+        zipf_shape = (iters, T, B, 3 * L)
+        if torch.cuda.is_available():
+            zipf_shape_total_len = np.prod(zipf_shape)
+            all_indices_list = []
+            # process 8 GB at a time on GPU
+            chunk_len = int(1e9)
+            for chunk_begin in range(0, zipf_shape_total_len, chunk_len):
+                all_indices_gpu = torch.ops.fbgemm.zipf_cuda(
+                    alpha,
+                    min(zipf_shape_total_len - chunk_begin, chunk_len),
+                    seed=torch.randint(2**31 - 1, (1,))[0],
+                )
+                all_indices_list.append(all_indices_gpu.cpu())
+            all_indices = torch.cat(all_indices_list).reshape(zipf_shape)
+        else:
+            all_indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
+        all_indices = (all_indices - 1) % E
+        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(all_indices, L)
         rng = default_rng()
         permutation = torch.as_tensor(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
@@ -245,28 +264,40 @@ def benchmark_requests(
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
+    bwd_only: bool = False,
+    grad: Optional[Tensor] = None,
 ) -> float:
     times = []
 
     if num_warmups > 0:
         indices, offsets, weights = requests[0]
         for _ in range(num_warmups):
-            func(indices, offsets, weights)
+            out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
 
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
     for (indices, offsets, weights) in requests:
+        if bwd_only:
+            # Run forward before profiling if does backward only
+            out = func(indices, offsets, weights)
         start_time = time.time()
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
                 _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                    dtype=torch.float,
+                    device="cuda",
                 )
                 torch.cuda.synchronize()
             start_event.record()
-        func(indices, offsets, weights)
+        if bwd_only:
+            out.backward(grad)
+        else:
+            func(indices, offsets, weights)
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
@@ -316,7 +347,9 @@ def benchmark_requests_refer(
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
                 _ = torch.rand(
-                    flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                    flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                    dtype=torch.float,
+                    device="cuda",
                 )
                 torch.cuda.synchronize()
             start_event.record()
@@ -385,7 +418,9 @@ def benchmark_pipelined_requests(
     ):
         if flush_gpu_cache_size_mb:
             _ = torch.rand(
-                flush_gpu_cache_size_mb * 1024 * 1024 // 4, dtype=torch.float
+                flush_gpu_cache_size_mb * 1024 * 1024 // 4,
+                dtype=torch.float,
+                device="cuda",
             )
             torch.cuda.synchronize()
         start_event[0].record()

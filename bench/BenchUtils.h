@@ -9,7 +9,10 @@
 #include <functional>
 #include <vector>
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#endif
 
 #ifdef USE_BLAS
 #if __APPLE__
@@ -65,7 +68,13 @@ NOINLINE float cache_evict(const T& vec) {
 #ifndef _MSC_VER
     asm volatile("" ::: "memory");
 #endif
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     _mm_clflush(&data[i]);
+#else
+    __builtin___clear_cache(
+        (char*)&data[i], (char*)(&data[i] + CACHE_LINE_SIZE));
+#endif
   }
 
   return dummy;
