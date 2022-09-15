@@ -9,6 +9,7 @@ import os
 
 import torch
 
+
 try:
     torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))
 except Exception as e:
@@ -18,4 +19,4 @@ except Exception as e:
 # Use existence to check if fbgemm_gpu_py.so has already been loaded
 open_source: bool = True
 
-from .docs import _fbgemm_gpu_docs
+from . import _fbgemm_gpu_docs

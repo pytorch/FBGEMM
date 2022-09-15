@@ -26,8 +26,6 @@ for dir_i in os.listdir("../.."):
     if os.path.isdir(possible_dir):
         sys.path.insert(0, possible_dir)
 
-sys.path.insert(0, "../../fbgemm_gpu/docs")
-import _fbgemm_gpu_docs
 
 # Doxygen
 subprocess.call("doxygen Doxyfile.in", shell=True)
