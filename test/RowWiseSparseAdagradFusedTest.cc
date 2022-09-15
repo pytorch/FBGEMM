@@ -286,10 +286,15 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
 
       for (size_t i = 0; i < w.size(); ++i) {
         float w_, w_ref_;
+// for fp16 the ref impl already does the conversion
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
         if (isWeightFp16) {
           w_ = cpu_half2float(w_fp16[i]);
           w_ref_ = cpu_half2float(w_fp16_ref[i]);
-        } else {
+        } else
+#endif
+        {
           w_ = w[i];
           w_ref_ = w_ref[i];
         }

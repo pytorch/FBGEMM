@@ -12,6 +12,11 @@
 #include <fbgemm/Utils.h>
 #include <array>
 
+#if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
+    defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
+#define FBGEMM_USE_REF_KERNEL
+#endif
+
 namespace fbgemm {
 
 using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
@@ -44,7 +49,7 @@ void PackA(int nrow, int ncol, const float* from, int ldim, float* to);
 
 // define this to debug fp16 kernel using a reference C implementation
 // #define FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#ifdef FBGEMM_USE_REF_KERNEL
 template <typename T>
 FBGEMM_API void ref_kernel(
     int kernel_nrows,
@@ -79,8 +84,10 @@ void cblas_gemm_compute(
     int num_threads) {
   // ground truth
   assert(cpuinfo_initialize());
+#ifndef __aarch64__
   assert(cpuinfo_has_x86_fma3());
   assert(cpuinfo_has_x86_f16c());
+#endif
   assert(transa == matrix_op_t::NoTranspose);
   (void)transa; // Suppress unused variable warning
 
@@ -97,15 +104,21 @@ void cblas_gemm_compute(
   // constants
   const int n = Bp.numCols(), k = Bp.numRows(), ldc = n;
   const int mb_max = 120;
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#ifdef FBGEMM_USE_REF_KERNEL
   const int kernel_ncol_blocks = Bp.kernelNumColBlocks();
   // By some reason, if packed B is using packing layout for avx2, we just use
   // avx2 even if avx512 is available.
   const int simd_width =
+#ifndef __aarch64__
       (iset == inst_set_t::avx512 || iset == inst_set_t::avx512_vnni) &&
           (Bp.blockColSize() == 16 * kernel_ncol_blocks)
       ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
       : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+#else
+      simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+  (void)kernel_ncol_blocks;
+  (void)kernels;
+#endif
 #endif
   GemmParams<T> gp;
   int i_begin, i_end;
@@ -165,7 +178,7 @@ void cblas_gemm_compute(
             gp.C += Bp.blockColSize() * jb_begin;
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#ifdef FBGEMM_USE_REF_KERNEL
               ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
 #else
               kernels[kernel_nrows](&gp);
@@ -181,7 +194,7 @@ void cblas_gemm_compute(
               gp.C += Bp.blockColSize() * jb_begin;
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#ifdef FBGEMM_USE_REF_KERNEL
                 ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
 #else
                 kernels[kernel_nrows](&gp);
@@ -208,7 +221,7 @@ void cblas_gemm_compute(
               gp.C = c_tmp.data();
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
-#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#ifdef FBGEMM_USE_REF_KERNEL
               ref_kernel<T>(
                   kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
 #else
@@ -238,4 +251,5 @@ void cblas_gemm_compute(
   }
 }
 
+#undef FBGEMM_USE_REF_KERNEL
 } // namespace fbgemm
