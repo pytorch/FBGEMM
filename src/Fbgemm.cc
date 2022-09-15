@@ -256,7 +256,12 @@ template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<2>& conv_p);
 template FBGEMM_API bool fbgemmOptimizedGConv(const conv_param_t<3>& conv_p);
 
 bool fbgemmSupportedCPU() {
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   return (cpuinfo_initialize() && fbgemmHasAvx2Support());
+#else
+  return cpuinfo_initialize();
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
