@@ -231,7 +231,6 @@
               <p class="caption"><span class="caption-text">Python API Documentation</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">fbgemm_gpu</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
 </ul>
 <p class="caption"><span class="caption-text">CPP API Documentation</span></p>
 <ul>
@@ -318,27 +317,124 @@
               
   <div class="section" id="module-fbgemm_gpu">
 <span id="fbgemm-gpu"></span><h1>fbgemm_gpu<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
-</div>
-<div class="section" id="module-fbgemm_gpu.batched_unary_embeddings_ops">
-<span id="fbgemm-gpu-batched-unary-embeddings-ops"></span><h1>fbgemm_gpu.batched_unary_embeddings_ops<a class="headerlink" href="#module-fbgemm_gpu.batched_unary_embeddings_ops" title="Permalink to this headline">¶</a></h1>
-<dl class="py class">
-<dt id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">
-<em class="property">class </em><code class="sig-prename descclassname">fbgemm_gpu.batched_unary_embeddings_ops.</code><code class="sig-name descname">BatchedUnaryEmbeddingBag</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">num_tasks</span><span class="p">:</span> <span class="n">int</span></em>, <em class="sig-param"><span class="n">hash_sizes</span><span class="p">:</span> <span class="n">List<span class="p">[</span>int<span class="p">]</span></span></em>, <em class="sig-param"><span class="n">long_index</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="default_value">False</span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref cpp cpp-class docutils literal notranslate"><span class="pre">torch.nn.modules.module.Module</span></code></p>
-<dl class="py method">
-<dt id="fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">
-<code class="sig-name descname">forward</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">offsets</span><span class="p">:</span> <span class="n"><a class="reference external" href="https://pytorch.org/docs/master/tensors.html#torch.Tensor" title="(in PyTorch vmaster (1.13.0a0+gitd05a113 ))">torch.Tensor</a></span></em>, <em class="sig-param"><span class="n">input</span><span class="p">:</span> <span class="n"><a class="reference external" href="https://pytorch.org/docs/master/tensors.html#torch.Tensor" title="(in PyTorch vmaster (1.13.0a0+gitd05a113 ))">torch.Tensor</a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward" title="Permalink to this definition">¶</a></dt>
-<dd><p>Defines the computation performed at every call.</p>
-<p>Should be overridden by all subclasses.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although the recipe for forward pass needs to be defined within
-this function, one should call the <code class="xref cpp cpp-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
-instead of this since the former takes care of running the
-registered hooks while the latter silently ignores them.</p>
-</div>
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_2d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sample doc string example.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>Obj</p>
+</dd>
+</dl>
 </dd></dl>
 
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_1d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.dense_to_jagged">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">dense_to_jagged</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.dense_to_jagged" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_to_padded_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_to_padded_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_to_padded_dense" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_mul">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_mul</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_mul" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">batched_dense_vec_jagged_2d_mul</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.stacked_jagged_1d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.stacked_jagged_2d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="simple">
+<dt>Args:</dt><dd><p>{input}</p>
+</dd>
+<dt>Keyword args:</dt><dd><p>{out}</p>
+</dd>
+</dl>
 </dd></dl>
 
 </div>
@@ -387,7 +483,6 @@ registered hooks while the latter silently ignores them.</p>
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">fbgemm_gpu</a></li>
-<li><a class="reference internal" href="#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
 </ul>
 
             </div>

@@ -229,7 +229,6 @@
               <p class="caption"><span class="caption-text">Python API Documentation</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="python-api/index.html">fbgemm_gpu</a></li>
-<li class="toctree-l1"><a class="reference internal" href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a></li>
 </ul>
 <p class="caption"><span class="caption-text">CPP API Documentation</span></p>
 <ul>
@@ -319,6 +318,7 @@
  <a href="#_"><strong>_</strong></a>
  | <a href="#A"><strong>A</strong></a>
  | <a href="#B"><strong>B</strong></a>
+ | <a href="#D"><strong>D</strong></a>
  | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
@@ -330,6 +330,7 @@
  | <a href="#N"><strong>N</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#R"><strong>R</strong></a>
+ | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
  
@@ -385,11 +386,19 @@
 <h2 id="B">B</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="python-api/index.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag">BatchedUnaryEmbeddingBag (class in fbgemm_gpu.batched_unary_embeddings_ops)</a>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">batched_dense_vec_jagged_2d_mul() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/embedding_ops.html#_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorN3c108optionalI6TensorEE">bounds_check_indices_cuda (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="D">D</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.dense_to_jagged">dense_to_jagged() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -412,25 +421,16 @@
         <li><a href="python-api/index.html#module-fbgemm_gpu">module</a>
 </li>
       </ul></li>
-      <li>
-    fbgemm_gpu.batched_unary_embeddings_ops
-
-      <ul>
-        <li><a href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">module</a>
-</li>
-      </ul></li>
       <li><a href="cpp-api/quantize_ops.html#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">float_or_half_to_fused8bitrowwise_cpu (C++ function)</a>
 </li>
       <li><a href="cpp-api/quantize_ops.html#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">float_to_fused8bitrowwise_cpu (C++ function)</a>
 </li>
       <li><a href="cpp-api/quantize_ops.html#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">FloatToFP8Quantized_ref (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="python-api/index.html#fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag.forward">forward() (fbgemm_gpu.batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag method)</a>
-</li>
       <li><a href="cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/quantize_ops.html#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">fused8bitrowwise_to_float_cpu (C++ function)</a>
 </li>
       <li><a href="cpp-api/quantize_ops.html#_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t">fused8bitrowwise_to_float_or_half_cpu (C++ function)</a>
@@ -483,11 +483,25 @@
 <h2 id="J">J</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_1d_to_dense">jagged_1d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
       <li><a href="cpp-api/jagged_tensor_ops.html#_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t">jagged_1d_to_dense_cpu (C++ function)</a>
+</li>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_2d_to_dense">jagged_2d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="cpp-api/jagged_tensor_ops.html#_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t">jagged_2d_to_dense_forward_cpu (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="cpp-api/jagged_tensor_ops.html#_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t">jagged_2d_to_dense_forward_cpu (C++ function)</a>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">jagged_dense_dense_elementwise_add_jagged_output() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_dense_elementwise_add">jagged_dense_elementwise_add() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">jagged_dense_elementwise_add_jagged_output() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_dense_elementwise_mul">jagged_dense_elementwise_mul() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.jagged_to_padded_dense">jagged_to_padded_dense() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -522,8 +536,6 @@
 
       <ul>
         <li><a href="python-api/index.html#module-fbgemm_gpu">fbgemm_gpu</a>
-</li>
-        <li><a href="python-api/index.html#module-fbgemm_gpu.batched_unary_embeddings_ops">fbgemm_gpu.batched_unary_embeddings_ops</a>
 </li>
       </ul></li>
   </ul></td>
@@ -587,6 +599,18 @@
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cpu (C++ function)</a>
 </li>
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cuda (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="S">S</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.stacked_jagged_1d_to_dense">stacked_jagged_1d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="python-api/index.html#torch.ops.fbgemm.stacked_jagged_2d_to_dense">stacked_jagged_2d_to_dense() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
 </tr></table>
