@@ -264,19 +264,26 @@ def benchmark_requests(
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
+    bwd_only: bool = False,
+    grad: Optional[Tensor] = None,
 ) -> float:
     times = []
 
     if num_warmups > 0:
         indices, offsets, weights = requests[0]
         for _ in range(num_warmups):
-            func(indices, offsets, weights)
+            out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
 
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
     for (indices, offsets, weights) in requests:
+        if bwd_only:
+            # Run forward before profiling if does backward only
+            out = func(indices, offsets, weights)
         start_time = time.time()
         if torch.cuda.is_available():
             if flush_gpu_cache_size_mb:
@@ -287,7 +294,10 @@ def benchmark_requests(
                 )
                 torch.cuda.synchronize()
             start_event.record()
-        func(indices, offsets, weights)
+        if bwd_only:
+            out.backward(grad)
+        else:
+            func(indices, offsets, weights)
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
