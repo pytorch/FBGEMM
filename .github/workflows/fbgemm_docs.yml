@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 jobs:
   build_docs_job:
     runs-on: linux.2xlarge
@@ -57,7 +60,7 @@ jobs:
         echo "torch.distributed succeeded"
     - name: Install fbgemm_gpu nightly
       run: |
-        conda run -n build_binary python -m pip install fbgemm-gpu-nightly-cpu
+        conda run -n build_binary python -m pip install fbgemm-gpu-cpu
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
