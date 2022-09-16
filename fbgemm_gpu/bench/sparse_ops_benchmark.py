@@ -33,6 +33,59 @@ def cli() -> None:
 
 
 @cli.command()
+@click.option("--batch-size", default=1024)
+@click.option("--num-tables", default=100)
+@click.option("--min-len", default=1)
+@click.option("--max-len", default=200)
+@click.option("--use_weights", is_flag=False, show_default=True, default=False)
+@click.option("--use_output_length", is_flag=False, show_default=True, default=False)
+def permute_2d(
+    batch_size: int,
+    num_tables: int,
+    min_len: int,
+    max_len: int,
+    use_weights: bool,
+    use_output_length: bool,
+) -> None:
+    lengths = torch.randint(min_len, max_len, size=(num_tables, batch_size))
+    permute = list(range(num_tables))
+    random.shuffle(permute)
+    permute_tensor = torch.IntTensor(permute)
+
+    total_length: int = int(lengths.sum().item())
+    indices = torch.randint(0, 99999, size=(total_length,))
+
+    weights = None
+
+    if use_weights:
+        weights = torch.rand(size=(total_length,))
+
+    output_length = None
+
+    if use_output_length:
+        output_length = total_length
+
+    if torch.cuda.is_available():
+        permute_tensor = permute_tensor.cuda()
+        lengths = lengths.cuda()
+        indices = indices.cuda()
+        if weights is not None:
+            weights = weights.cuda()
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.permute_2D_sparse_data,
+        (permute_tensor, lengths, indices, weights, output_length),
+    )
+
+    num_bytes = total_length * indices.element_size()
+
+    if weights is not None:
+        num_bytes += total_length * weights.element_size()
+
+    logging.info(f"permute_2D_sparse_data {time} sec {num_bytes / time / 1e9} GB/s")
+
+
+@cli.command()
 @click.option("--world-size", default=128)
 @click.option("--num-tables", default=10)
 @click.option("--min-len", default=10000)
