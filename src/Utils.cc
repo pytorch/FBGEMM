@@ -368,6 +368,10 @@ bool fbgemmHasAvx512VnniSupport() {
   return (cpuinfo_has_x86_avx512vnni());
 }
 
+bool fbgemmHasArmNeonSupport() {
+  return (cpuinfo_has_arm_neon());
+}
+
 void fbgemmPartition1D(
     int thread_id,
     int num_threads,
