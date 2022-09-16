@@ -951,18 +951,13 @@ void dispatchOutputProcessing(
   }
 
   if (cpuinfo_initialize()) {
-#if defined(__x86_64__) || defined(__i386__) || \
-    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
-    } else if (fbgemmHasAvx2Support()) {
+    } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
     } else {
       assert(0 && "unsupported architecture");
     }
-#else
-    REQUANTIZE_C_PER_G(Avx2);
-#endif
   } else {
     throw runtime_error("Failed to initialize cpuinfo!");
   }
@@ -1325,19 +1320,13 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
     int OT = SPATIAL_DIM <= 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
     int OH = SPATIAL_DIM == 1 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 2];
     int bufferSize = OT * OH * conv_param.OUT_DIM[SPATIAL_DIM - 1];
-    if (fbgemmHasAvx512Support()) {
-      return conv_param.MB * bufferSize * conv_param.G;
-    } else if (fbgemmHasAvx2Support()) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support() ||
+        fbgemmHasArmNeonSupport()) {
       return conv_param.MB * bufferSize * conv_param.G;
     } else {
       // TODO: Have default slower path
-#if defined(__x86_64__) || defined(__i386__) || \
-    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
       assert(0 && "unsupported architecture");
       return -1;
-#else
-      return conv_param.MB * bufferSize * conv_param.G;
-#endif
     }
   } else {
     throw runtime_error("Failed to initialize cpuinfo!");

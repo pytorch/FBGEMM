@@ -140,6 +140,11 @@ FBGEMM_API bool fbgemmHasAvx2Support();
 FBGEMM_API bool fbgemmHasAvx512VnniSupport();
 
 /**
+ * @brief Are we running on a ARM Neon supported cpu?
+ */
+FBGEMM_API bool fbgemmHasArmNeonSupport();
+
+/**
  * @brief Retrieve current CPU instruction set
  */
 FBGEMM_API inst_set_t fbgemmInstructionSet();
