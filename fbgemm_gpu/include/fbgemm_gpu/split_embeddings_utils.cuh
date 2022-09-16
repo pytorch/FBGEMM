@@ -99,20 +99,6 @@ struct BitonicSort {
   }
 };
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
-get_unique_indices_cuda(
-    at::Tensor linear_indices,
-    int64_t max_indices,
-    bool compute_count);
-
-std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
-    at::Tensor unique_indices,
-    at::Tensor unique_indices_length,
-    int64_t max_indices,
-    at::Tensor lxu_cache_state,
-    int64_t time_stamp,
-    at::Tensor lru_state);
-
 /**
  * "Transpose" embedding inputs by sorting indices by their values.
  * Logically this transpose compressed sparse row (CSR) representation
