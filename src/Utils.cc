@@ -187,6 +187,13 @@ inst_set_t fbgemmEnvGetIsa() {
     return inst_set_t::anyarch;
   }
 
+#ifdef __aarch64__
+#ifdef VLOG
+  VLOG(0) << "[" << env << "] not supported on aarch64";
+#endif
+  return inst_set_t::anyarch;
+#endif
+
   std::string val(env);
   std::transform(val.begin(), val.end(), val.begin(), ::toupper);
   auto it = isaMap.find(val);
@@ -199,6 +206,13 @@ bool fbgemmEnvAvx512_256Enabled() {
   if (env == nullptr) {
     return false;
   }
+
+#ifdef __aarch64__
+#ifdef VLOG
+  VLOG(0) << "[" << env << "] not supported on aarch64";
+#endif
+  return false;
+#endif
 
   std::string val(env);
   std::transform(val.begin(), val.end(), val.begin(), ::tolower);
@@ -251,6 +265,12 @@ std::unordered_map<
  */
 void fbgemmForceIsa(inst_set_t isa) {
   g_forced_isa = isa;
+#ifdef __aarch64__
+#ifdef VLOG
+  VLOG(0) << "[anyarch] forced on aarch64";
+#endif
+  g_forced_isa = inst_set_t::anyarch;
+#endif
 }
 
 /**
@@ -346,6 +366,10 @@ bool fbgemmHasAvx2Support() {
 
 bool fbgemmHasAvx512VnniSupport() {
   return (cpuinfo_has_x86_avx512vnni());
+}
+
+bool fbgemmHasArmNeonSupport() {
+  return (cpuinfo_has_arm_neon());
 }
 
 void fbgemmPartition1D(
