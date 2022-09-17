@@ -861,13 +861,15 @@ void kernel_compute(
           if (accum) {
             out_acts[((h - h_start) * width + w) * OC + g * OC_per_G + k] +=
                 sum;
-            if (k == 0) {
+            if (k == 0 && rowOffset != nullptr) {
               // only accumulate for k == 0
               rowOffset[((h - h_start) * width + w) * G_together + g] += rowSum;
             }
           } else {
             out_acts[((h - h_start) * width + w) * OC + g * OC_per_G + k] = sum;
-            rowOffset[((h - h_start) * width + w) * G_together + g] = rowSum;
+            if (rowOffset != nullptr) {
+              rowOffset[((h - h_start) * width + w) * G_together + g] = rowSum;
+            }
           }
         }
       }
@@ -951,7 +953,7 @@ void dispatchOutputProcessing(
   if (cpuinfo_initialize()) {
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
-    } else if (fbgemmHasAvx2Support()) {
+    } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
     } else {
       assert(0 && "unsupported architecture");
@@ -1012,9 +1014,12 @@ void fbgemmGroupwiseConv(
   int IT_IH_IW = IT * IH * IW;
   int paddedCPerG = (C_per_G + 3) / 4 * 4;
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
   bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
                       outProcess.getBZeroPoint()[0] == 0) ||
       rowOffsetBuf == nullptr;
+#endif
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
 
@@ -1038,6 +1043,8 @@ void fbgemmGroupwiseConv(
       return;
     }
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     // generate convolution  + rowOffset kernel
     bool calculateRowOffset = !b_symmetric;
     bool isTopEdgeIncluded = oh_start == 0;
@@ -1052,6 +1059,7 @@ void fbgemmGroupwiseConv(
         isBottomEdgeIncluded,
         isTopBottomEdgeSame,
         false);
+#endif
 
     int ih_start = 0;
     if (oh_start > 0) {
@@ -1089,7 +1097,8 @@ void fbgemmGroupwiseConv(
         //    oh_end,
         //    OW,
         //    rowOffsetBuf_start_group);
-
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
         fpConv(
             in_start_group,
             weight_start,
@@ -1099,6 +1108,19 @@ void fbgemmGroupwiseConv(
             oh_end,
             OW,
             rowOffsetBuf_start_group);
+#else
+        kernel_compute(
+            conv_param,
+            in_start_group,
+            weight_start,
+            out_start_group,
+            a_zero_point,
+            oh_start,
+            oh_end,
+            OW,
+            rowOffsetBuf_start_group,
+            false);
+#endif
 
         const int32_t* inp = out_start_group;
         block_type_t block{
@@ -1156,6 +1178,8 @@ void fbgemmGroupwiseConv(
       return;
     }
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     // generate convolution  + rowOffset kernel
     bool calculateRowOffset = !b_symmetric;
     bool isTopEdgeIncluded = oh_start == 0;
@@ -1179,6 +1203,7 @@ void fbgemmGroupwiseConv(
         isTopBottomEdgeSame,
         true);
     jit_conv_kernel_fp fpConv;
+#endif
 
     int ih_start = 0;
     if (oh_start > 0) {
@@ -1234,6 +1259,8 @@ void fbgemmGroupwiseConv(
             // rowOffsetBuf_start_t,
             // t > 0);
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
             fpConv = t > 0 ? fpConvAccum : fpConvNoAccum;
             fpConv(
                 in_start_t,
@@ -1244,6 +1271,19 @@ void fbgemmGroupwiseConv(
                 oh_end,
                 OW,
                 rowOffsetBuf_start_t);
+#else
+            kernel_compute(
+                conv_p_2d,
+                in_start_t,
+                weight_start_t,
+                out_start_t,
+                a_zero_point,
+                oh_start,
+                oh_end,
+                OW,
+                rowOffsetBuf_start_t,
+                t > 0);
+#endif
           }
 
           const int32_t* inp = out_start_t;
@@ -1280,9 +1320,8 @@ int rowOffsetBufferSizeGConv(const conv_param_t<SPATIAL_DIM>& conv_param) {
     int OT = SPATIAL_DIM <= 2 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 3];
     int OH = SPATIAL_DIM == 1 ? 1 : conv_param.OUT_DIM[SPATIAL_DIM - 2];
     int bufferSize = OT * OH * conv_param.OUT_DIM[SPATIAL_DIM - 1];
-    if (fbgemmHasAvx512Support()) {
-      return conv_param.MB * bufferSize * conv_param.G;
-    } else if (fbgemmHasAvx2Support()) {
+    if (fbgemmHasAvx512Support() || fbgemmHasAvx2Support() ||
+        fbgemmHasArmNeonSupport()) {
       return conv_param.MB * bufferSize * conv_param.G;
     } else {
       // TODO: Have default slower path
