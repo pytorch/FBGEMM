@@ -1,5 +1,5 @@
-fbgemm_gpu
-==========
+Jagged Tensor Operators
+=======================
 
 .. automodule:: fbgemm_gpu
 

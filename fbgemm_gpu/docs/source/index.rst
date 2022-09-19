@@ -11,14 +11,22 @@ library.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Python API Documentation
+   :caption: FBGEMM Documentation
 
-   python-api/index.rst
 
 
 .. toctree::
    :maxdepth: 2
-   :caption: CPP API Documentation
+   :caption: FBGEMM_GPU Python API Documentation
+
+   python-api/jagged_tensor_ops.rst
+   python-api/table_batched_embedding_ops.rst
+
+
+
+.. toctree::
+   :maxdepth: 2
+   :caption: FBGEMM_GPU CPP API Documentation
 
    cpp-api/sparse_ops.rst
    cpp-api/quantize_ops.rst
