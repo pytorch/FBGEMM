@@ -44,6 +44,14 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+
+      "vxorps ymm5, ymm5, ymm5\t\n"
+      "vxorps ymm6, ymm6, ymm6\t\n"
+      "vxorps ymm7, ymm7, ymm7\t\n"
+      "vxorps ymm8, ymm8, ymm8\t\n"
+      "vxorps ymm9, ymm9, ymm9\t\n"
+      "vxorps ymm10, ymm10, ymm10\t\n"
+
       "vbroadcastss ymm15,DWORD PTR [r15]\t\n"
       "vcvtph2ps ymm3,XMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps ymm4,XMMWORD PTR [r10 + 16]\t\n"
@@ -62,7 +70,7 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vfmadd231ps ymm0,ymm3,ymm2\t\n"
       "vfmadd231ps ymm1,ymm4,ymm2\t\n"
       "test r14,r14\t\n"
-      "jnz next_inner%=\t\n"
+      "jnz loop_inner_start%=\t\n"
       "add r10,32\t\n"
       "jmp dump_C%=\t\n"
 
@@ -76,32 +84,74 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vmulps ymm0,ymm3,ymm2\t\n"
       "vmulps ymm1,ymm4,ymm2\t\n"
       "test r14,r14\t\n"
-      "jnz next_inner%=\t\n"
+      "jnz loop_inner_start%=\t\n"
       "add r10,32\t\n"
       "jmp dump_C%=\t\n"
 
+      "loop_inner_start%=:\t\n"
+      "add r9,4\t\n"
+      "add r10,32\t\n"
+      "cmp r14,4\t\n"
+
+      "jle loop_inner_end%=\t\n"
+
       "loop_inner%=:\t\n"
 
-      "vmovaps ymm3,ymm15\t\n"
       "vcvtph2ps ymm4,XMMWORD PTR [r10 + 16]\t\n"
-      "vcvtph2ps ymm15,XMMWORD PTR [r10 + 32]\t\n"
+      "vcvtph2ps ymm3,XMMWORD PTR [r10 + 32]\t\n"
+      "vbroadcastss ymm2,DWORD PTR [r9+0]\t\n"
+      "vfmadd231ps ymm0,ymm15,ymm2\t\n"
+      "vfmadd231ps ymm1,ymm4,ymm2\t\n"
+
+      "vcvtph2ps ymm4,XMMWORD PTR [r10 + 48]\t\n"
+      "vcvtph2ps ymm15,XMMWORD PTR [r10 + 64]\t\n"
+      "vbroadcastss ymm2,DWORD PTR [r9+4]\t\n"
+      "vfmadd231ps ymm5,ymm3,ymm2\t\n"
+      "vfmadd231ps ymm6,ymm4,ymm2\t\n"
+
+      "vcvtph2ps ymm4,XMMWORD PTR [r10 + 80]\t\n"
+      "vcvtph2ps ymm3,XMMWORD PTR [r10 + 96]\t\n"
+      "vbroadcastss ymm2,DWORD PTR [r9+8]\t\n"
+      "vfmadd231ps ymm7,ymm15,ymm2\t\n"
+      "vfmadd231ps ymm8,ymm4,ymm2\t\n"
+
+      "vcvtph2ps ymm4,XMMWORD PTR [r10 + 112]\t\n"
+      "vcvtph2ps ymm15,XMMWORD PTR [r10 + 128]\t\n"
+      "vbroadcastss ymm2,DWORD PTR [r9+12]\t\n"
+      "vfmadd231ps ymm9,ymm3,ymm2\t\n"
+      "vfmadd231ps ymm10,ymm4,ymm2\t\n"
+
+      "next_inner%=:\t\n"
+      "add r9,16\t\n"
+      "add r10,128\t\n"
+      "sub r14,4\t\n"
+
+      "cmp r14, 4\t\n"
+      "jg loop_inner%=\t\n"
+      "loop_inner_end%=:\t\n"
+
+      "cmp r14, 0\t\n"
+      "jz loop_tail%=\t\n"
+
+      "vcvtph2ps ymm3,XMMWORD PTR [r10]\t\n"
+      "vcvtph2ps ymm4,XMMWORD PTR [r10 + 16]\t\n"
       "vbroadcastss ymm2,DWORD PTR [r9+0]\t\n"
       "vfmadd231ps ymm0,ymm3,ymm2\t\n"
       "vfmadd231ps ymm1,ymm4,ymm2\t\n"
-
-      "next_inner%=:\t\n"
       "add r9,4\t\n"
       "add r10,32\t\n"
       "dec r14\t\n"
-      "jnz loop_inner%=\t\n"
 
-      "vmovaps ymm3,ymm15\t\n"
-      "vcvtph2ps ymm4,XMMWORD PTR [r10 + 16]\t\n"
-      "vbroadcastss ymm2,DWORD PTR [r9+0]\t\n"
-      "vfmadd231ps ymm0,ymm3,ymm2\t\n"
-      "vfmadd231ps ymm1,ymm4,ymm2\t\n"
-      "add r9,4\t\n"
-      "add r10,32\t\n"
+      "jmp loop_inner_end%=\t\n"
+
+      "loop_tail%=:\t\n"
+      "vaddps ymm0, ymm0, ymm5\t\n"
+      "vaddps ymm0, ymm0, ymm7\t\n"
+      "vaddps ymm0, ymm0, ymm9\t\n"
+      "vaddps ymm1, ymm1, ymm6\t\n"
+      "vaddps ymm1, ymm1, ymm8\t\n"
+      "vaddps ymm1, ymm1, ymm10\t\n"
+
       // Dump C
       "dump_C%=:\t\n"
       "vmovups ymmword PTR [r12 + 0], ymm0\t\n"
