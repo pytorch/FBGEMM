@@ -69,10 +69,204 @@ $(function() {
 </div>
 
 <div class="header">
+  <div class="summary">
+<a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">Embedding CUDA Operators</div></div>
 </div><!--header-->
 <div class="contents">
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:gabbe880100f1036a979f3a8d8755447d0"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__embedding-cuda.html#gabbe880100f1036a979f3a8d8755447d0">int_nbit_split_embedding_uvm_caching_codegen_lookup_function</a> (Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int64_t total_D, int64_t max_int2_D, int64_t max_int4_D, int64_t max_int8_D, int64_t max_float16_D, int64_t max_float32_D, Tensor indices, Tensor offsets, int64_t pooling_mode, c10::optional&lt; Tensor &gt; indice_weights, int64_t output_dtype, c10::optional&lt; Tensor &gt; lxu_cache_weights, c10::optional&lt; Tensor &gt; lxu_cache_locations, c10::optional&lt; int64_t &gt; row_alignment, c10::optional&lt; int64_t &gt; max_float8_D, c10::optional&lt; int64_t &gt; fp8_exponent_bits, c10::optional&lt; int64_t &gt; fp8_exponent_bias, c10::optional&lt; Tensor &gt; cache_hash_size_cumsum, c10::optional&lt; int64_t &gt; total_cache_hash_size, c10::optional&lt; Tensor &gt; cache_index_table_map, c10::optional&lt; Tensor &gt; lxu_cache_state, c10::optional&lt; Tensor &gt; lxu_state)</td></tr>
+<tr class="separator:gabbe880100f1036a979f3a8d8755447d0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
+<h2 class="groupheader">Function Documentation</h2>
+<a id="gabbe880100f1036a979f3a8d8755447d0" name="gabbe880100f1036a979f3a8d8755447d0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gabbe880100f1036a979f3a8d8755447d0">&#9670;&#160;</a></span>int_nbit_split_embedding_uvm_caching_codegen_lookup_function()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function </td>
+          <td>(</td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>dev_weights</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>uvm_weights</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>weights_placements</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>weights_offsets</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>weights_tys</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>D_offsets</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>total_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>max_int2_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>max_int4_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>max_int8_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>max_float16_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>max_float32_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>indices</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor&#160;</td>
+          <td class="paramname"><em>offsets</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>pooling_mode</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>indice_weights</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t&#160;</td>
+          <td class="paramname"><em>output_dtype</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>lxu_cache_weights</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>lxu_cache_locations</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;&#160;</td>
+          <td class="paramname"><em>row_alignment</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;&#160;</td>
+          <td class="paramname"><em>max_float8_D</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;&#160;</td>
+          <td class="paramname"><em>fp8_exponent_bits</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;&#160;</td>
+          <td class="paramname"><em>fp8_exponent_bias</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>cache_hash_size_cumsum</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;&#160;</td>
+          <td class="paramname"><em>total_cache_hash_size</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>cache_index_table_map</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>lxu_cache_state</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;&#160;</td>
+          <td class="paramname"><em>lxu_state</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p >Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does UVM_CACHING lookup. </p>
+
+</div>
+</div>
 </div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
