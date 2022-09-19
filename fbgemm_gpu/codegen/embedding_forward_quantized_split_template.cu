@@ -249,7 +249,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   }
   constexpr size_t kOutputsPerThread = {{ (32 // type_map[emb_weight_type].bit_width) }};
 
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   {% if not nobag %}
@@ -259,7 +259,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
 
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
     __shared__ AllBuffers buffers;
 
     {% if weighted %}
@@ -267,13 +267,13 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
 
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
+      uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
+      bool load_idx_valid = row_load_idx < uint4_loads_per_row;
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
+        bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
         bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
         int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
