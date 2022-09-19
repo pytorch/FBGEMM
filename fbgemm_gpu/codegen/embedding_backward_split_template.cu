@@ -8,6 +8,8 @@
 {% set wdesc = "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "hip_kernel/split_tbe_common_hip.h"
+#include <unistd.h>
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
@@ -926,7 +928,39 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     }
     {% endif %}
 
+    static int init_hsaco = 0;
+    static hipModule_t hip_kernel_module;
+    static hipFunction_t hip_kernel_func;
+    bool hip_opt_kernel_supported = "{{ optimizer }}" == "rowwise_adagrad";   // TODO: figure out support range
+    // uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
+    // uint32_t blocks[3] = {256, 1, 1};
+
+    if(hip_opt_kernel_supported && init_hsaco == 0){
+        int segment_split = 0; // warp per row
+        int weight_decay_mode = 1; // TODO: how to check this?
+        hipError_t hip_err = hipModuleLoad(&hip_kernel_module, "hip_kernel/split_tbe_bwd_hip_kernel.hsaco");  // hip kernel object
+         if (hip_err != hipSuccess) {
+            char cwd[PATH_MAX];
+            getcwd(cwd, sizeof(cwd));
+            printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
+            exit(1);
+        }
+        std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+        std::string hip_kernel_name = std::string("split_tbe_bwd_hip_kernel_") +"{{ optimizer }}" +"_w" + std::to_string(weight_decay_mode) +
+                    "_s" + std::to_string(segment_split) + "_" + prec + "_e" +  std::to_string(max_D);
+        hip_err = hipModuleGetFunction(&hip_kernel_func, hip_kernel_module, hip_kernel_name.c_str());
+        printf("kernel function: %s, B:%d, T:%d\n",
+            hip_kernel_name.c_str(),  B, T);
+        if (hip_err != hipSuccess) {
+            printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
+            exit(1);
+        }
+
+        init_hsaco = 1;
+    }
+
     {% if not dense %}
+
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         grad_output.scalar_type(),
@@ -1200,6 +1234,52 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            if(hip_opt_kernel_supported){
+                struct {
+                    const void* p_output_grad;
+                    void* p_emb_table;
+                    const void* p_sorted_linear_indices_run;
+                    const void* p_sorted_linear_indices_cumulative_run_lengths;
+                    const void* p_sorted_linear_indices_num_runs;
+                    const void* p_long_run_ids;
+                    const void* p_num_long_run_ids;
+                    const void* p_sorted_infos;
+                    magic_div_u32_t batch_mdiv;
+                    uint32_t max_segment_length_per_warp;
+                    uint32_t emb_dim;
+                    uint32_t batch;
+                    uint32_t num_rows;
+                    uint32_t num_tables;
+                    rowwise_adagrad_kernel_arg_t opt_karg;
+                } karg;
+                size_t arg_size = sizeof(karg);
+                void* kconf[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, &karg, HIP_LAUNCH_PARAM_BUFFER_SIZE,
+                    &arg_size, HIP_LAUNCH_PARAM_END};
+
+                karg.p_output_grad = grad_output_accessor.data();
+                karg.p_emb_table = dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_sorted_linear_indices_run = sorted_linear_indices_run.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_sorted_linear_indices_cumulative_run_lengths = sorted_linear_indices_cumulative_run_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_sorted_linear_indices_num_runs = sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_long_run_ids = long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_num_long_run_ids = num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_sorted_infos = infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+                karg.batch_mdiv = magic_div_u32_gen(B);
+                karg.max_segment_length_per_warp = max_segment_length_per_warp;
+                karg.emb_dim = max_D;
+                karg.batch = B;
+                karg.num_rows = dev_weights.numel() / T / max_D;
+                karg.num_tables = T;
+
+                constexpr int segments_per_workgroup = 4;
+                int32_t grids[3] = {div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup), (int32_t)T, 1};
+                int32_t blocks[3] = {256, 1, 1};
+
+                hipModuleLaunchKernel(hip_kernel_func,
+                    grids[0], grids[1], grids[2],
+                    blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
+
+            }else
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
                 emb_t,

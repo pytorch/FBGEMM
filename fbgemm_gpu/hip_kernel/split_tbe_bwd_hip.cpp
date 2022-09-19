@@ -25,10 +25,10 @@
 #include <hip/hip_fp16.h>
 #include "split_tbe_common_hip.h"
 
-template <typename cache_t, typename emb_t, int32_t embedding_dim, int32_t weigiht_decay_mode>
+template <typename cache_t, typename emb_t, int32_t embedding_dim, int32_t weight_decay_mode>
 struct rowwise_adagrad_optimizer_t
 {
-    __device__ rowwise_adagrad_optimizer_t(const rowwise_adagrad_kernel_arg_t<cache_t>& karg_)
+    __device__ rowwise_adagrad_optimizer_t(const rowwise_adagrad_kernel_arg_t& karg_)
         : karg(karg_)
     {
     }
@@ -42,10 +42,11 @@ struct rowwise_adagrad_optimizer_t
     {
         if constexpr(segment_split == 0)
         {
-            cache_t momentum = karg.p_momentum[row_index]; // should be s_load
+            cache_t * p_momentum = reinterpret_cast<cache_t*>(karg.p_momentum);
+            cache_t momentum = p_momentum[row_index]; // should be s_load
             // compute per row square sum
             cache_t local_sum_squre = .0f;
-            if constexpr(weigiht_decay_mode == 1)
+            if constexpr(weight_decay_mode == 1)
             {
 #pragma unroll
                 for(auto i = 0; i < thread_length; i++)
@@ -76,11 +77,11 @@ struct rowwise_adagrad_optimizer_t
 
             multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
 
-            if constexpr(weigiht_decay_mode == 1)
+            if constexpr(weight_decay_mode == 1)
             {
                 correction = 1.0 - multiplier * karg.weight_decay;
             }
-            else if constexpr(weigiht_decay_mode == 2)
+            else if constexpr(weight_decay_mode == 2)
             {
                 correction = 1.0 - karg.learning_rate * karg.weight_decay;
             }
@@ -99,11 +100,11 @@ struct rowwise_adagrad_optimizer_t
                 weight[i] = static_cast<emb_t>(w);
             }
 
-            karg.p_momentum[row_index] = momentum_new;
+            p_momentum[row_index] = momentum_new;
         }
     }
 
-    rowwise_adagrad_kernel_arg_t<cache_t> karg;
+    rowwise_adagrad_kernel_arg_t karg;
 };
 
 template <typename optimizer_t,
@@ -152,7 +153,7 @@ __device__ void split_tbe_backward_unweighted_hip_kernel(
 
     uint64_t emb_table_stride = static_cast<uint64_t>(num_rows) * emb_dim;
     p_emb_table += blockIdx.y * emb_table_stride;
-    opt_karg.p_momentum += blockIdx.y * num_rows;
+    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + blockIdx.y * num_rows);
 
     const int32_t segment_length = segment_end - segment_start;
 
@@ -282,7 +283,7 @@ L_tail_grad_acc:
     store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table, lane_id);
 }
 
-#define SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(optimizer,                                                                                 \
+#define SPLIT_TBE_BWD_KERNEL(optimizer,                                                                                              \
                                           weight_decay_mode,                                                                         \
                                           segment_split,                                                                             \
                                           emb_prec,                                                                                  \
@@ -291,7 +292,7 @@ L_tail_grad_acc:
                                           bag_prefetch,                                                                              \
                                           bag_unroll)                                                                                \
     extern "C" __global__ void                                                                                                       \
-        split_tbe_bwd_hip_kernel_warp_per_row_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_e##embedding_dim( \
+        split_tbe_bwd_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_e##embedding_dim(              \
             const float* p_output_grad,                                                                                              \
             emb_type* p_emb_table,                                                                                                   \
             const int64_t* p_sorted_linear_indices_run,                                                                              \
@@ -306,11 +307,11 @@ L_tail_grad_acc:
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \
             uint32_t num_tables,                                                                                                     \
-            optimizer##_kernel_arg_t<float> opt_karg)                                                                                \
+            optimizer##_kernel_arg_t opt_karg)                                                                                       \
     {                                                                                                                                \
         split_tbe_backward_unweighted_hip_kernel<                                                                                    \
             optimizer##_optimizer_t<float, emb_type, embedding_dim, weight_decay_mode>,                                              \
-            optimizer##_kernel_arg_t<float>,                                                                                         \
+            optimizer##_kernel_arg_t,                                                                                                \
             emb_type,                                                                                                                \
             float,                                                                                                                   \
             float,                                                                                                                   \
@@ -335,12 +336,13 @@ L_tail_grad_acc:
                            opt_karg);                                                                                                \
     }
 
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 64, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 128, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 192, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 256, 2, 8)
+// warp per row
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 64, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 128, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 192, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 256, 2, 8)
 
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 64, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 128, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 192, 2, 8)
-SPLIT_TBE_BWD_WARP_PER_ROW_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 256, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 64, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 128, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 192, 2, 8)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 256, 2, 8)

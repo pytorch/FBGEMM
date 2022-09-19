@@ -359,10 +359,9 @@ __device__ inline data_t wave_reduce(const data_t& thread_data)
         __builtin_amdgcn_readlane(bit_cast<int, data_t>(result), wave_size - 1));
 }
 
-template <typename cache_t>
 struct rowwise_adagrad_kernel_arg_t
 {
-    cache_t* p_momentum;
+    void* p_momentum;
     float eps;
     float learning_rate;
     float weight_decay;
