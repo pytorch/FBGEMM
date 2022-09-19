@@ -9,7 +9,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>fbgemm_gpu &mdash; fbgemm 0.1.2 documentation</title>
+  <title>Jagged Tensor Operators &mdash; fbgemm 0.1.2 documentation</title>
   
 
   
@@ -29,7 +29,7 @@
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Sparse Data Operators" href="../cpp-api/sparse_ops.html" />
+    <link rel="next" title="Table Batched Embedding Operators" href="table_batched_embedding_ops.html" />
     <link rel="prev" title="Welcome to FBGEMM’s documentation!" href="../index.html" />
   <!-- Google Analytics -->
   
@@ -228,11 +228,12 @@
               
             
             
-              <p class="caption"><span class="caption-text">Python API Documentation</span></p>
+              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">fbgemm_gpu</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="table_batched_embedding_ops.html">Table Batched Embedding Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">CPP API Documentation</span></p>
+<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Data Operators</a></li>
@@ -283,13 +284,13 @@
       </li>
 
         
-      <li>fbgemm_gpu</li>
+      <li>Jagged Tensor Operators</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/python-api/index.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/python-api/jagged_tensor_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -316,7 +317,7 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <div class="section" id="module-fbgemm_gpu">
-<span id="fbgemm-gpu"></span><h1>fbgemm_gpu<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
+<span id="jagged-tensor-operators"></span><h1>Jagged Tensor Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
 <dl class="py function">
 <dt id="torch.ops.fbgemm.jagged_2d_to_dense">
 <code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">values</span></em>, <em class="sig-param"><span class="n">x_offsets</span></em>, <em class="sig-param"><span class="n">max_sequence_length</span></em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
@@ -499,7 +500,7 @@ tensor input will be padded with zeros for the purposes of the addition.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../cpp-api/sparse_ops.html" class="btn btn-neutral float-right" title="Sparse Data Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="../index.html" class="btn btn-neutral" title="Welcome to FBGEMM’s documentation!" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
@@ -534,7 +535,7 @@ tensor input will be padded with zeros for the purposes of the addition.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">fbgemm_gpu</a></li>
+<li><a class="reference internal" href="#">Jagged Tensor Operators</a></li>
 </ul>
 
             </div>
