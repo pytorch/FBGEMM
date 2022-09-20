@@ -54,6 +54,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "lru_cache_populate_byte(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, int row_alignment=16) -> ()");
   DISPATCH_TO_CUDA("lru_cache_populate_byte", lru_cache_populate_byte_cuda);
   m.def(
+      "direct_mapped_lru_cache_populate_byte(Tensor weights, Tensor hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, int time_stamp, Tensor(c!) lru_state, Tensor(d!) lxu_cache_miss_timestamp, int row_alignment=16) -> ()");
+  DISPATCH_TO_CUDA(
+      "direct_mapped_lru_cache_populate_byte",
+      direct_mapped_lru_cache_populate_byte_cuda);
+  m.def(
       "lfu_cache_populate(Tensor weights, Tensor cache_hash_size_cumsum, int total_cache_hash_size, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, Tensor linear_cache_indices, Tensor(a!) lxu_cache_state, Tensor(b!) lxu_cache_weights, Tensor(c!) lfu_state, bool stochastic_rounding) -> ()");
   DISPATCH_TO_CUDA("lfu_cache_populate", lfu_cache_populate_cuda);
   m.def(
@@ -62,6 +67,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "lxu_cache_lookup(Tensor linear_cache_indices, Tensor lxu_cache_state, int invalid_index = -1) -> Tensor");
   DISPATCH_TO_CUDA("lxu_cache_lookup", lxu_cache_lookup_cuda);
+  m.def(
+      "direct_mapped_lxu_cache_lookup(Tensor linear_cache_indices, Tensor lxu_cache_state, int invalid_index = -1) -> Tensor");
+  DISPATCH_TO_CUDA(
+      "direct_mapped_lxu_cache_lookup", direct_mapped_lxu_cache_lookup_cuda);
   m.def(
       "lxu_cache_flush(Tensor(a!) uvm_weights, Tensor cache_hash_size_cumsum, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor(b!) lxu_cache_state, Tensor(c!) lxu_cache_weights, bool stochastic_rounding) -> ()");
   DISPATCH_TO_CUDA("lxu_cache_flush", lxu_cache_flush_cuda);
