@@ -453,3 +453,25 @@ def benchmark_pipelined_requests(
         ),
     )
     return median_time if check_median else avg_time
+
+
+def demangle_kernel_name(fn_name: str) -> str:
+    return fn_name.split("(")[0].split("<")[0]
+
+
+def print_kineto_events(prof: torch.profiler.profile) -> None:
+    event_list = prof.events().key_averages()
+    events = {}
+    max_len = 0
+    for e in event_list:
+        if e.cpu_time_total == 0.0:
+            name = demangle_kernel_name(e.key)
+            events[name] = e.cuda_time_total / e.count
+            max_len = max(max_len, len(name))
+    logging.info("-" * (max_len + 12))
+    logging.info("CUDA KERNEL")
+    logging.info("-" * (max_len + 12))
+    for name, dur in events.items():
+        dur_str = f"{dur:.2f}"
+        logging.info(f"{name:{max_len}s} {dur_str:8s} us")
+    logging.info("-" * (max_len + 12))

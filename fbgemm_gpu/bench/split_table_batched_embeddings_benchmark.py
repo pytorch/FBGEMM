@@ -16,6 +16,7 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
+from torch.profiler import profile, ProfilerActivity
 
 haveAIBench = False
 try:
@@ -53,6 +54,8 @@ if open_source:
         benchmark_torch_function,
         generate_requests,
         get_device,
+        get_table_batched_offsets_from_dense,
+        print_kineto_events,
         round_up,
     )
 else:
@@ -63,6 +66,8 @@ else:
         benchmark_torch_function,
         generate_requests,
         get_device,
+        get_table_batched_offsets_from_dense,
+        print_kineto_events,
         round_up,
     )
 
@@ -2109,6 +2114,139 @@ def emb_inplace_update(  # noqa C901
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
+
+
+@cli.command()
+@click.option("--segment-length", default=2048)
+@click.option("--num-segments", default=5)
+@click.option("--embedding-dim", default=128)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--stoc", is_flag=True, default=False)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--iters", default=100)
+@click.option("--warmup-runs", default=0)
+@click.option("--row-wise/--no-row-wise", default=True)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option("--print-kineto-prof", is_flag=True, default=False)
+def device_bwd_segment_length(  # noqa C901
+    segment_length: int,
+    num_segments: int,
+    embedding_dim: int,
+    weights_precision: SparseType,
+    stoc: bool,
+    num_embeddings: int,
+    iters: int,
+    warmup_runs: int,
+    row_wise: bool,
+    weighted: bool,
+    bounds_check_mode: int,
+    flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    print_kineto_prof: bool,
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B = segment_length
+    D = embedding_dim
+    L = num_segments
+    E = num_embeddings
+    T = 1
+    feature_requires_grad = None
+    Ds = [D]
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
+
+    managed_option = (
+        EmbeddingLocation.DEVICE
+        if torch.cuda.is_available()
+        else EmbeddingLocation.HOST
+    )
+
+    pooling_mode = PoolingMode.SUM
+
+    emb = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                E,
+                d,
+                managed_option,
+                ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
+            )
+            for d in Ds
+        ],
+        optimizer=optimizer,
+        learning_rate=0.1,
+        eps=0.1,
+        weights_precision=weights_precision,
+        stochastic_rounding=stoc,
+        output_dtype=output_dtype,
+        pooling_mode=pooling_mode,
+        bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+    )
+    emb = emb.to(get_device())
+
+    if weights_precision == SparseType.INT8:
+        emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+    nparams = sum(w.numel() for w in emb.split_embedding_weights())
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = (
+        output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+    )
+
+    # Generate requests
+    requests = []
+    indices = random.sample(range(0, E), num_segments) * segment_length * iters
+    indices = torch.as_tensor(indices, dtype=torch.long, device=get_device()).view(
+        iters, T, B, L
+    )
+    for it in range(iters):
+        weights_tensor = (
+            None if not weighted else torch.randn(T * B * L, device=get_device())
+        )
+        requests.append(
+            get_table_batched_offsets_from_dense(indices[it]) + (weights_tensor,)
+        )
+
+    grad_output = torch.randn(B, sum(Ds)).to(get_device())
+
+    # backward
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda indices, offsets, per_sample_weights: emb(
+            indices.long(),
+            offsets.long(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        bwd_only=True,
+        grad=grad_output,
+    )
+    logging.info(
+        f"Backward, segment_length {segment_length}, num_segments {num_segments} "
+        f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+    if print_kineto_prof:
+        with profile(activities=[ProfilerActivity.CUDA]) as prof:
+            time_per_iter = benchmark_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb(
+                    indices.long(),
+                    offsets.long(),
+                    per_sample_weights,
+                    feature_requires_grad=feature_requires_grad,
+                ),
+                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                bwd_only=True,
+                grad=grad_output,
+            )
+        print_kineto_events(prof)
 
 
 if __name__ == "__main__":
