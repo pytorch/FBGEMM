@@ -240,6 +240,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     Ls[i] = indices_end - indices_start;
     max_Ls = max(max_Ls, Ls[i]);
   }
+  const index_t* indices_ = &indices[0];
 
   const uint8_t* __restrict__ weights;
   const auto placement = DeviceOnly ? PlacementType::DEVICE : static_cast<PlacementType>(weights_placements[t]);
@@ -276,7 +277,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
         bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t idx = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
         const uint4* row;
@@ -608,6 +609,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
+
+    // kernels assume indices are contiguous.
+    indices = indices.contiguous();
 
     {% if not nobag %}
     const int32_t T = D_offsets.numel() - 1;
