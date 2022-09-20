@@ -21,6 +21,10 @@
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
+#ifdef __HIP_PLATFORM_HCC__
+#include "hip_kernel/split_tbe_fwd.hip.hpp"
+#endif
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -558,9 +562,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
     if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
-        static int init_hsaco = 0;
-        static hipModule_t hip_kernel_module;
-        static hipFunction_t hip_kernel_func;
+        static int init_info = 0;
 
         constexpr uint32_t workgroup_size = 256;
         constexpr uint32_t wave_size = 64;
@@ -570,58 +572,81 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         uint32_t blocks[3] = {workgroup_size, 1, 1};
         int64_t E = wcnts / T / max_D;
 
-        if (init_hsaco == 0) {
-            hipError_t hip_err = hipModuleLoad(&hip_kernel_module, "hip_kernel/split_tbe_fwd_hip_kernel.hsaco");  // hip kernel object
-            if (hip_err != hipSuccess) {
-                char cwd[PATH_MAX];
-                getcwd(cwd, sizeof(cwd));
-                printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
-                exit(1);
-            }
-            std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+	std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+        if (init_info == 0) {
             std::string hip_kernel_name = std::string("split_tbe_fwd_hip_kernel_") + prec + "_e" + std::to_string(max_D);
-
-            hip_err = hipModuleGetFunction(&hip_kernel_func, hip_kernel_module, hip_kernel_name.c_str());
             printf("kernel function: %s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
                 hip_kernel_name.c_str(), wcnts, E, B, T,
                 blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
-            if (hip_err != hipSuccess) {
-                printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
-                exit(1);
-            }
-            init_hsaco = 1;
+            init_info = 1;
         }
 
         {
             struct {
-                void    *   output;
-                void    *   emb_table;
-                void    *   indices;
-                void    *   offsets;
+                void    *output;
+                void    *emb_table;
+                const int64_t    *indices;
+                const int64_t    *offsets;
                 uint32_t    emb_dim;
                 uint32_t    batch;
                 uint32_t    num_rows;
                 uint32_t    num_tables;
             } args;
             size_t arg_size = sizeof(args);
-            void* kconf[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, &args, HIP_LAUNCH_PARAM_BUFFER_SIZE,
-                &arg_size, HIP_LAUNCH_PARAM_END};
-            args.output    = output.packed_accessor32<float,2,at::RestrictPtrTraits>().data();
-            if(dev_weights.scalar_type() == at::ScalarType::Half)
+            args.output = output.packed_accessor32<float, 2, at::RestrictPtrTraits>().data();
+            if (dev_weights.scalar_type() == at::ScalarType::Half)
                 args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
             else
                 args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
-            args.indices   = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
-            args.offsets   = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
-            args.emb_dim   = (uint32_t) max_D;
-            args.batch     = (uint32_t) B;
-            args.num_rows  = E;
-            args.num_tables = (uint32_t)T;
+            args.indices = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.offsets = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.emb_dim = (uint32_t) max_D;
+            args.batch = (uint32_t) B;
+            args.num_rows = E;
+            args.num_tables = (uint32_t) T;
 
-            hipModuleLaunchKernel(hip_kernel_func,
-                grids[0], grids[1], grids[2],
-                blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
+            if (prec == "fp16") {
+                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, uint32_t, uint32_t, uint32_t, uint32_t);
+                if (max_D == 64) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e64;
+                } else if (max_D == 128) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e128;
+                } else if (max_D == 192) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e192;
+                } else if (max_D == 256) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e256;
+                } else {
+                    printf("Unsupported TBE dimension (%ld)", (long)max_D);
+                    exit(1);
+                }
+                hipLaunchKernelGGL(*kf_p,
+                    dim3(grids[0], grids[1], grids[2]),
+                    dim3(blocks[0], blocks[1], blocks[2]),
+                    0, 0,
+                    (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets,
+                    args.emb_dim, args.batch, args.num_rows, args.num_tables);
 
+            } else { // "fp32"
+                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, uint32_t, uint32_t, uint32_t, uint32_t);
+                if (max_D == 64) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e64;
+                } else if (max_D == 128) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e128;
+                } else if (max_D == 192) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e192;
+                } else if (max_D == 256) {
+                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e256;
+                } else {
+                    printf("Unsupported TBE dimension (%ld)", (long)max_D);
+                    exit(1);
+                }
+                hipLaunchKernelGGL(*kf_p,
+                    dim3(grids[0], grids[1], grids[2]),
+                    dim3(blocks[0], blocks[1], blocks[2]),
+                    0, 0,
+                    (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets,
+                    args.emb_dim, args.batch, args.num_rows, args.num_tables);
+            }
             return output;
         }
     }
