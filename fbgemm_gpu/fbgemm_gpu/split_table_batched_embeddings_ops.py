@@ -2438,8 +2438,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     indices, dense_indices, offsets, T
                 )
             else:
+                # pruned_hashmap_insert only has cpu implementation: Move dense_indices to CPU
                 torch.ops.fbgemm.pruned_hashmap_insert(
-                    indices, dense_indices, offsets, hash_table, hash_table_offsets
+                    indices,
+                    dense_indices.cpu(),
+                    offsets,
+                    hash_table,
+                    hash_table_offsets,
                 )
                 self.index_remapping_hash_table = hash_table.to(self.current_device)
                 self.index_remapping_hash_table_offsets = hash_table_offsets.to(
