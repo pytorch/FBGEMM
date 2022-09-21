@@ -6,11 +6,14 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import json
 import logging
 import math
+import os
 import random
 import statistics
-from typing import Callable, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import click
 import fbgemm_gpu
@@ -1438,6 +1441,227 @@ def nbit_uvm(
             f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
             f"{read_write_bytes_total / forward_time / 1.0e9: .2f} GB/s"
         )
+
+
+@cli.command()
+@click.option("--test-name", type=str, default="")
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim", default=128)
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
+@click.option("--iters", default=100)
+@click.option("--warmup", default=10)
+@click.option("--mixed", is_flag=True, default=False)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=32)
+@click.option("--reuse", default=0.1)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--use-cache", is_flag=True, default=False)
+@click.option("--cache-algorithm", default="lru")
+@click.option("--cache-load-factor", default=0.2)
+@click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--record-cache", is_flag=True, default=False)
+@click.option(
+    "--dump-requests", type=int, default=0, help="number of reqs to dump (0=no dump)"
+)
+def nbit_uvm_compare_direct_mapped(
+    test_name: str,
+    alpha: bool,
+    bag_size: int,
+    batch_size: int,
+    embedding_dim: int,
+    weights_precision: SparseType,
+    iters: int,
+    warmup: int,
+    mixed: bool,
+    num_embeddings: int,
+    num_tables: int,
+    reuse: float,
+    weighted: bool,
+    flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    use_cache: bool,
+    cache_algorithm: str,
+    cache_load_factor: float,
+    enforce_hbm: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
+    record_cache: bool,
+    dump_requests: int,
+) -> None:
+    logging.info(json.dumps({k: str(v) for k, v in locals().items()}, indent=2))
+
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B: int = batch_size
+    D: int = embedding_dim
+    L: int = bag_size
+    E: int = num_embeddings
+    T: int = num_tables
+    cache_alg: CacheAlgorithm = (
+        CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
+    )
+    managed_type: EmbeddingLocation = (
+        EmbeddingLocation.MANAGED_CACHING if use_cache else EmbeddingLocation.MANAGED
+    )
+
+    if mixed:
+        Ds: List[int] = [
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        D = np.average(Ds)
+    else:
+        Ds: List[int] = [D] * T
+
+    _requests_uvm = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weights_precision=weights_precision,
+        weighted=weighted,
+    )
+    requests_uvm: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]] = [
+        (a.int(), b.int(), c if c else None) for (a, b, c) in _requests_uvm
+    ]
+
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes_uvm: float = (
+        output_size_multiplier * B * sum(Ds[:T])
+        + param_size_multiplier * B * sum(Ds[:T]) * L
+    )
+
+    stats: Dict[str, Any] = {
+        "B": B,
+        "T": T,
+        "E": E,
+        "L": L,
+        "D": D,
+        "reuse": reuse,
+    }
+
+    def bench_uvm_cls(
+        name: str = "32way",
+        cache_assoc: int = 32,
+        record_cache: bool = False,
+        hbm: bool = False,
+    ) -> None:
+        loc = managed_type if not hbm else EmbeddingLocation.DEVICE
+        emb = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    "",
+                    E,
+                    d,
+                    weights_precision,
+                    loc,
+                )
+                for d in Ds[:T]
+            ],
+            output_dtype=output_dtype,
+            cache_load_factor=cache_load_factor,
+            cache_algorithm=cache_alg,
+            cache_assoc=cache_assoc,
+            enforce_hbm=enforce_hbm,
+            fp8_exponent_bits=fp8_exponent_bits,
+            fp8_exponent_bias=fp8_exponent_bias,
+            record_cache_metrics=RecordCacheMetrics(record_cache, record_cache),
+        ).cuda()
+        emb.fill_random_weights()
+
+        # label nvtx only when cache counter is off
+        nvtx_range = "" if record_cache else f"UVM-{name.upper()}"
+        callback_after_warmup = emb.reset_cache_miss_counter if record_cache else None
+        requests = requests_uvm[:1] if record_cache else requests_uvm
+
+        torch.cuda.cudart().cudaProfilerStart()
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup,
+            nvtx_range=nvtx_range,
+            callback_after_warmup=callback_after_warmup,
+        )
+        torch.cuda.cudart().cudaProfilerStop()
+
+        nonlocal stats
+        if name not in stats:
+            stats[name] = {}
+
+        if not record_cache:
+            # Only measure time when cache counter is off (serious overhead)
+            if name not in stats:
+                stats[name] = {}
+            stats[name]["bytes"] = read_write_bytes_uvm
+            stats[name]["time_per_iter"] = time_per_iter * 1e6
+
+            logging.info(
+                f"[{name.center(8)}] "
+                f"UVM NBit Forward, {weights_precision}, B: {B}, "
+                f"E_uvm: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+                f"Time: {time_per_iter * 1.0e6:.0f}us"
+            )
+
+        if record_cache:
+            cmc = emb.cache_miss_counter.detach().cpu().numpy().tolist()
+            cache_stats = {
+                "miss_forward_count": cmc[0],
+                "unique_miss": cmc[1],
+                "unique_req": cmc[2],
+                "nondedup_req": cmc[3],
+            }
+            stats[name]["cache_stats"] = cache_stats
+            logging.info(f"[{name:>8s}] cache stats {cache_stats}")
+
+    bench_uvm_cls(name="HBM", hbm=True)
+    bench_uvm_cls(name="32way", cache_assoc=32)
+    bench_uvm_cls(name="1way", cache_assoc=1)
+
+    if record_cache:
+        bench_uvm_cls(
+            name="32way",
+            cache_assoc=32,
+            record_cache=True,
+        )
+        bench_uvm_cls(
+            name="1way",
+            cache_assoc=1,
+            record_cache=True,
+        )
+
+    if test_name:
+        folder = Path(os.getenv("HOME", ".")) / test_name
+
+        if not folder.is_dir():
+            logging.info(f"MAKING FOLDER {folder}")
+            folder.mkdir(parents=True, mode=0o755)
+
+        with (folder / "uvm_stats.txt").open("w") as f:
+            logging.info(f"Dumping stats at {folder}")
+            print(stats, file=f)
+
+        if dump_requests:
+            with (folder / "requests.txt").open("w") as f:
+                for req in requests_uvm[:dump_requests]:
+                    ind, off, _ = req
+                    print(ind.cpu().numpy().tolist(), file=f)
+                    print(off.cpu().numpy().tolist(), file=f)
 
 
 @cli.command()

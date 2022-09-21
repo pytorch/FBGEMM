@@ -1580,8 +1580,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         row_alignment: Optional[int] = None,
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
+        cache_assoc: int = 32,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
+
+        # 64 for AMD
+        if cache_assoc == 32 and torch.version.hip is not None:
+            cache_assoc = 64
 
         if device is None:
             self.current_device: torch.device = torch.device(
@@ -1793,6 +1798,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_algorithm,
             cache_load_factor,
             cache_sets,
+            cache_assoc,
             cache_reserved_memory,
         )
 
@@ -1863,6 +1869,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
+        if self.cache_assoc in [32, 64]:
+            # 64 for AMD
+            self.prefetch_32way(indices, offsets)
+        elif self.cache_assoc == 1:
+            self.prefetch_1way(indices, offsets)
+        else:
+            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+    def prefetch_32way(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
         # pyre-fixme[29]:
@@ -1934,6 +1949,73 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), f"self.lxu_cache_locations_list has grown to size: {self.lxu_cache_locations_list.size()}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
         self.lxu_cache_locations_list.push(
             torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.total_cache_hash_size,
+            )
+        )
+
+    def prefetch_1way(self, indices: Tensor, offsets: Tensor) -> None:
+        self.timestep_counter.increment()
+        self.timestep_prefetch_size.increment()
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if not self.lxu_cache_weights.numel():
+            return
+
+        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
+        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
+        indices, offsets = indices.long(), offsets.long()
+
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            self.cache_hash_size_cumsum,
+            indices,
+            offsets,
+        )
+
+        if (
+            self.record_cache_metrics.record_cache_miss_counter
+            or self.record_cache_metrics.record_tablewise_cache_miss
+        ):
+            lxu_cache_locations = torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.total_cache_hash_size,
+            )
+            if self.record_cache_metrics.record_cache_miss_counter:
+                self._update_cache_miss_counter(
+                    lxu_cache_locations, linear_cache_indices
+                )
+            if self.record_cache_metrics.record_tablewise_cache_miss:
+                self._update_tablewise_cache_miss(
+                    lxu_cache_locations, linear_cache_indices, offsets
+                )
+
+        if self.cache_algorithm == CacheAlgorithm.LRU:
+            torch.ops.fbgemm.direct_mapped_lru_cache_populate_byte(
+                self.weights_uvm,
+                self.cache_hash_size_cumsum,
+                self.total_cache_hash_size,
+                self.cache_index_table_map,
+                self.weights_offsets,
+                self.weights_tys,
+                self.D_offsets,
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.lxu_cache_weights,
+                self.timestep_counter.get(),
+                self.lxu_state,
+                self.lxu_cache_miss_timestamp,
+            )
+        else:
+            raise ValueError("Direct Mapped for LRU only")
+
+        assert (
+            self.lxu_cache_locations_list.size() < self.max_prefetch_depth
+        ), f"self.lxu_cache_locations_list has grown to size: {self.lxu_cache_locations_list.size()}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
+        self.lxu_cache_locations_list.push(
+            torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.total_cache_hash_size,
@@ -2139,8 +2221,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_algorithm: CacheAlgorithm,
         cache_load_factor: float,
         cache_sets: int,
+        cache_assoc: int,
         cache_reserved_memory: float,
     ) -> None:
+        ASSOC = self.cache_assoc = cache_assoc
+        assert ASSOC in [
+            1,
+            32,
+            64,
+        ], "Only 1-way or 32-way(64-way for AMD) implmeneted for now"
+
         self.cache_algorithm = cache_algorithm
         self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
         self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
@@ -2187,6 +2277,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self.register_buffer(
                 "lxu_state",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "lxu_cache_miss_timestamp",
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
                 persistent=False,
             )
@@ -2274,6 +2369,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int64,
             ),
         )
+        if ASSOC == 1:
+            self.register_buffer(
+                "lxu_cache_miss_timestamp",
+                torch.zeros(
+                    cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                ).fill_(-1),
+            )
+        else:
+            # make TorchScript work
+            self.register_buffer(
+                "lxu_cache_miss_timestamp",
+                torch.zeros(1, device=self.current_device, dtype=torch.int64),
+                persistent=False,
+            )
         self.register_buffer(
             "cache_miss_counter",
             torch.tensor([0, 0, 0, 0], device=self.current_device, dtype=torch.int64),

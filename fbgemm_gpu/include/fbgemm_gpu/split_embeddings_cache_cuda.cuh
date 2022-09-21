@@ -78,6 +78,24 @@ void lru_cache_populate_byte_cuda(
     int64_t row_alignment);
 
 ///@ingroup table-batched-embed-cuda
+/// Direct-mapped (assoc=1) variant of lru_cache_populate_byte_cuda
+void direct_mapped_lru_cache_populate_byte_cuda(
+    at::Tensor weights,
+    at::Tensor hash_size_cumsum,
+    int64_t total_cache_hash_size,
+    at::Tensor cache_index_table_map,
+    at::Tensor weights_offsets,
+    at::Tensor weights_tys,
+    at::Tensor D_offsets,
+    at::Tensor linear_cache_indices,
+    at::Tensor lxu_cache_state,
+    at::Tensor lxu_cache_weights,
+    int64_t time_stamp,
+    at::Tensor lru_state,
+    at::Tensor lxu_cache_miss_timestamp,
+    int64_t row_alignment);
+
+///@ingroup table-batched-embed-cuda
 /// LFU cache: fetch the rows corresponding to `linear_cache_indices` from
 ///`weights`, and insert them into the cache.
 void lfu_cache_populate_cuda(
@@ -116,6 +134,15 @@ void lfu_cache_populate_byte_cuda(
 /// Look up the slots in the cache corresponding to `linear_cache_indices`, with
 /// a sentinel value for missing.
 at::Tensor lxu_cache_lookup_cuda(
+    at::Tensor linear_cache_indices,
+    at::Tensor lxu_cache_state,
+    int64_t invalid_index);
+
+///@ingroup table-batched-embed-cuda
+/// Lookup the LRU/LFU cache: find the cache weights location for all indices.
+/// Look up the slots in the cache corresponding to `linear_cache_indices`, with
+/// a sentinel value for missing.
+at::Tensor direct_mapped_lxu_cache_lookup_cuda(
     at::Tensor linear_cache_indices,
     at::Tensor lxu_cache_state,
     int64_t invalid_index);
