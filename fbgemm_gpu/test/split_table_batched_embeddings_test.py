@@ -3179,6 +3179,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
         mixed_weights_ty: bool,
         output_dtype: SparseType,
     ) -> None:
@@ -3291,6 +3292,49 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
         xws_acc_type = copy.deepcopy(xws)
+
+        if do_pruning:
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+
+            ### generate index_remapping
+            dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
+
+            original_E = E
+            current_device = "cpu" if use_cpu else torch.cuda.current_device()
+
+            indices = indices.view(-1).int()
+            offsets = offsets.view(-1).int()
+
+            ### generate index_remapping done
+            # Initialize and insert Array index remapping based data structure
+            index_remappings_array = []
+            for t in range(T):
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
+                indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
+                dense_indice_t = (
+                    (dense_indices.view(T, B, L))[t].view(-1)
+                    # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                    #  str]`.
+                    .to(current_device)
+                )
+                index_remappings_array_t = torch.tensor(
+                    [-1] * original_E,
+                    dtype=torch.int32,
+                    # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]`
+                    #  but got `Union[int, str]`.
+                    device=current_device,
+                )
+                index_remappings_array_t[indice_t] = dense_indice_t
+                index_remappings_array.append(index_remappings_array_t.cpu())
+        else:
+            index_remappings_array = [torch.arange(E, dtype=torch.int32) for E in Es]
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
@@ -3303,9 +3347,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es]
-            if B != 0
-            else None,
+            index_remapping=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
@@ -3433,10 +3475,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = bs[t].weight.detach().float().cpu().numpy().view(np.uint8)
                 weights.copy_(torch.tensor(comps))
 
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
-
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
         if not use_cpu:
             fc2 = (
                 cc(indices.int(), offsets.int())
@@ -3456,10 +3494,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             self.assertEqual(fc2.size(), (0, cc.total_D))
             return
 
+        new_indices = []
+        for t in range(T):
+            new_indices_t = torch.zeros([B, L], dtype=torch.int32)
+            for i in range(B):
+                for j in range(L):
+                    old_index = xs[t][i, j]
+                    new_index = index_remappings_array[t][old_index]
+                    new_indices_t[i][j] = new_index
+            new_indices.append(new_indices_t)
+
         fs = (
             [
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
-                for (b, x) in zip(bs, xs)
+                for (b, x) in zip(bs, new_indices)
             ]
             if not weighted
             else [
@@ -3470,7 +3518,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     use_cpu=use_cpu,
                     do_pooling=do_pooling,
                 )
-                for (b, x, xw) in zip(bs, xs, xws)
+                for (b, x, xw) in zip(bs, new_indices, xws)
             ]
         )
         if do_pooling:
@@ -3487,6 +3535,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3497,6 +3546,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
     ) -> None:
         use_cpu = True
         T = random.randint(1, 50)
@@ -3557,6 +3607,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
+            do_pruning,
             mixed_weights_ty,
             output_dtype,
         )
@@ -3565,6 +3616,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3575,6 +3627,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
     ) -> None:
         use_cpu = False
         T = random.randint(1, 50)
@@ -3625,6 +3678,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
+            do_pruning,
             mixed_weights_ty,
             output_dtype,
         )
