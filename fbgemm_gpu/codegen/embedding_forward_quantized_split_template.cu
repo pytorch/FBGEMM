@@ -187,6 +187,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   ) {
   const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
+  const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
   const int32_t B = output.size(0);
   {% else %}
   const int32_t B = (offsets.size(0) - 1) / T;
@@ -392,16 +393,13 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    const float inv_L = 1.0 / Ls[i];
+    const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i]: static_cast<float>(1.0);
 
     if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
+        accumulators[i][j].mul(inv_L);
 
         if (output_d >= 0 && output_d < D) {
           const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // type_map[emb_weight_type].bit_width) }}));
@@ -418,9 +416,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
+        accumulators[i][j].mul(inv_L);
         if (output_d >= 0 && output_d < D) {
           thread_local_max = max(thread_local_max, float{{ (32 // type_map[emb_weight_type].bit_width) }}_max(accumulators[i][j].acc));
           thread_local_min = min(thread_local_min, float{{ (32 // type_map[emb_weight_type].bit_width) }}_min(accumulators[i][j].acc));
