@@ -105,7 +105,7 @@ template <
     typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread,
-    size_t kThreadGroupSize = kWarpSize>
+    int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits> grad_output,
