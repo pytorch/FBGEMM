@@ -256,7 +256,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert
   m.def(
-      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
+      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor(a!) hash_table, Tensor hash_table_offsets) -> ()");
   DISPATCH_TO_CPU(
       "pruned_hashmap_insert", pruned_hashmap_insert_unweighted_cpu);
 
