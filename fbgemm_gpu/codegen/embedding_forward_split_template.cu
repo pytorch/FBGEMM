@@ -587,6 +587,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 void    *emb_table;
                 const int64_t    *indices;
                 const int64_t    *offsets;
+		int64_t     pooling_mode;
                 uint32_t    emb_dim;
                 uint32_t    batch;
                 uint32_t    num_rows;
@@ -600,13 +601,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
             args.indices = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
             args.offsets = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+	    args.pooling_mode = pooling_mode;
             args.emb_dim = (uint32_t) max_D;
             args.batch = (uint32_t) B;
             args.num_rows = E;
             args.num_tables = (uint32_t) T;
 
             if (prec == "fp16") {
-                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, uint32_t, uint32_t, uint32_t, uint32_t);
+                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
                 if (max_D == 64) {
                     kf_p = &split_tbe_fwd_hip_kernel_fp16_e64;
                 } else if (max_D == 128) {
@@ -623,11 +625,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     dim3(grids[0], grids[1], grids[2]),
                     dim3(blocks[0], blocks[1], blocks[2]),
                     0, 0,
-                    (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets,
+                    (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
                     args.emb_dim, args.batch, args.num_rows, args.num_tables);
 
             } else { // "fp32"
-                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, uint32_t, uint32_t, uint32_t, uint32_t);
+                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
                 if (max_D == 64) {
                     kf_p = &split_tbe_fwd_hip_kernel_fp32_e64;
                 } else if (max_D == 128) {
@@ -644,7 +646,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     dim3(grids[0], grids[1], grids[2]),
                     dim3(blocks[0], blocks[1], blocks[2]),
                     0, 0,
-                    (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets,
+                    (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
                     args.emb_dim, args.batch, args.num_rows, args.num_tables);
             }
             return output;

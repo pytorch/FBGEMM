@@ -31,6 +31,7 @@
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
+	    const int64_t pooling_mode,    \
             uint32_t emb_dim,              \
             uint32_t batch,                \
             uint32_t num_rows,             \

@@ -24,6 +24,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include "../codegen/embedding_forward_template_helpers_hip.cuh"
 
 typedef int32_t  int32x4_t __attribute__((ext_vector_type(4)));
 typedef float  floatx2_t __attribute__((ext_vector_type(2)));
@@ -218,6 +219,7 @@ __device__ void split_tbe_forward_unweighted_hip_kernel(
     const emb_t * p_emb_table,
     const index_t * p_indices,
     const index_t * p_offsets,
+    const int64_t pooling_mode,
     uint32_t emb_dim,
     uint32_t batch,
     uint32_t num_rows,
@@ -325,6 +327,13 @@ L_end:
         }while(itr < length);
     }
 
+    if (static_cast<fbgemm_gpu::PoolingMode>(pooling_mode) == fbgemm_gpu::PoolingMode::MEAN && length != 0){
+#pragma unroll
+        for (int i = 0; i < dword_output_per_row; i++){
+            accumulator[i] *= 1.0f / length;
+        }
+    }
+
     // store out
     store_row_per_warp<emb_t, embedding_dim, output_t>::run(&accumulator[0], p_output, lane_id);
 }
@@ -336,13 +345,14 @@ L_end:
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
+	    const int64_t pooling_mode,    \
             uint32_t emb_dim,              \
             uint32_t batch,                \
             uint32_t num_rows,             \
             uint32_t num_tables)           \
     {                                      \
         split_tbe_forward_unweighted_hip_kernel<emb_type, float, float, int64_t, embedding_dim, bag_prefetch, bag_unroll> \
-                (p_output, p_emb_table, p_indices, p_offsets, emb_dim, batch, num_rows, num_tables); \
+                (p_output, p_emb_table, p_indices, p_offsets, pooling_mode, emb_dim, batch, num_rows, num_tables); \
     }
 
 SPLIT_TBE_FWD_KERNEL(fp16,  half,  64, 2, 16)
