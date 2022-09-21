@@ -747,10 +747,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
-          Y(2, 8, 0, 1);
+          Y(4, 8, 0, 1);
         }
         if (max_int4_128b_rows > 1) {
-          Y(2, 4, 1, 2);
+          Y(2, 8, 1, 2);
         }
         if (max_int4_128b_rows > 2) {
           Y(1, 4, 2, 4);
