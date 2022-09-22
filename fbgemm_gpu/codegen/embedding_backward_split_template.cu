@@ -577,14 +577,21 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% else %}
     int32_t T = weights_offsets.size(0);
     {% endif %}
-    const int32_t run_id = blockIdx.x * blockDim.y + threadIdx.y;
+    const int32_t start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
 
-    if (run_id >= sorted_linear_indices_run.size(0)) {
-        return;
-    }
-    if (run_id >= sorted_linear_indices_num_runs[0]) {
-        return;
-    }
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
+#endif
+    constexpr int VEC_WIDTH = 4;
+
+    for (uint32_t run_id = start_run_id;
+         run_id < sorted_linear_indices_run.size(0) && run_id < sorted_linear_indices_num_runs[0];
+         run_id += gridDim.x * blockDim.y) {
+
     const int64_t linear_index = sorted_linear_indices_run[run_id];
     const int32_t segment_start =
         sorted_linear_indices_cumulative_run_lengths[run_id];
@@ -593,7 +600,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const int32_t SL = segment_end - segment_start;
 
     if (SL >= max_segment_length_per_warp) {
-        return;
+        continue;
     }
 
     // now, each segment corresponds to exactly one table `t` and row in
@@ -611,15 +618,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int32_t D = D_offsets[t_0 + 1] - D_offsets[t_0];
     {% endif %}
     int64_t idx = linear_index - hash_size;
-
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-    const unsigned int shfl_sync_mask =
-        ((1L << kThreadGroupSize) - 1) <<
-        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
-#else
-    const unsigned int shfl_sync_mask = 0xffffffffu;
-#endif
-    constexpr int VEC_WIDTH = 4;
 
     const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
     const int32_t sl_start = 0;
@@ -764,6 +762,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         grad.store(&grad_dev_weights[weights_offset + idx * D + d]);
     }
     {% endif %}
+
+    }
 }
 
 {{ "void" if not dense else "Tensor" }} split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact_cuda(
@@ -1182,6 +1182,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     use_deterministic_algorithms,
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            int32_t grid_size = std::min(
+                div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                64 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 #ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
@@ -1212,7 +1215,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% endif %}
                 kMaxVecsPerThread,
                 kThreadGroupSize>
-                <<<div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                <<<grid_size,
                     dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
                     BT_block_size * sizeof(
                     at::acc_type<
