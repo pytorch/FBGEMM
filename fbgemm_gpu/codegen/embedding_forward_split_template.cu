@@ -200,11 +200,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         output // [B][total_D],
     {% endif %}
     ) {
-    {% if not nobag %}
-    int32_t B = output.size(0);
-    int32_t T = D_offsets.size(0) - 1;
-    {% else %}
     int32_t T = weights_offsets.size(0);
+    {% if not nobag %}
+    const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+    int32_t B = output.size(0);
+    {% else %}
     int32_t B = (offsets.size(0) - 1) / T;
     {% endif %}
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -250,6 +250,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 #endif
 
     {% if not nobag %}
+    const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {% endif %}
     for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
@@ -354,9 +355,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
         i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].mul_(1.0 / L);
-            }
+            accumulators[i].mul_(inv_L);
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             accumulators[i].store(&output[b][D_start + d]);
         }
@@ -370,9 +369,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
-            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].mul_(1.0 / L);
-            }
+            accumulators[i].mul_(inv_L);
             thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
             thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
         }
