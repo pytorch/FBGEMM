@@ -9,7 +9,10 @@
 #include <ATen/AccumulateType.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
+#include <cstring>
 
+#include "ATen/Dispatch.h"
+#include "c10/core/ScalarType.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace fbgemm_gpu {
@@ -1066,6 +1069,50 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
   return padded_values_per_key;
 }
 
+Tensor jagged_1d_to_truncated_values_cpu(
+    Tensor values,
+    Tensor lengths,
+    int64_t max_truncated_length) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(lengths.dim() == 1);
+
+  const auto lengths_contig = lengths.contiguous();
+  const auto values_contig = values.contiguous();
+  int32_t B = lengths.size(0);
+  Tensor truncated_values;
+  AT_DISPATCH_INDEX_TYPES(
+      lengths_contig.scalar_type(),
+      "jagged_1d_to_truncated_values_cpu_kernel",
+      [&] {
+        AT_DISPATCH_ALL_TYPES_AND_HALF(
+            values_contig.scalar_type(),
+            "copy_values_and_truncate_cpu_kernel",
+            [&] {
+              const index_t max_length_int =
+                  static_cast<index_t>(max_truncated_length);
+              const auto& lengths_int = lengths_contig.data_ptr<index_t>();
+              int32_t num_outputs = 0;
+              for (const auto b : c10::irange(B)) {
+                num_outputs += std::min(max_length_int, lengths_int[b]);
+              }
+              truncated_values = at::empty({num_outputs}, values.options());
+              int64_t input_offset = 0;
+              int64_t output_offset = 0;
+              for (const auto b : c10::irange(B)) {
+                index_t cur_len = std::min(max_length_int, lengths_int[b]);
+                std::memcpy(
+                    truncated_values.data_ptr<scalar_t>() + output_offset,
+                    values_contig.data_ptr<scalar_t>() + input_offset,
+                    sizeof(scalar_t) * cur_len);
+                output_offset += cur_len;
+                input_offset += lengths_int[b];
+              }
+            });
+      });
+
+  return truncated_values;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1100,6 +1147,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
   m.def(
       "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
+  m.def(
+      "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1125,4 +1174,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU(
       "stacked_jagged_2d_to_dense", fbgemm_gpu::stacked_jagged_2d_to_dense_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_1d_to_truncated_values",
+      fbgemm_gpu::jagged_1d_to_truncated_values_cpu);
 }

@@ -1211,6 +1211,70 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype == torch.half else None,
         )
 
+    # pyre-ignore [56]
+    @given(
+        batch_size=st.integers(1, 128),
+        max_length=st.integers(0, 128),
+        max_truncated_length=st.integers(1, 32),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [torch.float, torch.half, torch.int, torch.long]
+        ),
+        use_cpu=st.just(True),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_jagged_1d_to_truncated_values(
+        self,
+        max_length: int,
+        batch_size: int,
+        max_truncated_length: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        use_cpu: bool,
+    ) -> None:
+        device = "cpu" if use_cpu else "cuda"
+        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        lengths = torch.randint(
+            low=0,
+            high=max_length + 1,
+            size=(batch_size,),
+            dtype=index_dtype,
+            device=device,
+        )
+        n = int(lengths.sum().item())
+        if is_float:
+            values = torch.rand(
+                (n,),
+                dtype=jagged_tensor_dtype,
+                device=device,
+            )
+        else:
+            values = torch.randint(
+                2**16,
+                (n,),
+                dtype=jagged_tensor_dtype,
+                device=device,
+            )
+
+        truncated_values = torch.ops.fbgemm.jagged_1d_to_truncated_values(
+            values,
+            lengths,
+            max_truncated_length,
+        )
+        dense_values = torch.ops.fbgemm.jagged_1d_to_dense(
+            values=values,
+            offsets=torch.ops.fbgemm.asynchronous_complete_cumsum(lengths),
+            max_sequence_length=max_truncated_length,
+            padding_value=0,
+        )  # [B, N]
+        truncated_lengths_ref = torch.clamp(lengths, max=max_truncated_length)
+        mask2d = torch.arange(dense_values.size(1), device=dense_values.device).expand(
+            dense_values.size(0), -1
+        ) < truncated_lengths_ref.unsqueeze(-1)
+        truncated_values_ref = dense_values[mask2d].view(-1)
+
+        assert torch.equal(truncated_values, truncated_values_ref)
+
 
 if __name__ == "__main__":
     unittest.main()
