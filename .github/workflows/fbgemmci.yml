@@ -78,7 +78,7 @@ jobs:
         cd build_shared
         ctest
 
-  build1:
+  build-windows:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -192,18 +192,20 @@ jobs:
         set -e
         ./bazel test --compilation_mode opt :*
 
+
   build_nvidia_gpu:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest]
-        cuda_version: [11.3, 11.5, 11.6, 11.7]
+        config: [[pip, 11.3], [pip, 11.5], [pip, 11.6], [pip, 11.7], [conda, 11.7]]
 
     steps:
     - uses: actions/checkout@v2
 
     - name: Install CUDA
       shell: bash
+      if: matrix.config[0] == 'pip'
       run: |
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
         sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
@@ -214,19 +216,29 @@ jobs:
         sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
         sudo apt-get update
         # "11.5 -> 11-5"
-        cuda_apt_version=$(echo "${{ matrix.cuda_version }}" | sed "s/\./-/")
+        cuda_apt_version=$(echo "${{ matrix.config[1] }}" | sed "s/\./-/")
         sudo apt-get -y install cuda-minimal-build-${cuda_apt_version} cuda-nvrtc-dev-${cuda_apt_version} cuda-nvtx-${cuda_apt_version} cuda-libraries-dev-${cuda_apt_version}
         sudo apt-get -y install libcudnn8-dev
 
     - name: Install dependencies
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get -y install git pip python3-dev
-        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        # Install pytorch built with CUDA 11.3 in all cases
-        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
-
+        if [ x"${{ matrix.config[0] }}" == x"pip" ]; then
+          # pip-based installation
+          sudo apt-get update
+          sudo apt-get -y install git pip python3-dev
+          sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+          # Install pytorch built with CUDA 11.3 in all cases
+          sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
+        else
+          # conda-based installation
+          wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
+          bash ~/miniconda.sh -b -p $HOME/miniconda -u
+          eval "$($HOME/miniconda/bin/conda shell.bash hook)"
+          cuda_version="${{ matrix.config[1] }}"
+          conda install -y pytorch pytorch-cuda="$cuda_version" -c pytorch-nightly -c nvidia
+          conda install -y cudnn numpy scikit-build jinja2 ninja cmake hypothesis
+        fi
     - name: Checkout submodules
       shell: bash
       run: |
@@ -238,12 +250,20 @@ jobs:
       shell: bash
       run: |
         cd fbgemm_gpu
-        CUDA_PATH="/usr/local/cuda-${{ matrix.cuda_version }}"
-        sudo CUDACXX="${CUDA_PATH}/bin/nvcc" python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
+        if [ x"${{ matrix.config[0] }}" == x"pip" ]; then
+          CUDA_PATH="/usr/local/cuda-${{ matrix.config[1] }}"
+          sudo CUDACXX="${CUDA_PATH}/bin/nvcc" python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
+        else
+          eval "$($HOME/miniconda/bin/conda shell.bash hook)"
+          python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
+        fi
 
     - name: Test fbgemm_gpu installation
       shell: bash
       run: |
+        if [ x"${{ matrix.config[0] }}" == x"conda" ]; then
+          eval "$($HOME/miniconda/bin/conda shell.bash hook)"
+        fi
         cd fbgemm_gpu
         cd test
         python input_combine_test.py -v
@@ -257,7 +277,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        rocm_version: [5.1.1]
+        config: [[pip, 5.1.1]]
 
     steps:
     - name: Free space
