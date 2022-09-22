@@ -4640,8 +4640,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        #weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
-        weights_precision=st.just(random.choice([SparseType.FP32, SparseType.FP16])),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         mixed=st.just(False),
         use_cache=st.just(False),
         use_cpu=st.just(False),
@@ -4649,7 +4648,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
             ),
         output_dtype=st.just(SparseType.FP32),
-        pooling_mode=st.just(split_table_batched_embeddings_ops.PoolingMode.SUM),
+        pooling_mode=st.sampled_from([split_table_batched_embeddings_ops.PoolingMode.SUM, split_table_batched_embeddings_ops.PoolingMode.MEAN]),
         weighted=st.just(False)
     )
     @settings(
