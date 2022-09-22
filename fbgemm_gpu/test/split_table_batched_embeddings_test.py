@@ -4635,9 +4635,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not TEST_WITH_ROCM, "skip test_rocm_tbe_forward if not AMD ROCm stack.")
     @given(
         T=st.sampled_from([1,2,3]),
-        # D=st.sampled_from([[16, 32, 48, 64]]) fails the tests
         # D*4 later in SplitTableBatchedEmbeddingsTest
-        D=st.just(random.choice([64, 128, 192, 256])//4),
+        D=st.sampled_from([16, 32, 48, 64]),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
