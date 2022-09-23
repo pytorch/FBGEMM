@@ -1,21 +1,24 @@
 var indexSectionsWithContent =
 {
   0: "cdeghijlmnqsu",
-  1: "deghilnu",
-  2: "cejlmqs"
+  1: "c",
+  2: "deghilnu",
+  3: "cejlmqs"
 };
 
 var indexSectionNames =
 {
   0: "all",
-  1: "functions",
-  2: "groups"
+  1: "classes",
+  2: "functions",
+  3: "groups"
 };
 
 var indexSectionLabels =
 {
   0: "All",
-  1: "Functions",
-  2: "Modules"
+  1: "Classes",
+  2: "Functions",
+  3: "Modules"
 };
 
