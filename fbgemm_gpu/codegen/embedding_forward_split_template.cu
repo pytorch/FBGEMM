@@ -573,13 +573,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         int64_t E = wcnts / T / max_D;
 
 	std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
-        if (init_info == 0) {
-            std::string hip_kernel_name = std::string("split_tbe_fwd_hip_kernel_") + prec + "_e" + std::to_string(max_D);
-            printf("kernel function: %s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
-                hip_kernel_name.c_str(), wcnts, E, B, T,
-                blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
-            init_info = 1;
-        }
 
         {
             struct {
