@@ -24,6 +24,7 @@ from fbgemm_gpu.quantize_utils import (
     hfp8_to_fp32,
 )
 from fbgemm_gpu.split_embedding_configs import SparseType
+from pyre_extensions import none_throws
 from torch.autograd.profiler import record_function
 
 logger: logging.Logger = logging.getLogger()
@@ -31,11 +32,19 @@ logger: logging.Logger = logging.getLogger()
 # FP8 configurations
 ebits, mbits, bias = 4, 3, 15
 max_pos: float = (2 ** ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+ROW_DIM_DEFAULT = 32
+
+
+class QuantizationContext:
+    def __init__(self, row_dim: int = ROW_DIM_DEFAULT) -> None:
+        self.row_dim = row_dim
+        self.row_dim_quant: int = -1
 
 
 def _quantize_tensor(
     input_tensor: torch.Tensor,
     comm_precision: SparseType,
+    ctx: Optional[QuantizationContext] = None,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         return input_tensor
@@ -45,6 +54,16 @@ def _quantize_tensor(
         return fp32_to_bf16_with_clamp(input_tensor)
     elif comm_precision == SparseType.FP8:
         return fp32_to_hfp8_with_clamp(input_tensor, ebits, mbits, bias)
+    elif comm_precision == SparseType.INT8:
+        ctx = none_throws(ctx)
+        row_dim = ctx.row_dim
+        input_2d = input_tensor.view((-1, row_dim)) if row_dim > 0 else input_tensor
+        input_2d_quant = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(input_2d)
+        row_dim_quant = input_2d_quant.shape[1]
+        input_quant_all2all = None
+        input_quant_all2all = input_2d_quant.view((-1))
+        ctx.row_dim_quant = row_dim_quant
+        return input_quant_all2all
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -52,6 +71,7 @@ def _quantize_tensor(
 def _dequantize_tensor(
     quantized_tensor: torch.Tensor,
     comm_precision: SparseType,
+    ctx: Optional[QuantizationContext] = None,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         assert quantized_tensor.dtype == torch.float
@@ -65,6 +85,14 @@ def _dequantize_tensor(
     elif comm_precision == SparseType.FP8:
         assert quantized_tensor.dtype == torch.uint8
         return hfp8_to_fp32(quantized_tensor, ebits, bias)
+    elif comm_precision == SparseType.INT8:
+        ctx = none_throws(ctx)
+        row_dim_quant = ctx.row_dim_quant
+        quantized_tensor_2d = quantized_tensor.view((-1, row_dim_quant))
+        dequant_tensor = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+            quantized_tensor_2d
+        )
+        return dequant_tensor.view(-1)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -75,6 +103,7 @@ class QuantizedCommCodec:
         self,
         comm_precision: SparseType,
         loss_scale: Optional[float] = None,
+        row_dim: Optional[int] = None,
     ) -> None:
 
         if loss_scale is not None:
@@ -91,22 +120,46 @@ class QuantizedCommCodec:
         self._comm_precision = comm_precision
         self._loss_scale = loss_scale
 
-    def encode(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def encode(
+        self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
+    ) -> torch.Tensor:
         if self._loss_scale is not None:
             input_tensor = self._loss_scale * input_tensor
         with record_function(
             f"## encoder {self._comm_precision} {self._loss_scale} ##"
         ):
-            return _quantize_tensor(input_tensor, self._comm_precision)
+            output = _quantize_tensor(
+                input_tensor,
+                self._comm_precision,
+                ctx,
+            )
+        return output
 
-    def decode(self, input_grad: torch.Tensor) -> torch.Tensor:
+    def decode(
+        self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
+    ) -> torch.Tensor:
         if self._loss_scale is not None:
-            input_grad = input_grad / self._loss_scale
+            input_tensor = input_tensor / self._loss_scale
         with record_function(
             f"## decoder {self._comm_precision} {self._loss_scale} ##"
         ):
-            dequantized_tensor = _dequantize_tensor(input_grad, self._comm_precision)
+            dequantized_tensor = _dequantize_tensor(
+                input_tensor, self._comm_precision, ctx
+            )
         return dequantized_tensor
+
+    def calc_quantized_size(
+        self, input_len: int, ctx: Optional[QuantizationContext] = None
+    ) -> int:
+        # Use the same logic in _float_to_fused8bitrowwise_gpu_t()
+        if self._comm_precision == SparseType.INT8:
+            ctx = none_throws(ctx)
+            assert input_len % ctx.row_dim == 0
+            nrows = input_len // ctx.row_dim
+            ncols = (ctx.row_dim + 3) // 4 * 4 + 2 * 4
+            return nrows * ncols
+        else:
+            return input_len
 
     @property
     def quantized_dtype(self) -> torch.dtype:
