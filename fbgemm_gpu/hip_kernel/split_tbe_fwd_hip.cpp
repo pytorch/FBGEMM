@@ -20,16 +20,18 @@
  * THE SOFTWARE.
  *
  ******************************************************************************/
+#ifdef __HIP_PLATFORM_HCC__
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include "../codegen/embedding_forward_template_helpers_hip.cuh"
 
 typedef int32_t  int32x4_t __attribute__((ext_vector_type(4)));
 typedef float  floatx2_t __attribute__((ext_vector_type(2)));
 #define AMDGCN_BUFFER_RES_3 0x00027000
 #define AMDGCN_WAVE_SIZE 64
 
-template<typename T>
+template <typename T>
 union amdgcn_buffer_resource{
     // https://rocm-documentation.readthedocs.io/en/latest/GCN_ISA_Manuals/testdocbook.html#vector-memory-buffer-instructions
     int32x4_t content;
@@ -89,7 +91,7 @@ llvm_amdgcn_raw_buffer_store_fp32x2(floatx2_t vdata,
 #define THREADS_PER_ROW 64
 #define BLOCK_SIZE 256
 
-template<typename emb_t, int32_t embedding_dim, typename index_t>
+template <typename emb_t, int32_t embedding_dim, typename index_t>
 struct load_row_per_warp {
     static __device__ void run(emb_t * emb_data, index_t row_index, const emb_t * p_emb_table, int lane_id) {}
 };
@@ -217,6 +219,7 @@ __device__ void split_tbe_forward_unweighted_hip_kernel(
     const emb_t * p_emb_table,
     const index_t * p_indices,
     const index_t * p_offsets,
+    const int64_t pooling_mode,
     uint32_t emb_dim,
     uint32_t batch,
     uint32_t num_rows,
@@ -324,32 +327,42 @@ L_end:
         }while(itr < length);
     }
 
+    if (static_cast<fbgemm_gpu::PoolingMode>(pooling_mode) == fbgemm_gpu::PoolingMode::MEAN && length != 0){
+#pragma unroll
+        for (int i = 0; i < dword_output_per_row; i++){
+            accumulator[i] *= 1.0f / length;
+        }
+    }
+
     // store out
     store_row_per_warp<emb_t, embedding_dim, output_t>::run(&accumulator[0], p_output, lane_id);
 }
 
 
 #define SPLIT_TBE_FWD_KERNEL(emb_prec, emb_type, embedding_dim, bag_prefetch, bag_unroll) \
-    extern "C" __global__ void split_tbe_fwd_hip_kernel_ ## emb_prec ## _e ## embedding_dim (  \
-                    float * p_output,           \
-                    const emb_type * p_emb_table,   \
-                    const int64_t * p_indices,      \
-                    const int64_t * p_offsets,      \
-                    uint32_t emb_dim,               \
-                    uint32_t batch,                 \
-                    uint32_t num_rows,              \
-                    uint32_t num_tables)            \
-    {                                               \
+    extern "C" __global__ void split_tbe_fwd_hip_kernel_ ## emb_prec ## _e ## embedding_dim ( \
+            float * p_output,              \
+            const emb_type * p_emb_table,  \
+            const int64_t * p_indices,     \
+            const int64_t * p_offsets,     \
+	    const int64_t pooling_mode,    \
+            uint32_t emb_dim,              \
+            uint32_t batch,                \
+            uint32_t num_rows,             \
+            uint32_t num_tables)           \
+    {                                      \
         split_tbe_forward_unweighted_hip_kernel<emb_type, float, float, int64_t, embedding_dim, bag_prefetch, bag_unroll> \
-                (p_output, p_emb_table, p_indices, p_offsets, emb_dim, batch, num_rows, num_tables);        \
+                (p_output, p_emb_table, p_indices, p_offsets, pooling_mode, emb_dim, batch, num_rows, num_tables); \
     }
 
-SPLIT_TBE_FWD_KERNEL(fp16,   half,  64, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp16,   half, 128, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp16,   half, 192, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp16,   half, 256, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp16,  half,  64, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp16,  half, 128, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp16,  half, 192, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp16,  half, 256, 2, 16)
 
-SPLIT_TBE_FWD_KERNEL(fp32,   float,  64, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp32,   float, 128, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp32,   float, 192, 2, 16)
-SPLIT_TBE_FWD_KERNEL(fp32,   float, 256, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp32, float,  64, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp32, float, 128, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp32, float, 192, 2, 16)
+SPLIT_TBE_FWD_KERNEL(fp32, float, 256, 2, 16)
+
+#endif

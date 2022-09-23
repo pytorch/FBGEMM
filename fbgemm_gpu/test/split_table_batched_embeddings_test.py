@@ -4635,14 +4635,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(not TEST_WITH_ROCM, "skip test_rocm_tbe_forward if not AMD ROCm stack.")
     @given(
         T=st.sampled_from([1,2,3]),
-        # D=st.sampled_from([[16, 32, 48, 64]]) fails the tests
         # D*4 later in SplitTableBatchedEmbeddingsTest
-        D=st.just(random.choice([64, 128, 192, 256])//4),
+        D=st.sampled_from([16, 32, 48, 64]),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        #weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
-        weights_precision=st.just(random.choice([SparseType.FP32, SparseType.FP16])),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         mixed=st.just(False),
         use_cache=st.just(False),
         use_cpu=st.just(False),
@@ -4650,7 +4648,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             split_table_batched_embeddings_ops.CacheAlgorithm
             ),
         output_dtype=st.just(SparseType.FP32),
-        pooling_mode=st.just(split_table_batched_embeddings_ops.PoolingMode.SUM),
+        pooling_mode=st.sampled_from([split_table_batched_embeddings_ops.PoolingMode.SUM, split_table_batched_embeddings_ops.PoolingMode.MEAN]),
         weighted=st.just(False)
     )
     @settings(
