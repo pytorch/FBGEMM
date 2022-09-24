@@ -354,16 +354,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                 )
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1238,8 +1236,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         xs = [
@@ -1260,8 +1257,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1464,8 +1460,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
@@ -1493,8 +1488,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1810,8 +1804,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
@@ -1836,7 +1829,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
         fs = (
