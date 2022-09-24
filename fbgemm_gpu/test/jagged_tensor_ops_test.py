@@ -1268,12 +1268,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
             padding_value=0,
         )  # [B, N]
         truncated_lengths_ref = torch.clamp(lengths, max=max_truncated_length)
-        mask2d = torch.arange(dense_values.size(1), device=dense_values.device).expand(
-            dense_values.size(0), -1
+        mask2d = torch.arange(max_truncated_length, device=device).expand(
+            batch_size, -1
         ) < truncated_lengths_ref.unsqueeze(-1)
         truncated_values_ref = dense_values[mask2d].view(-1)
 
-        assert torch.equal(truncated_values, truncated_values_ref)
+        torch.testing.assert_close(truncated_values, truncated_values_ref)
 
 
 if __name__ == "__main__":

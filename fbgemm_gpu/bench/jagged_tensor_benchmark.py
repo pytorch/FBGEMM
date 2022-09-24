@@ -181,5 +181,54 @@ def batched_dense_vec_jagged_2d_mul(
     )
 
 
+@cli.command()
+@click.option("--batch-size", type=int, default=1024)
+@click.option("--max-len", type=int, default=10)
+@click.option("--dtype", type=str, default="float")
+def jagged_1d_to_truncated_values(
+    batch_size: int,
+    max_len: int,
+    dtype: str,
+) -> None:
+
+    lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
+    total_lengths = lengths.sum().item()
+    torch_dtype = torch.float16 if dtype in ["half", "float16"] else torch.float32
+    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+    values = torch.rand(total_lengths, dtype=torch_dtype)
+
+    def ref(values: torch.Tensor, lengths: torch.Tensor, max_len: int) -> torch.Tensor:
+        dense_values = torch.ops.fbgemm.jagged_to_padded_dense(
+            values,
+            [torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)],
+            [max_len],
+            padding_value=0,
+        )
+        truncated_lengths = torch.clamp(lengths, max=max_len)
+        mask2d = torch.arange(max_len).expand(
+            batch_size, -1
+        ) < truncated_lengths.unsqueeze(-1)
+        return dense_values[mask2d].view(-1)
+
+    time_ref, output_ref = benchmark_torch_function(
+        ref,
+        (values, lengths, max_len),
+    )
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_1d_to_truncated_values,
+        (values, lengths, max_len),
+    )
+
+    torch.testing.assert_close(output, output_ref)
+
+    bytes = (values.numel() + output.numel()) * (
+        4 if torch_dtype == torch.float else 2
+    ) + lengths.numel() * 4
+
+    logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
+    logging.info(f"truncate_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+
+
 if __name__ == "__main__":
     cli()
