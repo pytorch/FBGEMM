@@ -392,17 +392,24 @@ def benchmark(
             )
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
+    # merged is a list of tensors.
+    output_num_el = sum([a.numel() for a in merged])
+    num_el_transferred = sum(
+        [a.numel() for i, a in enumerate(merged) if i is not dst_device]
+    )
+
     logging.debug(
         f"Mode: {mode}, Data Type: {data_type}, B: {num_ads}, D: {embedding_dimension}, T: {ads_tables}, Num GPUs: {num_gpus}, Destination GPU: {dst_device}, "
         f"Number of elements: {total_elements / 1.0e6:.2f} Million, Number of elements per GPU: {total_elements / 1.0e6 / num_gpus:.2f}, Billion elements per sec: {total_elements / t / 1.0e9:.1f}, "
-        f"Output Size: {merged.numel() * bytes_per_element / 1.0e6:.0f}MB, BW: {merged.numel() * bytes_per_element / t / 1.0e9:.1f}GB/s, "
+        f"Output Size: {output_num_el * bytes_per_element / 1.0e6:.0f}MB, All-to-one BW: {output_num_el * bytes_per_element / t / 1.0e9:.1f}GB/s, link BW: {num_el_transferred * bytes_per_element / t / 1.0e9:.1f}GB/s, "
         f"t: {t * 1.0e3:.2f}ms"
     )
     # return result in CSV format
     return (
         f"{mode}, {data_type}, {num_ads}, {embedding_dimension}, {ads_tables}, {num_gpus}, {dst_device}, "
         f"{total_elements / 1.0e6:.2f}, {total_elements / 1.0e6 / num_gpus:.2f}, {total_elements / 1.0e9 / t:.1f}, "
-        f"{merged.numel() * bytes_per_element / 1.0e6:.0f}, {merged.numel() * bytes_per_element / 1.0e9 / t:.1f}, "
+        f"{output_num_el * bytes_per_element / 1.0e6:.0f}, {output_num_el * bytes_per_element / t / 1.0e9:.1f}, "
+        f"{num_el_transferred * bytes_per_element / 1.0e9 / t:.1f}, "
         f"{t * 1.0e3:.2f}"
     )
 
@@ -452,7 +459,7 @@ def main(
     csv_header = (
         "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, "
         "dst_device, number of elements (Million), number of elements per GPU (Million), throughput (billion elements per sec), "
-        "output size (MB), BW (GB/s), t (ms)"
+        "output size (MB), all-to-one BW (GB/s), link BW (GB/s), t (ms)"
     )
     if sweep:
 
