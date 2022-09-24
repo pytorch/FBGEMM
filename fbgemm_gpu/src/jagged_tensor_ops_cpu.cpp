@@ -9,10 +9,7 @@
 #include <ATen/AccumulateType.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
-#include <cstring>
 
-#include "ATen/Dispatch.h"
-#include "c10/core/ScalarType.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace fbgemm_gpu {
@@ -965,6 +962,47 @@ Tensor batched_dense_vec_jagged_2d_mul(
   return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets)[0];
 }
 
+///@ingroup jagged-tensor-ops-cpu
+Tensor jagged_1d_to_truncated_values_cpu(
+    Tensor values,
+    Tensor lengths,
+    int64_t max_truncated_length) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(lengths.dim() == 1);
+
+  const int32_t B = lengths.size(0);
+  Tensor truncated_values;
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "jagged_1d_to_truncated_values_cpu_kernel", [&] {
+        AT_DISPATCH_ALL_TYPES_AND_HALF(
+            values.scalar_type(), "copy_values_and_truncate_cpu_kernel", [&] {
+              const index_t max_length_int =
+                  static_cast<index_t>(max_truncated_length);
+              const auto lengths_accessor = lengths.accessor<index_t, 1>();
+              int32_t num_outputs = 0;
+              for (const auto b : c10::irange(B)) {
+                num_outputs += std::min(max_length_int, lengths_accessor[b]);
+              }
+              const auto input_accessor = values.accessor<scalar_t, 1>();
+              truncated_values = at::empty({num_outputs}, values.options());
+              auto output_accessor = truncated_values.accessor<scalar_t, 1>();
+              int64_t input_offset = 0;
+              int64_t output_offset = 0;
+              for (const auto b : c10::irange(B)) {
+                index_t cur_len = std::min(max_length_int, lengths_accessor[b]);
+                for (const auto i : c10::irange(cur_len)) {
+                  output_accessor[output_offset + i] =
+                      input_accessor[input_offset + i];
+                }
+                output_offset += cur_len;
+                input_offset += lengths_accessor[b];
+              }
+            });
+      });
+
+  return truncated_values;
+}
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -1067,50 +1105,6 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
   }
 
   return padded_values_per_key;
-}
-
-Tensor jagged_1d_to_truncated_values_cpu(
-    Tensor values,
-    Tensor lengths,
-    int64_t max_truncated_length) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(lengths.dim() == 1);
-
-  const auto lengths_contig = lengths.contiguous();
-  const auto values_contig = values.contiguous();
-  int32_t B = lengths.size(0);
-  Tensor truncated_values;
-  AT_DISPATCH_INDEX_TYPES(
-      lengths_contig.scalar_type(),
-      "jagged_1d_to_truncated_values_cpu_kernel",
-      [&] {
-        AT_DISPATCH_ALL_TYPES_AND_HALF(
-            values_contig.scalar_type(),
-            "copy_values_and_truncate_cpu_kernel",
-            [&] {
-              const index_t max_length_int =
-                  static_cast<index_t>(max_truncated_length);
-              const auto& lengths_int = lengths_contig.data_ptr<index_t>();
-              int32_t num_outputs = 0;
-              for (const auto b : c10::irange(B)) {
-                num_outputs += std::min(max_length_int, lengths_int[b]);
-              }
-              truncated_values = at::empty({num_outputs}, values.options());
-              int64_t input_offset = 0;
-              int64_t output_offset = 0;
-              for (const auto b : c10::irange(B)) {
-                index_t cur_len = std::min(max_length_int, lengths_int[b]);
-                std::memcpy(
-                    truncated_values.data_ptr<scalar_t>() + output_offset,
-                    values_contig.data_ptr<scalar_t>() + input_offset,
-                    sizeof(scalar_t) * cur_len);
-                output_offset += cur_len;
-                input_offset += lengths_int[b];
-              }
-            });
-      });
-
-  return truncated_values;
 }
 
 } // namespace fbgemm_gpu
