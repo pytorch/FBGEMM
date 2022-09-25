@@ -1350,12 +1350,16 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
         embedding_specs: List[Tuple[int, int]],  # tuple of (rows, dims)
         feature_table_map: Optional[List[int]] = None,  # [T]
+        weights_precision: SparseType = SparseType.FP32,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
+        self.weights_precision = weights_precision
         self.pooling_mode = pooling_mode
+
+        table_embedding_dtype = weights_precision.as_dtype()
 
         self.use_cpu = use_cpu
         # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
@@ -1406,6 +1410,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.randn(
                 weights_offsets[-1],
                 device=self.current_device,
+                dtype=table_embedding_dtype,
             )
         )
         for feature in range(T):

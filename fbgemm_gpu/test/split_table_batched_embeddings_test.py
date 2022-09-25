@@ -1292,9 +1292,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
+            weights_precision=weights_precision,
         )
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            cc = cc.half()
         if do_pooling:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
