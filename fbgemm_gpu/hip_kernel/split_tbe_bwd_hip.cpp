@@ -70,12 +70,10 @@ struct rowwise_adagrad_optimizer_t
                 wave_reduce<reduce_op_sum_t<cache_t>, cache_t, AMDGCN_WAVE_SIZE>(local_sum_squre) /
                 embedding_dim;
 
-            cache_t multiplier;
-            cache_t correction;
-
             cache_t momentum_new = momentum + avg_square;
 
-            multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
+            cache_t multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
+            cache_t correction;
 
             if constexpr(weight_decay_mode == 1)
             {
@@ -100,6 +98,9 @@ struct rowwise_adagrad_optimizer_t
                 weight[i] = static_cast<emb_t>(w);
             }
 
+            // printf("momentum_new:%f, avg_square:%f, row_index:%d, momentum:%f\n",  momentum_new,  avg_square, row_index, momentum);
+            // printf("momentum_new:%f",  momentum_new);
+
             p_momentum[row_index] = momentum_new;
         }
     }
@@ -114,17 +115,18 @@ template <typename optimizer_t,
           typename grad_t,
           int32_t block_size,
           int32_t embedding_dim,
-          int32_t bag_prefetch,
-          int32_t bag_unroll,
+          int32_t segment_prefetch,
+          int32_t segment_unroll,
           int32_t segment_split> // 0-warp per row, 1-cta per row, 2-atomic(needed?)
 __device__ void split_tbe_backward_unweighted_hip_kernel(
     const grad_t* p_output_grad,
     emb_t* p_emb_table,
+    const int64_t* p_hash_size_cumsum,
     const int64_t* p_sorted_linear_indices_run,
-    const int64_t* p_sorted_linear_indices_cumulative_run_lengths,
+    const int32_t* p_sorted_linear_indices_cumulative_run_lengths,
     const int32_t* p_sorted_linear_indices_num_runs,
     const int32_t* p_long_run_ids,
-    const int64_t* p_num_long_run_ids,
+    const int32_t* p_num_long_run_ids,
     const int32_t* p_sorted_infos,
     magic_div_u32_t batch_mdiv,
     uint32_t max_segment_length_per_warp,
@@ -136,87 +138,105 @@ __device__ void split_tbe_backward_unweighted_hip_kernel(
 {
     constexpr uint32_t dword_per_row   = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
     constexpr uint32_t waves_per_block = block_size / AMDGCN_WAVE_SIZE;
-    constexpr uint32_t length_mask     = ~(bag_unroll - 1);
+    constexpr uint32_t length_mask     = ~(segment_unroll - 1);
     const uint32_t wave_id = __builtin_amdgcn_readfirstlane(threadIdx.x / AMDGCN_WAVE_SIZE);
     const uint32_t lane_id = threadIdx.x % AMDGCN_WAVE_SIZE;
     const uint32_t run_id  = wave_id + blockIdx.x * waves_per_block;
 
+    // printf("wave_id:%d, run_id:%d(%d), batch:%d(%d, %d)\n",
+    //     wave_id, run_id, p_sorted_linear_indices_num_runs[0], batch, batch_mdiv.magic, batch_mdiv.shift);
+
     if(run_id >= p_sorted_linear_indices_num_runs[0])
         return;
-
+    
     const int64_t linear_index  = p_sorted_linear_indices_run[run_id];
-    const int64_t emb_idx       = linear_index - blockIdx.y;
+    
     const int32_t segment_start = p_sorted_linear_indices_cumulative_run_lengths[run_id];
     const int32_t segment_end   = p_sorted_linear_indices_cumulative_run_lengths[run_id + 1];
 
-    p_output_grad += blockIdx.y * emb_dim;
+    int32_t info_0 = p_sorted_infos[segment_start];
+    uint32_t t_0 = magic_div_u32_run(batch_mdiv, info_0);
+    int64_t hash_size = p_hash_size_cumsum[t_0];
 
-    uint64_t emb_table_stride = static_cast<uint64_t>(num_rows) * emb_dim;
-    p_emb_table += blockIdx.y * emb_table_stride;
-    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + blockIdx.y * num_rows);
+    const int64_t emb_idx       = linear_index - hash_size;
+
+    // printf("[%d] segment_start:%d, info_0:%d, t_0:%d, num_rows:%d, emb_dim:%d, linear_index:%ld\n", wave_id, segment_start, info_0, t_0, num_rows, emb_dim, linear_index);
+
+    // p_output_grad += t_0 * emb_dim;
+
+    p_emb_table += hash_size * emb_dim;
+    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + hash_size);
 
     const int32_t segment_length = segment_end - segment_start;
 
     if(segment_length >= max_segment_length_per_warp)
         return;
 
+    // printf("[%d] segment_length:%d\n", wave_id, segment_length);
+
     const int32_t segment_length_mod = segment_length & length_mask;
 
     cache_t grad_acc[dword_per_row];
-    int32_t infos[bag_unroll];
-    grad_t grad_data[dword_per_row * bag_prefetch];
+    int32_t infos[segment_unroll];
+    grad_t grad_data[dword_per_row * segment_prefetch];
     emb_t emb_data[dword_per_row];
+
+    #pragma unroll
+    for(int i=0; i < dword_per_row; i++)
+    {
+        grad_acc[i] = .0f;
+    }
 
     int itr = 0;
     if(segment_length_mod == 0)
         goto L_tail_grad_acc;
 
 #pragma unroll
-    for(int i = 0; i < bag_unroll; i++)
+    for(int i = 0; i < segment_unroll; i++)
     {
-        infos[i] = p_sorted_infos[i];
+        infos[i] = p_sorted_infos[segment_start + i];
     }
 
-    itr += bag_unroll;
-    p_sorted_infos += bag_unroll;
+    itr += segment_unroll;
+    p_sorted_infos += segment_unroll;
 
-    uint32_t row_index;
-    uint32_t table_index__unused;
+    uint32_t bag_index;
+    uint32_t table_index;
 
     // LOOP
-    for(; itr < segment_length_mod; itr += bag_unroll)
+    for(; itr < segment_length_mod; itr += segment_unroll)
     {
-        magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index__unused, row_index);
+        magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[0], row_index * num_tables, p_output_grad, lane_id);
+            &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-        magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index__unused, row_index);
+        magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[dword_per_row], row_index * num_tables, p_output_grad, lane_id);
+            &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
 #pragma unroll
-        for(int j = 2; j < bag_unroll; j += 2)
+        for(int j = 2; j < segment_unroll; j += 2)
         {
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
                 &grad_acc[0], &grad_data[0], lane_id);
-            magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index__unused, row_index);
+            magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[0], row_index * num_tables, p_output_grad, lane_id);
+                &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id);
             magic_div_u32_run_with_mod(
-                batch_mdiv, infos[j + 1], batch, table_index__unused, row_index);
+                batch_mdiv, infos[j + 1], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[dword_per_row], row_index * num_tables, p_output_grad, lane_id);
+                &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         }
 
 #pragma unroll
-        for(int i = 0; i < bag_unroll; i++)
+        for(int i = 0; i < segment_unroll; i++)
         {
-            infos[i] = p_sorted_infos[i];
+            infos[i] = p_sorted_infos[segment_start + i];
         }
-        p_sorted_infos += bag_unroll;
+        p_sorted_infos += segment_unroll;
 
         accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
             &grad_acc[0], &grad_data[0], lane_id);
@@ -225,28 +245,28 @@ __device__ void split_tbe_backward_unweighted_hip_kernel(
     }
 
     // LAST
-    magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index__unused, row_index);
+    magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-        &grad_data[0], row_index * num_tables, p_output_grad, lane_id);
+        &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-    magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index__unused, row_index);
+    magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-        &grad_data[dword_per_row], row_index * num_tables, p_output_grad, lane_id);
+        &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
 #pragma unroll
-    for(int j = 2; j < bag_unroll; j += 2)
+    for(int j = 2; j < segment_unroll; j += 2)
     {
         accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
             &grad_acc[0], &grad_data[0], lane_id);
-        magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index__unused, row_index);
+        magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[0], row_index * num_tables, p_output_grad, lane_id);
+            &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
         accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
             &grad_acc[0], &grad_data[dword_per_row], lane_id);
-        magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index__unused, row_index);
+        magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[dword_per_row], row_index * num_tables, p_output_grad, lane_id);
+            &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
     }
 
     accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
@@ -255,51 +275,56 @@ __device__ void split_tbe_backward_unweighted_hip_kernel(
         &grad_acc[0], &grad_data[dword_per_row], lane_id);
 
 L_tail_grad_acc:
-    if(segment_length & (bag_unroll - 1))
+    if(segment_length & (segment_unroll - 1))
     {
         // last, load one by one
         do
         {
-            infos[0] = p_sorted_infos[0];
+            infos[0] = p_sorted_infos[segment_start];
             p_sorted_infos++;
 
-            magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index__unused, row_index);
+            magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[0], row_index * num_tables, p_output_grad, lane_id);
+                &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t>::run(
-                &grad_data[0], &grad_data[0], lane_id);
+                &grad_acc[0], &grad_data[0], lane_id);
 
             itr++;
         } while(itr < segment_length);
     }
 
+    // printf("[%d] segment_length:%d ==<< %f, emb_idx:%ld\n", wave_id, segment_length, grad_acc[0], emb_idx);
+
     // load the old emb weight data
-    load_row_per_warp<emb_t, embedding_dim, int32_t>::run(
+    load_row_per_warp<emb_t, embedding_dim, int64_t>::run(
         &emb_data[0], emb_idx, p_emb_table, lane_id);
     optimizer_t optimizer(opt_karg);
-    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, row_index);
+    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
 
-    // store updated weight to grad
-    store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table, lane_id);
+    // store updated weight to grad ??
+    store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
 }
 
-#define SPLIT_TBE_BWD_KERNEL(optimizer,                                                                                              \
+#define __SPLIT_TBE_BWD_KERNEL(optimizer,                                                                                            \
                                           weight_decay_mode,                                                                         \
                                           segment_split,                                                                             \
                                           emb_prec,                                                                                  \
                                           emb_type,                                                                                  \
+                                          grad_prec,                                                                                 \
+                                          grad_type,                                                                                 \
                                           embedding_dim,                                                                             \
-                                          bag_prefetch,                                                                              \
-                                          bag_unroll)                                                                                \
+                                          segment_prefetch,                                                                          \
+                                          segment_unroll)                                                                            \
     extern "C" __global__ void                                                                                                       \
-        split_tbe_bwd_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_e##embedding_dim(              \
-            const float* p_output_grad,                                                                                              \
+        split_tbe_bwd_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_##grad_prec##_e##embedding_dim(   \
+            const grad_type* p_output_grad,                                                                                          \
             emb_type* p_emb_table,                                                                                                   \
+            const int64_t* p_hash_size_cumsum,                                                                                       \
             const int64_t* p_sorted_linear_indices_run,                                                                              \
-            const int64_t* p_sorted_linear_indices_cumulative_run_lengths,                                                           \
+            const int32_t* p_sorted_linear_indices_cumulative_run_lengths,                                                           \
             const int32_t* p_sorted_linear_indices_num_runs,                                                                         \
             const int32_t* p_long_run_ids,                                                                                           \
-            const int64_t* p_num_long_run_ids,                                                                                       \
+            const int32_t* p_num_long_run_ids,                                                                                       \
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
             uint32_t max_segment_length_per_warp,                                                                                    \
@@ -314,13 +339,14 @@ L_tail_grad_acc:
             optimizer##_kernel_arg_t,                                                                                                \
             emb_type,                                                                                                                \
             float,                                                                                                                   \
-            float,                                                                                                                   \
+            grad_type,                                                                                                               \
             BLOCK_SIZE,                                                                                                              \
             embedding_dim,                                                                                                           \
-            bag_prefetch,                                                                                                            \
-            bag_unroll,                                                                                                              \
+            segment_prefetch,                                                                                                        \
+            segment_unroll,                                                                                                          \
             segment_split>(p_output_grad,                                                                                            \
                            p_emb_table,                                                                                              \
+                           p_hash_size_cumsum,                                                                                       \
                            p_sorted_linear_indices_run,                                                                              \
                            p_sorted_linear_indices_cumulative_run_lengths,                                                           \
                            p_sorted_linear_indices_num_runs,                                                                         \
@@ -336,13 +362,31 @@ L_tail_grad_acc:
                            opt_karg);                                                                                                \
     }
 
-// warp per row
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 64, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 128, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 192, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp32, float, 256, 2, 8)
+#define SPLIT_TBE_BWD_KERNEL_ALL_WDM(optimizer,                                 \
+                                          segment_split,                        \
+                                          emb_prec,                             \
+                                          emb_type,                             \
+                                          grad_prec,                            \
+                                          grad_type,                            \
+                                          embedding_dim,                        \
+                                          segment_prefetch,                     \
+                                          segment_unroll)                       \
+    __SPLIT_TBE_BWD_KERNEL(optimizer, 0, segment_split, emb_prec, emb_type, grad_prec, grad_type, embedding_dim, segment_prefetch, segment_unroll)  \
+    __SPLIT_TBE_BWD_KERNEL(optimizer, 1, segment_split, emb_prec, emb_type, grad_prec, grad_type, embedding_dim, segment_prefetch, segment_unroll)  \
+    __SPLIT_TBE_BWD_KERNEL(optimizer, 2, segment_split, emb_prec, emb_type, grad_prec, grad_type, embedding_dim, segment_prefetch, segment_unroll)
 
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 64, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 128, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 192, 2, 8)
-SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 1, 0, fp16, half, 256, 2, 8)
+
+#define SPLIT_TBE_BWD_KERNEL(optimizer,                               \
+                                segment_split,                        \
+                                embedding_dim)                        \
+    SPLIT_TBE_BWD_KERNEL_ALL_WDM(optimizer, segment_split, fp32, float, fp32, float, embedding_dim, 2, 8) \
+    SPLIT_TBE_BWD_KERNEL_ALL_WDM(optimizer, segment_split, fp32, float, fp16,  half, embedding_dim, 2, 8) \
+    SPLIT_TBE_BWD_KERNEL_ALL_WDM(optimizer, segment_split, fp16,  half, fp32, float, embedding_dim, 2, 8) \
+    SPLIT_TBE_BWD_KERNEL_ALL_WDM(optimizer, segment_split, fp16,  half, fp16,  half, embedding_dim, 2, 8) 
+
+// warp per row
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 64)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 128)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 192)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 256)
+

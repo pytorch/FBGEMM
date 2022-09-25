@@ -10,6 +10,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "hip_kernel/split_tbe_common_hip.h"
 #include <unistd.h>
+#include <iostream>
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
@@ -931,13 +932,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     static int init_hsaco = 0;
     static hipModule_t hip_kernel_module;
     static hipFunction_t hip_kernel_func;
-    bool hip_opt_kernel_supported = "{{ optimizer }}" == "rowwise_adagrad";   // TODO: figure out support range
-    // uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
-    // uint32_t blocks[3] = {256, 1, 1};
+{% if optimizer == "rowwise_adagrad" and not dense %}
+    std::set<int> D_emb_s {64, 128, 192, 256};
+    bool hip_opt_kernel_supported = (D_emb_s.find(max_D) != D_emb_s.end()) &&
+        (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float);
+{% else %}
+    bool hip_opt_kernel_supported = false;      // TODO: figure out support range
+{% endif %}
 
+{% if optimizer == "rowwise_adagrad" and not dense %}
     if(hip_opt_kernel_supported && init_hsaco == 0){
         int segment_split = 0; // warp per row
-        int weight_decay_mode = 1; // TODO: how to check this?
         hipError_t hip_err = hipModuleLoad(&hip_kernel_module, "hip_kernel/split_tbe_bwd_hip_kernel.hsaco");  // hip kernel object
          if (hip_err != hipSuccess) {
             char cwd[PATH_MAX];
@@ -945,19 +950,21 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
             exit(1);
         }
-        std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+        std::string w_prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+        std::string g_prec = grad_output.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
         std::string hip_kernel_name = std::string("split_tbe_bwd_hip_kernel_") +"{{ optimizer }}" +"_w" + std::to_string(weight_decay_mode) +
-                    "_s" + std::to_string(segment_split) + "_" + prec + "_e" +  std::to_string(max_D);
+                    "_s" + std::to_string(segment_split) + "_" + w_prec + "_" + g_prec + "_e" +  std::to_string(max_D);
         hip_err = hipModuleGetFunction(&hip_kernel_func, hip_kernel_module, hip_kernel_name.c_str());
-        printf("kernel function: %s, B:%d, T:%d\n",
-            hip_kernel_name.c_str(),  B, T);
+        printf("kernel function: %s, B:%d, T:%d(%d), wcnt:%ld, ocnt:%ld, mcnt:%ld\n",
+            hip_kernel_name.c_str(),  B, T, hash_size_cumsum.size(0) - 1, dev_weights.numel(), grad_output.numel(), momentum1_dev.numel());
         if (hip_err != hipSuccess) {
-            printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
+            printf("[hiperror](%d) line:%d, fail to call,(%s), %s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), hip_kernel_name.c_str());
             exit(1);
         }
 
         init_hsaco = 1;
     }
+{% endif %}
 
     {% if not dense %}
 
@@ -1238,6 +1245,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 struct {
                     const void* p_output_grad;
                     void* p_emb_table;
+                    const void* p_hash_size_cumsum;
                     const void* p_sorted_linear_indices_run;
                     const void* p_sorted_linear_indices_cumulative_run_lengths;
                     const void* p_sorted_linear_indices_num_runs;
@@ -1258,6 +1266,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
                 karg.p_output_grad = grad_output_accessor.data();
                 karg.p_emb_table = dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>().data();
+                karg.p_hash_size_cumsum = hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
                 karg.p_sorted_linear_indices_run = sorted_linear_indices_run.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
                 karg.p_sorted_linear_indices_cumulative_run_lengths = sorted_linear_indices_cumulative_run_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
                 karg.p_sorted_linear_indices_num_runs = sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
@@ -1271,8 +1280,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 karg.num_rows = dev_weights.numel() / T / max_D;
                 karg.num_tables = T;
 
+                {% if optimizer == "rowwise_adagrad" and not dense %}
+                rowwise_adagrad_kernel_arg_t opt_karg;
+                opt_karg.p_momentum = momentum1_dev.packed_accessor64<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>().data();
+                opt_karg.eps = eps;
+                opt_karg.learning_rate = learning_rate;
+                opt_karg.weight_decay = weight_decay;
+                karg.opt_karg = opt_karg;
+                {% endif %}
+
                 constexpr int segments_per_workgroup = 4;
-                int32_t grids[3] = {div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup), (int32_t)T, 1};
+                int32_t grids[3] = {div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup), 1, 1};
                 int32_t blocks[3] = {256, 1, 1};
 
                 hipModuleLaunchKernel(hip_kernel_func,
