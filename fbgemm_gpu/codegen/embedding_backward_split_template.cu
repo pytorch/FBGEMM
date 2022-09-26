@@ -20,6 +20,18 @@ constexpr size_t kBackwardMaxThreads = 512;
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+namespace {
+
+// Based on the empirical study, max grid size that is 64x larger than the
+// number of SMs gives good performance across the board
+constexpr int MAX_THREAD_BLOCKS_FACTOR = 64;
+
+int get_max_thread_blocks_() {
+  return MAX_THREAD_BLOCKS_FACTOR * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+}
+
+} // namespace
+
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
@@ -1088,6 +1100,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
                 grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
+            int32_t grid_size = std::min(
+                div_round_up(long_run_ids.numel(), kMaxThreads),
+                get_max_thread_blocks_());
+
             // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
             // "Compute capability 7.x devices allow a single thread block to
             // address the full capacity of shared memory: 96 KB on Volta,
@@ -1127,7 +1143,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% endif %}
                 kMaxVecsPerThread,
                 kThreadGroupSize>
-                <<<div_round_up(long_run_ids.numel(), kMaxThreads),
+                <<<grid_size,
                     dim3(kThreadGroupSize, BT_block_size),
                     BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
                         kMaxVecsPerThread,
@@ -1182,9 +1198,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     use_deterministic_algorithms,
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            int32_t grid_size = std::min(
+            grid_size = std::min(
                 div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
-                64 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
+                get_max_thread_blocks_());
 #ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
