@@ -19,8 +19,8 @@ library.
    :maxdepth: 2
    :caption: FBGEMM_GPU Python API Documentation
 
-   python-api/jagged_tensor_ops.rst
    python-api/table_batched_embedding_ops.rst
+   python-api/jagged_tensor_ops.rst
 
 
 
