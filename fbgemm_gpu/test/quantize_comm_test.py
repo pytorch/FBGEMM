@@ -10,9 +10,10 @@ from typing import Optional, Tuple
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.quantize_comm import QuantizationContext, QuantizedCommCodec
+from fbgemm_gpu.quantize_comm import QuantizedCommCodec
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, settings
+from pyre_extensions import none_throws
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
@@ -52,8 +53,9 @@ class QuantizedCommCodecTest(unittest.TestCase):
         shape = (row_size, col_size)
         quant_codec = QuantizedCommCodec(comm_precision, loss_scale)
 
-        ctx = QuantizationContext()
+        ctx = quant_codec.create_context()
         if comm_precision == SparseType.INT8:
+            ctx = none_throws(ctx)
             assume(row_size * col_size % ctx.row_dim == 0)
 
         input_tensor = torch.rand(shape, requires_grad=True)
