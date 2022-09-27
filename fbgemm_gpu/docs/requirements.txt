@@ -1,6 +1,6 @@
 sphinx
 numpy
-torch==1.2.0+cpu
+torch==1.12.0+cpu
 Jinja2==3.0.*
 breathe==4.25.0
 exhale==0.2.3
