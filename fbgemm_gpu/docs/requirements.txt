@@ -1,5 +1,5 @@
 sphinx
-torch
+--pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
 numpy
 Jinja2==3.0.*
 breathe==4.25.0
