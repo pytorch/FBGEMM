@@ -32,6 +32,8 @@ logger: logging.Logger = logging.getLogger()
 # FP8 configurations
 ebits, mbits, bias = 4, 3, 15
 max_pos: float = (2 ** ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+
+# INT8 configurations
 ROW_DIM_DEFAULT = 32
 
 
@@ -164,3 +166,6 @@ class QuantizedCommCodec:
     @property
     def quantized_dtype(self) -> torch.dtype:
         return self._comm_precision.as_dtype()
+
+    def create_context(self) -> Optional[QuantizationContext]:
+        return QuantizationContext()
