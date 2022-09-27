@@ -562,8 +562,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
 
     if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
-        static int init_info = 0;
-
         constexpr uint32_t workgroup_size = 256;
         constexpr uint32_t wave_size = 64;
 
