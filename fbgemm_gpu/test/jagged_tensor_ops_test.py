@@ -1275,6 +1275,63 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(truncated_values, truncated_values_ref)
 
+    # pyre-ignore [56]
+    @given(
+        batch_size=st.integers(1, 128),
+        max_length=st.integers(0, 128),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from([torch.int, torch.long]),
+        empty_lengths=st.booleans(),
+        use_cpu=st.just(True),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_masked_select_jagged_1d(
+        self,
+        max_length: int,
+        batch_size: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        empty_lengths: bool,
+        use_cpu: bool,
+    ) -> None:
+        device = "cpu" if use_cpu else "cuda"
+        if empty_lengths:
+            lengths = torch.zeros(batch_size, dtype=index_dtype, device=device)
+        else:
+            lengths = torch.randint(
+                low=0,
+                high=max_length + 1,
+                size=(batch_size,),
+                dtype=index_dtype,
+                device=device,
+            )
+        lengths[batch_size // 2] = 0  # test a corner case
+        n = int(lengths.sum().item())
+        values = torch.randint(
+            2**16,
+            (n,),
+            dtype=jagged_tensor_dtype,
+            device=device,
+        )
+        mask = torch.randint(2, (n,)) > 0
+
+        masked_values, masked_lengths = torch.ops.fbgemm.masked_select_jagged_1d(
+            values,
+            lengths,
+            mask,
+        )
+
+        masked_values_ref = values[mask]
+        cum_count = torch.cumsum(mask, 0)
+        cum_count = torch.cat((cum_count, torch.tensor([0])))
+        cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
+        cum_length_shift_right = torch.roll(cum_length, 1)
+        cum_length_shift_right[0] = 0
+        masked_lengths_ref = (cum_length - cum_length_shift_right).to(lengths.dtype)
+
+        torch.testing.assert_close(masked_values, masked_values_ref)
+        torch.testing.assert_close(masked_lengths, masked_lengths_ref)
+
 
 if __name__ == "__main__":
     unittest.main()
