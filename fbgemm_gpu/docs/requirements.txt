@@ -1,7 +1,7 @@
 sphinx
 numpy
-Jinja2==3.0.*
 breathe==4.25.0
+Jinja2==3.0.*
 exhale==0.2.3
 docutils==0.16
 # PyTorch Theme
