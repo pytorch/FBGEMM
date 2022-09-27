@@ -11,6 +11,7 @@
 #endif
 #include "./TransposeUtils.h"
 #include "./TransposeUtilsAvx2.h"
+#include <cstdio>
 namespace fbgemm {
 
 namespace {
@@ -498,6 +499,293 @@ static inline void core_transpose_16x16_block(__m512i r[], __m512i u[]) {
   u[7] = _mm512_permutex2var_epi16(r[3], const2, r[7]); // 14-- 15--
 }
 
+static inline void core_transpose_32x32_block(__m512i r[], __m512i u[]) {
+  // a0a1 b0b1 a2a3 b2b3 a8a9 b8b9 a10a11 b10b11   a16a17 b16b17 a18a19 b18b19
+  // a24a25 b24b25 a26a27 b26b27
+  u[0] = _mm512_unpacklo_epi32(r[0], r[1]);
+  // a4a5 b4b5 a6a7 b6b7 a12a13 b12b13 a14a15 b14b15 
+  //
+  u[1] = _mm512_unpackhi_epi32(r[0], r[1]);
+  // c0c1 d0d1 c2c3 d2d3 c8c9 d8d9 c10c11 d10d11
+  //
+  u[2] = _mm512_unpacklo_epi32(r[2], r[3]);
+  // c4c5 d4b5 c6c7 d6b7 c12c13 d12d13 c14c15 d14d15
+  //
+  u[3] = _mm512_unpackhi_epi32(r[2], r[3]);
+  // i j  m n
+  u[4] = _mm512_unpacklo_epi32(r[4], r[5]);
+  u[5] = _mm512_unpackhi_epi32(r[4], r[5]);
+  // k l  o p
+  u[6] = _mm512_unpacklo_epi32(r[6], r[7]);
+  u[7] = _mm512_unpackhi_epi32(r[6], r[7]);
+
+  u[8] = _mm512_unpacklo_epi32(r[8], r[9]);
+  u[9] = _mm512_unpackhi_epi32(r[8], r[9]);
+
+  u[10] = _mm512_unpacklo_epi32(r[10], r[11]);
+  u[11] = _mm512_unpackhi_epi32(r[10], r[11]);
+
+  u[12] = _mm512_unpacklo_epi32(r[12], r[13]);
+  u[13] = _mm512_unpackhi_epi32(r[12], r[13]);
+
+  u[14] = _mm512_unpacklo_epi32(r[14], r[15]);
+  u[15] = _mm512_unpackhi_epi32(r[14], r[15]);
+
+  u[16] = _mm512_unpacklo_epi32(r[16], r[17]);
+  u[17] = _mm512_unpackhi_epi32(r[16], r[17]);
+
+  u[18] = _mm512_unpacklo_epi32(r[18], r[19]);
+  u[19] = _mm512_unpackhi_epi32(r[18], r[19]);
+
+  u[20] = _mm512_unpacklo_epi32(r[20], r[21]);
+  u[21] = _mm512_unpackhi_epi32(r[20], r[21]);
+
+  u[22] = _mm512_unpacklo_epi32(r[22], r[23]);
+  u[23] = _mm512_unpackhi_epi32(r[22], r[23]);
+
+  u[24] = _mm512_unpacklo_epi32(r[24], r[25]);
+  u[25] = _mm512_unpackhi_epi32(r[24], r[25]);
+
+  u[26] = _mm512_unpacklo_epi32(r[26], r[27]);
+  u[27] = _mm512_unpackhi_epi32(r[26], r[27]);
+
+  u[28] = _mm512_unpacklo_epi32(r[28], r[29]);
+  u[29] = _mm512_unpackhi_epi32(r[28], r[29]);
+
+  u[30] = _mm512_unpacklo_epi32(r[30], r[31]);
+  u[31] = _mm512_unpackhi_epi32(r[30], r[31]);
+  // a0a1 b0b1 c0c1 d0d1 a8a9 b8b9 c8c9 d8d9  a16a17 b16b17 c d
+  // a24a25 b c d
+  r[0] = _mm512_unpacklo_epi64(u[0], u[2]);
+  // a2a3 b2b3 c2c3 d2d3 a10a11 b10b11 c10c11 d10d11  a18a19 b c d
+  // a26a27 b c d
+  r[1] = _mm512_unpackhi_epi64(u[0], u[2]);
+  // a4a5 b4b5 c4c5 d4b5 a12a13 b12b13 c12c13 d12d13
+  r[2] = _mm512_unpacklo_epi64(u[1], u[3]);
+  // a6a7 b6b7 c6c7 d6b7 a14a15 b14b15 c14c15 d14d15
+  r[3] = _mm512_unpackhi_epi64(u[1], u[3]);
+  // i j k l
+  r[4] = _mm512_unpacklo_epi64(u[4], u[6]);
+  r[5] = _mm512_unpackhi_epi64(u[4], u[6]);
+  r[6] = _mm512_unpacklo_epi64(u[5], u[7]);
+  r[7] = _mm512_unpackhi_epi64(u[5], u[7]);
+
+  r[8] = _mm512_unpacklo_epi64(u[8], u[10]);
+  r[9] = _mm512_unpackhi_epi64(u[8], u[10]);
+  r[10] = _mm512_unpacklo_epi64(u[9], u[11]);
+  r[11] = _mm512_unpackhi_epi64(u[9], u[11]);
+
+  r[12] = _mm512_unpacklo_epi64(u[12], u[14]);
+  r[13] = _mm512_unpackhi_epi64(u[12], u[14]);
+  r[14] = _mm512_unpacklo_epi64(u[13], u[15]);
+  r[15] = _mm512_unpackhi_epi64(u[13], u[15]);
+
+  r[16] = _mm512_unpacklo_epi64(u[16], u[18]);
+  r[17] = _mm512_unpackhi_epi64(u[16], u[18]);
+  r[18] = _mm512_unpacklo_epi64(u[17], u[19]);
+  r[19] = _mm512_unpackhi_epi64(u[17], u[19]);
+
+  r[20] = _mm512_unpacklo_epi64(u[20], u[22]);
+  r[21] = _mm512_unpackhi_epi64(u[20], u[22]);
+  r[22] = _mm512_unpacklo_epi64(u[21], u[23]);
+  r[23] = _mm512_unpackhi_epi64(u[21], u[23]);
+
+  r[24] = _mm512_unpacklo_epi64(u[24], u[26]);
+  r[25] = _mm512_unpackhi_epi64(u[24], u[26]);
+  r[26] = _mm512_unpacklo_epi64(u[25], u[27]);
+  r[27] = _mm512_unpackhi_epi64(u[25], u[27]);
+
+  r[28] = _mm512_unpacklo_epi64(u[28], u[30]);
+  r[29] = _mm512_unpackhi_epi64(u[28], u[30]);
+  r[30] = _mm512_unpacklo_epi64(u[29], u[31]);
+  r[31] = _mm512_unpackhi_epi64(u[29], u[31]);
+
+  // 0 1 a b c d | 8 9 a b c d | 0 1 e f g h | 8 9 e f g h  
+  u[0] = _mm512_shuffle_i32x4(r[0], r[4], 0x44);
+  // 16 17 a b c d | 24 25 a b c d | e f g h | e f g h
+  u[1] = _mm512_shuffle_i32x4(r[0], r[4], 0xee);
+  // 2 3 a b c d | 10 11 a b c d | e f g h | e f g h
+  u[2] = _mm512_shuffle_i32x4(r[1], r[5], 0x44);
+  // 18 19 a b c d | 26 27 a  c d | e f g h | e f g h
+  u[3] = _mm512_shuffle_i32x4(r[1], r[5], 0xee);
+  // 4 5 a b c d | 12 13 a b c d | e f g h | e f g h
+  u[4] = _mm512_shuffle_i32x4(r[2], r[6], 0x44);
+  // 20 21 a b c d | 28 29 a b c d | e f g h | e f g h
+  u[5] = _mm512_shuffle_i32x4(r[2], r[6], 0xee);
+  // 6 7 a b c d | 14 15 a b c d | e f g h | e f g h
+  u[6] = _mm512_shuffle_i32x4(r[3], r[7], 0x44);
+  // 22 23 a b c d | 30 31 a b c d | e f g h 
+  u[7] = _mm512_shuffle_i32x4(r[3], r[7], 0xee);
+
+  // i j k l m n o p
+  u[8] = _mm512_shuffle_i32x4(r[8], r[12], 0x44);
+  u[9] = _mm512_shuffle_i32x4(r[8], r[12], 0xee);
+  u[10] = _mm512_shuffle_i32x4(r[9], r[13], 0x44);
+  u[11] = _mm512_shuffle_i32x4(r[9], r[13], 0xee);
+  u[12] = _mm512_shuffle_i32x4(r[10], r[14], 0x44);
+  u[13] = _mm512_shuffle_i32x4(r[10], r[14], 0xee);
+  u[14] = _mm512_shuffle_i32x4(r[11], r[15], 0x44);
+  u[15] = _mm512_shuffle_i32x4(r[11], r[15], 0xee);
+
+  // a_16 b_16 c_16 d_16 e_16 f_16 g_16 h_16
+  u[16] = _mm512_shuffle_i32x4(r[16], r[20], 0x44);
+  u[17] = _mm512_shuffle_i32x4(r[16], r[20], 0xee);
+  u[18] = _mm512_shuffle_i32x4(r[17], r[21], 0x44);
+  u[19] = _mm512_shuffle_i32x4(r[17], r[21], 0xee);
+  u[20] = _mm512_shuffle_i32x4(r[18], r[22], 0x44);
+  u[21] = _mm512_shuffle_i32x4(r[18], r[22], 0xee);
+  u[22] = _mm512_shuffle_i32x4(r[19], r[23], 0x44);
+  u[23] = _mm512_shuffle_i32x4(r[19], r[23], 0xee);
+
+  // 
+  u[24] = _mm512_shuffle_i32x4(r[24], r[28], 0x44);
+  u[25] = _mm512_shuffle_i32x4(r[24], r[28], 0xee);
+  u[26] = _mm512_shuffle_i32x4(r[25], r[29], 0x44);
+  u[27] = _mm512_shuffle_i32x4(r[25], r[29], 0xee);
+  u[28] = _mm512_shuffle_i32x4(r[26], r[30], 0x44);
+  u[29] = _mm512_shuffle_i32x4(r[26], r[30], 0xee);
+  u[30] = _mm512_shuffle_i32x4(r[27], r[31], 0x44);
+  u[31] = _mm512_shuffle_i32x4(r[27], r[31], 0xee);
+
+
+  // 0 1 a b c d e f g h i j k l m n o p 
+  r[0] = _mm512_shuffle_i32x4(u[0], u[8], 0x88);
+  // 8 9 a b c d e f g h i j k l m n o p 
+  r[1] = _mm512_shuffle_i32x4(u[0], u[8], 0xdd);
+  // 2 3 
+  r[2] = _mm512_shuffle_i32x4(u[2], u[10], 0x88);
+  // 10 11
+  r[3] = _mm512_shuffle_i32x4(u[2], u[10], 0xdd);
+  // 4 5
+  r[4] = _mm512_shuffle_i32x4(u[4], u[12], 0x88);
+  // 12 13
+  r[5] = _mm512_shuffle_i32x4(u[4], u[12], 0xdd);
+  // 6 7
+  r[6] = _mm512_shuffle_i32x4(u[6], u[14], 0x88);
+  // 14 15
+  r[7] = _mm512_shuffle_i32x4(u[6], u[14], 0xdd);
+  // 16 17
+  r[8] = _mm512_shuffle_i32x4(u[1], u[9], 0x88);
+  // 24 25
+  r[9] = _mm512_shuffle_i32x4(u[1], u[9], 0xdd);
+  // 18 19
+  r[10] = _mm512_shuffle_i32x4(u[3], u[11], 0x88);
+  // 26 27
+  r[11] = _mm512_shuffle_i32x4(u[3], u[11], 0xdd);
+  // 20 21
+  r[12] = _mm512_shuffle_i32x4(u[5], u[13], 0x88);
+  // 28 29
+  r[13] = _mm512_shuffle_i32x4(u[5], u[13], 0xdd);
+  // 22 23 
+  r[14] = _mm512_shuffle_i32x4(u[7], u[15], 0x88);
+  // 30 31
+  r[15] = _mm512_shuffle_i32x4(u[7], u[15], 0xdd);
+
+  // 0 1 a_16 b_16 c_16 d_16 e_16 f_16 g_16 h_16 i_16 j_16 k_16 l_16 m_16 n_16 o_16 p_16
+  r[16] = _mm512_shuffle_i32x4(u[16], u[24], 0x88);
+  // 8 9
+  r[17] = _mm512_shuffle_i32x4(u[16], u[24], 0xdd);
+  // 2 3 
+  r[18] = _mm512_shuffle_i32x4(u[18], u[26], 0x88);
+  // 10 11
+  r[19] = _mm512_shuffle_i32x4(u[18], u[26], 0xdd);
+  // 4 5
+  r[20] = _mm512_shuffle_i32x4(u[20], u[28], 0x88);
+  // 12 13
+  r[21] = _mm512_shuffle_i32x4(u[20], u[28], 0xdd);
+  // 6 7
+  r[22] = _mm512_shuffle_i32x4(u[22], u[30], 0x88);
+  // 14 15
+  r[23] = _mm512_shuffle_i32x4(u[22], u[30], 0xdd);
+  // 16 17
+  r[24] = _mm512_shuffle_i32x4(u[17], u[25], 0x88);
+  // 24 25
+  r[25] = _mm512_shuffle_i32x4(u[17], u[25], 0xdd);
+  // 18 19
+  r[26] = _mm512_shuffle_i32x4(u[19], u[27], 0x88);
+  // 26 27
+  r[27] = _mm512_shuffle_i32x4(u[19], u[27], 0xdd);
+  // 20 21
+  r[28] = _mm512_shuffle_i32x4(u[21], u[29], 0x88);
+  // 28 29
+  r[29] = _mm512_shuffle_i32x4(u[21], u[29], 0xdd);
+  // 22 23 
+  r[30] = _mm512_shuffle_i32x4(u[23], u[31], 0x88);
+  // 30 31
+  r[31] = _mm512_shuffle_i32x4(u[23], u[31], 0xdd);
+
+  __m512i const1 = _mm512_set_epi32(
+      0x003e003c,
+      0x003a0038,
+      0x00360034,
+      0x00320030,
+      0x002e002c,
+      0x002a0028,
+      0x00260024,
+      0x00220020,
+      0x001e001c,
+      0x001a0018,
+      0x00160014,
+      0x00120010,
+      0x000e000c,
+      0x000a0008,
+      0x00060004,
+      0x00020000);
+  __m512i const2 = _mm512_set_epi32(
+      0x003f003d,
+      0x003b0039,
+      0x00370035,
+      0x00330031,
+      0x002f002d,
+      0x002b0029,
+      0x00270025,
+      0x00230021,
+      0x001f001d,
+      0x001b0019,
+      0x00170015,
+      0x00130011,
+      0x000f000d,
+      0x000b0009,
+      0x00070005,
+      0x00030001);
+
+  // merge values from two regs
+  u[0] = _mm512_permutex2var_epi16(r[0], const1, r[16]); // 0--
+  u[1] = _mm512_permutex2var_epi16(r[0], const2, r[16]); // 1--
+  u[2] = _mm512_permutex2var_epi16(r[2], const1, r[18]); // 2--
+  u[3] = _mm512_permutex2var_epi16(r[2], const2, r[18]); // 3--
+  u[4] = _mm512_permutex2var_epi16(r[4], const1, r[20]); // 4--
+  u[5] = _mm512_permutex2var_epi16(r[4], const2, r[20]); // 5--
+  u[6] = _mm512_permutex2var_epi16(r[6], const1, r[22]); // 6--
+  u[7] = _mm512_permutex2var_epi16(r[6], const2, r[22]); // 7--
+  u[8] = _mm512_permutex2var_epi16(r[1], const1, r[17]); // 8--
+  u[9] = _mm512_permutex2var_epi16(r[1], const2, r[17]); // 9--
+  u[10] = _mm512_permutex2var_epi16(r[3], const1, r[19]); // 10--
+  u[11] = _mm512_permutex2var_epi16(r[3], const2, r[19]); // 11--
+  u[12] = _mm512_permutex2var_epi16(r[5], const1, r[21]); // 12--
+  u[13] = _mm512_permutex2var_epi16(r[5], const2, r[21]); // 13--
+  u[14] = _mm512_permutex2var_epi16(r[7], const1, r[23]); // 14--
+  u[15] = _mm512_permutex2var_epi16(r[7], const2, r[23]); // 15--
+
+  u[16] = _mm512_permutex2var_epi16(r[8], const1, r[24]); // 16--
+  u[17] = _mm512_permutex2var_epi16(r[8], const2, r[24]); // 17--
+  u[18] = _mm512_permutex2var_epi16(r[10], const1, r[26]); // 18--
+  u[19] = _mm512_permutex2var_epi16(r[10], const2, r[26]); // 19--
+  u[20] = _mm512_permutex2var_epi16(r[12], const1, r[28]); // 20--
+  u[21] = _mm512_permutex2var_epi16(r[12], const2, r[28]); // 21--
+  u[22] = _mm512_permutex2var_epi16(r[14], const1, r[30]); // 22--
+  u[23] = _mm512_permutex2var_epi16(r[14], const2, r[30]); // 23--
+  u[24] = _mm512_permutex2var_epi16(r[9], const1, r[25]); // 24--
+  u[25] = _mm512_permutex2var_epi16(r[9], const2, r[25]); // 25--
+  u[26] = _mm512_permutex2var_epi16(r[11], const1, r[27]); // 26--
+  u[27] = _mm512_permutex2var_epi16(r[11], const2, r[27]); // 27--
+  u[28] = _mm512_permutex2var_epi16(r[13], const1, r[29]); // 28--
+  u[29] = _mm512_permutex2var_epi16(r[13], const2, r[29]); // 29--
+  u[30] = _mm512_permutex2var_epi16(r[15], const1, r[31]); // 30--
+  u[31] = _mm512_permutex2var_epi16(r[15], const2, r[31]); // 31--
+
+}
+
 static inline void load_with_remainders_i16(
     const uint16_t* src,
     int64_t ld_src,
@@ -526,6 +814,28 @@ static inline void load_with_remainders_i16(
   r[5] = _mm512_inserti64x4(t[9], _mm512_castsi512_si256(t[13]), 0x01);
   r[6] = _mm512_inserti64x4(t[10], _mm512_castsi512_si256(t[14]), 0x01);
   r[7] = _mm512_inserti64x4(t[11], _mm512_castsi512_si256(t[15]), 0x01);
+}
+
+static inline void load_with_remainders_32x32_i16(
+    const uint16_t* src,
+    int64_t ld_src,
+    __m512i r[],
+    int mrem,
+    int nrem) {
+  if (nrem < 32) {
+    __mmask32 mask_nrem_v = (((long long)1) << nrem) - 1;
+    for (int i = 0; i < mrem; ++i) {
+      // mask load
+      r[i] = _mm512_maskz_loadu_epi16(mask_nrem_v, src + i * ld_src);
+    }
+  } else {
+    for (int i = 0; i < mrem; ++i) {
+      // normal load
+      r[i] = _mm512_loadu_si512(
+          reinterpret_cast<const __m512i*>(src + i * ld_src));
+    }
+  }
+
 }
 
 static inline void load_with_remainders_i8(
@@ -604,6 +914,31 @@ static inline void store_with_remainders_i16(
       _mm256_storeu_si256(
           reinterpret_cast<__m256i*>(dst + (i + 0) * ld_dst),
           _mm512_extracti32x8_epi32(u[reg_idx], 0x0));
+    }
+  }
+}
+
+static inline void store_with_remainders_32x32_i16(
+    uint16_t* dst,
+    int64_t ld_dst,
+    __m512i u[],
+    int mrem,
+    int nrem) {
+  if (mrem < 32) {
+    __mmask32 mask_mrem_v = (((long long)1) << mrem) - 1;
+    for (int i = 0; i < nrem; i ++) {
+      // mask store
+      _mm512_mask_storeu_epi16(
+          dst + i * ld_dst,
+          mask_mrem_v,
+          u[i]);
+    }
+  } else {
+    for (int i = 0; i < nrem; i ++) {
+      // normal store
+      _mm512_storeu_si512(
+          reinterpret_cast<__m512i*>(dst + i * ld_dst),
+          u[i]);
     }
   }
 }
@@ -1607,6 +1942,69 @@ void transpose_16x16_block(
 }
 
 template <bool MREM = false, bool NREM = false>
+void transpose_32x32_block(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst,
+    int mrem = 32,
+    int nrem = 32) {
+  __m512i r[32];
+  for (int i = 0; i < mrem; ++i) {
+    r[i] = _mm512_setzero_si512();
+  }
+
+  if (MREM || NREM) {
+    // load_with_remainders_32x32_i16(src, ld_src, r, mrem, nrem);
+    if (nrem < 32) {
+      // printf("%d nrem < 32\n", nrem);
+      __mmask32 mask_nrem_v = (((long long)1) << nrem) - 1;
+      for (int i = 0; i < mrem; ++i) {
+        // mask load
+        r[i] = _mm512_maskz_loadu_epi16(mask_nrem_v, src + i * ld_src);
+      }
+    } else {
+      for (int i = 0; i < mrem; ++i) {
+        // normal load
+        r[i] = _mm512_loadu_si512(
+            reinterpret_cast<const __m512i*>(src + i * ld_src));
+      }
+    }
+  } else {
+    for (int i = 0; i < 32; i++) {
+      r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * ld_src));
+    }
+  }
+  __m512i u[32];
+  core_transpose_32x32_block(r, u);
+  if (MREM || NREM) {
+    // store_with_remainders_32x32_i16(dst, ld_dst, u, mrem, nrem);
+    if (mrem < 32) {
+      // printf("%d mrem < 32\n", mrem);
+      __mmask32 mask_mrem_v = (((long long)1) << mrem) - 1;
+      for (int i = 0; i < nrem; i ++) {
+        // mask store
+        _mm512_mask_storeu_epi16(
+            dst + i * ld_dst,
+            mask_mrem_v,
+            u[i]);
+      }
+    } else {
+      for (int i = 0; i < nrem; i ++) {
+        // normal store
+        _mm512_storeu_si512(
+            reinterpret_cast<__m512i*>(dst + i * ld_dst),
+            u[i]);
+      }
+    }
+  } else {
+    for (int i = 0; i < 32; i++) {
+      _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst + i * ld_dst), u[i]);
+    }
+  }
+}
+
+template <bool MREM = false, bool NREM = false>
 void transpose_16x32_block(
     const uint8_t* src,
     int64_t ld_src,
@@ -2328,27 +2726,27 @@ void transpose_avx512(
     int64_t ld_src,
     uint16_t* dst,
     int64_t ld_dst) {
-  if (M == ld_dst && (M == 2 || M == 4)) {
-    transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
-  } else if (N == ld_src && (N == 2 || N == 4)) {
-    transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
-  } else {
+  // if (M == ld_dst && (M == 2 || M == 4)) {
+  //   transpose_avx512_contiguous_wide(M, N, src, ld_src, dst, ld_dst);
+  // } else if (N == ld_src && (N == 2 || N == 4)) {
+  //   transpose_avx512_contiguous_thin(M, N, src, ld_src, dst, ld_dst);
+  // } else {
     int64_t i = 0;
-    for (; i < M / 16 * 16; i += 16) {
+    for (; i < M / 32 * 32; i += 32) {
       int64_t j = 0;
-      for (; j < N / 16 * 16; j += 16) {
-        transpose_16x16_block<false, false>(
+      for (; j < N / 32 * 32; j += 32) {
+        transpose_32x32_block<false, false>(
             src + i * ld_src + j, ld_src, dst + j * ld_dst + i, ld_dst);
       }
       // handle j rem
       int nrem = N - j;
       if (nrem > 0) {
-        transpose_16x16_block<false, true>(
+        transpose_32x32_block<false, true>(
             src + i * ld_src + j,
             ld_src,
             dst + j * ld_dst + i,
             ld_dst,
-            16,
+            32,
             nrem);
       }
     }
@@ -2356,25 +2754,25 @@ void transpose_avx512(
     int mrem = M - i;
     if (mrem > 0) {
       int j = 0;
-      for (; j < N / 16 * 16; j += 16) {
-        transpose_16x16_block<true, false>(
+      for (; j < N / 32 * 32; j += 32) {
+        transpose_32x32_block<true, false>(
             src + i * ld_src + j,
             ld_src,
             dst + j * ld_dst + i,
             ld_dst,
             mrem,
-            16);
+            32);
       }
       // handle j rem
       int nrem = N - j;
-      transpose_16x16_block<true, true>(
+      transpose_32x32_block<true, true>(
           src + i * ld_src + j,
           ld_src,
           dst + j * ld_dst + i,
           ld_dst,
           mrem,
           nrem);
-    }
+    // }
   }
 }
 
