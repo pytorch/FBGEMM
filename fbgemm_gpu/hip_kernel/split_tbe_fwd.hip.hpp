@@ -26,12 +26,24 @@
 #include <hip/hip_fp16.h>
 
 #define SPLIT_TBE_FWD_KERNEL(emb_prec, emb_type, embedding_dim, bag_prefetch, bag_unroll) \
-    extern "C" __global__ void split_tbe_fwd_hip_kernel_ ## emb_prec ## _e ## embedding_dim ( \
+    extern "C" __global__ void split_tbe_fwd_unweighted_hip_kernel_ ## emb_prec ## _e ## embedding_dim ( \
             float * p_output,              \
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
-	    const int64_t pooling_mode,    \
+            const int64_t pooling_mode,    \
+            uint32_t emb_dim,              \
+            uint32_t batch,                \
+            uint32_t num_rows,             \
+            uint32_t num_tables);          \
+    \
+    extern "C" __global__ void split_tbe_fwd_weighted_hip_kernel_ ## emb_prec ## _e ## embedding_dim ( \
+            float * p_output,              \
+            const emb_type * p_emb_table,  \
+            const int64_t * p_indices,     \
+            const int64_t * p_offsets,     \
+            const int64_t pooling_mode,    \
+            const float * p_indice_weights,\
             uint32_t emb_dim,              \
             uint32_t batch,                \
             uint32_t num_rows,             \

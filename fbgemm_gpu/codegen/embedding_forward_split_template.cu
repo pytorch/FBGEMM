@@ -528,7 +528,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 #ifdef __HIP_PLATFORM_HCC__  // HIP Optimal Kernel
     /*
      * current limitations
-     1. sparse, bag and unweighted
+     1. sparse, and bag
      2. embedding dims in [64, 128, 192, 256]
      3. yet to support mixed embedding dims (loosely guarded below)
      4. yet to support non-uniform table locations (all be on devs)
@@ -536,7 +536,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
      */
     {% if not nobag %}
     {% if not dense %}
-    {% if not weighted %}
 
     std::set<int> D_emb_s {64, 128, 192, 256};
 
@@ -574,15 +573,18 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
         {
             struct {
-                void    *output;
-                void    *emb_table;
-                const int64_t    *indices;
-                const int64_t    *offsets;
-		int64_t     pooling_mode;
-                uint32_t    emb_dim;
-                uint32_t    batch;
-                uint32_t    num_rows;
-                uint32_t    num_tables;
+                void            *output;
+                void         *emb_table;
+                const int64_t  *indices;
+                const int64_t  *offsets;
+                int64_t    pooling_mode;
+                {% if weighted %}
+                float   *indice_weights;
+                {% endif %}
+                uint32_t        emb_dim;
+                uint32_t          batch;
+                uint32_t       num_rows;
+                uint32_t     num_tables;
             } args;
             size_t arg_size = sizeof(args);
             args.output = output.packed_accessor32<float, 2, at::RestrictPtrTraits>().data();
@@ -592,22 +594,29 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
             args.indices = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
             args.offsets = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
-	    args.pooling_mode = pooling_mode;
+            args.pooling_mode = pooling_mode;
+            {% if weighted %}
+            args.indice_weights = indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>().data();
+            {% endif %}
             args.emb_dim = (uint32_t) max_D;
             args.batch = (uint32_t) B;
             args.num_rows = E;
             args.num_tables = (uint32_t) T;
 
             if (prec == "fp16") {
+                {% if not weighted %}
                 void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                {% else %}
+                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, const int64_t, const float *, uint32_t, uint32_t, uint32_t, uint32_t);
+                {% endif %}
                 if (max_D == 64) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e64;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e64;
                 } else if (max_D == 128) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e128;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e128;
                 } else if (max_D == 192) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e192;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e192;
                 } else if (max_D == 256) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp16_e256;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e256;
                 } else {
                     printf("Unsupported TBE dimension (%ld)", (long)max_D);
                     exit(1);
@@ -617,18 +626,25 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     dim3(blocks[0], blocks[1], blocks[2]),
                     0, 0,
                     (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                    {% if weighted %}
+                    args.indice_weights,
+                    {% endif %}
                     args.emb_dim, args.batch, args.num_rows, args.num_tables);
 
             } else { // "fp32"
+                {% if not weighted %}
                 void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                {% else %}
+                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, const int64_t, const float *, uint32_t, uint32_t, uint32_t, uint32_t);
+                {% endif %}
                 if (max_D == 64) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e64;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e64;
                 } else if (max_D == 128) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e128;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e128;
                 } else if (max_D == 192) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e192;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e192;
                 } else if (max_D == 256) {
-                    kf_p = &split_tbe_fwd_hip_kernel_fp32_e256;
+                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e256;
                 } else {
                     printf("Unsupported TBE dimension (%ld)", (long)max_D);
                     exit(1);
@@ -638,12 +654,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     dim3(blocks[0], blocks[1], blocks[2]),
                     0, 0,
                     (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                    {% if weighted %}
+                    args.indice_weights,
+                    {% endif %}
                     args.emb_dim, args.batch, args.num_rows, args.num_tables);
             }
             return output;
         }
     }
-    {% endif %}  // not weighted
     {% endif %}  // not dense
     {% endif %}  // not nobag
 #endif  // HIP Optimal Kernel
