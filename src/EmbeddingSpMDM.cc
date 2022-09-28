@@ -974,7 +974,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     }
   }
   const inst_set_t isa = fbgemmInstructionSet();
-  if (no_bag == true) {
+  if (no_bag == true || block_size % 4 != 0) {
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t data_size,
