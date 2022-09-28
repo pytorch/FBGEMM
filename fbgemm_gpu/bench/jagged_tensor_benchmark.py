@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+from typing import Tuple
 
 import click
 import fbgemm_gpu
@@ -228,6 +229,51 @@ def jagged_1d_to_truncated_values(
 
     logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
     logging.info(f"truncate_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+
+
+@cli.command()
+@click.option("--batch-size", type=int, default=1024)
+@click.option("--max-len", type=int, default=256)
+def masked_select_jagged_1d(
+    batch_size: int,
+    max_len: int,
+) -> None:
+
+    lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
+    total_lengths = int(lengths.sum().item())
+    dtype = torch.long
+    values = torch.randint(2**16, (total_lengths,), dtype=dtype)
+    mask = torch.randint(2, (total_lengths,)) > 0
+
+    def ref(
+        values: torch.Tensor, lengths: torch.Tensor, mask: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        masked_values_ref = values[mask]
+        cum_count = torch.cumsum(mask, 0)
+        cum_count = torch.cat((cum_count, torch.tensor([0])))
+        cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
+        cum_length_shift_right = torch.roll(cum_length, 1)
+        cum_length_shift_right[0] = 0
+        masked_lengths_ref = cum_length - cum_length_shift_right
+        return masked_values_ref, masked_lengths_ref
+
+    time_ref, (masked_values_ref, masked_lengths_ref) = benchmark_torch_function(
+        ref,
+        (values, lengths, mask),
+    )
+
+    time, (masked_values, masked_lengths) = benchmark_torch_function(
+        torch.ops.fbgemm.masked_select_jagged_1d,
+        (values, lengths, mask),
+    )
+
+    torch.testing.assert_close(masked_values, masked_values_ref)
+    torch.testing.assert_close(masked_lengths, masked_lengths_ref)
+
+    bytes = (2 * values.numel() + 2 * lengths.numel() + 2 * masked_values.numel()) * 4
+
+    logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
+    logging.info(f"masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
 
 
 if __name__ == "__main__":
