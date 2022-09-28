@@ -4649,7 +4649,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ),
         output_dtype=st.just(SparseType.FP32),
         pooling_mode=st.sampled_from([split_table_batched_embeddings_ops.PoolingMode.SUM, split_table_batched_embeddings_ops.PoolingMode.MEAN]),
-        weighted=st.just(False)
+        weighted=st.booleans()
     )
     @settings(
         verbosity=Verbosity.verbose,
