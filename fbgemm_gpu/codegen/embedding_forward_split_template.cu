@@ -537,8 +537,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% if not nobag %}
     {% if not dense %}
 
-    std::set<int> D_emb_s {64, 128, 192, 256};
-
     // weight param cnt
     int64_t wcnts = dev_weights.numel();
     // mixed hypothesis
@@ -557,10 +555,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
     if (guard_ex)  guard_ex = all_devs && no_dupt;
 
-    // row dims options
-    bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
-
-    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
+    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)) {
         constexpr uint32_t workgroup_size = 256;
         constexpr uint32_t wave_size = 64;
 
