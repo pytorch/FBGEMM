@@ -604,8 +604,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             args.num_tables = (uint32_t) T;
 
             {% for kDimSize in [64, 128, 192, 256, 384, 512, 640, 768, 896, 1024] %}
-            if (max_D <= {{ kDimSize }}){
-                if (prec == "fp16"){
+            if (max_D <= {{ kDimSize }}) {
+                if (prec == "fp16") {
                     hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e{{ kDimSize }},
                         dim3(grids[0], grids[1], grids[2]),
                         dim3(blocks[0], blocks[1], blocks[2]),
@@ -615,7 +615,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                         args.indice_weights,
                         {% endif %}
                         args.emb_dim, args.batch, args.num_rows, args.num_tables);
-                } else {
+                } else {    // only 2 emb_t: fp16, fp32 for now
                     hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e{{ kDimSize }},
                         dim3(grids[0], grids[1], grids[2]),
                         dim3(blocks[0], blocks[1], blocks[2]),
@@ -626,9 +626,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                         {% endif %}
                         args.emb_dim, args.batch, args.num_rows, args.num_tables);
                 }
+		return output;
             }
             {% endfor %}
-            return output;
         }
     }
     {% endif %}  // not dense
