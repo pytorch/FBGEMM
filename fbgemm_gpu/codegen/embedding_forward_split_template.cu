@@ -603,62 +603,31 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             args.num_rows = E;
             args.num_tables = (uint32_t) T;
 
-            if (prec == "fp16") {
-                {% if not weighted %}
-                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
-                {% else %}
-                void (*kf_p)(float *, const half *, const int64_t *, const int64_t *, const int64_t, const float *, uint32_t, uint32_t, uint32_t, uint32_t);
-                {% endif %}
-                if (max_D == 64) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e64;
-                } else if (max_D == 128) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e128;
-                } else if (max_D == 192) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e192;
-                } else if (max_D == 256) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e256;
+            {% for kDimSize in [64, 128, 192, 256, 384, 512, 640, 768, 896, 1024] %}
+            if (max_D <= {{ kDimSize }}){
+                if (prec == "fp16"){
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.emb_dim, args.batch, args.num_rows, args.num_tables);
                 } else {
-                    printf("Unsupported TBE dimension (%ld)", (long)max_D);
-                    exit(1);
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.emb_dim, args.batch, args.num_rows, args.num_tables);
                 }
-                hipLaunchKernelGGL(*kf_p,
-                    dim3(grids[0], grids[1], grids[2]),
-                    dim3(blocks[0], blocks[1], blocks[2]),
-                    0, 0,
-                    (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
-                    {% if weighted %}
-                    args.indice_weights,
-                    {% endif %}
-                    args.emb_dim, args.batch, args.num_rows, args.num_tables);
-
-            } else { // "fp32"
-                {% if not weighted %}
-                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, const int64_t, uint32_t, uint32_t, uint32_t, uint32_t);
-                {% else %}
-                void (*kf_p)(float *, const float *, const int64_t *, const int64_t *, const int64_t, const float *, uint32_t, uint32_t, uint32_t, uint32_t);
-                {% endif %}
-                if (max_D == 64) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e64;
-                } else if (max_D == 128) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e128;
-                } else if (max_D == 192) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e192;
-                } else if (max_D == 256) {
-                    kf_p = &split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e256;
-                } else {
-                    printf("Unsupported TBE dimension (%ld)", (long)max_D);
-                    exit(1);
-                }
-                hipLaunchKernelGGL(*kf_p,
-                    dim3(grids[0], grids[1], grids[2]),
-                    dim3(blocks[0], blocks[1], blocks[2]),
-                    0, 0,
-                    (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
-                    {% if weighted %}
-                    args.indice_weights,
-                    {% endif %}
-                    args.emb_dim, args.batch, args.num_rows, args.num_tables);
             }
+            {% endfor %}
             return output;
         }
     }
