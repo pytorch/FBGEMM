@@ -182,6 +182,13 @@ message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_c
 
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR
          ${header_include_dir})
+
+  execute_process(
+    COMMAND sh -c "${ROCM_PATH}/hip/bin/hipcc -x hip --cuda-device-only -save-temps -c -O3 \
+      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip.cpp -o \
+      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip_kernel.hsp -o \
+      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip_kernel.hsaco")
+
 else()
   add_custom_command(
     OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
