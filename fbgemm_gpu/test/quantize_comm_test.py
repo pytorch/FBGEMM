@@ -13,6 +13,7 @@ import torch
 from fbgemm_gpu.quantize_comm import QuantizedCommCodec
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, settings
+from pyre_extensions import none_throws
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
@@ -28,6 +29,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
                 (SparseType.BF16, 2.0),
                 (SparseType.FP8, None),
                 (SparseType.FP8, 3.0),
+                (SparseType.INT8, None),
             ]
         ),
         row_size=st.integers(4, 256),
@@ -43,18 +45,33 @@ class QuantizedCommCodecTest(unittest.TestCase):
     ) -> None:
 
         (comm_precision, loss_scale) = comm_precisions_loss_scale
+
         if comm_precision == SparseType.FP8:
             assume(col_size % 4 == 0)
 
         torch.manual_seed(rand_seed)
         shape = (row_size, col_size)
-
         quant_codec = QuantizedCommCodec(comm_precision, loss_scale)
+
+        ctx = quant_codec.create_context()
+        if comm_precision == SparseType.INT8:
+            ctx = none_throws(ctx)
+            assume(row_size * col_size % ctx.row_dim == 0)
 
         input_tensor = torch.rand(shape, requires_grad=True)
 
-        quant_tensor = quant_codec.encode(input_tensor)
-        output_tensor = quant_codec.decode(quant_tensor)
+        if comm_precision == SparseType.INT8:
+            input_tensor = input_tensor.view(-1)
+
+        quant_tensor = quant_codec.encode(input_tensor, ctx)
+
+        self.assertEqual(
+            quant_tensor.numel(),
+            quant_codec.calc_quantized_size(input_tensor.numel(), ctx),
+        )
+
+        output_tensor = quant_codec.decode(quant_tensor, ctx)
+        self.assertEqual(output_tensor.shape, input_tensor.shape)
 
         rtol = 0.005
         atol = 0.005

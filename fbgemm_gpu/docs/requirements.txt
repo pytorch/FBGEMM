@@ -1,5 +1,4 @@
 sphinx
-torch
 numpy
 Jinja2==3.0.*
 breathe==4.25.0
