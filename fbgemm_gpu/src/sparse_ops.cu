@@ -2520,7 +2520,7 @@ constexpr int MAX_ELEMENTS_PER_THREAD = 4;
 template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
 __global__
 __launch_bounds__(kMaxThreads) void index_select_2d_with_sorted_indices_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> input,
+    const at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> input,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         sorted_indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -2699,7 +2699,7 @@ Tensor index_select_with_sorted_indices_cuda(
                   0,
                   at::cuda::getCurrentCUDAStream()>>>(
                   input_reshaped
-                      .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+                      .packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),
                   sorted_indices
                       .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
                   orig_indices
