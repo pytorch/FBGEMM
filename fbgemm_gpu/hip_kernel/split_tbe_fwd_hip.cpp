@@ -753,15 +753,14 @@ __device__ void split_tbe_forward_hip_kernel(
                 accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id);
                 load_row_per_warp<emb_t, embedding_dim, index_t>::run(&emb_data[dword_output_per_row], indices[j+1], p_emb_table, lane_id, emb_dim);
             }
+            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0], &emb_data[0], lane_id);
+            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id);
 
             #pragma unroll
             for(int i=0; i < bag_unroll; i++){
                 indices[i] = p_indices[i];
             }
             p_indices += bag_unroll;
-
-            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0], &emb_data[0], lane_id);
-            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id);
 
         } else {    // row weighted
             #pragma unroll
@@ -772,6 +771,8 @@ __device__ void split_tbe_forward_hip_kernel(
                 accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id, indice_weights[j-1]);
                 load_row_per_warp<emb_t, embedding_dim, index_t>::run(&emb_data[dword_output_per_row], indices[j+1], p_emb_table, lane_id, emb_dim);
             }
+            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0], &emb_data[0], lane_id, indice_weights[bag_unroll-2]);
+            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id, indice_weights[bag_unroll-1]);
 
             #pragma unroll
             for(int i=0; i < bag_unroll; i++){
@@ -780,9 +781,6 @@ __device__ void split_tbe_forward_hip_kernel(
             }
             p_indices += bag_unroll;
             p_indice_weights += bag_unroll;
-
-            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0], &emb_data[0], lane_id, indice_weights[bag_unroll-2]);
-            accumulate_row_per_warp<emb_t, embedding_dim, output_t, weighted>::run(&accumulator[0],  &emb_data[dword_output_per_row], lane_id, indice_weights[bag_unroll-1]);
         }
     }
     // LAST
