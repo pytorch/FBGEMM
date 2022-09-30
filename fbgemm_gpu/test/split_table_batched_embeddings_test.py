@@ -291,9 +291,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10**log_E)
-        if use_cpu:
-            D = (D + 15) // 16 * 4
-        else:
+        if not use_cpu:
             D = D * 4
         if not mixed:
             Ds = [D] * T
@@ -355,16 +353,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                 )
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1240,8 +1236,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         xs = [
@@ -1262,8 +1257,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1294,9 +1288,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
+            weights_precision=weights_precision,
         )
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            cc = cc.half()
         if do_pooling:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
@@ -1466,8 +1459,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
@@ -1495,8 +1487,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
         xws_acc_type = copy.deepcopy(xws)
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -1812,8 +1803,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ]
 
-        if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
+        if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
@@ -1838,7 +1828,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16 and not use_cpu:
-            # NOTE: CPU version of torch.nn.EmbeddingBag doesn't support fp16.
             xws = [xw.half() for xw in xws]
 
         fs = (
@@ -3181,6 +3170,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
         mixed_weights_ty: bool,
         output_dtype: SparseType,
     ) -> None:
@@ -3293,6 +3283,49 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
         xws_acc_type = copy.deepcopy(xws)
+
+        if do_pruning:
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+
+            ### generate index_remapping
+            dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
+
+            original_E = E
+            current_device = "cpu" if use_cpu else torch.cuda.current_device()
+
+            indices = indices.view(-1).int()
+            offsets = offsets.view(-1).int()
+
+            ### generate index_remapping done
+            # Initialize and insert Array index remapping based data structure
+            index_remappings_array = []
+            for t in range(T):
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
+                indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
+                dense_indice_t = (
+                    (dense_indices.view(T, B, L))[t].view(-1)
+                    # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                    #  str]`.
+                    .to(current_device)
+                )
+                index_remappings_array_t = torch.tensor(
+                    [-1] * original_E,
+                    dtype=torch.int32,
+                    # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]`
+                    #  but got `Union[int, str]`.
+                    device=current_device,
+                )
+                index_remappings_array_t[indice_t] = dense_indice_t
+                index_remappings_array.append(index_remappings_array_t.cpu())
+        else:
+            index_remappings_array = [torch.arange(E, dtype=torch.int32) for E in Es]
+            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
@@ -3305,9 +3338,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=[torch.arange(E, dtype=torch.int32) for E in Es]
-            if B != 0
-            else None,
+            index_remapping=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
@@ -3435,10 +3466,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 comps = bs[t].weight.detach().float().cpu().numpy().view(np.uint8)
                 weights.copy_(torch.tensor(comps))
 
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
-
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
         if not use_cpu:
             fc2 = (
                 cc(indices.int(), offsets.int())
@@ -3458,10 +3485,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             self.assertEqual(fc2.size(), (0, cc.total_D))
             return
 
+        new_indices = []
+        for t in range(T):
+            new_indices_t = torch.zeros([B, L], dtype=torch.int32)
+            for i in range(B):
+                for j in range(L):
+                    old_index = xs[t][i, j]
+                    new_index = index_remappings_array[t][old_index]
+                    new_indices_t[i][j] = new_index
+            new_indices.append(new_indices_t)
+
         fs = (
             [
                 b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
-                for (b, x) in zip(bs, xs)
+                for (b, x) in zip(bs, new_indices)
             ]
             if not weighted
             else [
@@ -3472,7 +3509,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     use_cpu=use_cpu,
                     do_pooling=do_pooling,
                 )
-                for (b, x, xw) in zip(bs, xs, xws)
+                for (b, x, xw) in zip(bs, new_indices, xws)
             ]
         )
         if do_pooling:
@@ -3489,6 +3526,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3499,6 +3537,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
     ) -> None:
         use_cpu = True
         T = random.randint(1, 50)
@@ -3559,6 +3598,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
+            do_pruning,
             mixed_weights_ty,
             output_dtype,
         )
@@ -3567,6 +3607,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3577,6 +3618,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
+        do_pruning: bool,
     ) -> None:
         use_cpu = False
         T = random.randint(1, 50)
@@ -3627,9 +3669,208 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             use_cpu,
             use_array_for_index_remapping,
+            do_pruning,
             mixed_weights_ty,
             output_dtype,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
+        self,
+        weights_ty: SparseType,
+    ) -> None:
+        # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
+        # We run IntNBitTableBatchedEmbeddingBagsCodegen with UVM_CACHING, and then
+        # run int_nbit_split_embedding_uvm_caching_codegen_lookup_function with the
+        # exact same cache configuration. As both use the same logic, the result
+        # as well as cache state should match.
+
+        # Currently, int_nbit_split_embedding_uvm_caching_codegen_lookup_function supports only LRU.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        associativity = 32  # Currently, hard-coded 32-way set associative.
+        current_device: torch.device = torch.device(torch.cuda.current_device())
+
+        T = random.randint(1, 5)
+        B = random.randint(1, 128)
+        L = random.randint(1, 20)
+        D = random.randint(2, 256)
+        log_E = random.randint(3, 5)
+
+        iters = 3
+        E = int(10**log_E)
+
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+
+        # Currently, int_nbit_split_embedding_uvm_caching_codegen_lookup_function supports only all UVM or all UVM_CACHING.
+        Ds = [D] * T
+        Es = [E] * T
+        managed_caching = [
+            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+        ] * T
+
+        # Note both cc_ref and cc use caching.
+        cc_ref = (
+            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+                [
+                    ("", E, D, weights_ty, M)
+                    for (E, D, M) in zip(Es, Ds, managed_caching)
+                ],
+                cache_algorithm=cache_algorithm,
+            )
+        )
+        cc_ref.fill_random_weights()
+
+        # cc is only for cache states; we test int_nbit_split_embedding_uvm_caching_codegen_lookup_function directly;
+        # hence, no need to synchronize cc's weights with cc_ref's.
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
+            cache_algorithm=cache_algorithm,
+        )
+        cc.fill_random_weights()
+
+        # weights_placement for all UVM case.
+        managed_uvm = [split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED] * T
+        placement_uvm = torch.tensor(
+            managed_uvm, device=current_device, dtype=torch.int32
+        )
+
+        # zero size HBM cache for UVM case.
+        zero_size_cache_weights = torch.zeros(
+            0, 0, device=current_device, dtype=torch.uint8
+        )
+
+        requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
+        for indices, offsets, _ in requests:
+            indices = indices.int()
+            offsets = offsets.int()
+            output_ref = cc_ref(indices, offsets)
+
+            # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM_CACHING.
+            # using weights and other params from cc_ref, but
+            # cache states from cc.
+            output_uvm_caching = torch.ops.fbgemm.int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
+                dev_weights=cc_ref.weights_host
+                if cc_ref.host_size > 0
+                else cc_ref.weights_dev,
+                uvm_weights=cc_ref.weights_uvm,
+                weights_placements=cc_ref.weights_placements,
+                weights_offsets=cc_ref.weights_offsets,
+                weights_tys=cc_ref.weights_tys,
+                D_offsets=cc_ref.D_offsets,
+                total_D=cc_ref.total_D,
+                max_int2_D=cc_ref.max_int2_D,
+                max_int4_D=cc_ref.max_int4_D,
+                max_int8_D=cc_ref.max_int8_D,
+                max_float16_D=cc_ref.max_float16_D,
+                max_float32_D=cc_ref.max_float32_D,
+                indices=indices,
+                offsets=offsets,
+                pooling_mode=int(cc_ref.pooling_mode),
+                indice_weights=None,
+                output_dtype=cc_ref.output_dtype,
+                lxu_cache_weights=cc.lxu_cache_weights,  # cc, not cc_ref.
+                lxu_cache_locations=torch.empty(0, dtype=torch.int32).fill_(-1),
+                row_alignment=cc_ref.row_alignment,
+                max_float8_D=cc_ref.max_float8_D,
+                fp8_exponent_bits=cc_ref.fp8_exponent_bits,
+                fp8_exponent_bias=cc_ref.fp8_exponent_bias,
+                # Additional args for UVM_CACHING: using cc, not cc_ref.
+                cache_hash_size_cumsum=cc.cache_hash_size_cumsum,
+                total_cache_hash_size=cc.total_cache_hash_size,
+                cache_index_table_map=cc.cache_index_table_map,
+                lxu_cache_state=cc.lxu_cache_state,
+                lxu_state=cc.lxu_state,
+            )
+            torch.testing.assert_close(output_uvm_caching, output_ref, equal_nan=True)
+            # cache status; we use the exact same logic, but still assigning ways in a associative cache can be
+            # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
+            cache_weights_ref = torch.reshape(
+                # pyre-fixme[6]: For 1st param expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
+                cc_ref.lxu_cache_weights,
+                [-1, associativity],
+            )
+            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
+            #  Module]`.
+            cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
+            torch.testing.assert_close(
+                torch.sum(cache_weights_ref, 1),
+                torch.sum(cache_weights, 1),
+                equal_nan=True,
+            )
+            torch.testing.assert_close(
+                # pyre-fixme[6]: For 1st param expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
+                torch.sum(cc.lxu_cache_state, 1),
+                # pyre-fixme[6]: For 1st param expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
+                torch.sum(cc_ref.lxu_cache_state, 1),
+                equal_nan=True,
+            )
+            # lxu_state can be different as time_stamp values can be different.
+            # we check the entries with max value.
+            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
+            #  Module]`.
+            max_timestamp_ref = torch.max(cc_ref.lxu_state)
+            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
+            #  Module]`.
+            max_timestamp_uvm_caching = torch.max(cc.lxu_state)
+            x = cc_ref.lxu_state == max_timestamp_ref
+            y = cc.lxu_state == max_timestamp_uvm_caching
+            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[bool,
+            #  Tensor]`.
+            torch.testing.assert_close(torch.sum(x, 1), torch.sum(y, 1))
+
+            # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM.
+            output_uvm = torch.ops.fbgemm.int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
+                dev_weights=cc_ref.weights_host
+                if cc_ref.host_size > 0
+                else cc_ref.weights_dev,
+                uvm_weights=cc_ref.weights_uvm,
+                weights_placements=placement_uvm,  # all UVM weights placement.
+                weights_offsets=cc_ref.weights_offsets,
+                weights_tys=cc_ref.weights_tys,
+                D_offsets=cc_ref.D_offsets,
+                total_D=cc_ref.total_D,
+                max_int2_D=cc_ref.max_int2_D,
+                max_int4_D=cc_ref.max_int4_D,
+                max_int8_D=cc_ref.max_int8_D,
+                max_float16_D=cc_ref.max_float16_D,
+                max_float32_D=cc_ref.max_float32_D,
+                indices=indices,
+                offsets=offsets,
+                pooling_mode=int(cc_ref.pooling_mode),
+                indice_weights=None,
+                output_dtype=cc_ref.output_dtype,
+                lxu_cache_weights=zero_size_cache_weights,  # empty HBM cache.
+                lxu_cache_locations=torch.empty(0, dtype=torch.int32).fill_(-1),
+                row_alignment=cc_ref.row_alignment,
+                max_float8_D=cc_ref.max_float8_D,
+                fp8_exponent_bits=cc_ref.fp8_exponent_bits,
+                fp8_exponent_bias=cc_ref.fp8_exponent_bias,
+                # Additional args for UVM_CACHING; not needed for UVM.
+                cache_hash_size_cumsum=None,
+                total_cache_hash_size=None,
+                cache_index_table_map=None,
+                lxu_cache_state=None,
+                lxu_state=None,
+            )
+            torch.testing.assert_close(output_uvm, output_ref, equal_nan=True)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(

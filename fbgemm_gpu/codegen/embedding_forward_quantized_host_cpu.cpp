@@ -160,6 +160,65 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
 }
 
 ///@ingroup embedding-cpu
+Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
+    Tensor dev_weights,
+    Tensor uvm_weights, // to match the interface of CUDA op using UVM
+    Tensor weights_placements, // to match the interface of CUDA op using UVM
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    int64_t max_float32_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    c10::optional<Tensor> indice_weights,
+    int64_t output_dtype,
+    c10::optional<Tensor> lxu_cache_weights,
+    c10::optional<Tensor> lxu_cache_locations,
+    c10::optional<int64_t> row_alignment,
+    c10::optional<int64_t> max_float8_D,
+    c10::optional<int64_t> fp8_exponent_bits,
+    c10::optional<int64_t> fp8_exponent_bias,
+    // Additinal args for uvm_caching version.
+    c10::optional<Tensor> cache_hash_size_cumsum [[maybe_unused]],
+    c10::optional<int64_t> total_cache_hash_size [[maybe_unused]],
+    c10::optional<Tensor> cache_index_table_map [[maybe_unused]],
+    c10::optional<Tensor> lxu_cache_state [[maybe_unused]],
+    c10::optional<Tensor> lxu_state [[maybe_unused]]) {
+  LOG(WARNING)
+      << "int_nbit_split_embedding_uvm_caching_codegen_lookup_function shouldn't be called for CPU; it is only for GPU.";
+  return int_nbit_split_embedding_codegen_lookup_function_cpu(
+      dev_weights,
+      uvm_weights,
+      weights_placements,
+      weights_offsets,
+      weights_tys,
+      D_offsets,
+      total_D,
+      max_int2_D,
+      max_int4_D,
+      max_int8_D,
+      max_float16_D,
+      max_float32_D,
+      indices,
+      offsets,
+      pooling_mode,
+      indice_weights,
+      output_dtype,
+      lxu_cache_weights,
+      lxu_cache_locations,
+      row_alignment,
+      max_float8_D,
+      fp8_exponent_bits,
+      fp8_exponent_bias);
+}
+
+///@ingroup embedding-cpu
 void pruned_hashmap_insert_unweighted_cpu(
     Tensor indices,
     Tensor dense_indices,
@@ -188,10 +247,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);
 
+  m.def(
+      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights=None, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
+  DISPATCH_TO_CPU(
+      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function",
+      int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu);
+
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert
   m.def(
-      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> ()");
+      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor(a!) hash_table, Tensor hash_table_offsets) -> ()");
   DISPATCH_TO_CPU(
       "pruned_hashmap_insert", pruned_hashmap_insert_unweighted_cpu);
 

@@ -165,7 +165,8 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh)
 
 if(USE_ROCM)
 message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource --is_rocm")
@@ -311,6 +312,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
+    src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
     src/metric_ops_host.cpp)
 

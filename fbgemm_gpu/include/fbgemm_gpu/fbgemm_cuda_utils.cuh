@@ -764,6 +764,96 @@ DEVICE_INLINE T warpReduceAllSum(T val, unsigned shfl_sync_mask = 0xffffffffu) {
   return val;
 }
 
+/// Warp bitonic K/V sorting code from @jhj
+template <typename T>
+struct Comparator {
+  __device__ static inline bool lt(T a, T b) {
+    return a < b;
+  }
+  __device__ static inline bool gt(T a, T b) {
+    return a > b;
+  }
+};
+
+template <typename T>
+inline __device__ void assign(bool assign, T& x, T y) {
+  x = assign ? y : x;
+}
+
+template <
+    typename K,
+    typename V,
+    int32_t L,
+    bool Dir,
+    typename Comp,
+    bool IsBitonic>
+inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
+  static_assert(
+      L <= fbgemm_gpu::kWarpSize / 2, "merge list size must be <= 16");
+  int32_t laneId = threadIdx.x;
+
+  if (!IsBitonic) {
+    // Reverse the first comparison stage.
+    // For example, merging a list of size 8 has the exchanges:
+    // 0 <-> 15, 1 <-> 14, ...
+    K otherK = fbgemm_gpu::shfl_xor(k, 2 * L - 1);
+    V otherV = fbgemm_gpu::shfl_xor(v, 2 * L - 1);
+
+    // Whether we are the lesser thread in the exchange
+    bool small = !(laneId & L);
+
+    if (Dir) {
+      // See the comment above how performing both of these
+      // comparisons in the warp seems to win out over the
+      // alternatives in practice
+      bool s = small ? Comp::gt(k, otherK) : Comp::lt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+
+    } else {
+      bool s = small ? Comp::lt(k, otherK) : Comp::gt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+    }
+  }
+
+#pragma unroll
+  for (int32_t stride = IsBitonic ? L : L / 2; stride > 0; stride /= 2) {
+    K otherK = fbgemm_gpu::shfl_xor(k, stride);
+    V otherV = fbgemm_gpu::shfl_xor(v, stride);
+
+    // Whether we are the lesser thread in the exchange
+    bool small = !(laneId & stride);
+
+    if (Dir) {
+      bool s = small ? Comp::gt(k, otherK) : Comp::lt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+
+    } else {
+      bool s = small ? Comp::lt(k, otherK) : Comp::gt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+    }
+  }
+}
+
+template <typename K, typename V, bool Dir, typename Comp>
+struct BitonicSort {
+  static inline __device__ void sort(K k[1], V v[1]) {
+#ifdef __HIP_PLATFORM_HCC__
+    static_assert(fbgemm_gpu::kWarpSize == 64, "unexpected warp size");
+#else
+    static_assert(fbgemm_gpu::kWarpSize == 32, "unexpected warp size");
+#endif
+    warpBitonicMergeLE16<K, V, 1, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 2, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 4, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 8, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 16, Dir, Comp, false>(k[0], v[0]);
+  }
+};
+
 // Correct for cases where x is not subnormal.
 static DEVICE_INLINE __half
 stochastic_rounding_scalar(float x, uint32_t random_value) {
@@ -1970,14 +2060,14 @@ struct VecNT<4, PrimitiveType::FP> {
     // Since byte granule is guaranteed, num_valid_outputs can be any integer
     // for int8.
     if (aligned_16b && num_valid_outputs == 4) {
-      *reinterpret_cast<float4*>(output_ptr) =
-          *reinterpret_cast<const float4*>(&acc);
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&acc);
     } else if (aligned_8b && num_valid_outputs >= 2) {
-      *reinterpret_cast<float2*>(output_ptr) =
-          *reinterpret_cast<const float2*>(&(acc.x));
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&(acc.x));
       if (num_valid_outputs == 4) {
-        *reinterpret_cast<float2*>(output_ptr + 2) =
-            *reinterpret_cast<const float2*>(&(acc.x) + 2);
+        *reinterpret_cast<uint2*>(output_ptr + 2) =
+            *reinterpret_cast<const uint2*>(&(acc.x) + 2);
       } else if (num_valid_outputs == 3) {
         *(output_ptr + 2) = *(&(acc.x) + 2);
       }
@@ -1998,14 +2088,14 @@ struct VecNT<4, PrimitiveType::FP> {
     // Since byte granule is guaranteed, num_valid_outputs can be any integer
     // for int8.
     if (aligned_8b && num_valid_outputs == 4) {
-      *reinterpret_cast<float2*>(output_ptr) =
-          *reinterpret_cast<const float2*>(&val);
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&val);
     } else if (aligned_4b && num_valid_outputs >= 2) {
-      *reinterpret_cast<float*>(output_ptr) =
-          *reinterpret_cast<const float*>(&(val.vals[0].x));
+      *reinterpret_cast<uint*>(output_ptr) =
+          *reinterpret_cast<const uint*>(&(val.vals[0].x));
       if (num_valid_outputs == 4) {
-        *reinterpret_cast<float*>(output_ptr + 2) =
-            *reinterpret_cast<const float*>(&(val.vals[0].x) + 2);
+        *reinterpret_cast<uint*>(output_ptr + 2) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 2);
       } else if (num_valid_outputs == 3) {
         *(output_ptr + 2) =
             *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + 2);
@@ -2084,14 +2174,14 @@ struct VecNT<4, PrimitiveType::INT> {
     // Since byte granule is guaranteed, num_valid_outputs can be any integer
     // for int8.
     if (aligned_16b && num_valid_outputs == 4) {
-      *reinterpret_cast<float4*>(output_ptr) =
-          *reinterpret_cast<const float4*>(&acc);
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&acc);
     } else if (aligned_8b && num_valid_outputs >= 2) {
-      *reinterpret_cast<float2*>(output_ptr) =
-          *reinterpret_cast<const float2*>(&(acc.x));
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&(acc.x));
       if (num_valid_outputs == 4) {
-        *reinterpret_cast<float2*>(output_ptr + 2) =
-            *reinterpret_cast<const float2*>(&(acc.x) + 2);
+        *reinterpret_cast<uint2*>(output_ptr + 2) =
+            *reinterpret_cast<const uint2*>(&(acc.x) + 2);
       } else if (num_valid_outputs == 3) {
         *(output_ptr + 2) = *(&(acc.x) + 2);
       }
@@ -2112,14 +2202,14 @@ struct VecNT<4, PrimitiveType::INT> {
     // Since byte granule is guaranteed, num_valid_outputs can be any integer
     // for int8.
     if (aligned_8b && num_valid_outputs == 4) {
-      *reinterpret_cast<float2*>(output_ptr) =
-          *reinterpret_cast<const float2*>(&val);
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&val);
     } else if (aligned_4b && num_valid_outputs >= 2) {
-      *reinterpret_cast<float*>(output_ptr) =
-          *reinterpret_cast<const float*>(&(val.vals[0].x));
+      *reinterpret_cast<uint*>(output_ptr) =
+          *reinterpret_cast<const uint*>(&(val.vals[0].x));
       if (num_valid_outputs == 4) {
-        *reinterpret_cast<float*>(output_ptr + 2) =
-            *reinterpret_cast<const float*>(&(val.vals[0].x) + 2);
+        *reinterpret_cast<uint*>(output_ptr + 2) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 2);
       } else if (num_valid_outputs == 3) {
         *(output_ptr + 2) =
             *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + 2);
@@ -2198,21 +2288,21 @@ struct VecNT<8, PrimitiveType::INT> {
     // Since byte granule is guaranteed, num_valid_outputs is multiple of 2 for
     // int4.
     if (aligned_16b && num_valid_outputs >= 4) { // 128 bit cache line
-      *reinterpret_cast<float4*>(output_ptr) =
-          *reinterpret_cast<const float4*>(&(acc.vals[0]));
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&(acc.vals[0]));
       if (num_valid_outputs == 8) {
-        *reinterpret_cast<float4*>(output_ptr + 4) =
-            *reinterpret_cast<const float4*>(&(acc.vals[1]));
+        *reinterpret_cast<uint4*>(output_ptr + 4) =
+            *reinterpret_cast<const uint4*>(&(acc.vals[1]));
       } else if (num_valid_outputs == 6) {
-        *reinterpret_cast<float2*>(output_ptr + 4) =
-            *reinterpret_cast<const float2*>(&(acc.vals[1]));
+        *reinterpret_cast<uint2*>(output_ptr + 4) =
+            *reinterpret_cast<const uint2*>(&(acc.vals[1]));
       }
     } else if (aligned_8b) {
 #pragma unroll
       for (int i = 0; i < 8; i += 2) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<float2*>(output_ptr + i) =
-              *reinterpret_cast<const float2*>(&(acc.vals[0].x) + i);
+          *reinterpret_cast<uint2*>(output_ptr + i) =
+              *reinterpret_cast<const uint2*>(&(acc.vals[0].x) + i);
         }
       }
     } else {
@@ -2233,24 +2323,24 @@ struct VecNT<8, PrimitiveType::INT> {
     // Since byte granule is guaranteed, num_valid_outputs is multiple of 2 for
     // int4.
     if (aligned_16b && num_valid_outputs == 8) {
-      *reinterpret_cast<half8*>(output_ptr) =
-          *reinterpret_cast<const half8*>(&val);
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&val);
     } else if (aligned_8b && num_valid_outputs >= 4) {
-      *reinterpret_cast<half4*>(output_ptr) =
-          *reinterpret_cast<const half4*>(&(val.vals[0].x));
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&(val.vals[0].x));
       if (num_valid_outputs == 8) {
-        *reinterpret_cast<half4*>(output_ptr + 4) =
-            *reinterpret_cast<const half4*>(&(val.vals[0].x) + 4);
+        *reinterpret_cast<uint2*>(output_ptr + 4) =
+            *reinterpret_cast<const uint2*>(&(val.vals[0].x) + 4);
       } else if (num_valid_outputs == 6) {
-        *reinterpret_cast<half2*>(output_ptr + 4) =
-            *reinterpret_cast<const half2*>(&(val.vals[0].x) + 4);
+        *reinterpret_cast<uint*>(output_ptr + 4) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 4);
       }
     } else if (aligned_4b) {
 #pragma unroll
       for (int i = 0; i < 8; i += 2) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<half2*>(output_ptr + i) =
-              *reinterpret_cast<const half2*>(&(val.vals[0].x) + i);
+          *reinterpret_cast<uint*>(output_ptr + i) =
+              *reinterpret_cast<const uint*>(&(val.vals[0].x) + i);
         }
       }
     } else {
@@ -2334,16 +2424,16 @@ struct VecNT<16, PrimitiveType::INT> {
 #pragma unroll
       for (int i = 0; i < 16; i += 4) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<float4*>(output_ptr + i) =
-              *reinterpret_cast<const float4*>(&(acc.vals[0].vals[0]) + i);
+          *reinterpret_cast<uint4*>(output_ptr + i) =
+              *reinterpret_cast<const uint4*>(&(acc.vals[0].vals[0]) + i);
         }
       }
     } else if (aligned_8b) {
 #pragma unroll
       for (int i = 0; i < 16; i += 2) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<float2*>(output_ptr + i) =
-              *reinterpret_cast<const float2*>(&(acc.vals[0].vals[0]) + i);
+          *reinterpret_cast<uint2*>(output_ptr + i) =
+              *reinterpret_cast<const uint2*>(&(acc.vals[0].vals[0]) + i);
         }
       }
     } else {
@@ -2365,29 +2455,29 @@ struct VecNT<16, PrimitiveType::INT> {
     // Since byte granule is guaranteed, num_valid_outputs is multiple of 4 for
     // int2.
     if (aligned_16b && num_valid_outputs >= 8) {
-      *reinterpret_cast<half8*>(output_ptr) =
-          *reinterpret_cast<const half8*>(&(val.vals[0].x));
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&(val.vals[0].x));
       if (num_valid_outputs == 16) {
-        *reinterpret_cast<half8*>(output_ptr + 8) =
-            *reinterpret_cast<const half8*>(&(val.vals[0].x) + 8);
+        *reinterpret_cast<uint4*>(output_ptr + 8) =
+            *reinterpret_cast<const uint4*>(&(val.vals[0].x) + 8);
       } else if (num_valid_outputs == 12) {
-        *reinterpret_cast<half4*>(output_ptr + 8) =
-            *reinterpret_cast<const half4*>(&(val.vals[0].x) + 8);
+        *reinterpret_cast<uint2*>(output_ptr + 8) =
+            *reinterpret_cast<const uint2*>(&(val.vals[0].x) + 8);
       }
     } else if (aligned_8b) {
 #pragma unroll
       for (int i = 0; i < 16; i += 4) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<half4*>(output_ptr + i) =
-              *reinterpret_cast<const half4*>(&(val.vals[0].x) + i);
+          *reinterpret_cast<uint2*>(output_ptr + i) =
+              *reinterpret_cast<const uint2*>(&(val.vals[0].x) + i);
         }
       }
     } else if (aligned_4b) {
 #pragma unroll
       for (int i = 0; i < 16; i += 2) {
         if (i < num_valid_outputs) {
-          *reinterpret_cast<half2*>(output_ptr + i) =
-              *reinterpret_cast<const half2*>(&(val.vals[0].x) + i);
+          *reinterpret_cast<uint*>(output_ptr + i) =
+              *reinterpret_cast<const uint*>(&(val.vals[0].x) + i);
         }
       }
     } else {

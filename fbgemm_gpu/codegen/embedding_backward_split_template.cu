@@ -20,6 +20,18 @@ constexpr size_t kBackwardMaxThreads = 512;
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+namespace {
+
+// Based on the empirical study, max grid size that is 64x larger than the
+// number of SMs gives good performance across the board
+constexpr int MAX_THREAD_BLOCKS_FACTOR = 64;
+
+int get_max_thread_blocks_() {
+  return MAX_THREAD_BLOCKS_FACTOR * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+}
+
+} // namespace
+
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
@@ -105,7 +117,7 @@ template <
     typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread,
-    size_t kThreadGroupSize = kWarpSize>
+    int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits> grad_output,
@@ -577,14 +589,21 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% else %}
     int32_t T = weights_offsets.size(0);
     {% endif %}
-    const int32_t run_id = blockIdx.x * blockDim.y + threadIdx.y;
+    const int32_t start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
 
-    if (run_id >= sorted_linear_indices_run.size(0)) {
-        return;
-    }
-    if (run_id >= sorted_linear_indices_num_runs[0]) {
-        return;
-    }
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+    const unsigned int shfl_sync_mask =
+        ((1L << kThreadGroupSize) - 1) <<
+        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
+#else
+    const unsigned int shfl_sync_mask = 0xffffffffu;
+#endif
+    constexpr int VEC_WIDTH = 4;
+
+    for (uint32_t run_id = start_run_id;
+         run_id < sorted_linear_indices_run.size(0) && run_id < sorted_linear_indices_num_runs[0];
+         run_id += gridDim.x * blockDim.y) {
+
     const int64_t linear_index = sorted_linear_indices_run[run_id];
     const int32_t segment_start =
         sorted_linear_indices_cumulative_run_lengths[run_id];
@@ -593,7 +612,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const int32_t SL = segment_end - segment_start;
 
     if (SL >= max_segment_length_per_warp) {
-        return;
+        continue;
     }
 
     // now, each segment corresponds to exactly one table `t` and row in
@@ -611,15 +630,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int32_t D = D_offsets[t_0 + 1] - D_offsets[t_0];
     {% endif %}
     int64_t idx = linear_index - hash_size;
-
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-    const unsigned int shfl_sync_mask =
-        ((1L << kThreadGroupSize) - 1) <<
-        (threadIdx.y % (kWarpSize / kThreadGroupSize) * kThreadGroupSize);
-#else
-    const unsigned int shfl_sync_mask = 0xffffffffu;
-#endif
-    constexpr int VEC_WIDTH = 4;
 
     const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
     const int32_t sl_start = 0;
@@ -764,6 +774,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         grad.store(&grad_dev_weights[weights_offset + idx * D + d]);
     }
     {% endif %}
+
+    }
 }
 
 {{ "void" if not dense else "Tensor" }} split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact_cuda(
@@ -1088,6 +1100,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
                 grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
+            int32_t grid_size = std::min(
+                div_round_up(long_run_ids.numel(), kMaxThreads),
+                get_max_thread_blocks_());
+
             // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
             // "Compute capability 7.x devices allow a single thread block to
             // address the full capacity of shared memory: 96 KB on Volta,
@@ -1127,7 +1143,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% endif %}
                 kMaxVecsPerThread,
                 kThreadGroupSize>
-                <<<div_round_up(long_run_ids.numel(), kMaxThreads),
+                <<<grid_size,
                     dim3(kThreadGroupSize, BT_block_size),
                     BT_block_size * sizeof(at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>) * 4 * kWarpSize *
                         kMaxVecsPerThread,
@@ -1182,23 +1198,45 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     use_deterministic_algorithms,
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            grid_size = std::min(
+                div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                get_max_thread_blocks_());
+
+            // Shared memory is not needed for non uint8_t weights
+            size_t shmem_bytes = 0;
+            {% if not dense %}
+            if (std::is_same<emb_t, uint8_t>::value) {
+            {% else %}
+            if (std::is_same<scalar_t, uint8_t>::value) {
+            {% endif %}
+                shmem_bytes = BT_block_size * sizeof(
+                    at::acc_type<
+                    {% if not dense %}
+                    cache_t
+                    {% else %}
+                    scalar_t
+                    {% endif %},
+                    true>) * 4 * kWarpSize *
+                    kMaxVecsPerThread;
 #ifndef __HIP_PLATFORM_HCC__
-            cudaFuncSetAttribute(
-                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
-                {% if not dense %}
-                emb_t,
-                grad_t,
-                cache_t,
-                {% else %}
-                scalar_t,
-                at::acc_type<scalar_t, true>,
-                scalar_t,
-                {% endif %}
-                kMaxVecsPerThread,
-                kThreadGroupSize>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                cudaFuncSetAttribute(
+                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                    {% if not dense %}
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    {% else %}
+                    scalar_t,
+                    at::acc_type<scalar_t, true>,
+                    scalar_t,
+                    {% endif %}
+                    kMaxVecsPerThread,
+                    kThreadGroupSize>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
 #endif
+            }
+
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
@@ -1212,17 +1250,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% endif %}
                 kMaxVecsPerThread,
                 kThreadGroupSize>
-                <<<div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                <<<grid_size,
                     dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
-                    BT_block_size * sizeof(
-                    at::acc_type<
-                    {% if not dense %}
-                    cache_t
-                    {% else %}
-                    scalar_t
-                    {% endif %},
-                    true>) * 4 * kWarpSize *
-                        kMaxVecsPerThread,
+                    shmem_bytes,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
                     {% if not dense %}
@@ -1280,4 +1310,4 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 }
 {% endif %}
 {% endfor %}
-// clang-format on
+      // clang-format on
