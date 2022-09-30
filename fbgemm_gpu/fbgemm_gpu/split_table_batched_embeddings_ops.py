@@ -24,6 +24,9 @@ ASSOC = 32 if torch.version.hip is None else 64
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
 INT8_EMB_ROW_DIM_OFFSET = 8
+# GPU and CPU use 16-bit scale and bias for quantized embedding bags in TBE
+# The total size is 2 + 2 = 4 bytes
+DEFAULT_SCALE_BIAS_SIZE_IN_BYTES = 4
 
 
 class DoesNotHavePrefix(Exception):
@@ -1487,21 +1490,28 @@ def round_up(a: int, b: int) -> int:
 
 
 def rounded_row_size_in_bytes(
-    dim: int, weight_ty: SparseType, row_alignment: int
+    dim: int,
+    weight_ty: SparseType,
+    row_alignment: int,
+    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
 ) -> int:
-    r = unpadded_row_size_in_bytes(dim, weight_ty)
+    r = unpadded_row_size_in_bytes(dim, weight_ty, scale_bias_size_in_bytes)
     # align each row to 16-byte boundaries.
     return round_up(r, row_alignment)
 
 
-def unpadded_row_size_in_bytes(dim: int, weight_ty: SparseType) -> int:
+def unpadded_row_size_in_bytes(
+    dim: int,
+    weight_ty: SparseType,
+    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+) -> int:
     r = {
         SparseType.FP32.value: dim * 4,
         SparseType.FP16.value: dim * 2,
         SparseType.FP8.value: dim,
-        SparseType.INT8.value: dim + 4,
-        SparseType.INT4.value: dim // 2 + 4,
-        SparseType.INT2.value: dim // 4 + 4,
+        SparseType.INT8.value: dim + scale_bias_size_in_bytes,
+        SparseType.INT4.value: dim // 2 + scale_bias_size_in_bytes,
+        SparseType.INT2.value: dim // 4 + scale_bias_size_in_bytes,
     }[weight_ty.value]
     return r
 
@@ -1515,6 +1525,7 @@ def nbit_construct_split_state(
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
     cacheable: bool,
     row_alignment: int,
+    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1523,7 +1534,7 @@ def nbit_construct_split_state(
     uvm_size = 0
     for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
         embedding_dim = rounded_row_size_in_bytes(
-            embedding_dim, weight_ty, row_alignment
+            embedding_dim, weight_ty, row_alignment, scale_bias_size_in_bytes
         )
         state_size = align_to_cacheline(num_embeddings * embedding_dim)
         if location == EmbeddingLocation.HOST:
@@ -1603,6 +1614,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
+        self.scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
@@ -1717,14 +1729,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         cached_dims = [
-            rounded_row_size_in_bytes(embedding_spec[2], embedding_spec[3], 16)
+            rounded_row_size_in_bytes(
+                embedding_spec[2], embedding_spec[3], 16, self.scale_bias_size_in_bytes
+            )
             for embedding_spec in self.embedding_specs
             if embedding_spec[4] == EmbeddingLocation.MANAGED_CACHING
         ]
         self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
 
         weight_split: SplitState = nbit_construct_split_state(
-            self.embedding_specs, cacheable=True, row_alignment=self.row_alignment
+            self.embedding_specs,
+            cacheable=True,
+            row_alignment=self.row_alignment,
+            scale_bias_size_in_bytes=self.scale_bias_size_in_bytes,
         )
 
         self.weights_physical_placements: List[int] = [
@@ -2428,13 +2445,24 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offset = self.weights_physical_offsets[t]
             weights_shifts = weights.detach()[
                 offset : offset
-                + rows * rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment)
-            ].view(rows, rounded_row_size_in_bytes(dim, weight_ty, self.row_alignment))
+                + rows
+                * rounded_row_size_in_bytes(
+                    dim, weight_ty, self.row_alignment, self.scale_bias_size_in_bytes
+                )
+            ].view(
+                rows,
+                rounded_row_size_in_bytes(
+                    dim, weight_ty, self.row_alignment, self.scale_bias_size_in_bytes
+                ),
+            )
 
             if split_scale_shifts:
                 # remove the padding at the end of each row.
                 weights_shifts = weights_shifts[
-                    :, : unpadded_row_size_in_bytes(dim, weight_ty)
+                    :,
+                    : unpadded_row_size_in_bytes(
+                        dim, weight_ty, self.scale_bias_size_in_bytes
+                    ),
                 ]
                 if (
                     weight_ty == SparseType.INT8
@@ -2443,8 +2471,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ):
                     splits.append(
                         (
-                            weights_shifts[:, 4:],
-                            weights_shifts[:, :4],
+                            weights_shifts[:, self.scale_bias_size_in_bytes :],
+                            weights_shifts[:, : self.scale_bias_size_in_bytes],
                         )
                     )
                 else:
@@ -2639,6 +2667,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.embedding_specs[table_idx][2],
                 self.embedding_specs[table_idx][3],
                 self.row_alignment,
+                self.scale_bias_size_in_bytes,
             )
             update_offsets.append(update_offset)
             update_offset += D_bytes
