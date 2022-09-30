@@ -2560,7 +2560,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         orig_indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> in_deduped_grad,
+    at::PackedTensorAccessor64<scalar_t, 2> in_deduped_grad,
     const int stride_D,
     const int rounded_D,
     const int remaining_D,
@@ -2808,7 +2808,7 @@ Tensor index_add_with_unique_indices_cuda(
                       .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                   offsets
                       .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                  input_grad.packed_accessor32<scalar_t, 2>(),
+                  input_grad.packed_accessor64<scalar_t, 2>(),
                   stride_D, // Pass constants as kernel args
                   rounded_D,
                   remaining_D,
