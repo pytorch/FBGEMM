@@ -4636,10 +4636,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         T=st.sampled_from([1,2,3]),
         # D*4 later in SplitTableBatchedEmbeddingsTest
-        D=st.sampled_from([16, 32, 48, 64]),
+        # Both weighted & unweighted for all Ds:
+        D=st.integers(min_value=1, max_value=(1024//4)),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
+        L=st.integers(min_value=0, max_value=32),
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         mixed=st.just(False),
         use_cache=st.just(False),
@@ -4649,7 +4650,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ),
         output_dtype=st.just(SparseType.FP32),
         pooling_mode=st.sampled_from([split_table_batched_embeddings_ops.PoolingMode.SUM, split_table_batched_embeddings_ops.PoolingMode.MEAN]),
-        weighted=st.booleans()
+        weighted=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
