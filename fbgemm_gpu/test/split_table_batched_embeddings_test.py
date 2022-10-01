@@ -34,7 +34,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM, skipIfRocm
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
@@ -325,7 +325,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.choice(
                     [
                         split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        # NOTE: since we only implement GPU kernel with device location, comment out others here
                     ]
                 )
                 for _ in range(T)
@@ -767,6 +768,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weighted = random.choice([True, False])
         else:
             weighted = False
+
         self.execute_forward_(
             T,
             D,
@@ -2408,6 +2410,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype,
         )
 
+    @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -4869,6 +4872,65 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     atol=1e-2,
                     equal_nan=True,
                 )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(not TEST_WITH_ROCM, "skip test_rocm_tbe_forward if not AMD ROCm stack.")
+    @given(
+        T=st.sampled_from([1,2,3]),
+        # D*4 later in SplitTableBatchedEmbeddingsTest
+        # Both weighted & unweighted for all Ds:
+        D=st.integers(min_value=1, max_value=(1024//4)),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=32),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        mixed=st.just(False),
+        use_cache=st.just(False),
+        use_cpu=st.just(False),
+        cache_algorithm=st.sampled_from(
+            split_table_batched_embeddings_ops.CacheAlgorithm
+            ),
+        output_dtype=st.just(SparseType.FP32),
+        pooling_mode=st.sampled_from([split_table_batched_embeddings_ops.PoolingMode.SUM, split_table_batched_embeddings_ops.PoolingMode.MEAN]),
+        weighted=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_rocm_tbe_forward(
+        self,
+        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        weights_precision:SparseType,
+        use_cpu: bool,
+        T: int,
+        D: int,
+        B: int,
+        L: int,
+        log_E: int,
+        use_cache: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        output_dtype: SparseType,
+        mixed: bool,
+        weighted: bool,
+    ) -> None:
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            output_dtype,
+        )
 
 
 if __name__ == "__main__":
