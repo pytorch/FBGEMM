@@ -28,7 +28,10 @@ def benchmark_torch_function(
     flush_gpu_cache_size_mb: int = 40,
     iters: int = 10,
     num_warmups: int = 2,
+    device: str = "cuda",
 ) -> Tuple[float, Tensor]:
+    if device != "" and device != "cuda":
+        torch.cuda.set_device(device)
     for _ in range(num_warmups):
         output = f(*args)
 
@@ -36,11 +39,11 @@ def benchmark_torch_function(
         cache = torch.empty(
             int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
             dtype=torch.float,
-            device="cuda",
+            device=device,
         )
         start_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
         end_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(device)
         for i in range(iters):
             # flush the cache
             if flush_gpu_cache_size_mb:
@@ -48,7 +51,7 @@ def benchmark_torch_function(
             start_event[i].record()
             output = f(*args)
             end_event[i].record()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(device)
         times = torch.tensor(
             [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
         )
