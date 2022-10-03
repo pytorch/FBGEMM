@@ -1333,14 +1333,65 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # NOTE: only SUM pooling can work with per_sample_weights!
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu=use_cpu,
-        ).double()
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu).double()
+        )
+
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
+            cc = cc.double()
+            per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
-        torch.autograd.gradcheck(cc, (indices, offsets, per_sample_weights))
+        y = cc(indices, offsets, per_sample_weights)
+        y.sum().backward()
+        # pyre-fixme[16]: `Optional` has no attribute `clone`.
+        indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
+        T_ = len(xws)
+        feature_requires_grad = to_device(
+            torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
+            use_cpu,
+        )
+        per_sample_weights = per_sample_weights.detach().clone()
+        per_sample_weights.requires_grad = True
+        y = cc(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        )
+        y.sum().backward()
+        indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
+        for t in range(T_):
+            if feature_requires_grad[t]:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    indice_weight_grad_all.view(T_, B, L)[t],
+                )
+            else:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
+                )
+
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
+            cc = cc.double()
+            per_sample_weights = per_sample_weights.double()
+        else:
+            cc = cc.float()
+            per_sample_weights = per_sample_weights.float()
+        per_sample_weights.requires_grad = True
+        indices.requires_grad = False
+        offsets.requires_grad = False
+        for param in cc.parameters():
+            param.requires_grad = False
+        torch.autograd.gradcheck(
+            cc, (indices, offsets, per_sample_weights), eps=1e-2, atol=1e-3, rtol=1e-3
+        )
 
     def execute_backward_sgd_(  # noqa C901
         self,

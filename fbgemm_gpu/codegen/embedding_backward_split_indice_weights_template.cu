@@ -218,45 +218,29 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
       return grad_indice_weights;
     }
     feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
-    {% if not dense %}
     DISPATCH_EMB_GRAD_CACHE_TYPES(
-    {% else %}
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    {% endif %}
         dev_weights.scalar_type(),
-        {% if not dense %}
         grad_output.scalar_type(),
+        {% if not dense %}
         lxu_cache_weights.scalar_type(),
+        {% else %}
+        dev_weights.scalar_type(),
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
             if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
-                {% if not dense %}
                 emb_t,
                 grad_t,
                 cache_t,
-                {% else %}
-                scalar_t,
-                at::acc_type<scalar_t, true>,
-                scalar_t,
-                {% endif %}
                 {{ kMaxVecsPerThread }}><<<
                 div_round_up((B * T), kForwardMaxThreads / kWarpSize),
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                {% if not dense %}
                 grad_output.packed_accessor32<grad_t, 2, at::RestrictPtrTraits>(),
                 dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                {% else %}
-                grad_output.packed_accessor32<
-                    at::acc_type<scalar_t, true>,
-                    2,
-                    at::RestrictPtrTraits>(),
-                dev_weights.packed_accessor64<scalar_t, 1, at::RestrictPtrTraits>(),
-                {% endif %}
                 {% if not dense %}
                 uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
@@ -270,11 +254,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 {% endif %}
                 feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                {% if not dense %}
                 grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
-                {% else %}
-                grad_indice_weights.packed_accessor32<at::acc_type<scalar_t, true>, 1, at::RestrictPtrTraits>()
-                {% endif %}
             );
             return;
             }
