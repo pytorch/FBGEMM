@@ -2322,7 +2322,8 @@ Tensor index_select_dim0(
     const Tensor& input,
     const Tensor& indices,
     c10::optional<int64_t> /*consecutive_range_start*/,
-    c10::optional<int64_t> /*consecutive_range_length*/) {
+    c10::optional<int64_t> /*consecutive_range_length*/,
+    c10::optional<bool> /*skip_indices_sorting_fwd*/) {
   return at::index_select(input, 0, indices);
 }
 
@@ -2422,8 +2423,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   //
   // If indices are not selected from a consecutive range, we perform the
   // unique indices computation step in the backward operation.
+  //
+  // skip_indices_sorting_fwd is for skipping indices sorting in forward
   m.def(
-      "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0) -> Tensor");
+      "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
       "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
   // This is an one-off op to be used in bench_utils.py for zipf generation w/o

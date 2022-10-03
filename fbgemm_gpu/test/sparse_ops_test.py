@@ -5,6 +5,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import contextlib
 import itertools
 import random
 import unittest
@@ -1475,6 +1476,8 @@ class SparseOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         consecutive_indices=st.booleans(),
+        skip_indices_sorting_fwd=st.booleans(),
+        use_inference_mode=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_index_select_dim0(
@@ -1484,9 +1487,13 @@ class SparseOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         use_cpu: bool,
         consecutive_indices: bool,
+        skip_indices_sorting_fwd: bool,
+        use_inference_mode: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
         U = random.randint(0, N + 1)
+
+        kwargs = {}
         if consecutive_indices:
             start = np.random.randint(0, U)
             length = np.random.randint(1, U - start + 1)
@@ -1497,25 +1504,30 @@ class SparseOpsTest(unittest.TestCase):
                 np_arr = np.array(indices)
                 np.random.shuffle(np_arr)
             indices = torch.from_numpy(np_arr).to(torch.int).to(device)
-            kwargs = {
-                "consecutive_range_start": start,
-                "consecutive_range_length": length,
-            }
+            kwargs["consecutive_range_start"] = start
+            kwargs["consecutive_range_length"] = length
         else:
             indices = torch.randint(U, (N,), device=device)
-            kwargs = {}
+
+        kwargs["skip_indices_sorting_fwd"] = skip_indices_sorting_fwd
+
         input = torch.rand((U,) + tuple(shape), dtype=dtype, device=device)
 
-        output_ref = torch.ops.fbgemm.index_select_dim0(input, indices, **kwargs)
-        output = torch.index_select(input, 0, indices)
+        with torch.inference_mode() if use_inference_mode else contextlib.nullcontext():
+            output_ref = torch.ops.fbgemm.index_select_dim0(input, indices, **kwargs)
+            output = torch.index_select(input, 0, indices)
 
-        torch.testing.assert_close(output, output_ref)
+            torch.testing.assert_close(output, output_ref)
 
-        gradcheck_args = [input.clone().detach().double().requires_grad_(True), indices]
-        for k in kwargs:
-            gradcheck_args.append(kwargs[k])
+        if not use_inference_mode:
+            gradcheck_args = [
+                input.clone().detach().double().requires_grad_(True),
+                indices,
+            ]
+            for k in kwargs:
+                gradcheck_args.append(kwargs[k])
 
-        torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
+            torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
 
     # pyre-ignore [56]
     @given(

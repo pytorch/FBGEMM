@@ -670,12 +670,11 @@ at::Tensor pack_segments_backward_cuda(
     int64_t max_length);
 
 ///@ingroup sparse-data-cuda
-at::Tensor index_select_with_sorted_indices_cuda(
+at::Tensor index_select_cuda(
     const at::Tensor& input,
     const at::Tensor& sorted_indices,
     const at::Tensor& orig_indices,
-    const int consecutive_range_start,
-    const int consecutive_range_length);
+    const bool indices_sorted);
 
 at::Tensor index_add_with_unique_indices_cuda(
     const at::Tensor& grad_output,
