@@ -107,26 +107,31 @@ class IndexSelectDim0GPUOp
       const Tensor& input,
       const Tensor& indices,
       const int consecutive_range_start,
-      const int consecutive_range_length) {
+      const int consecutive_range_length,
+      const bool skip_indices_sorting_fwd) {
     TENSOR_ON_CUDA_GPU(input);
     TENSOR_ON_CUDA_GPU(indices);
     TENSORS_ON_SAME_DEVICE(input, indices);
 
-    // Sort indices to promote locality
     Tensor sorted_indices, orig_indices;
-    std::tie(sorted_indices, orig_indices) = indices.sort();
+    if (skip_indices_sorting_fwd) {
+      ctx->save_for_backward({indices});
+    } else {
+      // Sort indices to promote locality
+      std::tie(sorted_indices, orig_indices) = indices.sort();
+      ctx->save_for_backward({sorted_indices, orig_indices});
+    }
 
-    ctx->save_for_backward({sorted_indices, orig_indices});
     ctx->saved_data["input_shape"] = input.sizes();
     ctx->saved_data["consecutive_range_start"] = consecutive_range_start;
     ctx->saved_data["consecutive_range_length"] = consecutive_range_length;
+    ctx->saved_data["skip_indices_sorting_fwd"] = skip_indices_sorting_fwd;
 
-    return {index_select_with_sorted_indices_cuda(
+    return {index_select_cuda(
         input,
-        sorted_indices,
+        skip_indices_sorting_fwd ? indices : sorted_indices,
         orig_indices,
-        consecutive_range_start,
-        consecutive_range_length)};
+        /*indices_sorted = */ !skip_indices_sorting_fwd)};
   }
 
   static torch::autograd::variable_list backward(
@@ -135,10 +140,21 @@ class IndexSelectDim0GPUOp
     TORCH_CHECK(grad_outputs.size() == 1);
     TENSOR_ON_CUDA_GPU(grad_outputs[0]);
 
+    bool skip_indices_sorting_fwd =
+        ctx->saved_data["skip_indices_sorting_fwd"].toBool();
+
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
-    Tensor sorted_indices = *savedItr++;
-    Tensor orig_indices = *savedItr++;
+    Tensor sorted_indices;
+    Tensor orig_indices;
+    if (skip_indices_sorting_fwd) {
+      // Sort indices
+      Tensor indices = *savedItr++;
+      std::tie(sorted_indices, orig_indices) = indices.sort();
+    } else {
+      sorted_indices = *savedItr++;
+      orig_indices = *savedItr++;
+    }
     TENSOR_ON_CUDA_GPU(sorted_indices);
     TENSOR_ON_CUDA_GPU(orig_indices);
     Tensor grad_output = grad_outputs[0];
@@ -161,6 +177,7 @@ class IndexSelectDim0GPUOp
         torch::autograd::Variable(), // indices
         undef, // consecutive_range_start
         undef, // consecutive_range_length
+        undef, // skip_indices_sorting_fwd
     };
   }
 };
@@ -177,12 +194,17 @@ Tensor index_select_dim0_gpu(
     const Tensor& input,
     const Tensor& indices,
     c10::optional<int64_t> consecutive_range_start,
-    c10::optional<int64_t> consecutive_range_length) {
+    c10::optional<int64_t> consecutive_range_length,
+    c10::optional<bool> skip_indices_sorting_fwd) {
+  bool user_skip_indices_sorting_fwd =
+      skip_indices_sorting_fwd ? *skip_indices_sorting_fwd : false;
   return IndexSelectDim0GPUOp::apply(
       input,
       indices,
       consecutive_range_start ? *consecutive_range_start : 0,
-      consecutive_range_length ? *consecutive_range_length : 0)[0];
+      consecutive_range_length ? *consecutive_range_length : 0,
+      // Always skip indices sorting if doing forward only
+      user_skip_indices_sorting_fwd && !c10::InferenceMode::is_enabled())[0];
 }
 } // namespace fbgemm_gpu
 
