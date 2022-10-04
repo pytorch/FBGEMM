@@ -121,10 +121,8 @@ class PackedGemmMatrixB {
 
   void initializeMemory() {
     // allocate and initialize packed memory
-    const int padding = 1024; // required by sw pipelined kernels
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
-    pmat_ = static_cast<T*>(
-        fbgemmAlignedAlloc(64, matSize() * sizeof(T) + padding));
+    pmat_ = static_cast<T*>(fbgemmAlignedAlloc(64, matSize() * sizeof(T)));
     memset(pmat_, 0, matSize() * sizeof(T));
   }
 
