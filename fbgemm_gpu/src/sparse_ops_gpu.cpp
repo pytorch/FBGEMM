@@ -112,6 +112,8 @@ class IndexSelectDim0GPUOp
     TENSOR_ON_CUDA_GPU(input);
     TENSOR_ON_CUDA_GPU(indices);
     TENSORS_ON_SAME_DEVICE(input, indices);
+    // Expect a 1D index tensor
+    TORCH_CHECK(indices.dim() == 1, "Index tensor must be 1D")
 
     Tensor sorted_indices, orig_indices;
     if (skip_indices_sorting_fwd) {
