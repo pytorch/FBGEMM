@@ -39,7 +39,7 @@ Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
 # Release
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cudatoolkit=11.3 -c pytorch
 pip install fbgemm-gpu (release version)
 OR
 pip install fbgemm-gpu-cpu (release version with CPU only)
