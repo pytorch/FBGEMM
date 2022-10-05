@@ -11,7 +11,7 @@ from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
-from fbgemm_gpu.split_table_batched_embeddings_ops import SparseType
+from fbgemm_gpu.split_embedding_configs import SparseType
 
 # pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
 from numpy.random import default_rng
@@ -266,6 +266,12 @@ def benchmark_requests(
     num_warmups: int = 0,
     bwd_only: bool = False,
     grad: Optional[Tensor] = None,
+    # Used to label benchmark iterations differently in nsys profile result
+    # so that we can compare performance of two different models for example.
+    # If empty string is provided, it won't have any effect.
+    nvtx_range: str = "",
+    # Can be used to clear model's stats after warmup for example.
+    callback_after_warmup: Optional[Callable[[], None]] = None,
 ) -> float:
     times = []
 
@@ -276,11 +282,14 @@ def benchmark_requests(
             if bwd_only:
                 out.backward(grad)
 
+    if callback_after_warmup is not None:
+        callback_after_warmup()
+
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    for (indices, offsets, weights) in requests:
+    for it, (indices, offsets, weights) in enumerate(requests):
         if bwd_only:
             # Run forward before profiling if does backward only
             out = func(indices, offsets, weights)
@@ -294,10 +303,18 @@ def benchmark_requests(
                 )
                 torch.cuda.synchronize()
             start_event.record()
+
+        if nvtx_range:
+            torch.cuda.nvtx.range_push(f"{nvtx_range}-{it}")
+
         if bwd_only:
             out.backward(grad)
         else:
             func(indices, offsets, weights)
+
+        if nvtx_range:
+            torch.cuda.nvtx.range_pop()
+
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()

@@ -187,6 +187,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   ) {
   const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
+  const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
   const int32_t B = output.size(0);
   {% else %}
   const int32_t B = (offsets.size(0) - 1) / T;
@@ -239,6 +240,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     Ls[i] = indices_end - indices_start;
     max_Ls = max(max_Ls, Ls[i]);
   }
+  const index_t* indices_ = &indices[0];
 
   const uint8_t* __restrict__ weights;
   const auto placement = DeviceOnly ? PlacementType::DEVICE : static_cast<PlacementType>(weights_placements[t]);
@@ -249,7 +251,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   }
   constexpr size_t kOutputsPerThread = {{ (32 // type_map[emb_weight_type].bit_width) }};
 
-  constexpr uint32_t NumUint4PerRow = MaxNum128BRows * 128 / sizeof(uint4);
+  constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   {% if not nobag %}
@@ -259,7 +261,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
     uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
 
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4PerRow];
+    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
     __shared__ AllBuffers buffers;
 
     {% if weighted %}
@@ -267,15 +269,15 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
 
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * uint4_loads_per_row; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % uint4_loads_per_row;
-      uint32_t input_row_idx = (load_idx / uint4_loads_per_row);
-
+    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
+      uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
+      uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
+      bool load_idx_valid = row_load_idx < uint4_loads_per_row;
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
+        bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
         bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices[indices_starts[i] + L_start + input_row_idx] : -1;
+        int32_t idx = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
         int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
         valid = valid && (idx != -1);
         const uint4* row;
@@ -392,16 +394,13 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   #pragma unroll OutputRowsPerThread
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
-    const float inv_L = 1.0 / Ls[i];
+    const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i]: static_cast<float>(1.0);
 
     if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
+        accumulators[i][j].mul(inv_L);
 
         if (output_d >= 0 && output_d < D) {
           const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // type_map[emb_weight_type].bit_width) }}));
@@ -418,9 +417,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && Ls[i] != 0) {
-          accumulators[i][j].mul(inv_L);
-        }
+        accumulators[i][j].mul(inv_L);
         if (output_d >= 0 && output_d < D) {
           thread_local_max = max(thread_local_max, float{{ (32 // type_map[emb_weight_type].bit_width) }}_max(accumulators[i][j].acc));
           thread_local_min = min(thread_local_min, float{{ (32 // type_map[emb_weight_type].bit_width) }}_min(accumulators[i][j].acc));
@@ -613,6 +610,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
+    // kernels assume indices are contiguous.
+    indices = indices.contiguous();
+
     {% if not nobag %}
     const int32_t T = D_offsets.numel() - 1;
     {% else %}
@@ -710,6 +710,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
+
     // launch 4-bit kernel
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
@@ -746,10 +747,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_int4_D, SparseType::INT4, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 4);
         if (max_int4_128b_rows > 0) {
-          Y(2, 8, 0, 1);
+          Y(4, 8, 0, 1);
         }
         if (max_int4_128b_rows > 1) {
-          Y(2, 4, 1, 2);
+          Y(2, 8, 1, 2);
         }
         if (max_int4_128b_rows > 2) {
           Y(1, 4, 2, 4);
