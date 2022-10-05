@@ -38,17 +38,21 @@ Certain operations require this library to be present. Be sure to provide the pa
 Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
-# Release
+# Release GPU
 conda install pytorch cudatoolkit=11.3 -c pytorch
-pip install fbgemm-gpu (release version)
-OR
-pip install fbgemm-gpu-cpu (release version with CPU only)
+pip install fbgemm-gpu
 
-# Nightly
+# Release CPU-only
+conda install pytorch cudatoolkit=11.3 -c pytorch
+pip install fbgemm-gpu-cpu
+
+# Nightly GPU
 conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-pip install fbgemm-gpu-nightly (nightly build version)
-OR
-pip install fbgemm-gpu-nightly-cpu (nightly build with CPU only)
+pip install fbgemm-gpu-nightly
+
+# Nightly CPU-only
+pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+pip install fbgemm-gpu-nightly-cpu
 
 ```
 
