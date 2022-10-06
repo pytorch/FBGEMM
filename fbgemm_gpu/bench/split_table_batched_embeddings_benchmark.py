@@ -2335,5 +2335,219 @@ def emb_inplace_update(  # noqa C901
     )
 
 
+@cli.command()
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size-list", type=str, default="20")
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim-list", type=str, default="128")
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--stoc", is_flag=True, default=False)
+@click.option("--iters", default=100)
+@click.option("--warmup-runs", default=0)
+@click.option("--managed", default="device")
+@click.option("--num-embeddings-list", type=str, default="100000")
+@click.option("--reuse", default=0.0)
+@click.option("--row-wise/--no-row-wise", default=True)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--pooling", type=str, default="sum")
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+def device_with_spec(  # noqa C901
+    alpha: float,
+    bag_size_list: str,
+    batch_size: int,
+    embedding_dim_list: str,
+    weights_precision: SparseType,
+    stoc: bool,
+    iters: int,
+    warmup_runs: int,
+    managed: str,
+    num_embeddings_list: str,
+    reuse: float,
+    row_wise: bool,
+    weighted: bool,
+    pooling: str,
+    bounds_check_mode: int,
+    flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B = batch_size
+    Ds = [int(D) for D in embedding_dim_list.split(",")]
+    Ls = [int(L) for L in bag_size_list.split(",")]
+    Es = [int(E) for E in num_embeddings_list.split(",")]
+    T = len(Ds)
+    assert T == len(Ls) and T == len(
+        Es
+    ), f"Ds, Ls, Es must have the same length ({len(Ds)}, {len(Ls)}, {len(Es)})"
+    assert T >= 1, "There must be at least one table"
+    feature_requires_grad = None
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
+
+    if managed == "device":
+        managed_option = (
+            EmbeddingLocation.DEVICE
+            if torch.cuda.is_available()
+            else EmbeddingLocation.HOST
+        )
+    else:
+        managed_option = EmbeddingLocation.MANAGED
+
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+
+    if not do_pooling:
+        ref_D = Ds[0]
+        for D in Ds:
+            assert (
+                D == ref_D
+            ), "All embedding dimensions must be the same for sequence TBE"
+
+    emb = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                e,
+                d,
+                managed_option,
+                ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
+            )
+            for d, e in zip(Ds, Es)
+        ],
+        optimizer=optimizer,
+        learning_rate=0.1,
+        eps=0.1,
+        weights_precision=weights_precision,
+        stochastic_rounding=stoc,
+        output_dtype=output_dtype,
+        pooling_mode=pooling_mode,
+        bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+    )
+    emb = emb.to(get_device())
+
+    if weights_precision == SparseType.INT8:
+        emb.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+    nparams = sum(w.numel() for w in emb.split_embedding_weights())
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+
+    sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
+    if do_pooling:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+        )
+    else:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+        )
+
+    logging.info(
+        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    logging.info(
+        f"Accessed weights per batch: {B * sum_DLs * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+
+    # Generate a request for each table then combine
+    all_requests = {
+        "indices": [[] for _ in range(iters)],
+        "offsets": [[] for _ in range(iters)],
+        "weights": [[] for _ in range(iters)],
+    }
+    # row = iter, column = tensor
+    for t, (l, e) in enumerate(zip(Ls, Es)):
+        # (indices, offsets, weights)
+        requests = generate_requests(
+            iters,
+            B,
+            1,
+            l,
+            e,
+            reuse=reuse,
+            alpha=alpha,
+            weights_precision=weights_precision,
+            weighted=weighted,
+        )
+        for i, (indices, offsets, weights) in enumerate(requests):
+            all_requests["indices"][i].append(indices)
+            if t > 0:
+                offsets = offsets[1:]  # remove the first element
+                offsets += all_requests["offsets"][i][t - 1][-1]
+            all_requests["offsets"][i].append(offsets)
+            all_requests["weights"][i].append(weights)
+
+    requests = []
+    for i in range(iters):
+        indices = torch.concat(all_requests["indices"][i])
+        offsets = torch.concat(all_requests["offsets"][i])
+        if weighted:
+            weights = torch.concat(all_requests["weights"][i])
+        else:
+            weights = None
+        requests.append((indices, offsets, weights))
+
+    del all_requests
+
+    assert len(requests) == iters
+
+    # forward
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda indices, offsets, per_sample_weights: emb.forward(
+            indices.long(),
+            offsets.long(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        num_warmups=warmup_runs,
+    )
+    logging.info(
+        f"Forward, B: {B}, "
+        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls}, W: {weighted}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+    if output_dtype == SparseType.INT8:
+        # backward bench not representative
+        return
+
+    if do_pooling:
+        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+    else:
+        # pyre-ignore[19]
+        grad_output = torch.randn(B * sum(Ls), D).to(get_device())
+    # backward
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda indices, offsets, per_sample_weights: emb(
+            indices.long(),
+            offsets.long(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        ),
+        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+        bwd_only=True,
+        grad=grad_output,
+    )
+    logging.info(
+        f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls}, "
+        f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
 if __name__ == "__main__":
     cli()
