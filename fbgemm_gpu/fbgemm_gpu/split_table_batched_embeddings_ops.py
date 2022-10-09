@@ -268,11 +268,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             loc != EmbeddingLocation.HOST for loc in locations
         ), "EmbeddingLocation.HOST doesn't work for CUDA device!"
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
-            assert (
-                output_dtype == SparseType.FP32
-                or output_dtype == SparseType.FP16
-                or output_dtype == SparseType.BF16
-            ), "Fused pooled embedding quantization only supported for cuda."
+            assert output_dtype in [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.BF16,
+            ], "Fused pooled embedding quantization only supported for cuda."
 
         if device is not None:
             self.current_device: torch.device = device
@@ -1356,15 +1356,24 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights_precision: SparseType = SparseType.FP32,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
+        output_dtype: SparseType = SparseType.FP32,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
-        self.weights_precision = weights_precision
         self.pooling_mode = pooling_mode
-
+        self.weights_precision = weights_precision
+        self.output_dtype: int = output_dtype.as_int()
         table_embedding_dtype = weights_precision.as_dtype()
 
         self.use_cpu = use_cpu
+
+        if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
+            assert output_dtype in [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.BF16,
+            ], "Fused pooled embedding quantization only supported for cuda."
+
         # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
         self.current_device: torch.device = (
             torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
@@ -1464,6 +1473,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
+            output_dtype=self.output_dtype,
         )
 
     @torch.jit.export

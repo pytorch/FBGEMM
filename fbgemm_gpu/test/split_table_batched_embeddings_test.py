@@ -295,7 +295,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             D = D * 4
         if not mixed:
             Ds = [D] * T
-            Es = [int(1e4)] * T
+            Es = [E] * T
         else:
             Ds = [
                 round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
@@ -1126,7 +1126,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=3),
-        D=st.integers(min_value=2, max_value=256),
+        D=st.integers(min_value=2, max_value=128),
         B=st.integers(min_value=1, max_value=32),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=10),
@@ -1146,6 +1146,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1166,6 +1167,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        output_dtype: SparseType,
     ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -1287,6 +1289,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
             weights_precision=weights_precision,
+            output_dtype=output_dtype,
         )
         if do_pooling:
             # NOTE: test TorchScript-compatible!
@@ -1313,8 +1316,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(
             fc2.float(),
             f.float(),
-            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
-            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
+            atol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-5,
+            rtol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-5,
         )
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
@@ -1324,8 +1331,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
-            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
-            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
+            atol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-4,
+            rtol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-4,
         )
 
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
@@ -1992,12 +2003,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
             output_dtype=output_dtype,
         )
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
             cc = cc.double()
-
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
             per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
