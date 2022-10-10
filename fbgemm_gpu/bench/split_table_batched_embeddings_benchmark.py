@@ -2246,8 +2246,6 @@ def emb_inplace_update(  # noqa C901
         high=255,
         size=(update_weight_size,),
         dtype=torch.uint8,
-        # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but got
-        #  `int`.
         device=torch.cuda.current_device(),
     )
 
@@ -2289,22 +2287,16 @@ def emb_inplace_update(  # noqa C901
 
     update_table_idx = torch.tensor(
         update_table_idx,
-        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
-        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_row_idx = torch.tensor(
         update_row_idx,
-        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
-        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int32,
     )
     update_offsets = torch.tensor(
         update_offsets,
-        # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but got
-        #  `int`.
         device=torch.cuda.current_device(),
         dtype=torch.int64,
     )

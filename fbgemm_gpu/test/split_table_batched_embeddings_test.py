@@ -150,8 +150,6 @@ def generate_requests(
             low=0,
             high=E,
             size=(iters, T, B * L),
-            # pyre-fixme[6]: For 4th param expected `Union[None, str, device]` but
-            #  got `int`.
             device=torch.cuda.current_device(),
             dtype=torch.int32,
         )
@@ -3374,8 +3372,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 index_remappings_array_t = torch.tensor(
                     [-1] * original_E,
                     dtype=torch.int32,
-                    # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]`
-                    #  but got `Union[int, str]`.
                     device=current_device,
                 )
                 index_remappings_array_t[indice_t] = dense_indice_t
@@ -4104,8 +4100,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         index_remappings_array = torch.tensor(
             [-1] * original_E * T,
             dtype=torch.int32,
-            # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but
-            #  got `Union[int, str]`.
             device=current_device,
         )
         index_remappings_array_offsets = torch.empty(
@@ -4869,8 +4863,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             high=255,
             size=(update_weight_size,),
             dtype=torch.uint8,
-            # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but
-            #  got `Union[int, str]`.
             device=current_device,
         )
 
@@ -4893,8 +4885,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             update_weights_tensor = torch.tensor(
                 update_weights,
-                # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]`
-                #  but got `Union[int, str]`.
                 device=current_device,
                 dtype=torch.uint8,
             )
