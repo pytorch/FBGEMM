@@ -453,13 +453,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
   const int32_t N = linear_cache_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
 
-  // In LRU, each row in block took care of one idx
-  // const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  // But in direct mapped, each cell will take care of one idx
-  for (int32_t n = blockIdx.x * blockDim.x * blockDim.y +
-           threadIdx.y * blockDim.x + threadIdx.x;
-       n < N;
-       n += gridDim.x * blockDim.x * blockDim.y) {
+  CUDA_KERNEL_LOOP(n, N) {
     int64_t idx = linear_cache_indices[n];
     if (idx == max_indices) {
       continue;
@@ -623,7 +617,7 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
             std::min(
                 div_round_up(N, kMaxThreads),
                 get_max_thread_blocks_for_cache_kernels_()),
-            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             linear_cache_indices
@@ -2248,26 +2242,23 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lxu_cache_lookup_kernel(
         lxu_cache_locations) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
-  const int32_t n = blockIdx.x * blockDim.y * blockDim.x +
-      threadIdx.y * blockDim.x + threadIdx.x;
-  if (n >= N) {
-    return;
-  }
 
-  int32_t cache_location = kCacheLocationMissing;
-  const auto slot = 0;
+  CUDA_KERNEL_LOOP(n, N) {
+    int32_t cache_location = kCacheLocationMissing;
+    const auto slot = 0;
 
-  const int64_t idx = linear_cache_indices[n];
-  if (idx == invalid_index) {
-    return;
-  }
+    const int64_t idx = linear_cache_indices[n];
+    if (idx == invalid_index) {
+      continue;
+    }
 
-  const int32_t cache_set = cache_slot(idx, C);
-  const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-  if (found) {
-    cache_location = cache_set;
+    const int32_t cache_set = cache_slot(idx, C);
+    const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+    if (found) {
+      cache_location = cache_set;
+    }
+    lxu_cache_locations[n] = cache_location;
   }
-  lxu_cache_locations[n] = cache_location;
 }
 
 Tensor lxu_cache_lookup_cuda(
@@ -2329,7 +2320,6 @@ Tensor direct_mapped_lxu_cache_lookup_cuda(
     return lxu_cache_locations;
   }
 
-  const dim3 threads(kWarpSize, kMaxThreads / kWarpSize);
   const dim3 blocks(div_round_up(N, kMaxThreads));
 
   AT_DISPATCH_INDEX_TYPES(
@@ -2338,7 +2328,7 @@ Tensor direct_mapped_lxu_cache_lookup_cuda(
       [&] {
         direct_mapped_lxu_cache_lookup_kernel<<<
             blocks,
-            threads,
+            kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
             linear_cache_indices
