@@ -41,6 +41,8 @@ using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
 
+namespace {
+
 // // TODO: do we care about 64-bit indices? Currently we just ignore.
 // __host__ DEVICE_INLINE uint32_t cache_slot(int32_t h_in, int32_t C) {
 //   // MurmorHash3 32-bit mixing function.
@@ -68,9 +70,13 @@ cache_slot(const int64_t h_in, const int32_t C) {
   return h % (uint32_t)C;
 }
 
+} // namespace
+
 int64_t host_lxu_cache_slot(int64_t h_in, int64_t C) {
   return static_cast<int64_t>(cache_slot(h_in, static_cast<int32_t>(C)));
 }
+
+namespace {
 
 constexpr int32_t kCacheLocationMissing = -1;
 constexpr int64_t kCacheStateInvalid = -1;
@@ -148,6 +154,8 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
   }
 }
 
+} // namespace
+
 void lxu_cache_flush_cuda(
     Tensor uvm_weights,
     Tensor cache_hash_size_cumsum,
@@ -210,6 +218,8 @@ void lxu_cache_flush_cuda(
   return;
 }
 
+namespace {
+
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -239,14 +249,16 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
   const int table_index = left;
 
   const auto max_offset =
-      __ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
-  const auto curr_offset = __ldg(&cache_hash_size_cumsum[table_index]);
+      ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+  const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
   if (curr_offset >= 0) {
     linear_cache_indices[index] = indices[index] + curr_offset;
   } else {
     linear_cache_indices[index] = max_offset;
   }
 }
+
+} // namespace
 
 Tensor linearize_cache_indices_cuda(
     Tensor cache_hash_size_cumsum,
@@ -395,6 +407,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
       unique_indices, unique_indices_length, unique_indices_count);
 }
 
+namespace {
+
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -419,7 +433,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     int32_t cache_set = cache_slot(idx, C);
 
     const auto slot = threadIdx.x;
-    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
+    const bool found = ::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
     if (found) {
       // mark it as recently accessed so we don't evict.
       lru_state[cache_set][slot] = time_stamp;
@@ -460,7 +474,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     }
     int32_t cache_set = cache_slot(idx, C);
 
-    const bool found = __ldg((&lxu_cache_state[cache_set][0])) == idx;
+    const bool found = ::__ldg((&lxu_cache_state[cache_set][0])) == idx;
     if (found) {
       // After all threads run, timestamp will be current timestamp
       // if any idx was hit
@@ -494,8 +508,6 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     }
   }
 }
-
-namespace {
 
 // Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
 // not sensitive to grid size as long as the number thread blocks per SM is not
@@ -587,6 +599,8 @@ std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       });
   return {sorted_cache_sets, cache_set_sorted_unique_indices};
 }
+
+namespace {
 
 Tensor direct_mapped_lru_cache_find_uncached_cuda(
     Tensor linear_cache_indices,
@@ -880,6 +894,8 @@ void lru_cache_insert_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+} // namespace
+
 void lru_cache_populate_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -948,6 +964,8 @@ void lru_cache_populate_cuda(
       lru_state,
       stochastic_rounding);
 }
+
+namespace {
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
@@ -1262,6 +1280,8 @@ void direct_mapped_lru_cache_insert_byte_cuda(
       });
 }
 
+} // namespace
+
 void lru_cache_populate_byte_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -1423,6 +1443,8 @@ void direct_mapped_lru_cache_populate_byte_cuda(
       row_alignment);
 }
 
+namespace {
+
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lfu_update_counts_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -1498,7 +1520,7 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
     const uint32_t cache_set = cache_slot(idx, C);
 
     const auto slot = threadIdx.x;
-    const bool found = __ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
+    const bool found = ::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
 
 #ifdef __HIP_PLATFORM_HCC__
     if (!__any_sync(0xFFFFFFFFFFFFFFFF, found)) {
@@ -1845,6 +1867,8 @@ void lfu_cache_insert_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+} // namespace
+
 void lfu_cache_populate_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -1915,6 +1939,8 @@ void lfu_cache_populate_cuda(
       lfu_state,
       stochastic_rounding);
 }
+
+namespace {
 
 // In `lfu_cache_insert_kernel`, we use `emb_t` and `cache_t` for the
 // high-precision cache implementation, where we can have {FP32, FP16, INT8}
@@ -2104,6 +2130,8 @@ void lfu_cache_insert_byte_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+} // namespace
+
 void lfu_cache_populate_byte_cuda(
     Tensor weights,
     Tensor cache_hash_size_cumsum,
@@ -2178,6 +2206,8 @@ void lfu_cache_populate_byte_cuda(
       row_alignment);
 }
 
+namespace {
+
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -2203,7 +2233,8 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
       continue;
     }
     const int32_t cache_set = cache_slot(idx, C);
-    const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+    const bool found =
+        (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
 #ifdef __HIP_PLATFORM_HCC__
     // FIXME: __ballot_sync with mask isn't supported by HIP yet.
     // See https://fburl.com/fvy7j0lq for the similar context.
@@ -2253,13 +2284,16 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lxu_cache_lookup_kernel(
     }
 
     const int32_t cache_set = cache_slot(idx, C);
-    const bool found = (__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
+    const bool found =
+        (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
     if (found) {
       cache_location = cache_set;
     }
     lxu_cache_locations[n] = cache_location;
   }
 }
+
+} // namespace
 
 Tensor lxu_cache_lookup_cuda(
     Tensor linear_cache_indices,
