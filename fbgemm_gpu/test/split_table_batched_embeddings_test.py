@@ -3747,6 +3747,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         weights_ty: SparseType,
     ) -> None:
+        # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
         # We run IntNBitTableBatchedEmbeddingBagsCodegen with UVM_CACHING, and then
         # run int_nbit_split_embedding_uvm_caching_codegen_lookup_function with the
@@ -3942,13 +3943,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
+        associativity=st.sampled_from(
+            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward_uvm_cache(
         self,
         weights_ty: SparseType,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        associativity: int,
     ) -> None:
+        assume(
+            cache_algorithm == split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+            or associativity != 1
+        )
+
         T = random.randint(1, 5)
         B = random.randint(1, 128)
         L = random.randint(1, 20)
@@ -4007,6 +4017,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
+            cache_assoc=associativity,
         )
         cc.fill_random_weights()
 
@@ -4672,49 +4683,49 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    def test_lxu_cache_lookup(self) -> None:
-        ASSOC: int = split_table_batched_embeddings_ops.ASSOC
+    @given(
+        associativity=st.sampled_from(
+            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
+        ),
+    )
+    @settings(deadline=None)
+    def test_lxu_cache_lookup(self, associativity: int) -> None:
         max_index: int = 8000
         # Use single cache set to avoid dealing with cache set hash algorithm.
-        lxu_cache_state_gpu = torch.arange(ASSOC, dtype=torch.int64).unsqueeze(0).cuda()
+        lxu_cache_state_gpu = (
+            torch.arange(associativity, dtype=torch.int64).unsqueeze(0).cuda()
+        )
 
         # Testing all miss.
         linear_cache_indices_0 = (
-            torch.tensor([32, 33, 34, 35, 36, 100, 1000, 1725]).cuda()
-            if ASSOC == 32
-            else torch.tensor([64, 65, 66, 67, 68, 100, 1000, 1725]).cuda()
-        )
+            torch.tensor([32, 33, 34, 35, 36, 100, 1000, 1725])
+            if associativity <= 32
+            else torch.tensor([64, 65, 66, 67, 68, 100, 1000, 1725])
+        ).cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_0, lxu_cache_state_gpu, max_index
         )
-        self.assertTrue(
-            torch.equal(
-                lxu_locations.cpu(),
-                torch.tensor(
-                    [-1, -1, -1, -1, -1, -1, -1, -1],
-                    dtype=torch.int,
-                ),
-            )
+        torch.testing.assert_close(
+            lxu_locations,
+            torch.full_like(lxu_locations, -1),
         )
 
         # Testing all hits.
-        cache_indices_1 = torch.randint(0, ASSOC, (ASSOC,))
+        cache_indices_1 = torch.randint(0, associativity, (associativity,))
         linear_cache_indices_1 = cache_indices_1.cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_1, lxu_cache_state_gpu, max_index
         )
-        self.assertTrue(
-            torch.equal(
-                lxu_locations.cpu(),
-                cache_indices_1.int(),
-            )
+        torch.testing.assert_close(
+            lxu_locations.cpu(),
+            cache_indices_1.int(),
         )
 
         # Testing mixture.
-        miss_cache_indices_0 = torch.randint(ASSOC, max_index, (10,))
-        hit_cache_indices_0 = torch.randint(0, ASSOC, (8,))
-        miss_cache_indices_1 = torch.randint(ASSOC, max_index, (16,))
-        hit_cache_indices_1 = torch.randint(0, ASSOC, (8,))
+        miss_cache_indices_0 = torch.randint(associativity, max_index // 2, (10,))
+        hit_cache_indices_0 = torch.randint(0, associativity, (8,))
+        miss_cache_indices_1 = torch.randint(max_index // 2, max_index, (16,))
+        hit_cache_indices_1 = torch.randint(0, associativity, (8,))
         linear_cache_indices_2 = torch.cat(
             [
                 miss_cache_indices_0,
@@ -4735,11 +4746,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 hit_cache_indices_1,
             ]
         ).int()
-        self.assertTrue(
-            torch.equal(
-                lxu_locations.cpu(),
-                expected_result,
-            )
+        torch.testing.assert_close(
+            lxu_locations.cpu(),
+            expected_result,
         )
 
     @unittest.skipIf(*gpu_unavailable)
