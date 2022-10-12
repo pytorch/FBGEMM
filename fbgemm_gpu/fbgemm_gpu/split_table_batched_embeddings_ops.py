@@ -19,7 +19,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from torch import nn, Tensor
 
-ASSOC = 32 if torch.version.hip is None else 64
+DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
 MAX_PREFETCH_DEPTH = 100
@@ -1250,21 +1250,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             assert free_memory > 0
             cache_sets = (
-                int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
-            ) // ASSOC
+                int(cache_state.total_cache_hash_size * cache_load_factor)
+                + DEFAULT_ASSOC
+                - 1
+            ) // DEFAULT_ASSOC
             cache_sets = 1 if cache_sets == 0 else cache_sets
-            cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
+            cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (
-                    int(1.0 * free_memory / self.max_D_cache / element_size) + ASSOC - 1
-                ) // ASSOC
+                    int(1.0 * free_memory / self.max_D_cache / element_size)
+                    + DEFAULT_ASSOC
+                    - 1
+                ) // DEFAULT_ASSOC
         cache_load_factor = (
-            1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
+            1.0 * cache_sets * DEFAULT_ASSOC / int(cache_state.total_cache_hash_size)
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
-        cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
+        cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -1292,13 +1296,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets, DEFAULT_ASSOC, device=self.current_device, dtype=torch.int64
             ).fill_(-1),
         )
         self.register_buffer(
             "lxu_cache_weights",
             torch.zeros(
-                cache_sets * ASSOC,
+                cache_sets * DEFAULT_ASSOC,
                 self.max_D_cache,
                 device=self.current_device,
                 dtype=dtype,
@@ -1309,7 +1313,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, ASSOC),
+                else (cache_sets, DEFAULT_ASSOC),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
@@ -1825,12 +1829,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
             )
 
+        self.cache_assoc = cache_assoc
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
             cache_load_factor,
             cache_sets,
-            cache_assoc,
             cache_reserved_memory,
         )
 
@@ -2253,11 +2257,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_algorithm: CacheAlgorithm,
         cache_load_factor: float,
         cache_sets: int,
-        cache_assoc: int,
         cache_reserved_memory: float,
     ) -> None:
-        ASSOC = self.cache_assoc = cache_assoc
-        assert ASSOC in [
+        assert self.cache_assoc in [
             1,
             32,
             64,
@@ -2336,22 +2338,24 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             assert free_memory > 0
             cache_sets = (
-                int(cache_state.total_cache_hash_size * cache_load_factor) + ASSOC - 1
-            ) // ASSOC
+                int(cache_state.total_cache_hash_size * cache_load_factor)
+                + self.cache_assoc
+                - 1
+            ) // self.cache_assoc
             # Note that element_size has been included in max_D_cache (in Bytes)
-            cache_size = cache_sets * ASSOC * self.max_D_cache
+            cache_size = cache_sets * self.cache_assoc * self.max_D_cache
             if cache_size > free_memory:
                 cache_sets = (
-                    int(1.0 * free_memory / self.max_D_cache) + ASSOC - 1
-                ) // ASSOC
+                    int(1.0 * free_memory / self.max_D_cache) + self.cache_assoc - 1
+                ) // self.cache_assoc
             cache_sets = 1 if cache_sets == 0 else cache_sets
         cache_load_factor = (
-            1.0 * cache_sets * ASSOC / int(cache_state.total_cache_hash_size)
+            1.0 * cache_sets * self.cache_assoc / int(cache_state.total_cache_hash_size)
         )
         assert cache_sets > 0
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
-        cache_size = cache_sets * ASSOC * self.max_D_cache
+        cache_size = cache_sets * self.cache_assoc * self.max_D_cache
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
@@ -2379,13 +2383,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ).fill_(-1),
         )
         self.register_buffer(
             "lxu_cache_weights",
             torch.zeros(
-                cache_sets * ASSOC,
+                cache_sets * self.cache_assoc,
                 self.max_D_cache,
                 device=self.current_device,
                 dtype=torch.uint8,
@@ -2396,17 +2403,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, ASSOC),
+                else (cache_sets, self.cache_assoc),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
         )
-        if ASSOC == 1:
+        if self.cache_assoc == 1:
             self.register_buffer(
                 "lxu_cache_miss_timestamp",
                 torch.zeros(
-                    cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
-                ).fill_(-1),
+                    cache_sets,
+                    self.cache_assoc,
+                    device=self.current_device,
+                    dtype=torch.int64,
+                ),
             )
         else:
             # make TorchScript work
