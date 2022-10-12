@@ -387,7 +387,7 @@ struct load_row_per_warp<half, 768, index_t> {
             *reinterpret_cast<floatx2_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id  + 64) * sizeof(floatx2_t), 0, 0);
 	}
         if(((lane_id + 64 * 2) * 4) < emb_dim) {
-            *reinterpret_cast<floatx2_t*>(&emb_data[8]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res,  64 * 2 * sizeof(floatx2_t) + (lane_id ) * sizeof(floatx2_t), 0, 0);
+            *reinterpret_cast<floatx2_t*>(&emb_data[8]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (64 * 2 + lane_id ) * sizeof(floatx2_t), 0, 0);
 	}
     }
 };
@@ -702,11 +702,9 @@ struct store_row_per_warp<half, 256, float> {
     static __device__ void run(float * acc, float * p_output, int lane_id, uint32_t emb_dim)
     {
         int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-        if((lane_id * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[0]), out_res, lane_id * sizeof(floatx2_t), 0, 0);
+        if((lane_id * 4) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 ) * 2) < emb_dim)
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[2]), out_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
     }
 };
 
@@ -732,16 +730,11 @@ struct store_row_per_warp<half, 512, float> {
     {
         int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
         if((lane_id * 4) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[0]), out_res, lane_id * sizeof(floatx2_t), 0, 0);
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 ) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[2]), out_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 ) * 4) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, (lane_id + 64) * sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 * 2 ) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[4]), out_res, (lane_id + 64 * 2) * sizeof(floatx2_t), 0, 0);
-	}
-        if(((lane_id + 64 * 3 ) * 2) < emb_dim)
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[6]), out_res, (lane_id + 64 * 3) * sizeof(floatx2_t), 0, 0);
     }
 };
 
@@ -772,17 +765,15 @@ struct store_row_per_warp<half, 768, float> {
     static __device__ void run(float * acc, float * p_output, int lane_id, uint32_t emb_dim)
     {
         int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-        if(((lane_id + 64) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * 2 *  sizeof(floatx4_t), 0, 0);
+        if(((lane_id) * 4) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 * 2) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, lane_id * 2 *  sizeof(floatx4_t) + sizeof(floatx4_t), 0, 0);
+        if(((lane_id + 64) * 4) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, (lane_id + 64) *  sizeof(floatx4_t),  0, 0);
 	}
-        if(((lane_id + 64 * 4 ) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[8]), out_res, 64*2*sizeof(floatx4_t) + (lane_id) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 2 ) * 4) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[8]), out_res, (64 * 2 + lane_id) * sizeof(floatx4_t), 0, 0);
 	}
-        if((512 + (lane_id + 64) * 2) < emb_dim)
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[10]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64) * sizeof(floatx2_t), 0, 0);
     }
 };
 
@@ -791,20 +782,27 @@ struct store_row_per_warp<half, 896, float> {
     static __device__ void run(float * acc, float * p_output, int lane_id, uint32_t emb_dim)
     {
         int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
+        if((lane_id  * 2) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[0]), out_res, lane_id  *  sizeof(floatx2_t), 0, 0);
+	}
         if(((lane_id + 64) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * 2 *  sizeof(floatx4_t), 0, 0);
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[2]), out_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
 	}
-        if(((lane_id + 64 * 2) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, lane_id * 2 *  sizeof(floatx4_t) + sizeof(floatx4_t), 0, 0);
+        if(((lane_id + 64 * 2 ) * 2) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[4]), out_res, (64*2 + lane_id) * sizeof(floatx2_t), 0, 0);
 	}
-        if(((lane_id + 64 * 4 ) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[8]), out_res, 64*2*sizeof(floatx4_t) + (lane_id) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 3) * 2) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[6]), out_res, (64*3 + lane_id) * sizeof(floatx2_t), 0, 0);
 	}
-        if((512 + (lane_id + 64) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[10]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 4) * 2) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[8]), out_res, (64*4 + lane_id) * sizeof(floatx2_t), 0, 0);
 	}
-        if((512 + (lane_id + 64 * 2) * 2) < emb_dim)
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[12]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64 * 2) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 5) * 2) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[10]), out_res, (64*5 + lane_id) * sizeof(floatx2_t), 0, 0);
+	}
+        if(((lane_id + 64 * 6) * 2) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[12]), out_res, (64*6 + lane_id) * sizeof(floatx2_t), 0, 0);
+	}
     }
 };
 
@@ -813,23 +811,18 @@ struct store_row_per_warp<half, 1024, float> {
     static __device__ void run(float * acc, float * p_output, int lane_id, uint32_t emb_dim)
     {
         int32x4_t out_res = amdgcn_make_buffer_resource(p_output);
-        if(((lane_id + 64) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * 2 *  sizeof(floatx4_t), 0, 0);
+        if(((lane_id) * 4) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 * 2) * 2) < emb_dim){
-            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, lane_id * 2 *  sizeof(floatx4_t) + sizeof(floatx4_t), 0, 0);
+        if(((lane_id + 64) * 4) < emb_dim){
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, (lane_id + 64) *  sizeof(floatx4_t), 0, 0);
 	}
-        if(((lane_id + 64 * 4 ) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[8]), out_res, 64*2*sizeof(floatx4_t) + (lane_id) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 2 ) * 4) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[8]), out_res, (64*2 + lane_id) * sizeof(floatx4_t), 0, 0);
 	}
-        if((512 + (lane_id + 64) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[10]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64) * sizeof(floatx2_t), 0, 0);
+        if(((lane_id + 64 * 3 ) * 4) < emb_dim) {
+            llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[12]), out_res, (64*3 + lane_id) * sizeof(floatx4_t), 0, 0);
 	}
-        if((512 + (lane_id + 64 * 2) * 2) < emb_dim) {
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[12]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64 * 2) * sizeof(floatx2_t), 0, 0);
-	}
-        if((512 + (lane_id + 64 * 3) * 2) < emb_dim)
-            llvm_amdgcn_raw_buffer_store_fp32x2(*reinterpret_cast<floatx2_t*>(&acc[14]), out_res, 64*2*sizeof(floatx4_t) + (lane_id + 64 * 3) * sizeof(floatx2_t), 0, 0);
     }
 };
 
