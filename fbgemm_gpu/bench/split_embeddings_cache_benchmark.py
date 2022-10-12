@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-import math
 import random
 from typing import List, Tuple
 
@@ -28,9 +27,6 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
     )
-
-
-ASSOC: int = 32
 
 
 # pyre-ignore

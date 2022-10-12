@@ -443,10 +443,10 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
-    int64_t max_indices,
+    const int64_t max_indices,
     const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    int64_t time_stamp,
+    const int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_miss_timestamp) {
@@ -470,6 +470,8 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     if (found) {
       // After all threads run, timestamp will be current timestamp
       // if any idx was hit
+      // +1 because AMD doesn't have atomicMax for signed long so we should
+      // initialize lxu_cache_miss_timestamp with 0 vs. -1.
       lru_state[cache_set][0] = time_stamp;
       cache_sets[n] = -1; // default value
     } else {
@@ -477,16 +479,16 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
 #ifdef __HIP_PLATFORM_HCC__
       auto addr = reinterpret_cast<unsigned long long*>(
           &lxu_cache_miss_timestamp[cache_set][0]);
-      auto val = static_cast<unsigned long long>(time_stamp);
+      auto val = static_cast<unsigned long long>(time_stamp + 1);
       auto old = static_cast<int64_t>(atomicMax(addr, val));
 #else
       auto addr = reinterpret_cast<long long int*>(
           &lxu_cache_miss_timestamp[cache_set][0]);
-      auto val = static_cast<long long int>(time_stamp);
+      auto val = static_cast<long long int>(time_stamp + 1);
       auto old = static_cast<int64_t>(atomicMax(addr, val));
 #endif
 
-      if (old < time_stamp) {
+      if (old < time_stamp + 1) {
         // This is the lucky thread that gets to insert its idx in the cache
         // slot. So the number of elements in cache_sets array that has the
         // value of cache_set is 1 at maximum
