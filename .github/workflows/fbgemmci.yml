@@ -237,7 +237,8 @@ jobs:
           eval "$($HOME/miniconda/bin/conda shell.bash hook)"
           cuda_version="${{ matrix.config[1] }}"
           conda install -y pytorch pytorch-cuda="$cuda_version" -c pytorch-nightly -c nvidia
-          conda install -y cudnn numpy scikit-build jinja2 ninja cmake hypothesis
+          conda install -y -c conda-forge cudnn
+          conda install -y numpy scikit-build jinja2 ninja cmake hypothesis
         fi
     - name: Checkout submodules
       shell: bash
