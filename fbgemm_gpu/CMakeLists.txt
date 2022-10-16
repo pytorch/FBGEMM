@@ -165,7 +165,8 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh)
 
 if(USE_ROCM)
 message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource --is_rocm")
@@ -181,18 +182,6 @@ message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_c
 
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR
          ${header_include_dir})
-
-  execute_process(
-    COMMAND sh -c "${ROCM_PATH}/hip/bin/hipcc -x hip --cuda-device-only -save-temps -c -O3 \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip.cpp -o \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip_kernel.hsp -o \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_fwd_hip_kernel.hsaco")
-
-  execute_process(
-    COMMAND sh -c "${ROCM_PATH}/hip/bin/hipcc -x hip --cuda-device-only -save-temps -c -O3 \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_bwd_hip.cpp -o \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_bwd_hip_kernel.hsp -o \
-      ${CMAKE_CURRENT_SOURCE_DIR}/hip_kernel/split_tbe_bwd_hip_kernel.hsaco")
 
 else()
   add_custom_command(
@@ -315,6 +304,8 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
+    hip_kernel/split_tbe_fwd_hip.cpp
+    hip_kernel/split_tbe_bwd_hip.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
@@ -322,6 +313,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
+    src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
     src/metric_ops_host.cpp)
 

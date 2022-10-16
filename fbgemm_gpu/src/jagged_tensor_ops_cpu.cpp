@@ -962,6 +962,98 @@ Tensor batched_dense_vec_jagged_2d_mul(
   return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets)[0];
 }
 
+///@ingroup jagged-tensor-ops-cpu
+Tensor jagged_1d_to_truncated_values_cpu(
+    Tensor values,
+    Tensor lengths,
+    int64_t max_truncated_length) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(lengths.dim() == 1);
+
+  const int32_t B = lengths.size(0);
+  Tensor truncated_values;
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "jagged_1d_to_truncated_values_cpu_kernel", [&] {
+        AT_DISPATCH_ALL_TYPES_AND_HALF(
+            values.scalar_type(), "copy_values_and_truncate_cpu_kernel", [&] {
+              const index_t max_length_int =
+                  static_cast<index_t>(max_truncated_length);
+              const auto lengths_accessor = lengths.accessor<index_t, 1>();
+              int32_t num_outputs = 0;
+              for (const auto b : c10::irange(B)) {
+                num_outputs += std::min(max_length_int, lengths_accessor[b]);
+              }
+              const auto input_accessor = values.accessor<scalar_t, 1>();
+              truncated_values = at::empty({num_outputs}, values.options());
+              auto output_accessor = truncated_values.accessor<scalar_t, 1>();
+              int64_t input_offset = 0;
+              int64_t output_offset = 0;
+              for (const auto b : c10::irange(B)) {
+                index_t cur_len = std::min(max_length_int, lengths_accessor[b]);
+                for (const auto i : c10::irange(cur_len)) {
+                  output_accessor[output_offset + i] =
+                      input_accessor[input_offset + i];
+                }
+                output_offset += cur_len;
+                input_offset += lengths_accessor[b];
+              }
+            });
+      });
+
+  return truncated_values;
+}
+
+///@ingroup jagged-tensor-ops-cpu
+std::tuple<Tensor, Tensor> masked_select_jagged_1d(
+    const Tensor& values,
+    const Tensor& lengths,
+    const Tensor& mask) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(lengths.dim() == 1);
+
+  auto values_contiguous = values.expect_contiguous();
+  auto lengths_contiguous = lengths.expect_contiguous();
+  auto mask_contiguous = mask.expect_contiguous();
+
+  const auto B = lengths.numel();
+  Tensor masked_values;
+  Tensor masked_lengths = at::empty_like(lengths);
+
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "mask_select_jagged_1d_kernel1", [&] {
+        AT_DISPATCH_ALL_TYPES_AND_HALF(
+            values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
+              const int32_t num_outputs = mask.sum().item<int32_t>();
+              masked_values = at::empty({num_outputs}, values.options());
+
+              const auto values_ptr = values_contiguous->data_ptr<scalar_t>();
+              const auto lengths_ptr = lengths_contiguous->data_ptr<index_t>();
+              const auto mask_ptr = mask_contiguous->data_ptr<bool>();
+
+              auto masked_values_ptr = masked_values.data_ptr<scalar_t>();
+              auto masked_lengths_ptr = masked_lengths.data_ptr<index_t>();
+
+              int64_t input_offset = 0;
+              int64_t output_offset = 0;
+              for (const auto b : c10::irange(B)) {
+                const index_t input_len = lengths_ptr[b];
+                index_t output_len = 0;
+                for (int i = input_offset; i < input_offset + input_len; ++i) {
+                  if (mask_ptr[i]) {
+                    masked_values_ptr[output_offset] = values_ptr[i];
+                    ++output_offset;
+                    ++output_len;
+                  }
+                }
+                input_offset += input_len;
+                masked_lengths_ptr[b] = output_len;
+              }
+            });
+      });
+
+  return {masked_values, masked_lengths};
+}
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -1100,6 +1192,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
   m.def(
       "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
+  m.def(
+      "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
+  m.def(
+      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1125,4 +1221,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU(
       "stacked_jagged_2d_to_dense", fbgemm_gpu::stacked_jagged_2d_to_dense_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_1d_to_truncated_values",
+      fbgemm_gpu::jagged_1d_to_truncated_values_cpu);
+  DISPATCH_TO_CPU(
+      "masked_select_jagged_1d", fbgemm_gpu::masked_select_jagged_1d);
 }

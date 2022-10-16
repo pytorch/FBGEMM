@@ -21,6 +21,10 @@
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
+#ifdef __HIP_PLATFORM_HCC__
+#include "hip_kernel/split_tbe_fwd.hip.hpp"
+#endif
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -202,11 +206,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         output // [B][total_D],
     {% endif %}
     ) {
-    {% if not nobag %}
-    int32_t B = output.size(0);
-    int32_t T = D_offsets.size(0) - 1;
-    {% else %}
     int32_t T = weights_offsets.size(0);
+    {% if not nobag %}
+    const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+    int32_t B = output.size(0);
+    {% else %}
     int32_t B = (offsets.size(0) - 1) / T;
     {% endif %}
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -252,6 +256,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 #endif
 
     {% if not nobag %}
+    const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {% endif %}
     for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
@@ -356,9 +361,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
         i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].mul_(1.0 / L);
-            }
+            accumulators[i].mul_(inv_L);
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
             accumulators[i].store(&output[b][D_start + d]);
         }
@@ -372,9 +375,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         for (int32_t i = 0;
             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
-            if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-                accumulators[i].mul_(1.0 / L);
-            }
+            accumulators[i].mul_(inv_L);
             thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
             thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
         }
@@ -524,7 +525,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 #ifdef __HIP_PLATFORM_HCC__  // HIP Optimal Kernel
     /*
      * current limitations
-     1. sparse, bag and unweighted
+     1. sparse, and bag
      2. embedding dims in [64, 128, 192, 256]
      3. yet to support mixed embedding dims (loosely guarded below)
      4. yet to support non-uniform table locations (all be on devs)
@@ -532,9 +533,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
      */
     {% if not nobag %}
     {% if not dense %}
-    {% if not weighted %}
-
-    std::set<int> D_emb_s {64, 128, 192, 256};
 
     // weight param cnt
     int64_t wcnts = dev_weights.numel();
@@ -554,14 +552,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
     if (guard_ex)  guard_ex = all_devs && no_dupt;
 
-    // row dims options
-    bool dims_opt = (D_emb_s.find(max_D) != D_emb_s.end());
-
-    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) && dims_opt) {
-        static int init_hsaco = 0;
-        static hipModule_t hip_kernel_module;
-        static hipFunction_t hip_kernel_func;
-
+    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)) {
         constexpr uint32_t workgroup_size = 256;
         constexpr uint32_t wave_size = 64;
 
@@ -570,62 +561,68 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         uint32_t blocks[3] = {workgroup_size, 1, 1};
         int64_t E = wcnts / T / max_D;
 
-        if (init_hsaco == 0) {
-            hipError_t hip_err = hipModuleLoad(&hip_kernel_module, "hip_kernel/split_tbe_fwd_hip_kernel.hsaco");  // hip kernel object
-            if (hip_err != hipSuccess) {
-                char cwd[PATH_MAX];
-                getcwd(cwd, sizeof(cwd));
-                printf("[hiperror](%d) line:%d, fail to call,(%s), cwd:%s", (int) hip_err, __LINE__, hipGetErrorString(hip_err), cwd);
-                exit(1);
-            }
-            std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
-            std::string hip_kernel_name = std::string("split_tbe_fwd_hip_kernel_") + prec + "_e" + std::to_string(max_D);
-
-            hip_err = hipModuleGetFunction(&hip_kernel_func, hip_kernel_module, hip_kernel_name.c_str());
-            printf("kernel function: %s, elem:%ld, E:%ld, B:%d, T:%d, blocks:%dx%dx%d, grids:%dx%dx%d\n",
-                hip_kernel_name.c_str(), wcnts, E, B, T,
-                blocks[0], blocks[1], blocks[2], grids[0], grids[1], grids[2]);
-            if (hip_err != hipSuccess) {
-                printf("[hiperror](%d) line:%d, fail to call,(%s)", (int) hip_err, __LINE__, hipGetErrorString(hip_err));
-                exit(1);
-            }
-            init_hsaco = 1;
-        }
+	std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
 
         {
             struct {
-                void    *   output;
-                void    *   emb_table;
-                void    *   indices;
-                void    *   offsets;
-                uint32_t    emb_dim;
-                uint32_t    batch;
-                uint32_t    num_rows;
-                uint32_t    num_tables;
+                void            *output;
+                void         *emb_table;
+                const int64_t  *indices;
+                const int64_t  *offsets;
+                int64_t    pooling_mode;
+                {% if weighted %}
+                float   *indice_weights;
+                {% endif %}
+                uint32_t        emb_dim;
+                uint32_t          batch;
+                uint32_t       num_rows;
+                uint32_t     num_tables;
             } args;
             size_t arg_size = sizeof(args);
-            void* kconf[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, &args, HIP_LAUNCH_PARAM_BUFFER_SIZE,
-                &arg_size, HIP_LAUNCH_PARAM_END};
-            args.output    = output.packed_accessor32<float,2,at::RestrictPtrTraits>().data();
-            if(dev_weights.scalar_type() == at::ScalarType::Half)
+            args.output = output.packed_accessor32<float, 2, at::RestrictPtrTraits>().data();
+            if (dev_weights.scalar_type() == at::ScalarType::Half)
                 args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
             else
                 args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
-            args.indices   = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
-            args.offsets   = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
-            args.emb_dim   = (uint32_t) max_D;
-            args.batch     = (uint32_t) B;
-            args.num_rows  = E;
-            args.num_tables = (uint32_t)T;
+            args.indices = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.offsets = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.pooling_mode = pooling_mode;
+            {% if weighted %}
+            args.indice_weights = indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>().data();
+            {% endif %}
+            args.emb_dim = (uint32_t) max_D;
+            args.batch = (uint32_t) B;
+            args.num_rows = E;
+            args.num_tables = (uint32_t) T;
 
-            hipModuleLaunchKernel(hip_kernel_func,
-                grids[0], grids[1], grids[2],
-                blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
-
-            return output;
+            {% for kDimSize in [64, 128, 192, 256, 384, 512, 640, 768, 896, 1024] %}
+            if (max_D <= {{ kDimSize }}) {
+                if (prec == "fp16") {
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.emb_dim, args.batch, args.num_rows, args.num_tables);
+                } else {    // only 2 emb_t: fp16, fp32 for now
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.emb_dim, args.batch, args.num_rows, args.num_tables);
+                }
+		return output;
+            }
+            {% endfor %}
         }
     }
-    {% endif %}  // not weighted
     {% endif %}  // not dense
     {% endif %}  // not nobag
 #endif  // HIP Optimal Kernel
