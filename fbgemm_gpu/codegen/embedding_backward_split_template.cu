@@ -9,6 +9,7 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "hip_kernel/split_tbe_common_hip.h"
+#include "hip_kernel/split_tbe_bwd.hip.hpp"
 #include <unistd.h>
 #include <iostream>
 
@@ -952,6 +953,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     bool hip_opt_kernel_supported = false;      // TODO: figure out support range
 {% endif %}
 
+#if 0
 {% if optimizer == "rowwise_adagrad" and not dense %}
     if(hip_opt_kernel_supported && init_hsaco == 0){
         int segment_split = 0; // warp per row
@@ -977,6 +979,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         init_hsaco = 1;
     }
 {% endif %}
+#endif
 
     {% if not dense %}
 
@@ -1080,7 +1083,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
             // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
             {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+            {% if kMaxElemPerThread in ([1, 2, 3] if is_rocm else [1, 2]) or kMaxElemPerThread % 4 == 0 %}
             if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
             // hipcc can't use max in constexpr
             constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
@@ -1279,6 +1282,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+            {% if optimizer == "rowwise_adagrad" and not dense and (items_per_warp // 4 * kMaxElemPerThread) in [64, 128, 192, 256] %}
             if(hip_opt_kernel_supported){
                 struct {
                     const void* p_output_grad;
@@ -1331,11 +1335,119 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 int32_t grids[3] = {div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup), 1, 1};
                 int32_t blocks[3] = {256, 1, 1};
 
-                hipModuleLaunchKernel(hip_kernel_func,
-                    grids[0], grids[1], grids[2],
-                    blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
+                {% for weight_decay_mode_current in [0, 1, 2] %}
+                if(weight_decay_mode == {{ weight_decay_mode_current }}){
+                    if(dev_weights.scalar_type() == at::ScalarType::Half && grad_output.scalar_type() == at::ScalarType::Half){
+                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                            dim3(grids[0], grids[1], grids[2]),
+                            dim3(blocks[0], blocks[1], blocks[2]),
+                            0, 0,
+                            (const half*)karg.p_output_grad ,
+                            (half*)karg.p_emb_table,
+                            (const int64_t*)karg.p_hash_size_cumsum,
+                            (const int64_t*)karg.p_sorted_linear_indices_run,
+                            (const int32_t* )karg.p_sorted_linear_indices_cumulative_run_lengths,
+                            (const int32_t*)karg.p_sorted_linear_indices_num_runs,
+                            (const int32_t*)karg.p_long_run_ids ,
+                            (const int32_t*)karg.p_num_long_run_ids,
+                            (const int32_t*)karg.p_sorted_infos ,
+                            karg.batch_mdiv,
+                            karg.max_segment_length_per_warp,
+                            karg.emb_dim ,
+                            karg.batch ,
+                            karg.num_rows,
+                            karg.num_tables ,
+                            {% if optimizer == "rowwise_adagrad" and not dense %}
+                            karg.opt_karg
+                            {% endif %}
+                        );
+                    }else if (!(dev_weights.scalar_type() == at::ScalarType::Half) && grad_output.scalar_type() == at::ScalarType::Half)
+                    {
+                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                            dim3(grids[0], grids[1], grids[2]),
+                            dim3(blocks[0], blocks[1], blocks[2]),
+                            0, 0,
+                            (const half*)karg.p_output_grad ,
+                            (float*)karg.p_emb_table,
+                            (const int64_t*)karg.p_hash_size_cumsum,
+                            (const int64_t*)karg.p_sorted_linear_indices_run,
+                            (const int32_t* )karg.p_sorted_linear_indices_cumulative_run_lengths,
+                            (const int32_t*)karg.p_sorted_linear_indices_num_runs,
+                            (const int32_t*)karg.p_long_run_ids ,
+                            (const int32_t*)karg.p_num_long_run_ids,
+                            (const int32_t*)karg.p_sorted_infos ,
+                            karg.batch_mdiv,
+                            karg.max_segment_length_per_warp,
+                            karg.emb_dim ,
+                            karg.batch ,
+                            karg.num_rows,
+                            karg.num_tables ,
+                            {% if optimizer == "rowwise_adagrad" and not dense %}
+                            karg.opt_karg
+                            {% endif %}
+                        );
+
+                    }
+                    else if (dev_weights.scalar_type() == at::ScalarType::Half && !(grad_output.scalar_type() == at::ScalarType::Half))
+                    {
+                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                            dim3(grids[0], grids[1], grids[2]),
+                            dim3(blocks[0], blocks[1], blocks[2]),
+                            0, 0,
+                            (const float*)karg.p_output_grad ,
+                            (half*)karg.p_emb_table,
+                            (const int64_t*)karg.p_hash_size_cumsum,
+                            (const int64_t*)karg.p_sorted_linear_indices_run,
+                            (const int32_t* )karg.p_sorted_linear_indices_cumulative_run_lengths,
+                            (const int32_t*)karg.p_sorted_linear_indices_num_runs,
+                            (const int32_t*)karg.p_long_run_ids ,
+                            (const int32_t*)karg.p_num_long_run_ids,
+                            (const int32_t*)karg.p_sorted_infos ,
+                            karg.batch_mdiv,
+                            karg.max_segment_length_per_warp,
+                            karg.emb_dim ,
+                            karg.batch ,
+                            karg.num_rows,
+                            karg.num_tables ,
+                            {% if optimizer == "rowwise_adagrad" and not dense %}
+                            karg.opt_karg
+                            {% endif %}
+                        );
+                    }
+                    else{
+                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                            dim3(grids[0], grids[1], grids[2]),
+                            dim3(blocks[0], blocks[1], blocks[2]),
+                            0, 0,
+                            (const float*)karg.p_output_grad ,
+                            (float*)karg.p_emb_table,
+                            (const int64_t*)karg.p_hash_size_cumsum,
+                            (const int64_t*)karg.p_sorted_linear_indices_run,
+                            (const int32_t* )karg.p_sorted_linear_indices_cumulative_run_lengths,
+                            (const int32_t*)karg.p_sorted_linear_indices_num_runs,
+                            (const int32_t*)karg.p_long_run_ids ,
+                            (const int32_t*)karg.p_num_long_run_ids,
+                            (const int32_t*)karg.p_sorted_infos ,
+                            karg.batch_mdiv,
+                            karg.max_segment_length_per_warp,
+                            karg.emb_dim ,
+                            karg.batch ,
+                            karg.num_rows,
+                            karg.num_tables ,
+                            {% if optimizer == "rowwise_adagrad" and not dense %}
+                            karg.opt_karg
+                            {% endif %}
+                        );
+                    }
+                }
+                {% endfor %}
+
+                // hipModuleLaunchKernel(hip_kernel_func,
+                //     grids[0], grids[1], grids[2],
+                //     blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
 
             }else
+            {% endif %}
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
                 {% if not dense %}
                 emb_t,
