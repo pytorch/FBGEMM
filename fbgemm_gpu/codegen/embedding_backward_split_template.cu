@@ -600,6 +600,27 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #endif
     constexpr int VEC_WIDTH = 4;
 
+    // Use shared memory instead of registers for storing indices
+    // Using Vec4T as a type because int32_t aligns with Vec4T (Vec4T is later
+    // in the kernel if uint8_t is used)
+    struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> smem_buffer;
+    {% if not nobag %}
+    int32_t* b_smem =
+        reinterpret_cast<int32_t*>(smem_buffer.getPointer()) + threadIdx.y * kThreadGroupSize * {{ 3 if weighted else 2 }};
+    int32_t* d_smem = b_smem + kThreadGroupSize;
+    {% if weighted %}
+    at::acc_type<cache_t, true>* w_smem =
+        reinterpret_cast<at::acc_type<cache_t, true>*>(d_smem + kThreadGroupSize);
+    {% endif %}
+    {% else %}
+    int32_t* l_smem =
+        reinterpret_cast<int32_t*>(smem_buffer.getPointer()) + threadIdx.y * kThreadGroupSize * {{ 2 if weighted else 1 }};
+    {% if weighted %}
+    at::acc_type<cache_t, true>* w_smem =
+        reinterpret_cast<at::acc_type<cache_t, true>*>(l_smem + kThreadGroupSize);
+    {% endif %}
+    {% endif %}
+
     for (uint32_t run_id = start_run_id;
          run_id < sorted_linear_indices_run.size(0) && run_id < sorted_linear_indices_num_runs[0];
          run_id += gridDim.x * blockDim.y) {
@@ -642,24 +663,27 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         int32_t b; //= b_t % B;
         int32_t t; //= b_t / B;
         fd.DivMod(b_t, &t, &b);
-        int32_t D_start = D_offsets[t];
+        b_smem[threadIdx.x] = b;
+        d_smem[threadIdx.x] = D_offsets[t];
         {% else %}
         int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
-        int32_t l = l_t / T;
+        l_smem[threadIdx.x] = l_t / T;
         {% endif %}
         {% if weighted %}
-        at::acc_type<cache_t, true> idx_weight = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
+        w_smem[threadIdx.x] = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
         {% endif %}
+        // Ensure that data is written to shared memory before read
+        syncwarp();
 
         for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
             {% if not nobag %}
-            int32_t b_j = SHFL_SYNC(b, j);
-            int32_t D_start_j = SHFL_SYNC(D_start, j);
+            int32_t b_j = b_smem[j];
+            int32_t D_start_j = d_smem[j];
             {% else %}
-            int32_t l_j = SHFL_SYNC(l, j);
+            int32_t l_j = l_smem[j];
             {% endif %}
             {% if weighted %}
-            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
+            at::acc_type<cache_t, true> idx_weight_j = w_smem[j];
             {% endif %}
 
             #pragma unroll kMaxVecsPerThread
@@ -680,6 +704,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% endif %}
             }
         }
+        // Ensure that all threads finish reading data before overwriting smem
+        syncwarp();
     }
     int64_t weights_offset = weights_offsets[t_0];
     {% if not dense %}
@@ -712,8 +738,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     }
     {% endfor %}
 
-    struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
-    Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row = weight_update_buffer.getPointer();
+    Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row = smem_buffer.getPointer();
     auto weight_row_template = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
     if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
         StochasticRoundingRNGState state;
@@ -1173,11 +1198,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
                 get_max_thread_blocks_());
 
-            // Shared memory is not needed for non uint8_t weights
-            size_t shmem_bytes = 0;
+            // The non uint8_t weight case uses shared memory for only storing
+            // indices
+            size_t shmem_bytes = kBackwardMaxThreads * sizeof(int32_t) * ({{ 1 if nobag else 2 }} + {{ 1 if weighted else 0 }});
             if (std::is_same<emb_t, uint8_t>::value) {
-                shmem_bytes = BT_block_size * sizeof(
-                    at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread;
+                shmem_bytes = std::max(BT_block_size * sizeof(
+                    at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread, shmem_bytes);
 #ifndef __HIP_PLATFORM_HCC__
                 cudaFuncSetAttribute(
                     split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
