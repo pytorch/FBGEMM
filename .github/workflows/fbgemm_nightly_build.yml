@@ -228,7 +228,7 @@ jobs:
         echo "numpy succeeded"
     - name: Install FBGEMM_GPU Nightly
       run: |
-        rm -r dist || true
+        rm -rf dist
         conda run -n build_binary \
           python -m pip install *.whl
     - name: Test fbgemm_gpu installation
