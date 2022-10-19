@@ -221,7 +221,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
                 TORCH_CHECK(placement != PlacementType::DEVICE);
-                Tensor weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
+                const auto& weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
                 weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
