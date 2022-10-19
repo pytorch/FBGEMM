@@ -537,9 +537,10 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     // weight param cnt
     int64_t wcnts = dev_weights.numel();
     // mixed hypothesis
-    bool mixed_ls = (total_D != (max_D * T));
+    //bool mixed_ls = (total_D != (max_D * T));
     // execution guards
-    bool guard_ex = (wcnts > 0 && !mixed_ls);
+    //bool guard_ex = (wcnts > 0 && !mixed_ls);
+    bool guard_ex = (wcnts > 0);
 
     // all Ts on device
     std::vector<int32_t> wplas(weights_placements.data_ptr<int32_t>(), weights_placements.data_ptr<int32_t>() + weights_placements.numel());

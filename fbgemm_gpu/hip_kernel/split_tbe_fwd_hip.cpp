@@ -380,7 +380,7 @@ template<typename index_t>
 struct load_row_per_warp<half, 768, index_t> {
     static __device__ void run(half * emb_data, index_t row_index, const half * p_emb_table, int lane_id, uint32_t emb_dim) {
         int32x4_t emb_res = amdgcn_make_buffer_resource(p_emb_table + row_index * emb_dim);
-	if (lane_id * 4) {
+	if (lane_id * 4 < emb_dim) {
             *reinterpret_cast<floatx2_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, lane_id * sizeof(floatx2_t), 0, 0);
 	}
         if(((lane_id + 64) * 4) < emb_dim) {
