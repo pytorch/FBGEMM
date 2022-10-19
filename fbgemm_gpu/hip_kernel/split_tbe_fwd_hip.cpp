@@ -178,10 +178,10 @@ struct load_row_per_warp<float, 384, index_t> {
 	if (lane_id * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, lane_id * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 4 < emb_dim){
+	if ((lane_id  + 64) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[2]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 6 < emb_dim){
+	if ((lane_id  + 64 * 2) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64 * 2) * sizeof(floatx2_t), 0, 0);
 	}
     }
@@ -194,7 +194,7 @@ struct load_row_per_warp<float, 512, index_t> {
 	if (lane_id * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-	if (lane_id * 8 < emb_dim){
+	if ((lane_id  + 64) * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, (lane_id  + 64) * sizeof(floatx4_t), 0, 0);
 	}
     }
@@ -207,16 +207,16 @@ struct load_row_per_warp<float, 640, index_t> {
 	if (lane_id * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, lane_id * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 4 < emb_dim){
+	if ((lane_id  + 64) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[2]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 6 < emb_dim){
+	if ((lane_id  + 64 * 2) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64 * 2) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 8 < emb_dim){
+	if ((lane_id  + 64 * 3) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[6]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64 * 3) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 10 < emb_dim){
+	if ((lane_id  + 64 * 4) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[8]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64 * 4) * sizeof(floatx2_t), 0, 0);
 	}
     }
@@ -245,22 +245,22 @@ struct load_row_per_warp<float, 896, index_t> {
 	if (lane_id * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, lane_id * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 4 < emb_dim){
+	if ((lane_id + 64) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[2]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 64) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 6 < emb_dim){
+	if ((lane_id + 64 * 2) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 128) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 8 < emb_dim){
+	if ((lane_id + 64 * 3) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[6]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 192) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 10 < emb_dim){
+	if ((lane_id + 64 * 4) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[8]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 256) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 12 < emb_dim){
+	if ((lane_id + 64 * 5) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[10]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 320) * sizeof(floatx2_t), 0, 0);
 	}
-	if (lane_id * 14 < emb_dim){
+	if ((lane_id + 64 * 6) * 2 < emb_dim){
             *reinterpret_cast<floatx2_t*>(&emb_data[12]) = llvm_amdgcn_raw_buffer_load_fp32x2(emb_res, (lane_id + 384) * sizeof(floatx2_t), 0, 0);
 	}
     }
@@ -273,13 +273,13 @@ struct load_row_per_warp<float, 1024, index_t> {
 	if (lane_id * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[0]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-	if (lane_id * 8 < emb_dim){
+	if ((lane_id + 64 ) * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[4]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, (lane_id + 64) * sizeof(floatx4_t), 0, 0);
 	}
-	if (lane_id * 12 < emb_dim){
+	if ((lane_id + 64 * 2) * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[8]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, (lane_id + 128) * sizeof(floatx4_t), 0, 0);
 	}
-        if((lane_id * 16) < emb_dim){
+	if ((lane_id + 64 * 3) * 4 < emb_dim){
             *reinterpret_cast<floatx4_t*>(&emb_data[12]) = llvm_amdgcn_raw_buffer_load_fp32x4(emb_res, (lane_id + 192) * sizeof(floatx4_t), 0, 0);
 	}
     }
@@ -638,13 +638,13 @@ struct store_row_per_warp<float, 1024, float> {
         if((lane_id * 4) < emb_dim){
             llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[0]), out_res, lane_id * sizeof(floatx4_t), 0, 0);
 	}
-        if((lane_id * 8) < emb_dim){
+        if((lane_id + 64) * 4 < emb_dim){
             llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[4]), out_res, (lane_id + 64) * sizeof(floatx4_t), 0, 0);
 	}
-        if((lane_id * 12) < emb_dim){
+        if((lane_id + 64 * 2) * 4 < emb_dim){
             llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[8]), out_res, (lane_id + 64 * 2) * sizeof(floatx4_t), 0, 0);
 	}
-        if((lane_id * 16) < emb_dim){
+        if((lane_id + 64 * 3) * 4 < emb_dim){
             llvm_amdgcn_raw_buffer_store_fp32x4(*reinterpret_cast<floatx4_t*>(&acc[12]), out_res, (lane_id + 64 * 3) * sizeof(floatx4_t), 0, 0);
 	}
     }
