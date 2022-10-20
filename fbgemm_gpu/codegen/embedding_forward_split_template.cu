@@ -526,9 +526,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     /*
      * current limitations
      1. sparse, and bag
-     2. embedding dims in [64, 128, 192, 256]
-     3. yet to support non-uniform table locations (all be on devs)
-     4. yet to support duplicate tables from some cases in exact optim (fbgemm_gpu/split_embedding_configs.py)
+     2. yet to support non-uniform table locations (all be on devs)
+     3. yet to support duplicate tables from some cases in exact optim (fbgemm_gpu/split_embedding_configs.py)
      */
     {% if not nobag %}
     {% if not dense %}
