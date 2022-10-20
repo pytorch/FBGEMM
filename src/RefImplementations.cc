@@ -1279,8 +1279,22 @@ bool EmbeddingSpMDM_ref(
           return false;
         }
 
-        const float* scale_bias = reinterpret_cast<const float*>(
-            input + input_stride * idx + (scale_bias_last ? block_size : 0));
+        alignas(float) static thread_local float tmp_scale_bias[2];
+
+        if (scale_bias_last) {
+          memcpy(
+              tmp_scale_bias,
+              input + input_stride * idx + (scale_bias_last ? block_size : 0),
+              sizeof(float) * 2);
+        } else {
+          memcpy(
+              tmp_scale_bias,
+              input + input_stride * idx + (scale_bias_last ? block_size : 0),
+              sizeof(float16) * 2);
+        }
+
+        const float* scale_bias =
+            reinterpret_cast<const float*>(tmp_scale_bias);
 
         float weight = 1.0f;
         if (weights) {
@@ -1448,11 +1462,18 @@ bool EmbeddingSpMDMNBit_ref(
         return false;
       }
 
-      const float16* scale_bias = reinterpret_cast<const float16*>(
+      alignas(float) static thread_local float tmp_scale_bias[2];
+
+      memcpy(
+          tmp_scale_bias,
           input + input_stride * idx +
-          (scale_bias_last
-               ? (block_size + num_elem_per_byte - 1) / num_elem_per_byte
-               : 0));
+              (scale_bias_last
+                   ? (block_size + num_elem_per_byte - 1) / num_elem_per_byte
+                   : 0),
+          sizeof(float16) * 2);
+
+      const float16* scale_bias =
+          reinterpret_cast<const float16*>(tmp_scale_bias);
 
       float weight = 1.0f;
       if (weights) {
