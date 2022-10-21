@@ -76,6 +76,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("lxu_cache_flush", lxu_cache_flush_cuda);
   m.def("lxu_cache_slot(int h_in, int C) -> int");
   DISPATCH_TO_ALL("lxu_cache_slot", host_lxu_cache_slot);
+  m.def(
+      "reset_weight_momentum(Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor momentum1_dev, Tensor momentum1_uvm, Tensor momentum1_placements, Tensor momentum1_offsets, Tensor D_offsets, Tensor pruned_indices, Tensor pruned_indices_offsets, Tensor logical_table_ids, Tensor buffer_ids, Tensor cache_hash_size_cumsum, Tensor lxu_cache_state, int total_cache_hash_size) -> ()");
+  DISPATCH_TO_CUDA("reset_weight_momentum", reset_weight_momentum_cuda);
 }
 
 } // namespace

@@ -21,6 +21,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
+    INT8_EMB_ROW_DIM_OFFSET,
     OptimType,
     RecordCacheMetrics,
     rounded_row_size_in_bytes,
@@ -4930,6 +4931,162 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     atol=1e-2,
                     equal_nan=True,
                 )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=2, max_value=3),
+        weights_precision=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.INT8]
+        ),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        num_indices_per_table=st.integers(min_value=1, max_value=5),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+    )
+    def test_reset_embedding_weight_momentum(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        weights_precision: SparseType,
+        mixed: bool,
+        use_cache: bool,
+        output_dtype: SparseType,
+        num_indices_per_table: int,
+    ) -> None:
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        E = int(10**log_E)
+        D = D * 4
+        Ds: List[int] = []
+        Es: List[int] = []
+        if not mixed:
+            Ds = [D] * T
+            Es = [E] * T
+        else:
+            Ds = [
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
+                for _ in range(T)
+            ]
+            Es = [
+                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
+            ]
+        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        if use_cache:
+            managed = [
+                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+            ] * T
+            if mixed:
+                average_D = sum(Ds) // T
+                for t, d in enumerate(Ds):
+                    managed[t] = (
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                        if d < average_D
+                        else managed[t]
+                    )
+        else:
+            managed = [
+                np.random.choice(
+                    [
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                    ]
+                )
+                for _ in range(T)
+            ]
+        optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+        cc = emb_op(
+            embedding_specs=[
+                (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
+            ],
+            optimizer=optimizer,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+        )
+
+        pruned_indices: List[int] = []
+        pruned_indices_offsets: List[int] = [0]
+        logical_table_ids: List[int] = []
+        buffer_ids: List[int] = []
+        for i in range(len(Es)):
+            indices = [
+                np.random.randint(low=1, high=int(Es[i] - 2))
+                for _ in range(num_indices_per_table)
+            ]
+            pruned_indices += indices
+            pruned_indices_offsets.append(
+                pruned_indices_offsets[i] + num_indices_per_table
+            )
+            logical_table_ids.append(i)
+            buffer_ids.append(i)
+        pruned_indices_tensor = to_device(
+            torch.tensor(pruned_indices, dtype=torch.int64, requires_grad=False), False
+        )
+        pruned_indices_offsets_tensor = to_device(
+            torch.tensor(
+                pruned_indices_offsets, dtype=torch.int64, requires_grad=False
+            ),
+            False,
+        )
+        logical_table_ids_tensor = to_device(
+            torch.tensor(logical_table_ids, dtype=torch.int32, requires_grad=False),
+            False,
+        )
+        buffer_ids_tensor = to_device(
+            torch.tensor(buffer_ids, dtype=torch.int32, requires_grad=False), False
+        )
+
+        momentum1: List[Tensor] = [
+            s for (s,) in cc.split_optimizer_states()
+        ]  # List[rows]
+        weight: List[Tensor] = cc.split_embedding_weights()  # List[(rows, dim)]
+        for t in range(T):
+            momentum1[t].fill_(1)
+            weight[t].fill_(1)
+
+        def check_weight_momentum(v: int) -> None:
+            for i in range(len(pruned_indices)):
+                logical_id = i // num_indices_per_table
+                table_momentum1 = momentum1[logical_id]
+                table_weight = weight[logical_id]
+                dim = Ds[logical_id]
+                expected_row_momentum1 = to_device(
+                    torch.tensor(v, dtype=torch.float32), False
+                )
+                expected_row_weight = to_device(
+                    torch.tensor([v] * dim, dtype=weights_precision.as_dtype()),
+                    False,
+                )
+                pruned_index = pruned_indices[i]
+                row_weight = table_weight[pruned_index]
+                if weights_precision == SparseType.INT8:
+                    row_weight = row_weight[:-INT8_EMB_ROW_DIM_OFFSET]
+                self.assertEqual(table_momentum1[pruned_index], expected_row_momentum1)
+                torch.testing.assert_close(
+                    row_weight,
+                    expected_row_weight,
+                    rtol=0,
+                    atol=0,
+                    equal_nan=True,
+                )
+
+        check_weight_momentum(1)
+
+        cc.reset_embedding_weight_momentum(
+            pruned_indices_tensor,
+            pruned_indices_offsets_tensor,
+            logical_table_ids_tensor,
+            buffer_ids_tensor,
+        )
+
+        check_weight_momentum(0)
 
 
 if __name__ == "__main__":
