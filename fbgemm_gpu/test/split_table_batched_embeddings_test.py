@@ -35,11 +35,12 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocm, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
+        skipIfRocm,
         TEST_WITH_ROCM,
     )
 
@@ -4932,6 +4933,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     equal_nan=True,
                 )
 
+    @skipIfRocm()
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
