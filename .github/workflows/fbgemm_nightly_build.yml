@@ -71,7 +71,6 @@ jobs:
       shell: bash
       run: |
         conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-        conda install -n build_binary -y -c conda-forge cudnn
     - name: Install Other Dependencies
       shell: bash
       run: |
@@ -90,6 +89,21 @@ jobs:
     # here is the issue: https://github.com/conda/conda/issues/10972
     - name: Build FBGEMM_GPU Nightly
       run: |
+        # Install cuDNN. This is needed to build FBGEMM but not for execution.
+        # See https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+        tmp_cudnn_path="$(pwd)/build_only/cudnn"
+        mkdir -p tmp_cudnn
+        cd tmp_cudnn
+        wget -q https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz -O cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
+        tar xf cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
+        mkdir -p "${tmp_cudnn_path}"
+        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include "${tmp_cudnn_path}"
+        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib "${tmp_cudnn_path}"
+        cd ../
+        rm -rf tmp_cudnn
+
+        export CUDNN_INCLUDE_DIR="${tmp_cudnn_path}/include"
+        export CUDNN_LIBRARY="${tmp_cudnn_path}/lib"
         cd fbgemm_gpu/
         rm -rf dist
         # build cuda7.0;8.0 for v100/a100 arch:
@@ -204,7 +218,6 @@ jobs:
       shell: bash
       run: |
         conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-        conda install -n build_binary -y -c conda-forge cudnn
     # download wheel from GHA
     - name: Download wheel
       uses: actions/download-artifact@v2
