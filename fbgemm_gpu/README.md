@@ -59,6 +59,7 @@ pip install fbgemm-gpu-nightly-cpu
 ## Build from source
 
 Additional dependencies: currently cuDNN is required to be installed.
+Please [download][4] and follow instructions [here][5] to install cuDNN.
 
 ```
 # Requires PyTorch 1.13 or later
@@ -73,6 +74,11 @@ git submodule update --init --recursive
 # (may not be needed with only a single version installed)
 export CUDA_BIN_PATH=/usr/local/cuda-11.3/
 export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
+
+# Specify cuDNN library and header paths.  We tested CUDA 11.6 and 11.7 with
+# cuDNN version 8.5.0.96
+export CUDNN_LIBRARY=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib
+export CUDNN_INCLUDE_DIR=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include
 
 # if using CUDA 10 or earliers set the location to the CUB installation directory
 export CUB_DIR=${CUB_DIR}
@@ -181,3 +187,5 @@ FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 [1]:https://github.com/NVIDIA/cub
 [2]:https://github.com/pytorch/pytorch
 [3]:https://jinja.palletsprojects.com/en/2.11.x/
+[4]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#download
+[5]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#installlinux-tar
