@@ -414,12 +414,12 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
   } else {
-    permuted_indices_size = permuted_lengths.sum().item<int64_t>();
+    permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -593,12 +593,12 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
   } else {
-    permuted_indices_size = permuted_lengths.sum().item<int64_t>();
+    permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -1937,7 +1937,6 @@ Tensor lengths_range_cuda(
 // sparse features
 template <bool has_weight, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
-    int32_t len,
     int32_t T,
     int32_t B,
     const index_t* __restrict__ indices,
@@ -1953,12 +1952,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
     int32_t b = b_t % B;
     int32_t t = b_t / B;
     index_t output_start = output_offsets[b_t];
-    index_t segment_length;
-    if (b_t == B * T - 1) {
-      segment_length = len - output_offsets[b_t];
-    } else {
-      segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
-    }
+    index_t segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     index_t input_start = input_offsets[permute[t] * B + b];
     for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
@@ -2030,7 +2024,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
   const auto input_offsets =
       fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      fbgemm_gpu::asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_lengths_sum = indices.numel();
 
   /* TODO: Remove the condition protecting the slow path because even when the
@@ -2041,7 +2035,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
    * indices.numel() or weights.numdel() would be incorrect.
    */
   if (num_features != num_output_features) {
-    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
+    permuted_lengths_sum = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -2065,7 +2059,6 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
                        threads_2,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        permuted_lengths_sum,
                         num_output_features,
                         B,
                         indices_contig.data_ptr<index_t>(),
@@ -2083,7 +2076,6 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
         indices.scalar_type(), "permute_indices_kernel", [&] {
           permute_indices_weights_kernel<false, index_t, std::nullptr_t>
               <<<blocks_2, threads_2, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  permuted_lengths_sum,
                   num_output_features,
                   B,
                   indices_contig.data_ptr<index_t>(),
