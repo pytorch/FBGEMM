@@ -159,25 +159,3 @@ void lxu_cache_flush_cuda(
     at::Tensor lxu_cache_state,
     at::Tensor lxu_cache_weights,
     bool stochastic_rounding);
-
-///@ingroup table-batched-embed-cuda
-// For in-training embedding pruning
-// Function to reset the weight and momentum of pruned indices
-void reset_weight_momentum_cuda(
-    at::Tensor dev_weights,
-    at::Tensor uvm_weights,
-    at::Tensor lxu_cache_weights,
-    at::Tensor weights_placements,
-    at::Tensor weights_offsets,
-    at::Tensor momentum1_dev,
-    at::Tensor momentum1_uvm,
-    at::Tensor momentum1_placements,
-    at::Tensor momentum1_offsets,
-    at::Tensor D_offsets,
-    at::Tensor pruned_indices,
-    at::Tensor pruned_indices_offsets,
-    at::Tensor logical_table_ids,
-    at::Tensor buffer_ids,
-    at::Tensor cache_hash_size_cumsum,
-    at::Tensor lxu_cache_state,
-    int64_t total_cache_hash_size);

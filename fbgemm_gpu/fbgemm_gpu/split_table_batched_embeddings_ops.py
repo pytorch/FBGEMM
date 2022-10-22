@@ -1338,47 +1338,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.lxu_state.fill_(0)
         self.timestep = 1
 
-    def reset_embedding_weight_momentum(
-        self,
-        pruned_indices: Tensor,
-        pruned_indices_offsets: Tensor,
-        logical_table_ids: Tensor,
-        buffer_ids: Tensor,
-    ) -> None:
-        total_cache_hash_size = 0
-        if isinstance(self.total_cache_hash_size, Tensor):
-            total_cache_hash_size = self.total_cache_hash_size.item()
-        else:
-            total_cache_hash_size = self.total_cache_hash_size
-
-        rowwise = self.optimizer in [
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.ROWWISE_ADAGRAD,
-            OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
-        ]
-        if rowwise:
-            torch.ops.fbgemm.reset_weight_momentum(
-                dev_weights=self.weights_dev,
-                uvm_weights=self.weights_uvm,
-                lxu_cache_weights=self.lxu_cache_weights,
-                weights_placements=self.weights_placements,
-                weights_offsets=self.weights_offsets,
-                momentum1_dev=self.momentum1_dev,
-                momentum1_uvm=self.momentum1_uvm,
-                momentum1_placements=self.momentum1_placements,
-                momentum1_offsets=self.momentum1_offsets,
-                D_offsets=self.D_offsets,
-                pruned_indices=pruned_indices.to(device=self.current_device),
-                pruned_indices_offsets=pruned_indices_offsets.to(
-                    device=self.current_device
-                ),
-                logical_table_ids=logical_table_ids.to(device=self.current_device),
-                buffer_ids=buffer_ids.to(device=self.current_device),
-                cache_hash_size_cumsum=self.cache_hash_size_cumsum,
-                lxu_cache_state=self.lxu_cache_state,
-                total_cache_hash_size=total_cache_hash_size,
-            )
-
 
 class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
