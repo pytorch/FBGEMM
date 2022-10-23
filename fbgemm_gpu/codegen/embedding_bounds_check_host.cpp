@@ -25,11 +25,6 @@ void bounds_check_indices_cuda(
     Tensor& warning,
     c10::optional<Tensor> weights);
 
-// Deprecated for fb namespace! Please use fbgemm namespace instead!
-TORCH_LIBRARY_FRAGMENT(fb, m) {
-  DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
-}
-
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
 }
