@@ -79,24 +79,24 @@ $(function() {
 Functions</h2></td></tr>
 <tr class="memitem:ga4887151424a90cfd0abef174a4e91f3f"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga4887151424a90cfd0abef174a4e91f3f">get_unique_indices_cuda</a> (at::Tensor linear_indices, int64_t max_indices, bool compute_count)</td></tr>
 <tr class="separator:ga4887151424a90cfd0abef174a4e91f3f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga53ca6da68dfef1a3cec39809ead0eeea"><td class="memItemLeft" align="right" valign="top">std::pair&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga53ca6da68dfef1a3cec39809ead0eeea">lru_cache_find_uncached_cuda</a> (at::Tensor unique_indices, at::Tensor unique_indices_length, int64_t max_indices, at::Tensor lxu_cache_state, int64_t time_stamp, at::Tensor lru_state)</td></tr>
-<tr class="separator:ga53ca6da68dfef1a3cec39809ead0eeea"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gaea45b1296a83e3a34ddd9934b4f52ff3"><td class="memItemLeft" align="right" valign="top">std::pair&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#gaea45b1296a83e3a34ddd9934b4f52ff3">lru_cache_find_uncached_cuda</a> (at::Tensor unique_indices, at::Tensor unique_indices_length, int64_t max_indices, at::Tensor lxu_cache_state, int64_t time_stamp, at::Tensor lru_state, bool gather_cache_stats, at::Tensor uvm_cache_stats)</td></tr>
+<tr class="separator:gaea45b1296a83e3a34ddd9934b4f52ff3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga920da453c443675fc7fbc9d68e272a61"><td class="memItemLeft" align="right" valign="top">int64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga920da453c443675fc7fbc9d68e272a61">host_lxu_cache_slot</a> (int64_t h_in, int64_t C)</td></tr>
 <tr class="separator:ga920da453c443675fc7fbc9d68e272a61"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga23e7545e51b296d9b72c86f37c360dc6"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga23e7545e51b296d9b72c86f37c360dc6">linearize_cache_indices_cuda</a> (at::Tensor cache_hash_size_cumsum, at::Tensor indices, at::Tensor offsets)</td></tr>
 <tr class="separator:ga23e7545e51b296d9b72c86f37c360dc6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gad4d6509a6d55a02ccbe868a8c5407ea5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#gad4d6509a6d55a02ccbe868a8c5407ea5">lru_cache_populate_cuda</a> (at::Tensor weights, at::Tensor hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, int64_t time_stamp, at::Tensor lru_state, bool stochastic_rounding)</td></tr>
 <tr class="separator:gad4d6509a6d55a02ccbe868a8c5407ea5"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga53373b6a4ae3f373172a671d46222ed4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga53373b6a4ae3f373172a671d46222ed4">lru_cache_populate_byte_cuda</a> (at::Tensor weights, at::Tensor hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor weights_tys, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, int64_t time_stamp, at::Tensor lru_state, int64_t row_alignment)</td></tr>
-<tr class="separator:ga53373b6a4ae3f373172a671d46222ed4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5958e4cecc978d415714a3dd691fbc11"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga5958e4cecc978d415714a3dd691fbc11">lru_cache_populate_byte_cuda</a> (at::Tensor weights, at::Tensor hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor weights_tys, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, int64_t time_stamp, at::Tensor lru_state, int64_t row_alignment, bool gather_cache_stats, c10::optional&lt; at::Tensor &gt; uvm_cache_stats)</td></tr>
+<tr class="separator:ga5958e4cecc978d415714a3dd691fbc11"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga18ac6da69e0b02cbfbf40f717b09f566"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga18ac6da69e0b02cbfbf40f717b09f566">direct_mapped_lru_cache_populate_byte_cuda</a> (at::Tensor weights, at::Tensor hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor weights_tys, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, int64_t time_stamp, at::Tensor lru_state, at::Tensor lxu_cache_miss_timestamp, int64_t row_alignment)</td></tr>
 <tr class="separator:ga18ac6da69e0b02cbfbf40f717b09f566"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga854b8951ef7e78da812be97041d7d2dc"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga854b8951ef7e78da812be97041d7d2dc">lfu_cache_populate_cuda</a> (at::Tensor weights, at::Tensor cache_hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, at::Tensor lfu_state, bool stochastic_rounding)</td></tr>
 <tr class="separator:ga854b8951ef7e78da812be97041d7d2dc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga2b76a0cf452f00e77696d896d7a402f3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga2b76a0cf452f00e77696d896d7a402f3">lfu_cache_populate_byte_cuda</a> (at::Tensor weights, at::Tensor cache_hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor weights_tys, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, at::Tensor lfu_state, int64_t row_alignment)</td></tr>
 <tr class="separator:ga2b76a0cf452f00e77696d896d7a402f3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga2a5254ad909c613007ffc24ac178aba4"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga2a5254ad909c613007ffc24ac178aba4">lxu_cache_lookup_cuda</a> (at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, int64_t invalid_index)</td></tr>
-<tr class="separator:ga2a5254ad909c613007ffc24ac178aba4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga9ddab183e3247020b3108bfdc7d22cf9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga9ddab183e3247020b3108bfdc7d22cf9">lxu_cache_lookup_cuda</a> (at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, int64_t invalid_index, bool gather_cache_stats, c10::optional&lt; at::Tensor &gt; uvm_cache_stats)</td></tr>
+<tr class="separator:ga9ddab183e3247020b3108bfdc7d22cf9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab48d6d342bd7200b81dd3873152a0844"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#gab48d6d342bd7200b81dd3873152a0844">direct_mapped_lxu_cache_lookup_cuda</a> (at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, int64_t invalid_index)</td></tr>
 <tr class="separator:gab48d6d342bd7200b81dd3873152a0844"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga2b055aeb5bf2d99bfb4351271764cab1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__table-batched-embed-cuda.html#ga2b055aeb5bf2d99bfb4351271764cab1">lxu_cache_flush_cuda</a> (at::Tensor uvm_weights, at::Tensor cache_hash_size_cumsum, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor D_offsets, int64_t total_D, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, bool stochastic_rounding)</td></tr>
@@ -512,8 +512,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga53ca6da68dfef1a3cec39809ead0eeea" name="ga53ca6da68dfef1a3cec39809ead0eeea"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga53ca6da68dfef1a3cec39809ead0eeea">&#9670;&#160;</a></span>lru_cache_find_uncached_cuda()</h2>
+<a id="gaea45b1296a83e3a34ddd9934b4f52ff3" name="gaea45b1296a83e3a34ddd9934b4f52ff3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gaea45b1296a83e3a34ddd9934b4f52ff3">&#9670;&#160;</a></span>lru_cache_find_uncached_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -552,7 +552,19 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">at::Tensor&#160;</td>
-          <td class="paramname"><em>lru_state</em>&#160;</td>
+          <td class="paramname"><em>lru_state</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>gather_cache_stats</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor&#160;</td>
+          <td class="paramname"><em>uvm_cache_stats</em>&#160;</td>
         </tr>
         <tr>
           <td></td>
@@ -565,8 +577,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga53373b6a4ae3f373172a671d46222ed4" name="ga53373b6a4ae3f373172a671d46222ed4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga53373b6a4ae3f373172a671d46222ed4">&#9670;&#160;</a></span>lru_cache_populate_byte_cuda()</h2>
+<a id="ga5958e4cecc978d415714a3dd691fbc11" name="ga5958e4cecc978d415714a3dd691fbc11"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5958e4cecc978d415714a3dd691fbc11">&#9670;&#160;</a></span>lru_cache_populate_byte_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -647,7 +659,19 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">int64_t&#160;</td>
-          <td class="paramname"><em>row_alignment</em>&#160;</td>
+          <td class="paramname"><em>row_alignment</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>gather_cache_stats</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; at::Tensor &gt;&#160;</td>
+          <td class="paramname"><em>uvm_cache_stats</em>&#160;</td>
         </tr>
         <tr>
           <td></td>
@@ -820,8 +844,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga2a5254ad909c613007ffc24ac178aba4" name="ga2a5254ad909c613007ffc24ac178aba4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga2a5254ad909c613007ffc24ac178aba4">&#9670;&#160;</a></span>lxu_cache_lookup_cuda()</h2>
+<a id="ga9ddab183e3247020b3108bfdc7d22cf9" name="ga9ddab183e3247020b3108bfdc7d22cf9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga9ddab183e3247020b3108bfdc7d22cf9">&#9670;&#160;</a></span>lxu_cache_lookup_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -842,7 +866,19 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">int64_t&#160;</td>
-          <td class="paramname"><em>invalid_index</em>&#160;</td>
+          <td class="paramname"><em>invalid_index</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>gather_cache_stats</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::optional&lt; at::Tensor &gt;&#160;</td>
+          <td class="paramname"><em>uvm_cache_stats</em>&#160;</td>
         </tr>
         <tr>
           <td></td>
