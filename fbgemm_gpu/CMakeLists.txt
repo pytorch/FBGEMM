@@ -40,7 +40,6 @@ else()
 endif()
 
 find_package(Torch REQUIRED)
-find_package(PythonExtensions REQUIRED)
 
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)

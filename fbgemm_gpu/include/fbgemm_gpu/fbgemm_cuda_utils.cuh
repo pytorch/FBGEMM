@@ -764,6 +764,19 @@ DEVICE_INLINE T warpReduceAllSum(T val, unsigned shfl_sync_mask = 0xffffffffu) {
   return val;
 }
 
+DEVICE_INLINE void syncwarp() {
+#ifdef __HIP_PLATFORM_HCC__
+  // Performance - replace a block level __syncthreads with per CU
+  // __threadfence_block. It is a fine replacement for __syncwarp on AMD GPUs,
+  // it is because a. memory fencing: __threadfence_block ops. at CU level,
+  // same as __syncwarp at SM b. threads re-converge: wavefront run in
+  // lockstep, no need __syncwarp re-converge
+  __threadfence_block();
+#else
+  __syncwarp();
+#endif
+}
+
 /// Warp bitonic K/V sorting code from @jhj
 template <typename T>
 struct Comparator {
