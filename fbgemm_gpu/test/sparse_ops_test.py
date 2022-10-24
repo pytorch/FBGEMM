@@ -553,12 +553,12 @@ class SparseOpsTest(unittest.TestCase):
 
         offsets_cpu = torch.tensor(offsets, dtype=offsets_type)
         range_cpu = torch.ops.fbgemm.offsets_range(offsets_cpu, output_size)
-        range_ref = torch.tensor(range_ref, dtype=range_cpu.dtype)
+        range_ref = range_ref.to(range_cpu.dtype)
         torch.testing.assert_close(range_cpu, range_ref, rtol=0, atol=0)
 
         if gpu_available:
             range_gpu = torch.ops.fbgemm.offsets_range(offsets_cpu.cuda(), output_size)
-            range_ref = torch.tensor(range_ref, dtype=range_gpu.dtype)
+            range_ref = range_ref.to(range_gpu.dtype)
             torch.testing.assert_close(range_gpu.cpu(), range_ref, rtol=0, atol=0)
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
@@ -1284,7 +1284,6 @@ class SparseOpsTest(unittest.TestCase):
             )
         )
 
-    @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_segment_sum_csr(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
             2,

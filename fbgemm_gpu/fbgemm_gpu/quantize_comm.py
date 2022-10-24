@@ -11,7 +11,7 @@
 
 
 import logging
-from typing import Optional
+from typing import Optional, TypeVar
 
 import torch
 
@@ -24,7 +24,6 @@ from fbgemm_gpu.quantize_utils import (
     hfp8_to_fp32,
 )
 from fbgemm_gpu.split_embedding_configs import SparseType
-from pyre_extensions import none_throws
 from torch.autograd.profiler import record_function
 
 logger: logging.Logger = logging.getLogger()
@@ -35,6 +34,14 @@ max_pos: float = (2 ** ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
 
 # INT8 configurations
 ROW_DIM_DEFAULT = 32
+
+
+def none_throws(
+    optional: Optional[TypeVar("_T")], message: str = "Unexpected `None`"
+) -> TypeVar("_T"):
+    if optional is None:
+        raise AssertionError(message)
+    return optional
 
 
 class QuantizationContext:
