@@ -217,6 +217,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cuda);
   DISPATCH_TO_CUDA(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cuda);
+  DISPATCH_TO_CUDA("invert_permute", fbgemm_gpu::invert_permute_cuda);
   DISPATCH_TO_CUDA(
       "expand_into_jagged_permute",
       fbgemm_gpu::expand_into_jagged_permute_cuda);
