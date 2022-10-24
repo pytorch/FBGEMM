@@ -10,10 +10,9 @@ from typing import Optional, Tuple
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.quantize_comm import QuantizedCommCodec
+from fbgemm_gpu.quantize_comm import none_throws, QuantizedCommCodec
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, settings
-from pyre_extensions import none_throws
 
 
 class QuantizedCommCodecTest(unittest.TestCase):

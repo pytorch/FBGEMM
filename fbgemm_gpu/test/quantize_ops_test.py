@@ -235,7 +235,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 )
 
     @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
         ncols = 256
         nrows = 65540
@@ -609,7 +608,6 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             )
 
     @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
         ncols = 256
         bit_rate = 4
