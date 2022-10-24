@@ -247,6 +247,33 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
+        permute_size=st.integers(min_value=30, max_value=1000),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_invert_permute(
+        self,
+        permute_size: int,
+        long_index: bool,
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
+        permute_list = list(range(permute_size))
+        random.shuffle(permute_list)
+        inversed_permute_list = [0] * len(permute_list)
+        for i in range(permute_size):
+            inversed_permute_list[permute_list[i]] = i
+        permute = torch.IntTensor(permute_list).type(index_dtype)
+        inverse_permute_ref = torch.IntTensor(inversed_permute_list).type(index_dtype)
+
+        inverse_permute_cpu = torch.ops.fbgemm.invert_permute(permute)
+        torch.testing.assert_close(inverse_permute_cpu, inverse_permute_ref)
+
+        if gpu_available:
+            inverse_permute_gpu = torch.ops.fbgemm.invert_permute(permute.cuda())
+            torch.testing.assert_close(inverse_permute_gpu.cpu(), inverse_permute_cpu)
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),

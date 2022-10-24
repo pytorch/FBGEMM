@@ -114,43 +114,6 @@ void _permute_2D_indices_weights_kernel_cpu(
       }); // parallel_for T * B
 }
 
-// specialization for variable B and T,
-// the permute here maps to all items in length.
-template <
-    bool has_weight,
-    typename offsets_t,
-    typename indices_t,
-    typename weights_t>
-void _permute_1D_indices_weights_kernel_cpu(
-    const offsets_t* const __restrict__ input_offsets,
-    const indices_t* const __restrict__ indices,
-    const weights_t* const __restrict__ weights,
-    const int64_t permuted_lengths_size,
-    const int32_t* const __restrict__ permute,
-    const offsets_t* const __restrict__ permuted_lengths,
-    const offsets_t* const __restrict__ output_offsets,
-    indices_t* const __restrict__ permuted_indices,
-    weights_t* const __restrict__ permuted_weights) {
-  at::parallel_for(
-      0,
-      permuted_lengths_size,
-      FALSE_SHARING_PAD,
-      [&](int64_t tb_begin, int64_t tb_end) {
-        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
-             ++tb) {
-          offsets_t permuted_length = permuted_lengths[tb];
-          const offsets_t input_start = input_offsets[permute[tb]];
-          const offsets_t output_start = output_offsets[tb];
-          for (const auto i : c10::irange(permuted_length)) {
-            permuted_indices[output_start + i] = indices[input_start + i];
-            if (has_weight) {
-              permuted_weights[output_start + i] = weights[input_start + i];
-            }
-          }
-        }
-      }); // parallel_for T x B, different B across T
-}
-
 template <typename index_t>
 void _permute_2D_lengths_cpu_kernel(
     const int32_t T,
@@ -624,6 +587,43 @@ void _permute_1D_lengths_cpu_kernel(
       });
 }
 
+// specialization for variable B and T,
+// the permute here maps to all items in length.
+template <
+    bool has_weight,
+    typename offsets_t,
+    typename indices_t,
+    typename weights_t>
+void _permute_1D_indices_weights_kernel_cpu(
+    const offsets_t* const __restrict__ input_offsets,
+    const indices_t* const __restrict__ indices,
+    const weights_t* const __restrict__ weights,
+    const int64_t permuted_lengths_size,
+    const int32_t* const __restrict__ permute,
+    const offsets_t* const __restrict__ permuted_lengths,
+    const offsets_t* const __restrict__ output_offsets,
+    indices_t* const __restrict__ permuted_indices,
+    weights_t* const __restrict__ permuted_weights) {
+  at::parallel_for(
+      0,
+      permuted_lengths_size,
+      FALSE_SHARING_PAD,
+      [&](int64_t tb_begin, int64_t tb_end) {
+        for (int tb = tb_begin; tb < std::min(tb_end, permuted_lengths_size);
+             ++tb) {
+          offsets_t permuted_length = permuted_lengths[tb];
+          const offsets_t input_start = input_offsets[permute[tb]];
+          const offsets_t output_start = output_offsets[tb];
+          for (const auto i : c10::irange(permuted_length)) {
+            permuted_indices[output_start + i] = indices[input_start + i];
+            if (has_weight) {
+              permuted_weights[output_start + i] = weights[input_start + i];
+            }
+          }
+        }
+      }); // parallel_for T x B, different B across T
+}
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
@@ -656,7 +656,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
         _permute_1D_lengths_cpu_kernel(
             lengths_contig->data_ptr<index_t>(),
             permuted_lengths_size,
-            permute.data_ptr<int32_t>(),
+            permute_contig->data_ptr<int32_t>(),
             permuted_lengths.data_ptr<index_t>());
       }); // for each scalar_t
 
@@ -777,6 +777,36 @@ Tensor expand_into_jagged_permute_cpu(
       });
 
   return output_permute;
+}
+
+template <typename index_t>
+void _invert_permute_cpu_kernel(
+    const int64_t permute_size,
+    const index_t* const __restrict__ permute,
+    index_t* const __restrict__ inversed_permute) {
+  at::parallel_for(
+      0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
+        for (int t = t_begin; t < std::min(t_end, permute_size); ++t) {
+          inversed_permute[permute[t]] = t;
+        }
+      });
+}
+
+Tensor invert_permute_cpu(const Tensor& permute) {
+  TENSOR_ON_CPU(permute);
+  const auto permute_contig = permute.expect_contiguous();
+  const auto permute_size = permute.numel();
+  Tensor inversed_permute = at::empty_like(permute);
+
+  AT_DISPATCH_INDEX_TYPES(
+      permute.scalar_type(), "invert_permute_cpu_kernel", [&] {
+        _invert_permute_cpu_kernel<index_t>(
+            permute_size,
+            permute_contig->data_ptr<index_t>(),
+            inversed_permute.data_ptr<index_t>());
+      }); // for each scalar_t
+
+  return inversed_permute;
 }
 
 std::tuple<
@@ -2370,6 +2400,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+  m.def("invert_permute(Tensor permute) -> Tensor");
   m.def(
       "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, int output_size) -> Tensor");
   m.def(
@@ -2442,6 +2473,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
+  DISPATCH_TO_CPU("invert_permute", fbgemm_gpu::invert_permute_cpu);
   DISPATCH_TO_CPU(
       "expand_into_jagged_permute", fbgemm_gpu::expand_into_jagged_permute_cpu);
   DISPATCH_TO_CPU(

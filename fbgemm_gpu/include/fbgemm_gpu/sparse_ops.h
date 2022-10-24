@@ -89,6 +89,8 @@ permute_1D_sparse_data_cuda(
     const at::Tensor& indices,
     const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
+
+at::Tensor invert_permute_cuda(const at::Tensor& permute);
 #endif
 
 /// @ingroup sparse-data-cuda
