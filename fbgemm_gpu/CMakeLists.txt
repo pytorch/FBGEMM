@@ -147,7 +147,9 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.h
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host_cpu.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host_cpu.h
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.h

@@ -16,6 +16,7 @@
 #endif
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
+#include "embedding_forward_quantized_host_cpu.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
