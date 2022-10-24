@@ -414,12 +414,12 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
   } else {
-    permuted_indices_size = permuted_lengths.sum().item<int64_t>();
+    permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -593,12 +593,12 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
   // convert lengths to offsets
   const auto input_offsets = asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
   } else {
-    permuted_indices_size = permuted_lengths.sum().item<int64_t>();
+    permuted_indices_size = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -1937,7 +1937,6 @@ Tensor lengths_range_cuda(
 // sparse features
 template <bool has_weight, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
-    int32_t len,
     int32_t T,
     int32_t B,
     const index_t* __restrict__ indices,
@@ -1953,12 +1952,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
     int32_t b = b_t % B;
     int32_t t = b_t / B;
     index_t output_start = output_offsets[b_t];
-    index_t segment_length;
-    if (b_t == B * T - 1) {
-      segment_length = len - output_offsets[b_t];
-    } else {
-      segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
-    }
+    index_t segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     index_t input_start = input_offsets[permute[t] * B + b];
     for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
@@ -2030,7 +2024,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
   const auto input_offsets =
       fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_contig);
   const auto output_offsets =
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(permuted_lengths);
+      fbgemm_gpu::asynchronous_complete_cumsum_gpu(permuted_lengths.flatten());
   int64_t permuted_lengths_sum = indices.numel();
 
   /* TODO: Remove the condition protecting the slow path because even when the
@@ -2041,7 +2035,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
    * indices.numel() or weights.numdel() would be incorrect.
    */
   if (num_features != num_output_features) {
-    permuted_lengths_sum = permuted_lengths.sum().item<int64_t>();
+    permuted_lengths_sum = output_offsets[-1].item<int64_t>();
   }
 
   constexpr int32_t BT_blocks = 32;
@@ -2065,7 +2059,6 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
                        threads_2,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        permuted_lengths_sum,
                         num_output_features,
                         B,
                         indices_contig.data_ptr<index_t>(),
@@ -2083,7 +2076,6 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
         indices.scalar_type(), "permute_indices_kernel", [&] {
           permute_indices_weights_kernel<false, index_t, std::nullptr_t>
               <<<blocks_2, threads_2, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  permuted_lengths_sum,
                   num_output_features,
                   B,
                   indices_contig.data_ptr<index_t>(),
@@ -2517,23 +2509,25 @@ Tensor pack_segments_backward_cuda(
 
 constexpr int MAX_ELEMENTS_PER_THREAD = 4;
 
-template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
-__global__
-__launch_bounds__(kMaxThreads) void index_select_2d_with_sorted_indices_kernel(
+template <
+    typename index_t,
+    typename scalar_t,
+    int UNROLL_FACTOR,
+    bool indices_sorted>
+__global__ __launch_bounds__(kMaxThreads) void index_select_2d_kernel(
     const at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
-        sorted_indices,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         orig_indices,
     at::PackedTensorAccessor32<scalar_t, 2> output) {
-  const int N = sorted_indices.size(0);
+  const int N = indices.size(0);
   const int input_size = input.size(0);
   const int D = input.size(1);
   CUDA_KERNEL_ASSERT(output.size(0) == N)
 
   for (int row = blockIdx.x; row < N; row += gridDim.x) {
-    const index_t src_idx = sorted_indices[row];
-    const int64_t dst_idx = orig_indices[row];
+    const index_t src_idx = indices[row];
+    const int64_t dst_idx = indices_sorted ? orig_indices[row] : row;
     CUDA_KERNEL_ASSERT(src_idx < input_size)
     int col;
     for (col = threadIdx.x * UNROLL_FACTOR;
@@ -2560,7 +2554,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         orig_indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> in_deduped_grad,
+    at::PackedTensorAccessor64<scalar_t, 2> in_deduped_grad,
     const int stride_D,
     const int rounded_D,
     const int remaining_D,
@@ -2662,16 +2656,15 @@ dummy_packed_accessor32() {
   return {nullptr, zeros.data(), zeros.data()};
 }
 
-Tensor index_select_with_sorted_indices_cuda(
+Tensor index_select_cuda(
     const Tensor& input,
-    const Tensor& sorted_indices,
+    const Tensor& indices,
     const Tensor& orig_indices,
-    const int consecutive_range_start,
-    const int consecutive_range_length) {
+    const bool indices_sorted) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
 
-  const int N = sorted_indices.size(0);
+  const int N = indices.size(0);
   auto output_shape = input.sizes().vec();
   output_shape[0] = N;
 
@@ -2686,28 +2679,34 @@ Tensor index_select_with_sorted_indices_cuda(
 
   const int UNROLL_FACTOR = 2;
 
-  AT_DISPATCH_INDEX_TYPES(
-      sorted_indices.scalar_type(), "index_add_2d_kernel_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input_reshaped.scalar_type(), "index_add_2d_kernel_2", [&] {
-              index_select_2d_with_sorted_indices_kernel<
-                  index_t,
-                  scalar_t,
-                  UNROLL_FACTOR><<<
-                  cuda_calc_xblock_count(N, 1),
-                  std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),
-                  0,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                  input_reshaped
-                      .packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),
-                  sorted_indices
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  orig_indices
-                      .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                  output.packed_accessor32<scalar_t, 2>());
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
-            });
-      });
+#define LAUNCH_INDEX_SELECT(INDICES_SORTED)                                   \
+  index_select_2d_kernel<index_t, scalar_t, UNROLL_FACTOR, INDICES_SORTED>    \
+      <<<cuda_calc_xblock_count(N, 1),                                        \
+         std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),               \
+         0,                                                                   \
+         at::cuda::getCurrentCUDAStream()>>>(                                 \
+          input_reshaped                                                      \
+              .packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),       \
+          indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),     \
+          INDICES_SORTED                                                      \
+              ? orig_indices                                                  \
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>()   \
+              : dummy_packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
+          output.packed_accessor32<scalar_t, 2>());
+
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        input_reshaped.scalar_type(), "index_add_2d_kernel_2", [&] {
+          if (indices_sorted) {
+            LAUNCH_INDEX_SELECT(true)
+          } else {
+            LAUNCH_INDEX_SELECT(false)
+          }
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+  });
+
+#undef LAUNCH_INDEX_SELECT
 
   return output.reshape(output_shape);
 }
@@ -2808,7 +2807,7 @@ Tensor index_add_with_unique_indices_cuda(
                       .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                   offsets
                       .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                  input_grad.packed_accessor32<scalar_t, 2>(),
+                  input_grad.packed_accessor64<scalar_t, 2>(),
                   stride_D, // Pass constants as kernel args
                   rounded_D,
                   remaining_D,

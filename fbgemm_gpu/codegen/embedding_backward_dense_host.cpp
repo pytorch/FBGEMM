@@ -24,6 +24,7 @@ Tensor dense_embedding_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
+    int64_t output_dtype,
     int64_t BT_block_size);
 
 Tensor dense_embedding_codegen_forward_weighted_cuda(
@@ -36,6 +37,7 @@ Tensor dense_embedding_codegen_forward_weighted_cuda(
     Tensor offsets,
     int64_t pooling_mode,
     Tensor indice_weights,
+    int64_t output_dtype,
     int64_t BT_block_size);
 
 Tensor dense_embedding_codegen_grad_indice_weights_cuda(
@@ -84,6 +86,7 @@ class SplitLookupFunction_Dense_Op
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
+      int64_t output_dtype,
       Tensor dev_weights,
       Tensor weights_offsets,
       Tensor D_offsets,
@@ -127,6 +130,7 @@ class SplitLookupFunction_Dense_Op
           indices,
           offsets,
           pooling_mode,
+          output_dtype,
           BT_block_size)};
     } else {
       return {dense_embedding_codegen_forward_weighted_cuda(
@@ -139,6 +143,7 @@ class SplitLookupFunction_Dense_Op
           offsets,
           pooling_mode,
           indice_weights.value(),
+          output_dtype,
           BT_block_size)};
     }
   }
@@ -201,6 +206,7 @@ class SplitLookupFunction_Dense_Op
               max_segment_length_per_warp,
               /* unused=*/0.0);
       return {
+          Variable(), // output_dtype
           grad_dev_weights,
           Variable(), // weights_offsets
           Variable(), // D_offsets
@@ -242,6 +248,7 @@ class SplitLookupFunction_Dense_Op
               max_segment_length_per_warp,
               /* unused=*/0.0);
       return {
+          Variable(), // output_dtype
           grad_dev_weights,
           Variable(), // weights_offsets
           Variable(), // D_offsets
@@ -266,6 +273,7 @@ Tensor dense_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t D,
     Tensor indices,
     Tensor offsets,
+    int64_t output_dtype,
     int64_t unused);
 
 Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
@@ -286,6 +294,7 @@ class SplitNoBagLookupFunction_Dense_Op
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
+      int64_t output_dtype,
       Tensor dev_weights,
       Tensor weights_offsets,
       int64_t D,
@@ -305,7 +314,7 @@ class SplitNoBagLookupFunction_Dense_Op
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
 
     return {dense_embedding_nobag_codegen_forward_unweighted_cuda(
-        dev_weights, weights_offsets, D, indices, offsets, 0)};
+        dev_weights, weights_offsets, D, indices, offsets, output_dtype, 0)};
   }
 
   static torch::autograd::variable_list backward(
@@ -353,6 +362,7 @@ class SplitNoBagLookupFunction_Dense_Op
             max_segment_length_per_warp,
             0);
     return {
+        Variable(), // output_dtype
         grad_dev_weights, // grad_dev_weights
         Variable(), // weights_offsets
         Variable(), // D
@@ -376,9 +386,11 @@ Tensor split_embedding_codegen_lookup_dense_function(
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad) {
+    c10::optional<Tensor> feature_requires_grad,
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_Dense_Op::apply(
+        output_dtype,
         dev_weights,
         weights_offsets,
         max_D,
@@ -388,6 +400,7 @@ Tensor split_embedding_codegen_lookup_dense_function(
         offsets)[0];
   } else {
     return SplitLookupFunction_Dense_Op::apply(
+        output_dtype,
         dev_weights,
         weights_offsets,
         D_offsets,
@@ -401,13 +414,6 @@ Tensor split_embedding_codegen_lookup_dense_function(
         indice_weights,
         feature_requires_grad)[0];
   }
-}
-
-// Deprecated for fb namespace! Please use fbgemm namespace instead!
-TORCH_LIBRARY_FRAGMENT(fb, m) {
-  DISPATCH_TO_CUDA(
-      "dense_embedding_codegen_lookup_function",
-      split_embedding_codegen_lookup_dense_function);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
