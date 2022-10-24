@@ -197,6 +197,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
+
 ///@ingroup embedding-cuda
 /// Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does
 /// UVM_CACHING lookup.
@@ -258,6 +259,11 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     auto linear_cache_indices = linearize_cache_indices_cuda(
         cache_hash_size_cumsum.value(), indices, offsets);
 
+    // Currently, gather_uvm_stats is disabled.
+    bool gather_uvm_stats = false;
+    Tensor uvm_cache_stats =
+        at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
+
     // Lookup and fetch data from UVM: supporting only lru; no lfu currently.
     lru_cache_populate_byte_cuda(
         uvm_weights,
@@ -272,13 +278,17 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         lxu_cache_weights.value(),
         curr_time_stamp,
         lxu_state.value(),
-        row_alignment ? *row_alignment : 16);
+        row_alignment ? *row_alignment : 16,
+        gather_uvm_stats,
+        uvm_cache_stats);
 
     // Update lxu_cache_locations.
     lxu_cache_locations = lxu_cache_lookup_cuda(
         linear_cache_indices,
         lxu_cache_state.value(),
-        total_cache_hash_size.value());
+        total_cache_hash_size.value(),
+        gather_uvm_stats,
+        uvm_cache_stats);
   }
 
   return int_nbit_split_embedding_codegen_lookup_function(
