@@ -28,7 +28,9 @@ std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
     int64_t max_indices,
     at::Tensor lxu_cache_state,
     int64_t time_stamp,
-    at::Tensor lru_state);
+    at::Tensor lru_state,
+    bool gather_cache_stats,
+    at::Tensor uvm_cache_stats);
 
 ///@ingroup table-batched-embed-cuda
 /// Map index to cache_set. h_in: linear_indices; C: #cache_sets.
@@ -75,7 +77,9 @@ void lru_cache_populate_byte_cuda(
     at::Tensor lxu_cache_weights,
     int64_t time_stamp,
     at::Tensor lru_state,
-    int64_t row_alignment);
+    int64_t row_alignment,
+    bool gather_cache_stats,
+    c10::optional<at::Tensor> uvm_cache_stats);
 
 ///@ingroup table-batched-embed-cuda
 /// Direct-mapped (assoc=1) variant of lru_cache_populate_byte_cuda
@@ -136,7 +140,9 @@ void lfu_cache_populate_byte_cuda(
 at::Tensor lxu_cache_lookup_cuda(
     at::Tensor linear_cache_indices,
     at::Tensor lxu_cache_state,
-    int64_t invalid_index);
+    int64_t invalid_index,
+    bool gather_cache_stats,
+    c10::optional<at::Tensor> uvm_cache_stats);
 
 ///@ingroup table-batched-embed-cuda
 /// Lookup the LRU/LFU cache: find the cache weights location for all indices.
