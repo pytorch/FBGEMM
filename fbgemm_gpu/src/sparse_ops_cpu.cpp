@@ -2357,6 +2357,19 @@ Tensor index_select_dim0(
   return at::index_select(input, 0, indices);
 }
 
+std::vector<Tensor> group_index_select_dim0(
+    const std::vector<Tensor>& input_group,
+    const std::vector<Tensor>& indices_group) {
+  int num_groups = input_group.size();
+  TORCH_CHECK(num_groups == (int)indices_group.size())
+  std::vector<Tensor> output_group;
+  for (int i = 0; i < num_groups; i++) {
+    output_group.push_back(
+        at::index_select(input_group[i], 0, indices_group[i]));
+  }
+  return output_group;
+}
+
 Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
   auto num_cols = input.size(-1);
   Tensor input_reshaped = input.reshape({-1, num_cols});
@@ -2389,6 +2402,7 @@ Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
   output_shape[output_shape.size() - 1] = k;
   return output.reshape(output_shape);
 }
+
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -2459,6 +2473,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
+      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
+  m.def(
       "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
   // This is an one-off op to be used in bench_utils.py for zipf generation w/o
   // replacement Along dim=-1, find smallest unique k. If the number of unique
@@ -2526,6 +2542,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
+  DISPATCH_TO_CPU(
+      "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
   DISPATCH_TO_CPU(
       "bottom_unique_k_per_row", fbgemm_gpu::bottom_unique_k_per_row);
 }
