@@ -107,7 +107,7 @@ jobs:
         cd fbgemm_gpu/
         rm -rf dist
         # build cuda7.0;8.0 for v100/a100 arch:
-        # Couldn't build more cuda arch due to 100 MB binary size limit from
+        # Couldn't build more cuda arch due to 300 MB binary size limit from
         # pypi website.
         # manylinux1_x86_64 is specified for pypi upload:
         # distribute python extensions as wheels on Linux
