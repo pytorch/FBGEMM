@@ -99,7 +99,7 @@ jobs:
     - name: Build FBGEMM_GPU Release
       run: |
         cd fbgemm_gpu/
-        rm -r dist || true
+        rm -rf dist
         # buld cuda7.0;8.0 for v100/a100 arch:
         # Couldn't build more cuda arch due to 100 MB binary size limit from
         # pypi website.
