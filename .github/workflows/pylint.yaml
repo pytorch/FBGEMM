@@ -1,0 +1,42 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8"]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ufmt
+        pip install click
+        pip install flake8
+    - name: Analyzing the code with flake8
+      run: |
+        echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
+        flake8 --ignore=E501 .  # Ignore line too long issue
+    - name: Analyzing the code with ufmt
+      run: |
+        ufmt diff fbgemm_gpu/fbgemm_gpu
+        ufmt diff fbgemm_gpu/test
+        ufmt diff fbgemm_gpu/bench
+    - name: Check Meta copyright header
+      run: |
+        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/fbgemm_gpu --fixit=False
+        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/test --fixit=False
+        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/bench --fixit=False
