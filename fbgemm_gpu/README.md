@@ -39,11 +39,11 @@ Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
 # Release GPU
-conda install pytorch cudatoolkit=11.3 -c pytorch
+conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
 pip install fbgemm-gpu
 
 # Release CPU-only
-conda install pytorch cudatoolkit=11.3 -c pytorch
+conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
 pip install fbgemm-gpu-cpu
 
 # Nightly GPU
@@ -80,8 +80,6 @@ export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
 export CUDNN_LIBRARY=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib
 export CUDNN_INCLUDE_DIR=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include
 
-# if using CUDA 10 or earliers set the location to the CUB installation directory
-export CUB_DIR=${CUB_DIR}
 # in fbgemm_gpu folder
 # build for the CUDA architecture supported by current system (or all architectures if no CUDA device present)
 python setup.py install
