@@ -55,7 +55,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     {% endif %}
-    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
+    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits>
         output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
@@ -189,7 +189,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     {% endif %}
-    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
+    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits>
         output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
@@ -541,7 +541,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     {% if not dense %}
                     lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
-                    output.packed_accessor32<
+                    output.packed_accessor64<
                         output_t,
                         2,
                         at::RestrictPtrTraits>()
@@ -582,7 +582,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             {% if not dense %}
             lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             {% endif %}
-            output.packed_accessor32<
+            output.packed_accessor64<
                 output_t,
                 2,
                 at::RestrictPtrTraits>()
@@ -618,7 +618,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 {% if not dense %}
                 lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 {% endif %}
-                output.packed_accessor32<
+                output.packed_accessor64<
                     output_t,
                     2,
                     at::RestrictPtrTraits>()
