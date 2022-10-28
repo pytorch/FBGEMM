@@ -21,7 +21,7 @@ template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerT
 __global__
 __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel(
     // [\sum_t E_t x D_t]
-    const at::PackedTensorAccessor32<grad_t, 2, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
@@ -239,7 +239,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                grad_output.packed_accessor32<grad_t, 2, at::RestrictPtrTraits>(),
+                grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
                 dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 {% if not dense %}
                 uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
