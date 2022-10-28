@@ -72,7 +72,7 @@ def generate_requests(
     E: int,
     # inter-batch indices reuse rate
     reuse: float = 0.0,
-) -> List[Tuple[torch.IntTensor, torch.IntTensor,]]:
+) -> List[Tuple[torch.IntTensor, torch.IntTensor, ]]:
     rs = []
     for gpu_num in range(num_gpus):
         all_indices = torch.randint(
