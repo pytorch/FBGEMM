@@ -1639,7 +1639,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
-        load_factor: float = 0.5,
+        pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
         cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
@@ -1842,7 +1842,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if index_remapping:
             self.set_index_remappings(
-                index_remapping, load_factor, use_array_for_index_remapping
+                index_remapping, pruning_hash_load_factor, use_array_for_index_remapping
             )
 
         # Currently only support cache_precision == embedding_precision.
@@ -2400,7 +2400,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
-            f"load_factor: {cache_load_factor : .3f}, "
+            f"cache_load_factor: {cache_load_factor : .3f}, "
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
         )
 
@@ -2603,14 +2603,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def set_index_remappings(
         self,
         index_remapping: List[Tensor],
-        load_factor: float = 0.5,
+        pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
     ) -> None:
         rows: List[int] = [e[1] for e in self.embedding_specs]
         T = len(self.embedding_specs)
         if not use_array_for_index_remapping:
             capacities = [
-                round_up(int(row * 1.0 / load_factor), 32)
+                round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
                 if index_remap is not None
                 else 0
                 for (index_remap, row) in zip(index_remapping, rows)
