@@ -891,7 +891,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--pooling", type=str, default="sum")
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
 @click.option("--pruning-ratio", type=float, default=None)
-@click.option("--load-factor", default=0.75)
+@click.option("--pruning-hash-load-factor", default=0.75)
 @click.option("--use-array-for-index-remapping", is_flag=True, default=True)
 @click.option("--check-median", is_flag=True, default=True)
 @click.option("--iters", default=100)
@@ -921,7 +921,7 @@ def nbit_device(  # noqa C901
     pooling: str,
     bounds_check_mode: int,
     pruning_ratio: Optional[float],
-    load_factor: float,
+    pruning_hash_load_factor: float,
     use_array_for_index_remapping: bool,
     check_median: bool,
     iters: int,
@@ -968,7 +968,7 @@ def nbit_device(  # noqa C901
             if use_array_for_index_remapping:
                 mem_for_pruning += mapping.numel() * 4
             else:
-                mem_for_pruning += E / load_factor * 2 * 4
+                mem_for_pruning += E / pruning_hash_load_factor * 2 * 4
 
     if managed == "device":
         managed_option = EmbeddingLocation.DEVICE
@@ -990,7 +990,7 @@ def nbit_device(  # noqa C901
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         index_remapping=index_remapping,
-        load_factor=load_factor,
+        pruning_hash_load_factor=pruning_hash_load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
         pooling_mode=pooling_mode,
@@ -1908,7 +1908,7 @@ def nbit_cache(  # noqa C901
 @click.option("--iters", default=10)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=100)
-@click.option("--load-factor", default=0.75)
+@click.option("--pruning-hash-load-factor", default=0.75)
 @click.option("--hit-rate", default=0.9)
 @click.option("--use-cpu", is_flag=True, default=False)
 @click.option("--requests_data_file", type=str, default=None)
@@ -1919,7 +1919,7 @@ def hashtable(  # noqa C901
     iters: int,
     num_embeddings: int,
     num_tables: int,
-    load_factor: float,
+    pruning_hash_load_factor: float,
     hit_rate: float,
     use_cpu: bool,
     requests_data_file: Optional[str],
@@ -1945,7 +1945,7 @@ def hashtable(  # noqa C901
     assert offsets.numel() == T + 1
     assert (offsets.numel() - 1) // T == 1
 
-    capacities = [round_up(int(E / load_factor), 32) for _ in range(T)]
+    capacities = [round_up(int(E / pruning_hash_load_factor), 32) for _ in range(T)]
 
     hash_table = torch.zeros(
         (sum(capacities), 2),
@@ -1999,7 +1999,7 @@ def hashtable(  # noqa C901
 
     logging.info(
         f"LinearTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
-        f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e9:.0f} GB"
+        f"T: {time_per_iter * 1.0e6:.0f}us, pruning load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e9:.0f} GB"
     )
 
     if use_cpu:
@@ -2013,7 +2013,7 @@ def hashtable(  # noqa C901
 
         logging.info(
             f"HashTable: B: {B}, T: {T}, L: {L}, E: {E}, QPS: {B * T * L / time_per_iter / 1.0e9:.2f}B QPS/s, "
-            f"T: {time_per_iter * 1.0e6:.0f}us, load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e9:.0f} GB"
+            f"T: {time_per_iter * 1.0e6:.0f}us, pruning load factor: {E * T / hash_table.shape[0] * 100:.1f}%, hit rate: {empirical_hit_rate * 100:.2f}%, Table size: {hash_table.numel() * 4 / 1.0e9:.0f} GB"
         )
 
 
