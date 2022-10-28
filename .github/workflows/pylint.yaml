@@ -29,7 +29,7 @@ jobs:
     - name: Analyzing the code with flake8
       run: |
         echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
-        flake8 --ignore=E501,E402,E231,W503,F841,F401,W291,E302,E503   .  # Ignore errors
+        flake8 --ignore=E501,E402,E231,W503,F841,F401,W291,E302,E503,E203,E266   .  # Ignore errors
     - name: Analyzing the code with ufmt
       run: |
         ufmt diff fbgemm_gpu/fbgemm_gpu
