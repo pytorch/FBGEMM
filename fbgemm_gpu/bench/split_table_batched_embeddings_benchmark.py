@@ -1767,7 +1767,7 @@ def nbit_cache(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    # output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
         param_size_multiplier
         * B
