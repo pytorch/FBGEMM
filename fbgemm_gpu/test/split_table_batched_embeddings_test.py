@@ -3349,7 +3349,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
 
-            ### generate index_remapping
+            # generate index_remapping
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
 
             original_E = E
@@ -3358,7 +3358,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices = indices.view(-1).int()
             offsets = offsets.view(-1).int()
 
-            ### generate index_remapping done
+            # generate index_remapping done
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
@@ -4609,7 +4609,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_pickle(self) -> None:
         tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
         pickled = pickle.dumps(tensor_queue)
-        unpickled = pickle.loads(pickled)
+        # unpickled = pickle.loads(pickled)
 
     @unittest.skipIf(*gpu_unavailable)
     def test_linearize_cache_indices(self) -> None:

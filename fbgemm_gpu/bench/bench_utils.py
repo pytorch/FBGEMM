@@ -3,7 +3,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import itertools
+# import itertools
 import logging
 import statistics
 import time
@@ -397,12 +397,12 @@ def benchmark_requests_refer(
                 )
             ]
         )
-        if do_pooling:
-            final_output = torch.cat(
-                [f.view(B, -1) for f in nn_embedding_output], dim=1
-            )
-        else:
-            final_output = torch.cat(nn_embedding_output, dim=0).view(-1, D)
+        # if do_pooling:
+        #    final_output = torch.cat(
+        #        [f.view(B, -1) for f in nn_embedding_output], dim=1
+        #    )
+        # else:
+        #    final_output = torch.cat(nn_embedding_output, dim=0).view(-1, D)
 
         if torch.cuda.is_available():
             end_event.record()
