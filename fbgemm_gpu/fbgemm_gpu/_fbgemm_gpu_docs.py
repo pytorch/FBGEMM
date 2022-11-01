@@ -85,12 +85,12 @@ add_docs(
     """
 dense_to_jagged(dense, x_offsets, total_L) -> (Tensor, Tensor[])
 
-Converts a dense tensor into a jagged tensor, given the desired offsets of the resulting dense tensor. 
+Converts a dense tensor into a jagged tensor, given the desired offsets of the resulting dense tensor.
 
 Args:
     dense (Tensor): A dense input tensor to be converted
 
-    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     total_L (int, Optional): Total number of values in the resulting jagged tensor.
 
@@ -119,7 +119,7 @@ Converts a jagged tensor into a dense tensor, padding with a specified padding v
 Args:
     values (Tensor): Jagged tensor values
 
-    offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     max_lengths (int[]): A list with max_length for each jagged dimension.
 
@@ -147,13 +147,13 @@ add_docs(
     """
 jagged_dense_elementwise_add(x_values, x_offsets, y) -> Tensor
 
-Adds a jagged tensor to a dense tensor, resulting in dense tensor. Jagged 
+Adds a jagged tensor to a dense tensor, resulting in dense tensor. Jagged
 tensor input will be padded with zeros for the purposes of the addition.
 
 Args:
     x_values (Tensor): Jagged tensor values
 
-    offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     y (Tensor): A dense tensor
 
@@ -174,7 +174,7 @@ Adds a jagged tensor to a dense tensor and, resulting in a jagged tensor with th
 Args:
     x_values (Tensor): Jagged tensor values
 
-    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     y (Tensor): A dense tensor
 
@@ -195,7 +195,7 @@ Adds a jagged tensor to the sum of two dense tensors, resulting in a jagged tens
 Args:
     x_values (Tensor): Jagged tensor values
 
-    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     y_0 (Tensor): A dense tensor
 
@@ -218,7 +218,7 @@ Elementwise-multiplies a jagged tensor a dense tensor and, resulting in a jagged
 Args:
     x_values (Tensor): Jagged tensor values
 
-    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension. 
+    x_offsets (Tensor[]): A list of jagged offset tensors, one for each jagged dimension.
 
     y (Tensor): A dense tensor
 
