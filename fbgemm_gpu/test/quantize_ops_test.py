@@ -19,16 +19,17 @@ from torch import Tensor
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
-    from test_utils import (  # pyre-ignore[21]
-        bytes_to_half_floats,
-        fused_rowwise_8bit_dequantize_reference,
-        fused_rowwise_8bit_quantize_reference,
-        fused_rowwise_nbit_quantize_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        gpu_available,
-        gpu_unavailable,
-        skipIfRocm,
-    )
+
+    # from test_utils import (
+    #    bytes_to_half_floats,
+    #    fused_rowwise_8bit_dequantize_reference,
+    #    fused_rowwise_8bit_quantize_reference,
+    #    fused_rowwise_nbit_quantize_dequantize_reference,
+    #    fused_rowwise_nbit_quantize_reference,
+    #    gpu_available,
+    #    gpu_unavailable,
+    #    skipIfRocm,
+    # )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
@@ -264,7 +265,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
 
 class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     # Pyre was not able to infer the type of argument `not torch.cuda.is_available()`
     # to decorator factory `unittest.skipIf`.
     @unittest.skipIf(*gpu_unavailable)
