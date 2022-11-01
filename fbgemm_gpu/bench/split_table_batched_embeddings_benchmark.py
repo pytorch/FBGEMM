@@ -19,15 +19,6 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
-
-haveAIBench = False
-try:
-    from aibench_observer.utils.observer import emitMetric
-
-    haveAIBench = True
-except Exception:
-    haveAIBench = False
-
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -43,6 +34,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from torch import Tensor
+
+haveAIBench = False
+try:
+    from aibench_observer.utils.observer import emitMetric
+
+    haveAIBench = True
+except Exception:
+    haveAIBench = False
+
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -1769,11 +1769,9 @@ def nbit_cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
-        param_size_multiplier
-        * B
-        * sum(Ds)
-        * L
-        # output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum(Ds) * L
+        param_size_multiplier * B * sum(Ds) * L
+        + output_size_multiplier * B * sum(Ds)
+        + param_size_multiplier * B * sum(Ds) * L
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
