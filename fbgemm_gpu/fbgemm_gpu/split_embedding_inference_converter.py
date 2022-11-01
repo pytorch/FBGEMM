@@ -17,6 +17,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import QuantizationConfig, SparseType
 from torch import nn, Tensor
 
+
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
