@@ -24,7 +24,8 @@ from fbgemm_gpu.quantize_utils import (
     hfp8_to_fp32,
 )
 from fbgemm_gpu.split_embedding_configs import SparseType
-from torch.autograd.profiler import record_function
+from torch.autograd.profiler import record_function  # usort:skip
+
 
 logger: logging.Logger = logging.getLogger()
 
