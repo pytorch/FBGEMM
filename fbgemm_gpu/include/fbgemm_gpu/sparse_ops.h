@@ -203,17 +203,29 @@ permute_1D_sparse_data_cpu(
     const c10::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
+at::Tensor _float_to_FP8rowwise_gpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor _half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _float_or_half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
+at::Tensor _FP8rowwise_to_float_gpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
     const int64_t output_dtype);
 at::Tensor float_to_fused8bitrowwise_cpu(const at::Tensor& input);
+at::Tensor float_to_FP8rowwise_cpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor float_or_half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
+at::Tensor FP8rowwise_to_float_cpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_or_half_cpu(
     const at::Tensor& input,
