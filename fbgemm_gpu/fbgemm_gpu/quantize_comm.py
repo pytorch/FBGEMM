@@ -54,6 +54,7 @@ def _quantize_tensor(
     input_tensor: torch.Tensor,
     comm_precision: SparseType,
     ctx: Optional[QuantizationContext] = None,
+    is_fwd: bool = True,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         return input_tensor
@@ -62,7 +63,21 @@ def _quantize_tensor(
     elif comm_precision == SparseType.BF16:
         return fp32_to_bf16_with_clamp(input_tensor)
     elif comm_precision == SparseType.FP8:
-        return fp32_to_hfp8_with_clamp(input_tensor, ebits, mbits, bias)
+        # return fp32_to_hfp8_with_clamp(input_tensor, ebits, mbits, bias)
+        if ctx is not None and ctx.row_dim > 0:
+            ctx = none_throws(ctx)
+            row_dim = ctx.row_dim
+            input_2d = input_tensor.view((-1, row_dim)) if row_dim > 0 else input_tensor
+            input_2d_quant = torch.ops.fbgemm.FloatToFP8RowwiseQuantized(
+                input_2d, is_fwd
+            )
+            row_dim_quant = input_2d_quant.shape[1]
+            input_quant_all2all = None
+            input_quant_all2all = input_2d_quant.view((-1))
+            ctx.row_dim_quant = row_dim_quant
+            return input_quant_all2all
+        else:
+            return fp32_to_hfp8_with_clamp(input_tensor, ebits, mbits, bias)
     elif comm_precision == SparseType.INT8:
         ctx = none_throws(ctx)
         row_dim = ctx.row_dim
@@ -81,6 +96,7 @@ def _dequantize_tensor(
     quantized_tensor: torch.Tensor,
     comm_precision: SparseType,
     ctx: Optional[QuantizationContext] = None,
+    is_fwd: bool = True,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         assert quantized_tensor.dtype == torch.float
@@ -92,8 +108,16 @@ def _dequantize_tensor(
         assert quantized_tensor.dtype == torch.bfloat16
         return bf16_to_fp32(quantized_tensor)
     elif comm_precision == SparseType.FP8:
-        assert quantized_tensor.dtype == torch.uint8
-        return hfp8_to_fp32(quantized_tensor, ebits, bias)
+        if ctx is not None and ctx.row_dim > 0:
+            row_dim_quant = ctx.row_dim_quant
+            quantized_tensor_2d = quantized_tensor.view((-1, row_dim_quant))
+            dequant_tensor = torch.ops.fbgemm.FP8RowwiseQuantizedToFloat(
+                quantized_tensor_2d, is_fwd
+            )
+            return dequant_tensor.view(-1)
+        else:
+            assert quantized_tensor.dtype == torch.uint8
+            return hfp8_to_fp32(quantized_tensor, ebits, bias)
     elif comm_precision == SparseType.INT8:
         ctx = none_throws(ctx)
         row_dim_quant = ctx.row_dim_quant
@@ -113,6 +137,7 @@ class QuantizedCommCodec:
         comm_precision: SparseType,
         loss_scale: Optional[float] = None,
         row_dim: Optional[int] = None,
+        is_fwd: bool = True,
     ) -> None:
 
         if loss_scale is not None:
@@ -128,6 +153,8 @@ class QuantizedCommCodec:
 
         self._comm_precision = comm_precision
         self._loss_scale = loss_scale
+        self._is_fwd = is_fwd
+        self._row_dim: int = -1 if row_dim is None else row_dim
 
     def encode(
         self, input_tensor: torch.Tensor, ctx: Optional[QuantizationContext] = None
@@ -141,6 +168,7 @@ class QuantizedCommCodec:
                 input_tensor,
                 self._comm_precision,
                 ctx,
+                self._is_fwd,
             )
         return output
 
@@ -153,7 +181,7 @@ class QuantizedCommCodec:
             f"## decoder {self._comm_precision} {self._loss_scale} ##"
         ):
             dequantized_tensor = _dequantize_tensor(
-                input_tensor, self._comm_precision, ctx
+                input_tensor, self._comm_precision, ctx, self._is_fwd
             )
         return dequantized_tensor
 
@@ -161,7 +189,9 @@ class QuantizedCommCodec:
         self, input_len: int, ctx: Optional[QuantizationContext] = None
     ) -> int:
         # Use the same logic in _float_to_fused8bitrowwise_gpu_t()
-        if self._comm_precision == SparseType.INT8:
+        if self._comm_precision == SparseType.INT8 or (
+            self._comm_precision == SparseType.FP8 and self._row_dim > 0
+        ):
             ctx = none_throws(ctx)
             assert input_len % ctx.row_dim == 0
             nrows = input_len // ctx.row_dim
@@ -175,4 +205,8 @@ class QuantizedCommCodec:
         return self._comm_precision.as_dtype()
 
     def create_context(self) -> Optional[QuantizationContext]:
+        # fp8 rowwise is activated when row_dim > 0
+        if self._comm_precision == SparseType.FP8:
+            return QuantizationContext(self._row_dim)
+        # int8 rowwise is default
         return QuantizationContext()
