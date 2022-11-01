@@ -19,15 +19,6 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
-
-haveAIBench = False
-try:
-    from aibench_observer.utils.observer import emitMetric
-
-    haveAIBench = True
-except Exception:
-    haveAIBench = False
-
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -43,6 +34,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from torch import Tensor
+
+haveAIBench = False
+try:
+    from aibench_observer.utils.observer import emitMetric
+
+    haveAIBench = True
+except Exception:
+    haveAIBench = False
+
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)

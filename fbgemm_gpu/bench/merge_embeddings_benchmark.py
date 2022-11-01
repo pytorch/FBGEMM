@@ -17,6 +17,14 @@ import numpy as np
 import tabulate
 import torch
 
+from fbgemm_gpu.split_table_batched_embeddings_ops import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+    SparseType,
+)
+from torch.profiler import profile, ProfilerActivity
+
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
@@ -30,15 +38,6 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
-
-
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    BoundsCheckMode,
-    EmbeddingLocation,
-    IntNBitTableBatchedEmbeddingBagsCodegen,
-    SparseType,
-)
-from torch.profiler import profile, ProfilerActivity
 
 
 def get_gpu_device(gpu_num) -> torch.device:

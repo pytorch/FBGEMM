@@ -343,25 +343,26 @@ def benchmark_requests_refer(
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
 ) -> float:
-    do_pooling = pooling_mode in ["sum", "mean"]
-    if do_pooling:
-        nn_embedding_list = [
-            torch.nn.EmbeddingBag(E, D, mode=pooling_mode, sparse=True).cuda()
-        ] * T
-    else:
-        nn_embedding_list = [torch.nn.Embedding(E, D, sparse=True).cuda()] * T
+    # do_pooling = pooling_mode in ["sum", "mean"]
+
+    # if do_pooling:
+    #    nn_embedding_list = [
+    #        torch.nn.EmbeddingBag(E, D, mode=pooling_mode, sparse=True).cuda()
+    #    ] * T
+    # else:
+    #    nn_embedding_list = [torch.nn.Embedding(E, D, sparse=True).cuda()] * T
 
     times = []
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    for (indices, _, weights) in requests:
-        indices_list = indices.view(T, B, L).split(1)
+    for (_indices, _, weights) in requests:
+        # indices_list = indices.view(T, B, L).split(1)
 
         if weighted:
             assert weights is not None
-            weights_list = weights.view(T, B, L).split(1)
+            # weights_list = weights.view(T, B, L).split(1)
 
         start_time = time.time()
         if torch.cuda.is_available():
@@ -374,29 +375,29 @@ def benchmark_requests_refer(
                 torch.cuda.synchronize()
             start_event.record()
 
-        nn_embedding_output = (
-            [
-                b_indices(nn_embedding, x, use_cpu=False, do_pooling=do_pooling)
-                for (nn_embedding, x) in zip(nn_embedding_list, indices_list)
-            ]
-            if not weighted
-            else [
-                b_indices(
-                    nn_embedding,
-                    x,
-                    per_sample_weights=xw.view(-1),
-                    use_cpu=False,
-                    do_pooling=do_pooling,
-                )
-                for (nn_embedding, x, xw) in zip(
-                    nn_embedding_list,
-                    indices_list,
-                    # pyre-fixme[61]: `weights_list` is undefined, or not always
-                    #  defined.
-                    weights_list,
-                )
-            ]
-        )
+        # nn_embedding_output = (
+        #    [
+        #        b_indices(nn_embedding, x, use_cpu=False, do_pooling=do_pooling)
+        #        for (nn_embedding, x) in zip(nn_embedding_list, indices_list)
+        #    ]
+        #    if not weighted
+        #    else [
+        #        b_indices(
+        #            nn_embedding,
+        #            x,
+        #            per_sample_weights=xw.view(-1),
+        #            use_cpu=False,
+        #            do_pooling=do_pooling,
+        #        )
+        #        for (nn_embedding, x, xw) in zip(
+        #            nn_embedding_list,
+        #            indices_list,
+        #            #  defined.
+        #            weights_list,
+        #        )
+        #    ]
+        # )
+
         # if do_pooling:
         #    final_output = torch.cat(
         #        [f.view(B, -1) for f in nn_embedding_output], dim=1
