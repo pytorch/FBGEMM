@@ -2540,6 +2540,172 @@ def device_with_spec(  # noqa C901
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
+@click.option("--num-tables", default=32)
+@click.option("--embedding-dim", default=248)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--update-row-num", default=1e4)
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--iters", default=100)
+def delta_update(  # noqa C901
+    num_tables: int,
+    embedding_dim: int,
+    num_embeddings: int,
+    update_row_num: int,
+    weights_precision: SparseType,
+    output_dtype: SparseType,
+    iters: int,
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+
+    T = int(num_tables)
+    D = int(embedding_dim)
+    E = int(num_embeddings)
+    N = int(update_row_num)
+
+    D_alignment = max(weights_precision.align_size() for t in range(T))
+    D_alignment = max(D_alignment, output_dtype.align_size())
+    D = round_up(D, D_alignment)
+    Ds = [
+        round_up(
+            np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+            D_alignment,
+        )
+        for _ in range(T)
+    ]
+    Es = [E] * T
+    row_alignment = 16  # use_cpu = False -> only test CUDA function now
+
+    weights_ty_list = [weights_precision] * T
+    managed = [EmbeddingLocation.DEVICE] * T
+    embedding_specs = [
+        (
+            "",
+            E,
+            D,
+            W_TY,
+            EmbeddingLocation(M),
+        )
+        for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+    ]
+    op = IntNBitTableBatchedEmbeddingBagsCodegen(
+        embedding_specs=embedding_specs,
+        output_dtype=output_dtype,
+        device=torch.cuda.current_device(),
+    )
+    # Initilize the random weights for int nbit table split embedding bag
+    op.fill_random_weights()
+
+    delta_table_idx = [np.random.randint(low=0, high=T) for _ in range(N)]
+    # delta_row_idx = [np.random.randint(low=0, high=Es[t]) for t in delta_table_idx]
+    # Generate non-dup indices
+    table_map = {}
+    delta_row_idx = []
+    for t in delta_table_idx:
+        while True:
+            row_idx = np.random.randint(low=0, high=Es[t])
+            if t not in table_map or row_idx not in table_map[t]:
+                break
+        if t in table_map:
+            table_map[t].append(row_idx)
+        else:
+            table_map[t] = []
+        table_map[t].append(row_idx)
+        delta_row_idx.append(row_idx)
+    delta_weight_size = sum(
+        [
+            rounded_row_size_in_bytes(
+                Ds[t],
+                weights_ty_list[t],
+                row_alignment,
+            )
+            for t in delta_table_idx
+        ]
+    )
+
+    delta_weights = torch.randint(
+        low=0,
+        high=255,
+        size=(delta_weight_size,),
+        dtype=torch.uint8,
+        device=torch.cuda.current_device(),
+    )
+
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    read_write_bytes = output_size_multiplier * N * D + param_size_multiplier * N * D
+
+    # Update op weights with the customized ops
+    op.update_embedding_weights(
+        delta_table_idx,
+        delta_row_idx,
+        delta_weights,
+    )
+
+    time_per_iter, _ = benchmark_torch_function(
+        op.update_embedding_weights,
+        (delta_table_idx, delta_row_idx, delta_weights),
+        iters=iters,
+    )
+
+    logging.info(
+        f"Inplace Update (including H2D for metadata): "
+        f"T: {T}, D: {D}, E: {E}, N: {N}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+    delta_offsets = []
+    delta_offset = 0
+    for table_idx in delta_table_idx:
+        D_bytes = rounded_row_size_in_bytes(
+            Ds[table_idx],
+            weights_ty_list[table_idx],
+            row_alignment,
+        )
+        delta_offsets.append(delta_offset)
+        delta_offset += D_bytes
+    delta_offsets.append(delta_offset)
+
+    delta_table_idx = torch.tensor(
+        delta_table_idx,
+        device=torch.cuda.current_device(),
+        dtype=torch.int32,
+    )
+    delta_row_idx = torch.tensor(
+        delta_row_idx,
+        device=torch.cuda.current_device(),
+        dtype=torch.int32,
+    )
+    delta_offsets = torch.tensor(
+        delta_offsets,
+        device=torch.cuda.current_device(),
+        dtype=torch.int32,
+    )
+
+    time_per_iter, _ = benchmark_torch_function(
+        torch.ops.fbgemm.delta_update,
+        (
+            op.weights_dev,
+            op.weights_uvm,
+            op.weights_placements,
+            op.weights_offsets,
+            op.weights_tys,
+            op.D_offsets,
+            delta_table_idx,
+            delta_row_idx,
+            delta_offsets,
+            delta_weights,
+        ),
+        iters=iters,
+    )
+
+    logging.info(
+        f"Inplace Update (including H2D for metadata): "
+        f"T: {T}, D: {D}, E: {E}, N: {N}, "
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+
 
 if __name__ == "__main__":
     cli()
