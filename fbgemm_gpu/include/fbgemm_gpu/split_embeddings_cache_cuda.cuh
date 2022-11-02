@@ -44,6 +44,15 @@ at::Tensor linearize_cache_indices_cuda(
     at::Tensor offsets);
 
 ///@ingroup table-batched-embed-cuda
+/// Linearize the indices of all tables to make it be unique.
+/// Note the update_table_indices and update_row_indices are
+/// from the row indices format for inplace update.
+at::Tensor linearize_cache_indices_from_row_idx_cuda(
+    at::Tensor cache_hash_size_cumsum,
+    at::Tensor update_table_indices,
+    at::Tensor update_row_indices);
+
+///@ingroup table-batched-embed-cuda
 /// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
 ///`weights`, and insert them into the cache at timestep `time_stamp`.
 void lru_cache_populate_cuda(
