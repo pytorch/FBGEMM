@@ -9,6 +9,7 @@ import enum
 import typing
 from typing import Any, Callable, List, Tuple
 
+
 # Create enums in given namespace with information from query_op
 def create_enums(
     namespace: typing.Dict[str, Any],

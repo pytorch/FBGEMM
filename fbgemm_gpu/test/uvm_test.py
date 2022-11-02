@@ -13,6 +13,7 @@ from typing import List
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
+from hypothesis import given, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -27,7 +28,6 @@ if gpu_available:
     # pyre-ignore[21]
     from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
-from hypothesis import given, settings, Verbosity
 
 MAX_EXAMPLES = 40
 

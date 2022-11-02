@@ -8,6 +8,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+
 import pickle
 import random
 import unittest
@@ -28,7 +29,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops import (
     SparseType,
     WeightDecayMode,
 )
-
+from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis.strategies import composite
+from torch import Tensor
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -42,10 +45,6 @@ else:
         gpu_unavailable,
         TEST_WITH_ROCM,
     )
-
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
-from hypothesis.strategies import composite
-from torch import Tensor
 
 
 MAX_EXAMPLES = 40
@@ -3349,7 +3348,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
 
-            ### generate index_remapping
+            # generate index_remapping
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
 
             original_E = E
@@ -3358,7 +3357,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices = indices.view(-1).int()
             offsets = offsets.view(-1).int()
 
-            ### generate index_remapping done
+            # generate index_remapping done
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
@@ -4609,7 +4608,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_pickle(self) -> None:
         tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
         pickled = pickle.dumps(tensor_queue)
-        unpickled = pickle.loads(pickled)
+        unpickled = pickle.loads(pickled)  # noqa: F841
 
     @unittest.skipIf(*gpu_unavailable)
     def test_linearize_cache_indices(self) -> None:
