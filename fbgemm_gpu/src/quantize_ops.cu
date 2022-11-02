@@ -155,9 +155,7 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
 
     const float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
     const float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
-    // const float range = maximum_element - minimum_element;
 
-    // output_row_scale_bias[1] = minimum_element;
     const auto scale =
         max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
     output_row_scale_bias[0] = scale;
